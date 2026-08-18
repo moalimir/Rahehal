@@ -1,0 +1,315 @@
+:root {
+  --color-brand-navy: #071b43;
+  --color-brand-blue: #2457f5;
+  --color-brand-cyan: #00a9b7;
+  --color-brand-teal: #008f9d;
+  --color-action-primary: #007783;
+  --color-action-primary-hover: #006671;
+  --color-surface: #ffffff;
+  --color-background: #f4f7fb;
+  --color-border: #d8e2ee;
+  --color-text: #10213d;
+  --color-muted: #63748b;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --radius-control: 10px;
+  --radius-card: 16px;
+  --radius-modal: 20px;
+  --shadow-card: 0 12px 32px rgba(16, 33, 61, 0.08);
+  --shadow-overlay: 0 24px 64px rgba(4, 20, 48, 0.24);
+  --control-height: 44px;
+  --app-sidebar-width: 264px;
+  --app-topbar-height: 76px;
+  --app-container-max: 1440px;
+  --page-gutter: clamp(16px, 2.5vw, 36px);
+  --z-header: 30;
+  --z-sidebar: 50;
+  --z-drawer: 70;
+  --z-modal: 90;
+  --z-toast: 100;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-md: 16px;
+  --text-lg: 18px;
+  --text-xl: 22px;
+  --text-2xl: 28px;
+  --text-3xl: 36px;
+}
+
+html,
+body {
+  max-inline-size: 100%;
+}
+
+html[data-challenge-standalone="true"]:not([data-standalone-ready="true"]) body {
+  visibility: hidden;
+}
+
+body {
+  color: var(--color-text);
+  font-family: Estedad, Tahoma, Arial, sans-serif;
+  font-size: var(--text-base);
+  line-height: 1.75;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  font-size: max(var(--text-sm), 1em);
+}
+
+.unified-shell button,
+.unified-shell input,
+.unified-shell select,
+.unified-shell textarea,
+.public-challenge-shell button,
+.public-challenge-shell input,
+.public-challenge-shell select,
+.public-challenge-shell textarea {
+  font-size: max(var(--text-sm), 1em);
+}
+
+.public-challenge-main {
+  inline-size: min(100%, var(--app-container-max));
+  min-inline-size: 0;
+  margin-inline: auto;
+  padding: var(--space-6) var(--page-gutter) var(--space-12);
+}
+
+.public-footer .footer-brand {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+}
+.public-footer .footer-brand p,
+.public-footer .footer-brand > span {
+  margin: 0;
+  line-height: 1.85;
+}
+.public-footer .footer-brand > span {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.public-footer .footer-brand > span i {
+  order: -1;
+  flex: 0 0 auto;
+}
+.public-footer .footer-word {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .public-footer .footer-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-8);
+  }
+}
+@media (max-width: 560px) {
+  .public-footer .footer-grid {
+    grid-template-columns: 1fr;
+  }
+  .public-footer .footer-bottom {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+  .public-footer .footer-bottom div {
+    flex-wrap: wrap;
+  }
+}
+
+.rahhal-brand-link {
+  inline-size: max-content;
+  min-inline-size: 0;
+  display: inline-flex;
+  align-items: center;
+  color: inherit;
+  text-decoration: none;
+}
+
+.rahhal-logo {
+  --rahhal-logo-ink: var(--color-brand-navy);
+  --rahhal-logo-primary: #2457f5;
+  --rahhal-logo-secondary: #20b7e8;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  inline-size: max-content;
+  color: var(--rahhal-logo-ink);
+  direction: rtl;
+  isolation: isolate;
+}
+
+.rahhal-logo svg {
+  inline-size: 38px;
+  block-size: auto;
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+.rahhal-logo strong {
+  color: inherit;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rahhal-logo__top,
+.rahhal-logo__left {
+  fill: var(--rahhal-logo-primary);
+}
+
+.rahhal-logo__right {
+  fill: var(--rahhal-logo-secondary);
+}
+
+.rahhal-logo--inverse {
+  --rahhal-logo-ink: #ffffff;
+  --rahhal-logo-primary: #ffffff;
+  --rahhal-logo-secondary: #7de9f4;
+}
+
+.rahhal-logo--sm svg {
+  inline-size: 30px;
+}
+.rahhal-logo--sm strong {
+  font-size: 18px;
+}
+.rahhal-logo--lg svg {
+  inline-size: 48px;
+}
+.rahhal-logo--lg strong {
+  font-size: 28px;
+}
+.rahhal-logo--mark {
+  gap: 0;
+}
+
+.bidi-isolate,
+.monogram {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+[dir="rtl"] bdi {
+  unicode-bidi: isolate;
+}
+
+.monogram {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  overflow: hidden;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.person-avatar {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: 50%;
+  background: #e8eef4;
+  color: #087f8c;
+  font-weight: 800;
+  line-height: 1;
+}
+.person-avatar bdi {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+.organization-logo-asset {
+  inline-size: 68px;
+  block-size: 68px;
+  aspect-ratio: 1;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background-color: #fff;
+  box-shadow: 0 6px 18px rgba(16, 33, 61, 0.08);
+}
+.organization-logo-asset img {
+  inline-size: 100%;
+  block-size: 100%;
+  display: block;
+  object-fit: contain;
+  object-position: center;
+}
+.organization-logo-asset--small {
+  inline-size: 48px;
+  block-size: 48px;
+  border-radius: 8px;
+}
+.organization-logo-asset--large {
+  inline-size: 96px;
+  block-size: 96px;
+  border-radius: 12px;
+}
+.organization-logo-asset--monogram {
+  aspect-ratio: 1;
+  background: var(--color-surface-muted);
+}
+.organization-logo-asset__monogram {
+  inline-size: 100%;
+  block-size: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--color-primary-700);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+}
+
+@media (max-width: 1023px) {
+  :root {
+    --page-gutter: clamp(14px, 3vw, 24px);
+  }
+}
+
+.legacy-redirect {
+  min-block-size: 100vh;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: var(--space-4);
+  padding: var(--space-8);
+  color: var(--color-text);
+  background: var(--color-background);
+  text-align: center;
+}
+.legacy-redirect h1 {
+  margin: 0;
+  font-size: var(--text-2xl);
+}
+.legacy-redirect p {
+  margin: 0;
+  color: var(--color-muted);
+}
+.legacy-redirect a {
+  min-block-size: var(--control-height);
+  display: inline-flex;
+  align-items: center;
+  padding-inline: var(--space-6);
+  border-radius: var(--radius-control);
+  color: #fff;
+  background: var(--color-brand-blue);
+  font-weight: 750;
+  text-decoration: none;
+}
