@@ -204,13 +204,15 @@ export function LandingPage() {
             </div>
           </div>
           <div className="reference-hero__media">
-            <Image
-              src={heroImage}
-              width="1030"
-              height="870"
-              alt="سه متخصص ایرانی در حال بررسی نقشه فنی و یک قطعه صنعتی"
-              priority
-            />
+            <div className="reference-hero__image-frame">
+              <Image
+                src={heroImage}
+                alt="سه متخصص ایرانی در حال بررسی نقشه فنی و یک قطعه صنعتی"
+                fill
+                sizes="(max-width: 900px) 116vw, (max-width: 1200px) 66vw, min(64.5vw, 1030px)"
+                priority
+              />
+            </div>
           </div>
         </section>
 
