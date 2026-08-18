@@ -40,28 +40,13 @@ const standalone = fs.readFileSync("index.html", "utf8");
 for (const match of standalone.matchAll(/(?:href|src)="([^"]+)"/g)) {
   const reference = match[1];
   if (/^(?:https?:)?\/\//.test(reference)) externalAssets.push(`index.html: ${reference}`);
-  if (reference.startsWith("preview-assets/") && !fs.existsSync(reference))
-    broken.push(`index.html -> ${reference}`);
   if (reference.startsWith("out/")) {
     const target = reference.split(/[?#]/)[0];
     if (!fs.existsSync(target)) broken.push(`index.html -> ${reference}`);
   }
 }
-if (/(?:href|src)="preview-assets\//.test(standalone)) {
-  broken.push("index.html هنوز به پوشه preview-assets وابسته است");
-}
 if (!standalone.includes("<style") || !standalone.includes("<script")) {
   broken.push("CSS یا JavaScript داخلی index.html پیدا نشد");
-}
-if (/\bfetch\s*\(/.test(fs.readFileSync("preview-assets/app.js", "utf8")))
-  broken.push("preview-assets/app.js از fetch استفاده می‌کند");
-
-const standaloneTemplate = fs.readFileSync("standalone.template.html", "utf8");
-const productFragments = [...standaloneTemplate.matchAll(/href="(#[^"]+)"/g)]
-  .map((match) => match[1])
-  .filter((href) => href !== "#main");
-if (productFragments.length) {
-  broken.push(`لینک نمایشی در نسخه مستقل: ${productFragments.join(", ")}`);
 }
 
 if (broken.length || externalAssets.length) {

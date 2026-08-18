@@ -1,176 +1,142 @@
-# رحّال — فرانت‌اند جامع نوآوری باز
+# Rahhal Solver
 
-## نسخه ۱۹ — مالکیت نقش، راهنمای IP و جذب اعضای تیم
+Rahhal is a Persian, RTL, static-exportable frontend prototype for managing an
+open-innovation workflow from challenge discovery through proposal, review,
+contract, pilot, delivery, payment, and impact tracking.
 
-در مدیریت اعضای تیم، «سازنده تیم» اکنون از «مدیر منصوب‌شده» جداست؛ نقش سازنده
-فقط از مسیر انتقال مالکیت تغییر می‌کند، اما مدیر تیم می‌تواند هر عضو دیگری را حتی
-پس از ارتقا به مدیر دوباره به نقش پایین‌تر بازگرداند. راهنمای مالکیت فکری با پوسته
-داخلی حل‌کننده، کارت نسخه حقوقی، شاخص‌ها، فهرست چسبان و سه بخش اجرایی بازطراحی
-شده است. صفحه درخواست‌های پیوستن نیز فشرده‌تر، دارای درصد تطابق و مرتب‌سازی عملی
-است. در «تکمیل اعضای تیم»، جست‌وجو و فیلتر تخصص، دانشگاه و شیوه همکاری، مرتب‌سازی،
-پاک‌کردن فیلترها و نمایش شبکه‌ای/فهرستی همگی به داده واقعی کارت‌ها متصل‌اند.
+This repository is a frontend application. Authentication, OTP, signatures,
+payments, notifications, persistence, and audit services are simulated locally.
+A production deployment still needs a backend, database, server-side permission
+enforcement, object storage, and integrations.
 
-## نسخه ۱۸ — تدوین راه‌حل چندمرحله‌ای و درخواست عضویت تیم
+## Technology
 
-صفحه تنظیمات حل‌کننده اکنون پیش از اولین نمایش با فضای فعال همگام می‌شود و پوسته
-دسکتاپ عرض سایدبار را به‌صورت قطعی رزرو می‌کند. شروع تدوین راه‌حل به شش صفحه
-مستقل «خلاصه، راهکار فنی، برنامه اجرا، تیم و سوابق، بودجه و تعهدات، مرور و ارسال»
-متصل است و پیش‌نویس، اعتبارسنجی دقیق، رزومه/شواهد، کنترل آمادگی و رسید ارسال را
-پوشش می‌دهد. در فضای تیم، دعوت مستقیم با درخواست پیوستن افراد همراه رزومه، بررسی
-پرونده، تعیین نقش و رد دلیل‌دار جایگزین شده است. فرم آمادگی ثبت‌نام تیم نیز با Grid
-پایدار و ردیف‌های هم‌تراز بازطراحی شده است.
+- Next.js 16.3.1 with App Router and static export
+- React 19 and strict TypeScript
+- Tailwind CSS 3 plus project CSS and local Estedad fonts
+- Vitest, Testing Library, JSDOM, ESLint, and Prettier
+- Local assets with no runtime CDN requirement
 
-## نسخه ۱۷ — اصلاح مسیر ورود، تیم‌سازی نقش‌محور و بازطراحی صف‌های حل‌کننده
+Recommended runtime: Node.js 20.9 or newer.
 
-در نسخه ۱۷ کاربر واردشده از «پیشنهادات دریافتی»، داشبورد یا ذخیره‌شده‌ها مستقیماً
-به جزئیات داخلی پروژه می‌رود و دیگر وارد چرخه ورود مجدد نمی‌شود. صفحه‌های
-«پیشنهادات دریافتی» و «درخواست‌ها و راه‌حل‌های من/تیم» به فهرست‌های منظم،
-واکنش‌گرا و دارای اقدام بعدی روشن تبدیل شده‌اند. ساخت تیم در حساب فردی اکنون با
-تعریف هویت، هدف، مرحله بلوغ و نقش‌های موردنیاز آغاز می‌شود؛ فضای تیم موجود نیز
-مستقیماً برای تکمیل اعضا استفاده می‌شود. در ثبت‌نام تیم، «سابقه فعالیت» فردمحور
-با «مرحله بلوغ و آمادگی تیم» جایگزین شده است. گزارش تصمیم‌ها در
-`reports/PRODUCT-FLOW-REVIEW-V17-FA.md` قرار دارد.
+## Install and run
 
-## نسخه ۱۶ — تکمیل جریان فرد و تیم
-
-در این نسخه جریان حل‌کننده از ثبت‌نام و ورود تا کشف فرصت، ذخیره برای بعد، تدوین
-و ارسال پیشنهاد، همکاری تیمی، احراز، پایلوت، تحویل، پیام و پرداخت یکپارچه شده
-است. هیچ پیام موفقیتی پیش از اقدام کاربر نمایش داده نمی‌شود و خطاهای فرم به همان
-فیلد مربوط‌اند؛ برای نمونه، شماره همراه نامعتبر با خطای اختصاصی شماره همراه پاسخ
-می‌گیرد. گزارش تصمیم‌های محصول و تطبیق بازخوردها در
-`reports/PRODUCT-FLOW-REVIEW-V16-FA.md` قرار دارد.
-
-نسخهٔ حرفه‌ای و RTL محصول رحّال برای مدیریت کامل چرخهٔ «مسئله تا اثر»: ثبت و
-صورت‌بندی مسئله، تطبیق متخصص، پیشنهاد، داوری، تصمیم، قرارداد، پایلوت، تحویل،
-پرداخت و سنجش اثر. این نسخه بر اساس سند `LMF Product Source of Truth v1.0` ساخته
-شده و لندینگ تأییدشدهٔ ورودی پروژه را بدون تغییر حفظ می‌کند.
-
-احراز، امضا و پرداخت Backend در این خروجی شبیه‌سازی شده‌اند. ماژول «مسئله‌ها و
-چالش‌های سازمانی» در Prototype نقش کاربر سازمانی واردشده را در نظر می‌گیرد و از
-Repository محلی تایپ‌شده استفاده می‌کند. داده‌های نمونه فقط در فهرست قرار دارند و
-فرم ثبت کاربر از پیش پر نمی‌شود؛ مالک و اطلاعات تماس از پروفایل نمایشی مقدار اولیه می‌گیرند.
-
-## خروجی این نسخه
-
-- فلو کانونی ثبت مسئله، پیش‌نویس، Wizard چهارمرحله‌ای، Preview، Receipt و نمای پرونده؛
-- ذخیره خودکار، Resume، Refresh persistence، Deep Link گام و Back/Forward؛
-- معیار موفقیت قابل تکرار تا سه مورد و فیلدهای شرطی بودجه/دعوت‌شونده؛
-- چهار فضای کاری داخلی مستقل برای سازمان، حل‌کننده، داور و عملیات؛
-- پنل مستقل داور با اظهار تعارض، Rubric نسخه‌دار و ثبت نهایی؛
-- صفحات اختصاصی برای ۱۵ سناریوی اصلی و ۱۰ سناریوی منفی PRD؛
-- مدل مرکزی Permission با رویکرد deny-by-default و Gateهای انتشار؛
-- state machine مرکزی پرونده و سرویس Mock ناهمگام، آمادهٔ جایگزینی با API؛
-- حالت‌های Default، Loading، Empty، Offline، Permission، Conflict، Error و Closed؛
-- صفحات مستقل سازمان‌ها، نحوه کار، اعتماد، راهنماهای حقوقی، Login/Register/OTP/Recovery و ۱۶ گام Onboarding؛
-- Routeهای canonical زیر `/app/org`، `/app/solver`، `/app/reviewer`، `/app/ops` و مراکز مشترک؛
-- Static Export کامل در `out/`، راه‌انداز یک‌کلیکی ویندوز و نسخه تک‌فایلی واقعاً تعاملی در `index.html`؛
-- طراحی فارسی، RTL، responsive، قابل استفاده با صفحه‌کلید و بدون وابستگی Runtime
-  به CDN یا تصویر خارجی.
-
-## فناوری
-
-- Next.js 15.5.22، App Router و `output: "export"`؛
-- React 19، TypeScript strict و CSS namespaced برای صفحات داخلی؛
-- ESLint، Prettier، Vitest، Testing Library و JSDOM؛
-- آیکن و دارایی محلی؛ بدون Server Action یا API Route ناسازگار با Static Export.
-
-## نصب و اجرا
-
-پیش‌نیاز پیشنهادی: Node.js 20.9 یا جدیدتر.
+Install exactly the versions recorded in `package-lock.json`:
 
 ```bash
 npm ci
+```
+
+Start the development server:
+
+```bash
 npm run dev
 ```
 
-برای مشاهدهٔ خروجی production:
+Open `http://localhost:3000`.
+
+Build and serve the static export:
 
 ```bash
 npm run build
+npm start
+```
+
+`npm start` runs `npx serve out`, which starts a small local HTTP server for the
+already-generated `out/` directory. It does not compile the application.
+
+You can use Python instead:
+
+```bash
 python3 -m http.server 4173 --directory out
 ```
 
-سپس `http://localhost:4173` را باز کنید. مسیرهای پیشنهادی برای شروع:
+Then open `http://localhost:4173`.
 
-- `/app/org/dashboard/` — میز کار سازمان و صف اقدام؛
-- `/app/org/challenges/new/` — ثبت اولیه کوتاه مسئله؛
-- `/app/org/challenges/CH-DRAFT-001/edit/?step=2` — ادامه Wizard چهارمرحله‌ای؛
-- `/app/org/challenges/CH-DRAFT-001/preview/` — پیش‌نمایش و کنترل آمادگی ارسال؛
-- `/app/org/challenges/CH-DRAFT-001/submitted/` — رسید ارسال؛
-- `/app/org/challenges/CH-DRAFT-001/` — نمای خلاصه پرونده؛
-- `/app/solver/proposals/new/` — سازنده پیشنهاد؛
-- `/app/solver/teams/` — عضویت، نقش‌ها و اختیار ارسال تیم؛
-- `/app/solver/verification/` — احراز فرد یا نماینده تیم با خطاهای اختصاصی؛
-- `/app/solver/pilots/PIL-021/` — وظایف، تحویل و رسید خط زمانی؛
-- `/app/solver/payments/` — وضعیت پرداخت، اصلاح شبا و دریافت رسید؛
-- `/app/reviewer/assignments/` — پنل مستقل داور؛
-- `/app/ops/queue/` — صف عملیات و کنترل SLA.
+The build also regenerates `index.html`, a single-file offline bundle. It can be
+opened directly without an HTTP server and uses hash-based navigation.
 
-## کنترل کیفیت
+## Quality checks
+
+Run lightweight source checks:
 
 ```bash
 npm run typecheck
 npm run lint
-npm run test
-npm run test:e2e
-npm run test:smoke
-npm run test:standalone-interactive
+npm test
 npm run format:check
-npm run build
+```
+
+After `npm run build`, validate the generated artifacts:
+
+```bash
 npm run verify:routes
 npm run verify:links
+npm run test:smoke
 npm run verify:offline
+npm run test:standalone-interactive
 ```
 
-`npm run build` تمام routeها را در `out/` تولید و `index.html` تک‌فایلی را نیز
-بازسازی می‌کند. `index.html` همان Bundle کامپایل‌شده React را بدون Asset بیرونی
-درون خود دارد و با بازکردن مستقیم، CTA لندینگ، فرم، Local Storage، Validation،
-Preview و Receipt را اجرا می‌کند. برای کنترل Deep Linkهای HTTP در ویندوز می‌توان
-`START-WINDOWS.bat` را اجرا کرد.
+Useful focused suites:
 
-## معماری پوشه‌ها
+```bash
+npm run test:e2e
+npm run test:challenge
+npm run test:organization
+```
+
+Dependency health:
+
+```bash
+npm audit
+```
+
+The dependency maintenance performed on 2026-08-19 removed the deprecated
+`whatwg-encoding` chain, upgraded Next.js and its lint configuration, and reported
+zero npm vulnerabilities. The production build after that migration is intentionally
+left for the repository owner to run.
+
+## Primary routes
+
+- `/challenges/` — public challenge discovery
+- `/organizations/` — organization directory
+- `/auth/login/` — authentication prototype
+- `/app/org/dashboard/` — organization workspace
+- `/app/org/challenges/new/` — challenge intake
+- `/app/solver/dashboard/` — individual or team solver workspace
+- `/app/solver/proposals/new/` — proposal builder
+- `/app/reviewer/assignments/` — reviewer workspace
+- `/app/ops/queue/` — operations queue
+
+Routes are data-driven. The authoritative registries are
+`data/public-product-routes.ts`, `data/internal-routes.ts`, and
+`data/challenge-flow-routes.ts`; generated route reports are not source files.
+
+## Repository map
 
 ```text
-app/                         route، layout و CSS لندینگ/اپ داخلی
-components/internal/         App Shell، صفحات اختصاصی و اجزای مشترک
-components/challenge-flow/   List، Intake، Edit Wizard، Preview، Receipt و Detail
-data/internal-routes.ts      کاتالوگ route و قرارداد هر صفحه
-data/public-product-routes.ts کاتالوگ عمومی، Auth و Onboarding
-data/fixtures/internal.ts    fixtureهای سازگار و صریحاً نمایشی
-data/flow-coverage.ts        نگاشت ۱۵ E2E و ۱۰ NEG به route و شاهد UI
-domain/product.ts            مجوز، Gate، transition و formatterهای دامنه
-domain/challenge.ts          Schema تایپ‌شدهٔ پرونده چالش
-lib/challenges/              Repository، Autosave، Validation و Readiness
-lib/services/                مرز Mock Service برای اتصال Backend آینده
-tests/                       آزمون دامنه، route، UI، فلو و استقلال آفلاین
-out/                         Static Export کامل
-index.html                   لندینگ مستقل و آفلاین
+app/                         Next.js routes, layouts, and styles
+components/                  Public, shared, and role-specific UI
+data/                        Route contracts, fixtures, and registries
+domain/                      Entities, permissions, gates, and state machines
+lib/                         Local repositories, services, validation, and storage
+public/                      Fonts and local image assets
+scripts/                     Build, export, smoke, and verification tooling
+tests/                       Unit, component, integration, and flow tests
+out/                         Generated static export
+index.html                   Generated single-file offline application
 ```
 
-## اصل‌های محصولی اعمال‌شده
+## Documentation
 
-- Eligibility با Quality Score یکی نیست و جدا نمایش داده می‌شود.
-- AI فقط کمک‌یار توضیح‌پذیر است؛ تصمیم نهایی انسانی باقی می‌ماند.
-- اقدام حساس با تأیید، دلیل و رسید نسخه‌دار انجام می‌شود.
-- تب یا اقدام آینده پیش از عبور از Gate واقعاً غیرفعال است و علت دارد.
-- دادهٔ Permission state وجود یا مقدار دادهٔ حساس را افشا نمی‌کند.
-- مبلغ با تومان فارسی، شناسه‌های فنی با Bidi isolation و زمان با متن روشن نمایش
-  داده می‌شوند.
+- This file contains setup, commands, runtime boundaries, and the repository map.
+- [`docs/PROJECT.md`](docs/PROJECT.md) contains architecture, routes, domain/state,
+  design rules, testing strategy, known limitations, and consolidated history.
+- `public/fonts/README.md` documents the bundled font files.
 
-## فونت
+## Production warning
 
-کل محصول از خانوادهٔ `Estedad` با فایل‌های WOFF2 واقعی در وزن‌های ۴۰۰، ۵۰۰،
-۶۰۰، ۷۰۰ و ۸۰۰ استفاده می‌کند. fallback پس از Estedad برابر Tahoma و sans-serif
-است و `font-synthesis` برای جلوگیری از ضخامت مصنوعی غیرفعال شده است.
-
-## مستندات
-
-- `ROUTES.md` — موجودی کامل routeها و aliasهای سازگار؛
-- `AUDIT.md` — وضعیت واقعی ورودی، شکاف‌ها و تصمیم‌های اجراشده؛
-- `CHALLENGE-FLOW-AUDIT.md` — Route Inventory، Link Matrix و Audit اختصاصی این فلو؛
-- `LANDING-LINK-MAP.md` — مقصد تمام عناصر کلیک‌پذیر لندینگ؛
-- `PRD-TRACEABILITY.md` — نگاشت نقش‌ها، ماژول‌ها، فلوها و سناریوها؛
-- `ARCHITECTURE.md` — مرزهای فنی، state و مسیر اتصال API؛
-- `DESIGN-SYSTEM.md` — توکن‌ها، الگوها و قواعد responsive/RTL؛
-- `ASSUMPTIONS.md` — فرض‌ها و موارد نیازمند Backend یا تصمیم حقوقی؛
-- `QA-REPORT.md` — نتیجهٔ واقعی فرمان‌ها و محدودیت بازبینی محیط.
+Local storage, frontend guards, mock receipts, and mock state transitions are not
+security boundaries. Production authorization and workflow invariants must be
+validated by the backend, including reviewer conflict rules, publication gates,
+payment gates, audit records, and idempotency.

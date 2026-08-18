@@ -2,7 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 
 const outRoot = path.resolve("out");
+const reportsRoot = path.resolve("reports", "generated");
+const routeManifestPath = path.join(reportsRoot, "ROUTE_MANIFEST.md");
 const files = [];
+
+fs.mkdirSync(reportsRoot, { recursive: true });
 function walk(directory) {
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
     const target = path.join(directory, entry.name);
@@ -83,5 +87,5 @@ Legacyهای عمداً غیرفعال با صفحه توضیحی: **${unavailab
 |---|---|---|---|---|---|---|---|---|---|---|
 ${rows.join("\n")}
 `;
-fs.writeFileSync("ROUTE_MANIFEST.md", doc);
-console.log(`${routes.length} routes written to ROUTE_MANIFEST.md`);
+fs.writeFileSync(routeManifestPath, doc);
+console.log(`${routes.length} routes written to ${path.relative(process.cwd(), routeManifestPath)}`);

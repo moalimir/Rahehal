@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 const outRoot = path.resolve("out");
-const reportsRoot = path.resolve("reports");
+const reportsRoot = path.resolve("reports", "generated");
 const viewports = [
   "1440×900",
   "1280×800",
