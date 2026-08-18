@@ -43,11 +43,7 @@ import { isQaHarnessEnabled } from "@/lib/qa-harness";
 import { canAccessInternalRole, readDemoSession, type DemoSession } from "@/lib/auth/session";
 import { getChallenge, publishChallenge } from "@/lib/challenges/storage";
 import { isRecordReady } from "@/lib/challenges/validation";
-import {
-  directOfferById,
-  proposalById,
-  readSolverState,
-} from "@/lib/solver/repository";
+import { directOfferById, proposalById, readSolverState } from "@/lib/solver/repository";
 
 type DemoUiState =
   | "default"

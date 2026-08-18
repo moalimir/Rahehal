@@ -302,7 +302,10 @@ export function RoleAppShell({
             >
               <Icon name="notification" />
               {unreadCount > 0 && (
-                <i aria-hidden="true" title={`${unreadCount.toLocaleString("fa-IR")} اعلان نخوانده`} />
+                <i
+                  aria-hidden="true"
+                  title={`${unreadCount.toLocaleString("fa-IR")} اعلان نخوانده`}
+                />
               )}
               <span className="sr-only">
                 {unreadCount > 0

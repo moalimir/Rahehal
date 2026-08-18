@@ -93,7 +93,9 @@ export function TeamResumeDialog({
             <small id="team-resume-kicker">رزومه تیم دعوت‌کننده</small>
             <h2 id="team-resume-title">{resume.team}</h2>
             <p>{resume.field}</p>
-            <span className={`rh-team-resume-dialog__verified${resume.verified ? "" : " is-pending"}`}>
+            <span
+              className={`rh-team-resume-dialog__verified${resume.verified ? "" : "is-pending"}`}
+            >
               <Icon name={resume.verified ? "check" : "history"} /> {resume.verificationLabel}
             </span>
           </div>

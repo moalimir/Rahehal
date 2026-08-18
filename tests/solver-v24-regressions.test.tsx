@@ -23,7 +23,9 @@ describe("جریان پاسخ به پیشنهاد سازمان در نسخه ۲�
     fireEvent.click(screen.getAllByRole("button", { name: "جزئیات پیشنهاد" })[0]);
     expect(screen.getByText(/این دعوت ممکن است برای چند فرد یا تیم ارسال شده باشد/)).toBeVisible();
     expect(screen.getByText(/انتخاب نهایی یا قرارداد ایجاد نمی‌کند/)).toBeInTheDocument();
-    expect(readSolverState().directOffers.find((offer) => offer.id === "OFF-226")?.state).toBe("viewed");
+    expect(readSolverState().directOffers.find((offer) => offer.id === "OFF-226")?.state).toBe(
+      "viewed",
+    );
     expect(screen.getAllByRole("link", { name: "تدوین پاسخ" })[0]).toHaveAttribute(
       "href",
       "/app/solver/received-proposals/OFF-226/respond?space=individual&workspaceId=WS-PERSONAL-001",
@@ -76,10 +78,12 @@ describe("جریان پاسخ به پیشنهاد سازمان در نسخه ۲�
     expect(screen.getByRole("status")).toHaveTextContent("پاسخ به دعوت OFF-226 ثبت شد");
     expect(screen.getByText(/انتخاب نهایی یا قرارداد نیست/)).toBeInTheDocument();
     const state = readSolverState();
-    expect(state.offerResponses.find((response) => response.offerId === "OFF-226")?.budget)
-      .toBe("780000000");
-    expect(state.directOffers.find((offer) => offer.id === "OFF-226")?.state)
-      .toBe("response_submitted");
+    expect(state.offerResponses.find((response) => response.offerId === "OFF-226")?.budget).toBe(
+      "780000000",
+    );
+    expect(state.directOffers.find((offer) => offer.id === "OFF-226")?.state).toBe(
+      "response_submitted",
+    );
   });
 });
 

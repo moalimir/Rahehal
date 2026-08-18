@@ -1,12 +1,21 @@
 import fs from "node:fs";
-import { JSDOM } from "jsdom";
+import { JSDOM, VirtualConsole } from "jsdom";
 import { describe, expect, it } from "vitest";
 
 describe("ورودی Standalone", () => {
   const html = fs.readFileSync("index.html", "utf8");
 
+  function createDom() {
+    const virtualConsole = new VirtualConsole();
+    virtualConsole.on("jsdomError", (error) => {
+      const jsdomError = error as Error & { type?: string };
+      if (jsdomError.type !== "css-parsing") console.error(jsdomError.message);
+    });
+    return new JSDOM(html, { virtualConsole });
+  }
+
   it("زبان، جهت و نشانگر اجرای آفلاین صحیح دارد", () => {
-    const dom = new JSDOM(html);
+    const dom = createDom();
     expect(dom.window.document.documentElement.lang).toBe("fa");
     expect(dom.window.document.documentElement.dir).toBe("rtl");
     expect(dom.window.document.documentElement.dataset.challengeStandalone).toBe("true");
@@ -19,7 +28,7 @@ describe("ورودی Standalone", () => {
   }, 15_000);
 
   it("لندینگ واقعی و CTA ثبت مسئله را نگه می‌دارد", () => {
-    const dom = new JSDOM(html);
+    const dom = createDom();
     const hrefs = [...dom.window.document.querySelectorAll<HTMLAnchorElement>("a[href]")].map(
       (anchor) => anchor.getAttribute("href"),
     );

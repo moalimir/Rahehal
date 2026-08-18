@@ -164,9 +164,7 @@ describe("صفحات عمومی اختصاصی", () => {
     if (!login) throw new Error("solver login route missing");
     render(createElement(PortalPage, { definition: login }));
 
-    expect(
-      screen.getByRole("heading", { level: 1, name: "ورود حل‌کننده" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "ورود حل‌کننده" })).toBeInTheDocument();
     expect(screen.getByText(/تیم رمز عبور مستقل ندارد/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "حساب تیمی" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "نمایش رمز عبور" })).toBeInTheDocument();
@@ -187,9 +185,7 @@ describe("صفحات عمومی اختصاصی", () => {
     if (!type || !account || !profile) throw new Error("solver registration routes missing");
 
     const { unmount } = render(createElement(PortalPage, { definition: type }));
-    expect(
-      screen.getByRole("heading", { level: 1, name: "ثبت‌نام حل‌کننده" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "ثبت‌نام حل‌کننده" })).toBeInTheDocument();
     expect(screen.getByText(/یک حساب انسانی/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /تیم تخصصی/ })).not.toBeInTheDocument();
     unmount();
@@ -227,7 +223,9 @@ describe("صفحات عمومی اختصاصی", () => {
     typeStep.unmount();
 
     const accountStep = render(createElement(PortalPage, { definition: account }));
-    fireEvent.change(screen.getByLabelText("نام و نام خانوادگی"), { target: { value: "علی رضایی" } });
+    fireEvent.change(screen.getByLabelText("نام و نام خانوادگی"), {
+      target: { value: "علی رضایی" },
+    });
     fireEvent.change(screen.getByLabelText("شماره همراه"), { target: { value: "09121234567" } });
     fireEvent.change(screen.getByLabelText("ایمیل"), { target: { value: "team@example.com" } });
     fireEvent.change(screen.getByLabelText("رمز عبور"), { target: { value: "Password123" } });

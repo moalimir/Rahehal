@@ -17,6 +17,9 @@
     "test:smoke": "node scripts/smoke-static.mjs",
     "test:standalone-interactive": "node scripts/smoke-standalone-interactive.mjs",
     "test:watch": "vitest",
+    "test:browser": "playwright test playwright/behavior.pw.ts",
+    "test:visual": "playwright test playwright/visual.pw.ts",
+    "test:visual:update": "playwright test playwright/visual.pw.ts --update-snapshots",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "verify:routes": "node scripts/verify-routes.mjs",
@@ -25,6 +28,11 @@
     "qa:report": "node scripts/generate-qa-report.mjs",
     "qa:manifest": "node scripts/generate-route-manifest.mjs",
     "qa:size": "node scripts/analyze-standalone.mjs",
+    "analyze:source": "node scripts/analyze-source-architecture.mjs",
+    "analyze:source:check": "node scripts/analyze-source-architecture.mjs --check",
+    "analyze:build": "node scripts/analyze-build-assets.mjs",
+    "analyze:bundle": "node scripts/run-bundle-analysis.mjs",
+    "check:budgets": "node scripts/check-performance-budgets.mjs",
     "css:prune-legacy": "node scripts/prune-legacy-shell-css.mjs"
   },
   "dependencies": {
@@ -33,6 +41,8 @@
     "react-dom": "19.1.1"
   },
   "devDependencies": {
+    "@next/bundle-analyzer": "16.3.1",
+    "@playwright/test": "1.62.1",
     "@testing-library/jest-dom": "6.8.0",
     "@testing-library/react": "16.3.0",
     "@types/jsdom": "^21.1.7",

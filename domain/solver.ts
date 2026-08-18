@@ -103,7 +103,12 @@ export type TeamInvitation = {
   updatedAt: string;
 };
 
-export type MembershipRequestState = "requested" | "accepted" | "rejected" | "withdrawn" | "expired";
+export type MembershipRequestState =
+  | "requested"
+  | "accepted"
+  | "rejected"
+  | "withdrawn"
+  | "expired";
 export type MembershipRequest = {
   id: string;
   teamId: string;
@@ -330,7 +335,13 @@ export type VerificationRecord = {
   subjectId: string;
   workspaceId: string;
   state: VerificationState;
-  documents: Array<{ id: string; label: string; fileName?: string; state: VerificationState; reason?: string }>;
+  documents: Array<{
+    id: string;
+    label: string;
+    fileName?: string;
+    state: VerificationState;
+    reason?: string;
+  }>;
   submittedAt?: string;
   updatedAt: string;
 };
@@ -346,7 +357,14 @@ export type NdaAcceptance = {
   state: "active" | "revoked" | "expired";
 };
 
-export type ContractState = "draft" | "negotiation" | "approval" | "signature" | "effective" | "rejected" | "superseded";
+export type ContractState =
+  | "draft"
+  | "negotiation"
+  | "approval"
+  | "signature"
+  | "effective"
+  | "rejected"
+  | "superseded";
 export type SolverContract = {
   id: string;
   caseId: string;
@@ -373,11 +391,39 @@ export type CaseRecord = {
   ownerWorkspaceId: string;
   contractId: string;
   state: "active" | "paused" | "completed" | "closed" | "cancelled";
-  messages: Array<{ id: string; actorUserId: string; body: string; createdAt: string; readAt?: string }>;
-  pilot: { id: string; state: "planned" | "active" | "paused" | "completed" | "cancelled"; tasks: Array<{ id: string; title: string; ownerId: string; done: boolean }> };
-  deliverables: Array<{ id: string; title: string; state: "draft" | "submitted" | "revision" | "accepted" | "rejected"; fileName?: string; updatedAt: string }>;
-  payments: Array<{ id: string; milestone: string; amount: number; state: "triggered" | "approval" | "processing" | "paid" | "hold" | "failed"; receiptId?: string }>;
-  feedback?: { id: string; actorUserId: string; outcome: string; comment: string; createdAt: string };
+  messages: Array<{
+    id: string;
+    actorUserId: string;
+    body: string;
+    createdAt: string;
+    readAt?: string;
+  }>;
+  pilot: {
+    id: string;
+    state: "planned" | "active" | "paused" | "completed" | "cancelled";
+    tasks: Array<{ id: string; title: string; ownerId: string; done: boolean }>;
+  };
+  deliverables: Array<{
+    id: string;
+    title: string;
+    state: "draft" | "submitted" | "revision" | "accepted" | "rejected";
+    fileName?: string;
+    updatedAt: string;
+  }>;
+  payments: Array<{
+    id: string;
+    milestone: string;
+    amount: number;
+    state: "triggered" | "approval" | "processing" | "paid" | "hold" | "failed";
+    receiptId?: string;
+  }>;
+  feedback?: {
+    id: string;
+    actorUserId: string;
+    outcome: string;
+    comment: string;
+    createdAt: string;
+  };
   closedAt?: string;
 };
 

@@ -108,9 +108,7 @@ describe("رگرسیون‌های رابط کاربری نسخه ۲۳", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "ارسال نهایی راه‌حل" }));
 
-    expect(
-      screen.getByRole("heading", { name: "ارسال نهایی پیشنهاد؟" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "ارسال نهایی پیشنهاد؟" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "انصراف" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "تأیید و ارسال" })).toBeInTheDocument();
   });

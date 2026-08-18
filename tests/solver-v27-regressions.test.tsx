@@ -44,7 +44,8 @@ describe("رگرسیون‌های رابط فرد و تیم در نسخه ۲۷",
   it("تاریخچه جدید نسخه‌ها timeline و مقایسه محتوای canonical دارد", () => {
     const route = getInternalRoute("/app/solver/proposals/PR-104/versions");
     if (!route) throw new Error("proposal versions route missing");
-    window.location.hash = "#/app/solver/proposals/PR-104/versions?space=team&workspaceId=WS-TEAM-21&teamId=TEAM-21";
+    window.location.hash =
+      "#/app/solver/proposals/PR-104/versions?space=team&workspaceId=WS-TEAM-21&teamId=TEAM-21";
     render(<InternalApp route={route} />);
 
     expect(
@@ -78,6 +79,8 @@ describe("رگرسیون‌های رابط فرد و تیم در نسخه ۲۷",
 
     view.unmount();
     render(<InternalApp route={settings} />);
-    expect(await screen.findByRole("heading", { level: 2, name: "اطلاعات حساب" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { level: 2, name: "اطلاعات حساب" }),
+    ).toBeInTheDocument();
   });
 });

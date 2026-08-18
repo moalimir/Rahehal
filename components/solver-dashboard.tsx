@@ -71,14 +71,15 @@ function ProfileCard({ context, state }: { context: ActiveWorkspace; state: Solv
   return (
     <section className="rh-card rh-profile-card">
       <div className="rh-profile-card__head">
-        <PersonAvatar
-          name={state.currentUser.displayName}
-          className="rh-avatar rh-avatar--large"
-        />
+        <PersonAvatar name={state.currentUser.displayName} className="rh-avatar rh-avatar--large" />
         <div>
           <small>{team ? "پروفایل تیم" : "پروفایل حرفه‌ای"}</small>
           <h2>{activeTeam?.name ?? state.currentUser.displayName}</h2>
-          <p>{teamProfile?.valueProposition || personalProfile?.headline || state.currentUser.headline}</p>
+          <p>
+            {teamProfile?.valueProposition ||
+              personalProfile?.headline ||
+              state.currentUser.headline}
+          </p>
         </div>
       </div>
       <div className="rh-progress-label">
@@ -89,16 +90,29 @@ function ProfileCard({ context, state }: { context: ActiveWorkspace; state: Solv
         <i style={{ width: `${readiness}%` }} />
       </div>
       <div className="rh-skill-row">
-        {(teamProfile?.expertise ?? personalProfile?.skills ?? []).slice(0, 2).map((skill) => <span key={skill}>{skill}</span>)}
+        {(teamProfile?.expertise ?? personalProfile?.skills ?? []).slice(0, 2).map((skill) => (
+          <span key={skill}>{skill}</span>
+        ))}
       </div>
       {team && (
         <p className="rh-team-capacity">
-          <Icon name="people" /> {state.memberships.filter((membership) => membership.teamId === context.teamId && membership.state === "active").length.toLocaleString("fa-IR")} عضو فعال · {teamProfile?.capacity}
+          <Icon name="people" />{" "}
+          {state.memberships
+            .filter(
+              (membership) => membership.teamId === context.teamId && membership.state === "active",
+            )
+            .length.toLocaleString("fa-IR")}{" "}
+          عضو فعال · {teamProfile?.capacity}
         </p>
       )}
       <Link
         className="rh-button rh-button--primary"
-        href={buildSolverHref(team ? `/app/solver/teams/${context.type === "team" ? context.teamId : ""}` : "/app/solver/profile", context)}
+        href={buildSolverHref(
+          team
+            ? `/app/solver/teams/${context.type === "team" ? context.teamId : ""}`
+            : "/app/solver/profile",
+          context,
+        )}
       >
         {team ? "ویرایش پروفایل تیم" : "تکمیل پروفایل"}
       </Link>
@@ -128,13 +142,35 @@ function ActionCard({ context, state }: { context: ActiveWorkspace; state: Solve
   const actions = team
     ? [
         ["تکمیل پروفایل و توانمندی تیم", teamName ?? "تیم فعال", "تکمیل پروفایل"],
-        ["ادامه پیشنهاد نیازمند اقدام", urgentProposal?.id ?? "مورد بازی وجود ندارد", "ادامه تدوین"],
-        ["بررسی درخواست‌های عضویت", `${requestCount.toLocaleString("fa-IR")} درخواست باز`, "بررسی درخواست‌ها"],
+        [
+          "ادامه پیشنهاد نیازمند اقدام",
+          urgentProposal?.id ?? "مورد بازی وجود ندارد",
+          "ادامه تدوین",
+        ],
+        [
+          "بررسی درخواست‌های عضویت",
+          `${requestCount.toLocaleString("fa-IR")} درخواست باز`,
+          "بررسی درخواست‌ها",
+        ],
       ]
     : [
-        ["تکمیل پروفایل تخصصی", `${profileReadiness(state, context).toLocaleString("fa-IR")}٪ تکمیل`, "تکمیل پروفایل"],
-        ["ادامه پیشنهاد نیازمند اقدام", urgentProposal?.id ?? "مورد بازی وجود ندارد", "ادامه ویرایش"],
-        ["بررسی اعلان‌های اقدام‌دار", `${notificationsForWorkspace(context.workspaceId, state).filter((item) => item.actionRequired && !item.readAt).length.toLocaleString("fa-IR")} اعلان`, "مشاهده اعلان‌ها"],
+        [
+          "تکمیل پروفایل تخصصی",
+          `${profileReadiness(state, context).toLocaleString("fa-IR")}٪ تکمیل`,
+          "تکمیل پروفایل",
+        ],
+        [
+          "ادامه پیشنهاد نیازمند اقدام",
+          urgentProposal?.id ?? "مورد بازی وجود ندارد",
+          "ادامه ویرایش",
+        ],
+        [
+          "بررسی اعلان‌های اقدام‌دار",
+          `${notificationsForWorkspace(context.workspaceId, state)
+            .filter((item) => item.actionRequired && !item.readAt)
+            .length.toLocaleString("fa-IR")} اعلان`,
+          "مشاهده اعلان‌ها",
+        ],
       ];
   return (
     <section className="rh-card rh-actions-card">
@@ -152,7 +188,10 @@ function ActionCard({ context, state }: { context: ActiveWorkspace; state: Solve
             href={
               index === 0
                 ? team
-                  ? buildSolverHref(`/app/solver/teams/${context.type === "team" ? context.teamId : ""}`, context)
+                  ? buildSolverHref(
+                      `/app/solver/teams/${context.type === "team" ? context.teamId : ""}`,
+                      context,
+                    )
                   : buildSolverHref("/app/solver/profile", context)
                 : index === 1
                   ? urgentProposal
@@ -282,31 +321,47 @@ function TeamManagement({
           const person = state.users.find((user) => user.id === request.requesterUserId);
           return (
             <article key={request.id}>
-              <PersonAvatar name={person?.displayName ?? request.requesterUserId} className="rh-avatar" />
+              <PersonAvatar
+                name={person?.displayName ?? request.requesterUserId}
+                className="rh-avatar"
+              />
               <div>
                 <strong>{person?.displayName ?? request.requesterUserId}</strong>
-                <small>{person?.headline} · {request.resumeFileName}</small>
+                <small>
+                  {person?.headline} · {request.resumeFileName}
+                </small>
               </div>
               <Link href={buildSolverHref("/app/solver/invitations", context)}>مشاهده رزومه</Link>
               {index === 0 ? (
                 <button
                   type="button"
                   onClick={() => {
-                    const result = reviewMembershipRequest(context, request.id, "accepted", "contributor");
-                    onFeedback(result.ok ? "درخواست پذیرفته و عضویت فعال در roster ثبت شد." : result.message);
+                    const result = reviewMembershipRequest(
+                      context,
+                      request.id,
+                      "accepted",
+                      "contributor",
+                    );
+                    onFeedback(
+                      result.ok ? "درخواست پذیرفته و عضویت فعال در roster ثبت شد." : result.message,
+                    );
                     if (result.ok) onChanged();
                   }}
                 >
                   پذیرش
                 </button>
-              ) : <StatusPill value="نیازمند بررسی" />}
+              ) : (
+                <StatusPill value="نیازمند بررسی" />
+              )}
             </article>
           );
         })}
         {!pending.length && (
           <p className="rh-dashboard-empty-line">درخواست بررسی‌نشده‌ای وجود ندارد.</p>
         )}
-        <Link href={buildSolverHref("/app/solver/invitations", context)}>مشاهده همه درخواست‌ها</Link>
+        <Link href={buildSolverHref("/app/solver/invitations", context)}>
+          مشاهده همه درخواست‌ها
+        </Link>
       </section>
       <section className="rh-card rh-members">
         <header>
@@ -315,16 +370,20 @@ function TeamManagement({
         </header>
         {members.map((membership) => {
           const person = state.users.find((user) => user.id === membership.userId);
-          return <article key={membership.id}>
-            <PersonAvatar name={person?.displayName ?? membership.userId} className="rh-avatar" />
-            <div>
-              <strong>{person?.displayName ?? membership.userId}</strong>
-              <small>{person?.headline ?? "عضو تیم"}</small>
-            </div>
-            <b>{TEAM_ROLE_LABELS[membership.role]}</b>
-          </article>;
+          return (
+            <article key={membership.id}>
+              <PersonAvatar name={person?.displayName ?? membership.userId} className="rh-avatar" />
+              <div>
+                <strong>{person?.displayName ?? membership.userId}</strong>
+                <small>{person?.headline ?? "عضو تیم"}</small>
+              </div>
+              <b>{TEAM_ROLE_LABELS[membership.role]}</b>
+            </article>
+          );
         })}
-        <Link href={buildSolverHref(`/app/solver/teams/${context.teamId}`, context)}>مشاهده و مدیریت همه اعضا</Link>
+        <Link href={buildSolverHref(`/app/solver/teams/${context.teamId}`, context)}>
+          مشاهده و مدیریت همه اعضا
+        </Link>
       </section>
     </div>
   );
@@ -346,7 +405,7 @@ export function SolverDashboardExperience({
     hookContext.type === space
       ? hookContext
       : space === "team"
-        ? activeWorkspaces(state).find((workspace) => workspace.type === "team") ?? hookContext
+        ? (activeWorkspaces(state).find((workspace) => workspace.type === "team") ?? hookContext)
         : ({ type: "individual", workspaceId: state.personalWorkspace.id } as const);
   const team = space === "team";
   const [feedback, setFeedback] = useState("");
@@ -357,32 +416,41 @@ export function SolverDashboardExperience({
     return [
       {
         label: "پیش‌نویس‌ها",
-        count: proposals.filter((proposal) => ["draft", "revision_draft"].includes(proposal.state)).length,
+        count: proposals.filter((proposal) => ["draft", "revision_draft"].includes(proposal.state))
+          .length,
         status: "draft",
         cta: "مشاهده پیش‌نویس‌ها",
       },
       {
         label: "ارسال‌شده‌ها",
-        count: proposals.filter((proposal) => ["submitted", "resubmitted", "clarification_submitted"].includes(proposal.state)).length,
+        count: proposals.filter((proposal) =>
+          ["submitted", "resubmitted", "clarification_submitted"].includes(proposal.state),
+        ).length,
         status: "submitted",
         cta: "مشاهده ارسال‌شده‌ها",
       },
       {
         label: "در حال بررسی",
-        count: proposals.filter((proposal) => ["reviewing", "eligibility_review", "eligible"].includes(proposal.state)).length,
+        count: proposals.filter((proposal) =>
+          ["reviewing", "eligibility_review", "eligible"].includes(proposal.state),
+        ).length,
         status: "reviewing",
         cta: "مشاهده موارد در حال بررسی",
       },
       {
         label: "نیازمند اقدام",
-        count: proposals.filter((proposal) => ["revision_requested", "clarification_requested"].includes(proposal.state)).length,
+        count: proposals.filter((proposal) =>
+          ["revision_requested", "clarification_requested"].includes(proposal.state),
+        ).length,
         status: "revision_requested",
         cta: "مشاهده موارد نیازمند اقدام",
       },
     ];
   }, [projection.proposals]);
   const activeTeam =
-    context.type === "team" ? state.teams.find((candidate) => candidate.id === context.teamId) : undefined;
+    context.type === "team"
+      ? state.teams.find((candidate) => candidate.id === context.teamId)
+      : undefined;
   const activeMembership =
     context.type === "team"
       ? state.memberships.find((candidate) => candidate.id === context.membershipId)
@@ -399,23 +467,27 @@ export function SolverDashboardExperience({
     ? state.teamProfiles.find((profile) => profile.teamId === inviteTeam.id)
     : undefined;
   const inviteVerification = inviteTeam
-    ? state.verifications.find((record) => record.subjectType === "team" && record.subjectId === inviteTeam.id)
+    ? state.verifications.find(
+        (record) => record.subjectType === "team" && record.subjectId === inviteTeam.id,
+      )
     : undefined;
   const inviter = incomingInvite
     ? state.users.find((user) => user.id === incomingInvite.inviterUserId)
     : undefined;
-  const inviteResume: TeamResumeSummary | undefined = incomingInvite && inviteTeam
-    ? {
-        team: inviteTeam.name,
-        field: inviteProfile?.expertise.join(" و ") || "اطلاعات تخصص در حال تکمیل",
-        inviter: inviter?.displayName ?? incomingInvite.inviterUserId,
-        members: `${state.memberships.filter((membership) => membership.teamId === inviteTeam.id && membership.state === "active").length.toLocaleString("fa-IR")} عضو فعال`,
-        role: TEAM_ROLE_LABELS[incomingInvite.proposedRole],
-        tags: inviteProfile?.expertise ?? [],
-        verified: inviteVerification?.state === "verified",
-        verificationLabel: inviteVerification?.state === "verified" ? "تیم تأییدشده" : "احراز تیم در حال تکمیل",
-      }
-    : undefined;
+  const inviteResume: TeamResumeSummary | undefined =
+    incomingInvite && inviteTeam
+      ? {
+          team: inviteTeam.name,
+          field: inviteProfile?.expertise.join(" و ") || "اطلاعات تخصص در حال تکمیل",
+          inviter: inviter?.displayName ?? incomingInvite.inviterUserId,
+          members: `${state.memberships.filter((membership) => membership.teamId === inviteTeam.id && membership.state === "active").length.toLocaleString("fa-IR")} عضو فعال`,
+          role: TEAM_ROLE_LABELS[incomingInvite.proposedRole],
+          tags: inviteProfile?.expertise ?? [],
+          verified: inviteVerification?.state === "verified",
+          verificationLabel:
+            inviteVerification?.state === "verified" ? "تیم تأییدشده" : "احراز تیم در حال تکمیل",
+        }
+      : undefined;
 
   const content = (
     <>
@@ -485,7 +557,9 @@ export function SolverDashboardExperience({
             <h2>آخرین درخواست‌ها و راه‌حل‌های {team ? "تیم" : "من"}</h2>
             <p>وضعیت، مهلت و اقدام بعدی هر پرونده</p>
           </div>
-          <Link href={buildSolverHref("/app/solver/proposals", context)}>مشاهده همه درخواست‌ها</Link>
+          <Link href={buildSolverHref("/app/solver/proposals", context)}>
+            مشاهده همه درخواست‌ها
+          </Link>
         </header>
         <div className="rh-table" role="table" aria-label="آخرین درخواست‌ها">
           <div role="row" className="rh-table__head">
@@ -498,54 +572,86 @@ export function SolverDashboardExperience({
           {projection.proposals.slice(0, 4).map((proposal) => {
             const challenge = challenges.find((item) => item.id === proposal.challengeId);
             if (!challenge) return null;
-            const status = proposal.state === "revision_requested" ? "نیازمند اصلاح" : proposal.state === "draft" ? "پیش‌نویس" : proposal.state === "reviewing" ? "در حال بررسی" : proposal.state === "selected" ? "پذیرفته‌شده" : "ارسال‌شده";
+            const status =
+              proposal.state === "revision_requested"
+                ? "نیازمند اصلاح"
+                : proposal.state === "draft"
+                  ? "پیش‌نویس"
+                  : proposal.state === "reviewing"
+                    ? "در حال بررسی"
+                    : proposal.state === "selected"
+                      ? "پذیرفته‌شده"
+                      : "ارسال‌شده";
             return (
-            <div role="row" key={proposal.id}>
-              {[challenge.title, getChallengePublisher(challenge.id).name, status, proposal.updatedAt, proposal.state].map((cell, index) => (
-                <span role="cell" key={`${proposal.id}-${index}`}>
-                  {index === 1 ? (
-                    <span className="rh-table__organization">
-                      <ChallengeOrganizationLogo
-                        challengeId={challenge.id}
-                        size="small"
-                      />
-                      <span>{cell}</span>
-                    </span>
-                  ) : index === 2 ? (
-                    <StatusPill value={cell} />
-                  ) : index === 4 ? (
-                    <Link
-                      href={buildSolverHref(`/app/solver/proposals/${proposal.id}/${["draft", "revision_requested", "revision_draft"].includes(proposal.state) ? "edit" : "preview"}`, context)}
-                    >
-                      {["draft", "revision_requested", "revision_draft"].includes(proposal.state) ? "ادامه ویرایش" : "مشاهده جزئیات"}
-                    </Link>
-                  ) : index === 3 ? (
-                    new Intl.DateTimeFormat("fa-IR", { dateStyle: "medium" }).format(new Date(cell))
-                  ) : (
-                    cell
-                  )}
-                </span>
-              ))}
-            </div>
-          );})}
+              <div role="row" key={proposal.id}>
+                {[
+                  challenge.title,
+                  getChallengePublisher(challenge.id).name,
+                  status,
+                  proposal.updatedAt,
+                  proposal.state,
+                ].map((cell, index) => (
+                  <span role="cell" key={`${proposal.id}-${index}`}>
+                    {index === 1 ? (
+                      <span className="rh-table__organization">
+                        <ChallengeOrganizationLogo challengeId={challenge.id} size="small" />
+                        <span>{cell}</span>
+                      </span>
+                    ) : index === 2 ? (
+                      <StatusPill value={cell} />
+                    ) : index === 4 ? (
+                      <Link
+                        href={buildSolverHref(
+                          `/app/solver/proposals/${proposal.id}/${["draft", "revision_requested", "revision_draft"].includes(proposal.state) ? "edit" : "preview"}`,
+                          context,
+                        )}
+                      >
+                        {["draft", "revision_requested", "revision_draft"].includes(proposal.state)
+                          ? "ادامه ویرایش"
+                          : "مشاهده جزئیات"}
+                      </Link>
+                    ) : index === 3 ? (
+                      new Intl.DateTimeFormat("fa-IR", { dateStyle: "medium" }).format(
+                        new Date(cell),
+                      )
+                    ) : (
+                      cell
+                    )}
+                  </span>
+                ))}
+              </div>
+            );
+          })}
         </div>
       </section>
 
       <OpportunityCards context={context} onFeedback={setFeedback} />
       {team && context.type === "team" ? (
-        <TeamManagement context={context} state={state} onFeedback={setFeedback} onChanged={() => setState(readSolverState())} />
+        <TeamManagement
+          context={context}
+          state={state}
+          onFeedback={setFeedback}
+          onChanged={() => setState(readSolverState())}
+        />
       ) : (
         <section className="rh-card rh-personal-invite">
           <header>
             <h2>دعوت‌نامه‌های تیمی</h2>
             <span>{incomingInvite ? "یک دعوت جدید" : "دعوت بازی وجود ندارد"}</span>
           </header>
-          {incomingInvite && inviteTeam ? <article>
-            <PersonAvatar name={inviter?.displayName ?? incomingInvite.inviterUserId} className="rh-avatar" />
-            <div>
-              <strong>{inviteTeam.name}</strong>
-              <small>دعوت از طرف {inviter?.displayName ?? incomingInvite.inviterUserId} برای نقش {TEAM_ROLE_LABELS[incomingInvite.proposedRole]}</small>
-            </div>
+          {incomingInvite && inviteTeam ? (
+            <article>
+              <PersonAvatar
+                name={inviter?.displayName ?? incomingInvite.inviterUserId}
+                className="rh-avatar"
+              />
+              <div>
+                <strong>{inviteTeam.name}</strong>
+                <small>
+                  دعوت از طرف {inviter?.displayName ?? incomingInvite.inviterUserId} برای نقش{" "}
+                  {TEAM_ROLE_LABELS[incomingInvite.proposedRole]}
+                </small>
+              </div>
               <>
                 <button
                   type="button"
@@ -558,7 +664,11 @@ export function SolverDashboardExperience({
                   type="button"
                   onClick={() => {
                     const result = respondToTeamInvitation(incomingInvite.id, "accepted");
-                    setFeedback(result.ok ? "دعوت پذیرفته شد و فضای تیم به انتخاب‌گر اضافه شد." : result.message);
+                    setFeedback(
+                      result.ok
+                        ? "دعوت پذیرفته شد و فضای تیم به انتخاب‌گر اضافه شد."
+                        : result.message,
+                    );
                     if (result.ok) setState(readSolverState());
                   }}
                 >
@@ -571,7 +681,10 @@ export function SolverDashboardExperience({
                   بررسی و پاسخ
                 </Link>
               </>
-          </article> : <p className="rh-dashboard-empty-line">دعوت عضویت بررسی‌نشده‌ای ندارید.</p>}
+            </article>
+          ) : (
+            <p className="rh-dashboard-empty-line">دعوت عضویت بررسی‌نشده‌ای ندارید.</p>
+          )}
         </section>
       )}
       {personalResumeOpen && inviteResume && (

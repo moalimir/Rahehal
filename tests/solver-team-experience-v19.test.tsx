@@ -9,7 +9,8 @@ import { readSolverState } from "@/lib/solver/repository";
 beforeEach(() => {
   localStorage.clear();
   document.documentElement.dataset.challengeStandalone = "true";
-  window.location.hash = "#/app/solver/teams/TEAM-21?space=team&workspaceId=WS-TEAM-21&teamId=TEAM-21";
+  window.location.hash =
+    "#/app/solver/teams/TEAM-21?space=team&workspaceId=WS-TEAM-21&teamId=TEAM-21";
 });
 
 afterEach(() => {
@@ -43,7 +44,9 @@ describe("اصلاحات تیم در نسخه ۱۹", () => {
     fireEvent.change(persistedManagerRole, { target: { value: "viewer" } });
     fireEvent.click(screen.getByRole("button", { name: "تأیید اقدام" }));
     expect(persistedManagerRole).toHaveValue("viewer");
-    expect(readSolverState().memberships.find((item) => item.id === "MEM-21-002")?.role).toBe("viewer");
+    expect(readSolverState().memberships.find((item) => item.id === "MEM-21-002")?.role).toBe(
+      "viewer",
+    );
   });
 
   it("فیلترهای تخصص، دانشگاه، شیوه همکاری، مرتب‌سازی و نوع نمایش را واقعاً اعمال می‌کند", () => {

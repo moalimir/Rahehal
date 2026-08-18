@@ -1,0 +1,18 @@
+{
+  "baselineDate": "2026-08-19",
+  "standalone": {
+    "maxBytes": 5056799,
+    "maxCssCharacters": 2463632,
+    "maxJavaScriptCharacters": 2211664
+  },
+  "staticAssets": {
+    "maxJavaScriptBytes": 1773747,
+    "maxLargestJavaScriptBytes": 721618,
+    "maxCssBytes": 503436,
+    "maxLargestCssBytes": 215259
+  },
+  "source": {
+    "maxCssBytes": 613852,
+    "maxImportCycles": 0
+  }
+}

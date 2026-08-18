@@ -1,10 +1,6 @@
 import { PERSONAL_WORKSPACE_ID } from "@/data/solver-fixtures";
 import { contextFromLocation } from "@/lib/solver/context";
-import {
-  readSolverState,
-  savedOpportunityIds,
-  setSavedOpportunity,
-} from "@/lib/solver/repository";
+import { readSolverState, savedOpportunityIds, setSavedOpportunity } from "@/lib/solver/repository";
 
 export const SAVED_OPPORTUNITIES_EVENT = "rahhal:saved-opportunities-change";
 
@@ -20,11 +16,7 @@ function activeWorkspaceId(explicit?: string) {
   return resolution.ok ? resolution.context.workspaceId : PERSONAL_WORKSPACE_ID;
 }
 
-export function isOpportunitySaved(
-  challengeId: string,
-  fallback = false,
-  workspaceId?: string,
-) {
+export function isOpportunitySaved(challengeId: string, fallback = false, workspaceId?: string) {
   if (typeof window === "undefined") return fallback;
   try {
     return savedOpportunityIds(activeWorkspaceId(workspaceId)).includes(challengeId);

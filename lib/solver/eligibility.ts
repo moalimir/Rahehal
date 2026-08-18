@@ -71,7 +71,9 @@ export const challengeEligibilityRules: Record<string, EligibilityRule> = {
 
 export function profileReadiness(state: SolverState, context: ActiveWorkspace) {
   if (context.type === "individual") {
-    const profile = state.personalProfiles.find((candidate) => candidate.workspaceId === context.workspaceId);
+    const profile = state.personalProfiles.find(
+      (candidate) => candidate.workspaceId === context.workspaceId,
+    );
     if (!profile) return 0;
     const checks = [
       profile.headline,
@@ -149,8 +151,9 @@ export function evaluateEligibility(
   }
   const expertise =
     context.type === "individual"
-      ? state.personalProfiles.find((profile) => profile.workspaceId === context.workspaceId)?.skills ?? []
-      : state.teamProfiles.find((profile) => profile.teamId === context.teamId)?.expertise ?? [];
+      ? (state.personalProfiles.find((profile) => profile.workspaceId === context.workspaceId)
+          ?.skills ?? [])
+      : (state.teamProfiles.find((profile) => profile.teamId === context.teamId)?.expertise ?? []);
   if (!rule.requiredExpertise.some((item) => expertise.includes(item)))
     reasons.push("تخصص موردنیاز در پروفایل این فضا ثبت نشده و نیازمند بررسی است.");
   if (reasons.length)

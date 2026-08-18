@@ -96,9 +96,10 @@ describe("Solver v28 foundation contracts", () => {
       ok: false,
       error: "not-found",
     });
-    expect(
-      parseSolverContext("space=team&teamId=TEAM-21&workspaceId=WS-TEAM-34"),
-    ).toMatchObject({ ok: false, error: "invalid" });
+    expect(parseSolverContext("space=team&teamId=TEAM-21&workspaceId=WS-TEAM-34")).toMatchObject({
+      ok: false,
+      error: "invalid",
+    });
     expect(parseSolverContext("space=team&teamId=TEAM-55")).toMatchObject({
       ok: false,
       error: "no-access",
@@ -108,13 +109,31 @@ describe("Solver v28 foundation contracts", () => {
   it("RBAC تمام نقش‌ها را برای ساخت و ارسال proposal enforce می‌کند", () => {
     const roles: TeamRole[] = ["owner", "admin", "proposal-manager", "contributor", "viewer"];
     const create = Object.fromEntries(
-      roles.map((role) => [role, decideTeamPermission("create-proposal", { role, policy: DEFAULT_TEAM_POLICY }).allowed]),
+      roles.map((role) => [
+        role,
+        decideTeamPermission("create-proposal", { role, policy: DEFAULT_TEAM_POLICY }).allowed,
+      ]),
     );
     const submit = Object.fromEntries(
-      roles.map((role) => [role, decideTeamPermission("submit-proposal", { role, policy: DEFAULT_TEAM_POLICY }).allowed]),
+      roles.map((role) => [
+        role,
+        decideTeamPermission("submit-proposal", { role, policy: DEFAULT_TEAM_POLICY }).allowed,
+      ]),
     );
-    expect(create).toEqual({ owner: true, admin: true, "proposal-manager": true, contributor: true, viewer: false });
-    expect(submit).toEqual({ owner: true, admin: true, "proposal-manager": true, contributor: false, viewer: false });
+    expect(create).toEqual({
+      owner: true,
+      admin: true,
+      "proposal-manager": true,
+      contributor: true,
+      viewer: false,
+    });
+    expect(submit).toEqual({
+      owner: true,
+      admin: true,
+      "proposal-manager": true,
+      contributor: false,
+      viewer: false,
+    });
   });
 
   it("store نسخه‌دار corruption را بازیابی و کلید legacy ذخیره را migrate می‌کند", () => {
@@ -124,7 +143,9 @@ describe("Solver v28 foundation contracts", () => {
     const recovered = readSolverState();
     expect(recovered.version).toBe(3);
     expect(recovered.savedByWorkspace[PERSONAL_WORKSPACE_ID]).toContain("CH-LEGACY");
-    expect(localStorage.getItem(SOLVER_STORAGE_RECOVERY_KEY)).toContain("invalid-or-corrupt-envelope");
+    expect(localStorage.getItem(SOLVER_STORAGE_RECOVERY_KEY)).toContain(
+      "invalid-or-corrupt-envelope",
+    );
   });
 
   it("Saved برای فرد و دو تیم کاملاً جدا می‌ماند", () => {
@@ -150,7 +171,9 @@ describe("Solver v28 foundation contracts", () => {
     expect(first.ok).toBe(true);
     expect(second.ok && second.idempotent).toBe(true);
     if (!first.ok) throw new Error(first.message);
-    expect(proposalsForWorkspace(personal.workspaceId).some((item) => item.id === first.entityId)).toBe(true);
+    expect(
+      proposalsForWorkspace(personal.workspaceId).some((item) => item.id === first.entityId),
+    ).toBe(true);
   });
 
   it("Contributor می‌تواند draft بسازد اما submit نهایی handler آن را رد می‌کند", () => {
@@ -169,12 +192,19 @@ describe("Solver v28 foundation contracts", () => {
   it("مشاهده direct offer فقط viewed می‌سازد و submit پاسخ workspace-scoped است", () => {
     expect(viewDirectOffer("OFF-226", PERSONAL_WORKSPACE_ID).ok).toBe(true);
     expect(directOffersForWorkspace(PERSONAL_WORKSPACE_ID)[0]?.state).toBe("viewed");
-    expect(directOffersForWorkspace("WS-TEAM-21").some((offer) => offer.id === "OFF-226")).toBe(false);
+    expect(directOffersForWorkspace("WS-TEAM-21").some((offer) => offer.id === "OFF-226")).toBe(
+      false,
+    );
     expect(startOfferResponse("OFF-226", PERSONAL_WORKSPACE_ID).ok).toBe(true);
     const submitted = submitOfferResponse(
       "OFF-226",
       PERSONAL_WORKSPACE_ID,
-      { approach: "پایلوت سه‌مرحله‌ای", budget: "120000000", duration: "8 هفته", attachmentNames: [] },
+      {
+        approach: "پایلوت سه‌مرحله‌ای",
+        budget: "120000000",
+        duration: "8 هفته",
+        attachmentNames: [],
+      },
       "offer-226-response",
     );
     expect(submitted.ok).toBe(true);
@@ -182,7 +212,9 @@ describe("Solver v28 foundation contracts", () => {
   });
 
   it("رد پیشنهاد مستقیم دلیل را روی همان رکورد نگه می‌دارد و Saved فضای جعلی را رد می‌کند", () => {
-    expect(declineDirectOffer("OFF-226", PERSONAL_WORKSPACE_ID, "با ظرفیت فعلی سازگار نیست").ok).toBe(true);
+    expect(
+      declineDirectOffer("OFF-226", PERSONAL_WORKSPACE_ID, "با ظرفیت فعلی سازگار نیست").ok,
+    ).toBe(true);
     expect(directOffersForWorkspace(PERSONAL_WORKSPACE_ID)[0]).toMatchObject({
       state: "declined",
       declineReason: "با ظرفیت فعلی سازگار نیست",
@@ -196,14 +228,22 @@ describe("Solver v28 foundation contracts", () => {
   it("پذیرش دعوت membership می‌سازد و workspace جدید را قابل انتخاب می‌کند", () => {
     expect(activeWorkspaces()).toHaveLength(3);
     expect(respondToTeamInvitation("INV-301", "accepted").ok).toBe(true);
-    expect(activeWorkspaces().some((workspace) => workspace.type === "team" && workspace.teamId === "TEAM-55")).toBe(true);
+    expect(
+      activeWorkspaces().some(
+        (workspace) => workspace.type === "team" && workspace.teamId === "TEAM-55",
+      ),
+    ).toBe(true);
   });
 
   it("eligibility بر داده ساخت‌یافته است و rule ناشناخته نیازمند بررسی می‌ماند", () => {
     const state = createCanonicalSolverState();
-    expect(evaluateEligibility(challengeEligibilityRules["CH-1405-022"], state, personal).status).toBe("eligible");
+    expect(
+      evaluateEligibility(challengeEligibilityRules["CH-1405-022"], state, personal).status,
+    ).toBe("eligible");
     expect(evaluateEligibility(undefined, state, personal).status).toBe("needs-review");
-    expect(evaluateEligibility(challengeEligibilityRules["CH-1405-028"], state, personal).status).toBe("ineligible");
+    expect(
+      evaluateEligibility(challengeEligibilityRules["CH-1405-028"], state, personal).status,
+    ).toBe("ineligible");
   });
 
   it("NDA به workspace scope می‌شود و قرارداد نسخه جدید approval قبلی را invalidate می‌کند", () => {
@@ -213,7 +253,9 @@ describe("Solver v28 foundation contracts", () => {
     expect(canAccessRestrictedDocument(team21.workspaceId, "CH-1405-021")).toBe(true);
     expect(canAccessRestrictedDocument(PERSONAL_WORKSPACE_ID, "CH-1405-021")).toBe(false);
     expect(createContractVersion(team21, "CON-127").ok).toBe(true);
-    expect(readSolverState().contracts.find((contract) => contract.id === "CON-127")?.approvals).toEqual([]);
+    expect(
+      readSolverState().contracts.find((contract) => contract.id === "CON-127")?.approvals,
+    ).toEqual([]);
   });
 
   it("امضای قرارداد و بستن پرونده idempotent، نسخه‌محور و دارای receipt هستند", () => {
@@ -224,7 +266,9 @@ describe("Solver v28 foundation contracts", () => {
     const duplicateSignature = signContract(team21, "CON-127", "sign-con-127-v3");
     expect(signed.ok).toBe(true);
     expect(duplicateSignature).toMatchObject({ ok: true, idempotent: true });
-    expect(readSolverState().contracts.find((item) => item.id === "CON-127")?.state).toBe("effective");
+    expect(readSolverState().contracts.find((item) => item.id === "CON-127")?.state).toBe(
+      "effective",
+    );
 
     const closed = closeCase(personal, "CASE-138", "close-case-138");
     const duplicateClosure = closeCase(personal, "CASE-138", "close-case-138");
@@ -236,24 +280,38 @@ describe("Solver v28 foundation contracts", () => {
   it("تخصیص، تعلیق، بازگردانی و خروج عضو کاملاً team-scoped است", () => {
     const team21 = contextForTeam(PRIMARY_TEAM_ID);
     expect(assignTeamMember(team21, "MEM-21-002", { type: "case", id: "CASE-127" }).ok).toBe(true);
-    expect(readSolverState().memberships.find((item) => item.id === "MEM-21-002")?.assignedCaseIds).toContain("CASE-127");
+    expect(
+      readSolverState().memberships.find((item) => item.id === "MEM-21-002")?.assignedCaseIds,
+    ).toContain("CASE-127");
     expect(suspendTeamMembership(team21, "MEM-21-002").ok).toBe(true);
-    expect(readSolverState().memberships.find((item) => item.id === "MEM-21-002")?.state).toBe("suspended");
+    expect(readSolverState().memberships.find((item) => item.id === "MEM-21-002")?.state).toBe(
+      "suspended",
+    );
     expect(restoreTeamMembership(team21, "MEM-21-002").ok).toBe(true);
-    expect(readSolverState().memberships.find((item) => item.id === "MEM-21-002")?.state).toBe("active");
+    expect(readSolverState().memberships.find((item) => item.id === "MEM-21-002")?.state).toBe(
+      "active",
+    );
     expect(leaveTeam(team21)).toMatchObject({ ok: false, code: "INVALID_STATE" });
 
     const team34 = contextForTeam(SECONDARY_TEAM_ID);
     expect(leaveTeam(team34).ok).toBe(true);
-    expect(activeWorkspaces().some((workspace) => workspace.type === "team" && workspace.teamId === SECONDARY_TEAM_ID)).toBe(false);
+    expect(
+      activeWorkspaces().some(
+        (workspace) => workspace.type === "team" && workspace.teamId === SECONDARY_TEAM_ID,
+      ),
+    ).toBe(false);
   });
 
   it("احراز دو تیم مستقل است و actor نمی‌تواند membership عضو دیگری را جعل کند", () => {
     const team21 = contextForTeam(PRIMARY_TEAM_ID);
-    const before34 = readSolverState().verifications.find((item) => item.workspaceId === "WS-TEAM-34");
+    const before34 = readSolverState().verifications.find(
+      (item) => item.workspaceId === "WS-TEAM-34",
+    );
     expect(submitVerification("WS-TEAM-21", ["team-21-new.pdf"], team21).ok).toBe(true);
     const state = readSolverState();
-    expect(state.verifications.find((item) => item.workspaceId === "WS-TEAM-21")?.state).toBe("submitted");
+    expect(state.verifications.find((item) => item.workspaceId === "WS-TEAM-21")?.state).toBe(
+      "submitted",
+    );
     expect(state.verifications.find((item) => item.workspaceId === "WS-TEAM-34")).toEqual(before34);
 
     const forgedViewer: ActiveWorkspace = {
@@ -277,13 +335,44 @@ describe("Solver v28 foundation contracts", () => {
   });
 
   it("state machine مشاهده offer را از پذیرش نهایی جدا نگه می‌دارد", () => {
-    expect(canTransition(directOfferTransitions, "received", "viewed", "solver", ["recipient-authorized"])).toBe(true);
+    expect(
+      canTransition(directOfferTransitions, "received", "viewed", "solver", [
+        "recipient-authorized",
+      ]),
+    ).toBe(true);
     expect(canTransition(directOfferTransitions, "viewed", "selected", "solver", [])).toBe(false);
-    expect(canTransition(proposalTransitions, "revision_requested", "revision_draft", "solver", ["editor-authorized"])).toBe(true);
-    expect(canTransition(teamInvitationTransitions, "viewed", "accepted", "solver", ["recipient-authorized", "not-expired"])).toBe(true);
-    expect(canTransition(membershipRequestTransitions, "requested", "accepted", "admin", ["scope-approved"])).toBe(true);
-    expect(canTransition(membershipTransitions, "active", "suspended", "admin", ["not-owner", "not-self"])).toBe(true);
-    expect(canTransition(verificationTransitions, "needs_revision", "submitted", "owner", ["documents-valid", "revision-addressed"])).toBe(true);
-    expect(canTransition(contractTransitions, "signature", "effective", "owner", ["approved-current-version"])).toBe(true);
+    expect(
+      canTransition(proposalTransitions, "revision_requested", "revision_draft", "solver", [
+        "editor-authorized",
+      ]),
+    ).toBe(true);
+    expect(
+      canTransition(teamInvitationTransitions, "viewed", "accepted", "solver", [
+        "recipient-authorized",
+        "not-expired",
+      ]),
+    ).toBe(true);
+    expect(
+      canTransition(membershipRequestTransitions, "requested", "accepted", "admin", [
+        "scope-approved",
+      ]),
+    ).toBe(true);
+    expect(
+      canTransition(membershipTransitions, "active", "suspended", "admin", [
+        "not-owner",
+        "not-self",
+      ]),
+    ).toBe(true);
+    expect(
+      canTransition(verificationTransitions, "needs_revision", "submitted", "owner", [
+        "documents-valid",
+        "revision-addressed",
+      ]),
+    ).toBe(true);
+    expect(
+      canTransition(contractTransitions, "signature", "effective", "owner", [
+        "approved-current-version",
+      ]),
+    ).toBe(true);
   });
 });

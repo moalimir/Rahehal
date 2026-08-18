@@ -286,7 +286,8 @@ function navigateToWorkspace(workspaceId: string) {
   if (!target) return;
   writeLastActiveWorkspace(target);
   const raw =
-    document.documentElement.dataset.challengeStandalone === "true" && window.location.hash.startsWith("#/")
+    document.documentElement.dataset.challengeStandalone === "true" &&
+    window.location.hash.startsWith("#/")
       ? window.location.hash.slice(1)
       : `${window.location.pathname}${window.location.search}`;
   const currentPath = raw.split("?")[0] || "/app/solver/dashboard";
@@ -324,8 +325,7 @@ export function SolverWorkspaceShell({
             ["sent", "viewed"].includes(invitation.state),
         ).length
       : state.membershipRequests.filter(
-          (request) =>
-            request.teamId === effectiveContext.teamId && request.state === "requested",
+          (request) => request.teamId === effectiveContext.teamId && request.state === "requested",
         ).length;
   const navigation = useMemo(
     () =>
@@ -377,7 +377,9 @@ export function SolverWorkspaceShell({
         workspaceLabel: space === "team" ? "فضای تیمی حل‌کننده" : "فضای فردی حل‌کننده",
         workspaceName: team?.name ?? state.personalWorkspace.name,
         userName: state.currentUser.displayName,
-        userRole: membership ? TEAM_ROLE_LABELS[membership.role] : state.currentUser.headline ?? "حل‌کننده",
+        userRole: membership
+          ? TEAM_ROLE_LABELS[membership.role]
+          : (state.currentUser.headline ?? "حل‌کننده"),
       }}
       rootClassName="rh-shell"
       contentClassName="rh-main"

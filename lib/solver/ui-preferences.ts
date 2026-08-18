@@ -5,7 +5,9 @@ const PREFIX = "rahhal.solver.ui.v1";
 function read<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
   try {
-    const parsed = JSON.parse(localStorage.getItem(`${PREFIX}:${key}`) ?? "null") as Envelope<T> | null;
+    const parsed = JSON.parse(
+      localStorage.getItem(`${PREFIX}:${key}`) ?? "null",
+    ) as Envelope<T> | null;
     return parsed?.version === 1 ? parsed.value : fallback;
   } catch {
     localStorage.removeItem(`${PREFIX}:${key}`);
@@ -18,7 +20,11 @@ function write<T>(key: string, value: T) {
   try {
     localStorage.setItem(
       `${PREFIX}:${key}`,
-      JSON.stringify({ version: 1, value, updatedAt: new Date().toISOString() } satisfies Envelope<T>),
+      JSON.stringify({
+        version: 1,
+        value,
+        updatedAt: new Date().toISOString(),
+      } satisfies Envelope<T>),
     );
     return true;
   } catch {

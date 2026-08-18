@@ -3,15 +3,7 @@ import path from "node:path";
 
 const outRoot = path.resolve("out");
 const reportsRoot = path.resolve("reports", "generated");
-const viewports = [
-  "1440×900",
-  "1280×800",
-  "1024×768",
-  "768×1024",
-  "480×900",
-  "390×844",
-  "360×800",
-];
+const viewports = ["1440×900", "1280×800", "1024×768", "768×1024", "480×900", "390×844", "360×800"];
 
 fs.mkdirSync(reportsRoot, { recursive: true });
 

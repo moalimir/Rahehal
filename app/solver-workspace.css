@@ -2067,8 +2067,22 @@
   min-block-size: var(--rh-action-height);
 }
 @media (max-width: 760px) {
-  .solver-workspace :is(button, select, input:not([type="checkbox"]):not([type="radio"]), a.rh-profile-outline, a.rh-profile-primary),
-  .unified-shell--solver :is(button, select, input:not([type="checkbox"]):not([type="radio"]), a.rh-profile-outline, a.rh-profile-primary) {
+  .solver-workspace
+    :is(
+      button,
+      select,
+      input:not([type="checkbox"]):not([type="radio"]),
+      a.rh-profile-outline,
+      a.rh-profile-primary
+    ),
+  .unified-shell--solver
+    :is(
+      button,
+      select,
+      input:not([type="checkbox"]):not([type="radio"]),
+      a.rh-profile-outline,
+      a.rh-profile-primary
+    ) {
     min-block-size: 44px;
   }
   .rh-upload-state,

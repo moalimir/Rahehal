@@ -88,4 +88,6 @@ Legacyهای عمداً غیرفعال با صفحه توضیحی: **${unavailab
 ${rows.join("\n")}
 `;
 fs.writeFileSync(routeManifestPath, doc);
-console.log(`${routes.length} routes written to ${path.relative(process.cwd(), routeManifestPath)}`);
+console.log(
+  `${routes.length} routes written to ${path.relative(process.cwd(), routeManifestPath)}`,
+);

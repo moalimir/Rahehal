@@ -35,7 +35,9 @@ describe("اصلاحات رابط Solver نسخه ۲۹", () => {
     const contextLabel = screen.getByText("فضای شخصی");
     expect(contextLabel.tagName).toBe("SMALL");
     expect(contextLabel).toHaveClass("rh-dashboard-hero__context");
-    expect(container.querySelector(".rh-dashboard-hero > div:not(.rh-network)")).toBeInTheDocument();
+    expect(
+      container.querySelector(".rh-dashboard-hero > div:not(.rh-network)"),
+    ).toBeInTheDocument();
   });
 
   it("هر کارت خلاصه یک CTA با فیلتر وضعیت و context فضای فعال دارد", () => {
@@ -87,7 +89,9 @@ describe("اصلاحات رابط Solver نسخه ۲۹", () => {
     expect(css).toMatch(/\.rh-dashboard-hero > div:not\(\.rh-network\)[\s\S]*?margin:\s*0;/);
     expect(css).toContain("--rh-action-height: 44px");
     expect(css).toMatch(/\.rh-wizard-actions \.rh-wizard-next-icon[\s\S]*?scaleX\(-1\)/);
-    expect(css).toMatch(/\.rh-flow-toast[\s\S]*?top:\s*calc\(var\(--app-topbar-height, 72px\) \+ 16px\)/);
+    expect(css).toMatch(
+      /\.rh-flow-toast[\s\S]*?top:\s*calc\(var\(--app-topbar-height, 72px\) \+ 16px\)/,
+    );
     expect(css).toMatch(/\.rh-flow-toast button[\s\S]*?grid-column:\s*1/);
   });
 });

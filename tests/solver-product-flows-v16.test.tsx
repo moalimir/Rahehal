@@ -2,7 +2,11 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SolverCases, SolverProposalVersions, SolverVerification } from "@/components/solver-case-continuity";
+import {
+  SolverCases,
+  SolverProposalVersions,
+  SolverVerification,
+} from "@/components/solver-case-continuity";
 import { getInternalRoute } from "@/data/internal-routes";
 import {
   isOpportunitySaved,
@@ -17,7 +21,11 @@ afterEach(cleanup);
 beforeEach(() => {
   window.localStorage.clear();
   resetSolverDemoData();
-  window.history.replaceState({}, "", "/app/solver/dashboard?space=individual&workspaceId=WS-PERSONAL-001");
+  window.history.replaceState(
+    {},
+    "",
+    "/app/solver/dashboard?space=individual&workspaceId=WS-PERSONAL-001",
+  );
 });
 
 function solverRoute(path: string) {
@@ -59,15 +67,25 @@ describe("جریان‌های محصول فرد و تیم در نسخه ۱۶", (
   });
 
   it("پرداخت پرونده از milestoneهای canonical محاسبه و به workspace محدود می‌شود", () => {
-    window.history.replaceState({}, "", "/app/solver/cases/CASE-127/payments?space=team&teamId=TEAM-21&workspaceId=WS-TEAM-21");
+    window.history.replaceState(
+      {},
+      "",
+      "/app/solver/cases/CASE-127/payments?space=team&teamId=TEAM-21&workspaceId=WS-TEAM-21",
+    );
     render(<SolverCases route={solverRoute("/app/solver/cases/CASE-127/payments")} />);
-    expect(screen.getByRole("heading", { level: 1, name: "پرداخت‌های پرونده" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 1, name: "پرداخت‌های پرونده" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("رسید نمونه")).toBeInTheDocument();
     expect(screen.getByText("REC-PAY-127-1")).toBeInTheDocument();
   });
 
   it("تاریخچه نسخه پیشنهاد، نویسنده و مقایسه واقعی دارد", () => {
-    window.history.replaceState({}, "", "/app/solver/proposals/PR-104/versions?space=team&teamId=TEAM-21&workspaceId=WS-TEAM-21");
+    window.history.replaceState(
+      {},
+      "",
+      "/app/solver/proposals/PR-104/versions?space=team&teamId=TEAM-21&workspaceId=WS-TEAM-21",
+    );
     render(<SolverProposalVersions route={solverRoute("/app/solver/proposals/PR-104/versions")} />);
     expect(
       screen.getByRole("heading", { level: 1, name: "تاریخچه نسخه‌های پیشنهاد" }),

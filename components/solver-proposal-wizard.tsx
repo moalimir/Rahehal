@@ -1,14 +1,26 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { ChallengeOrganizationLogo } from "@/components/challenge-organization-logo";
 import { Icon } from "@/components/icons";
 import { ConfirmDialog } from "@/components/internal/shared";
+import { StepFields } from "@/components/solver-proposal/step-fields";
+import {
+  fromRepositoryContent,
+  initialDraft,
+  steps,
+  toRepositoryContent,
+  validateStep,
+  type DraftErrors,
+  type DraftField,
+  type ProposalDraft,
+  type ProposalStep,
+} from "@/components/solver-proposal/model";
 import { useSolverContext, type SolverSpace } from "@/components/solver-shell";
 import { challenges } from "@/data/mock";
 import { getChallengePublisher } from "@/data/challenge-publishers";
-import type { MutationReceipt, ProposalContent } from "@/domain/solver";
+import type { MutationReceipt } from "@/domain/solver";
 import { buildSolverHref } from "@/lib/solver/context";
 import { challengeEligibilityRules, evaluateEligibility } from "@/lib/solver/eligibility";
 import {
@@ -20,646 +32,6 @@ import {
   submitProposal,
   teamPermission,
 } from "@/lib/solver/repository";
-
-type ProposalStep = "summary" | "technical" | "execution" | "team" | "budget" | "review";
-
-type ProposalDraft = {
-  title: string;
-  executiveSummary: string;
-  stage: string;
-  prototypeWeeks: string;
-  value: string;
-  technologies: string;
-  problemUnderstanding: string;
-  technicalApproach: string;
-  architecture: string;
-  requiredData: string;
-  successMetrics: string;
-  ipStatus: string;
-  milestones: string;
-  durationWeeks: string;
-  pilotLocation: string;
-  dependencies: string;
-  risks: string;
-  mitigation: string;
-  teamLead: string;
-  teamComposition: string;
-  relevantExperience: string;
-  teamAvailability: string;
-  requestedBudget: string;
-  paymentModel: string;
-  budgetRationale: string;
-  startAvailability: string;
-  ndaAccepted: boolean;
-  conflictDeclared: boolean;
-  ipAccepted: boolean;
-  accuracyConfirmed: boolean;
-};
-
-type DraftField = keyof ProposalDraft;
-type DraftErrors = Partial<Record<DraftField, string>>;
-
-const steps: Array<{ key: ProposalStep; label: string; hint: string }> = [
-  { key: "summary", label: "خلاصه راه‌حل", hint: "معرفی و ارزش پیشنهادی" },
-  { key: "technical", label: "راهکار فنی", hint: "روش و شاخص موفقیت" },
-  { key: "execution", label: "برنامه اجرا", hint: "مراحل، زمان و ریسک" },
-  { key: "team", label: "تیم و سوابق", hint: "توان اجرا و مدارک" },
-  { key: "budget", label: "بودجه و تعهدات", hint: "هزینه و شرایط همکاری" },
-  { key: "review", label: "مرور و ارسال", hint: "کنترل نهایی و رسید" },
-];
-
-const initialDraft: ProposalDraft = {
-  title: "",
-  executiveSummary: "",
-  stage: "",
-  prototypeWeeks: "۸",
-  value: "",
-  technologies: "یادگیری ماشین، نگهداری پیش‌بینانه",
-  problemUnderstanding: "",
-  technicalApproach: "",
-  architecture: "",
-  requiredData: "",
-  successMetrics: "",
-  ipStatus: "",
-  milestones: "",
-  durationWeeks: "",
-  pilotLocation: "",
-  dependencies: "",
-  risks: "",
-  mitigation: "",
-  teamLead: "",
-  teamComposition: "",
-  relevantExperience: "",
-  teamAvailability: "",
-  requestedBudget: "",
-  paymentModel: "",
-  budgetRationale: "",
-  startAvailability: "",
-  ndaAccepted: false,
-  conflictDeclared: false,
-  ipAccepted: false,
-  accuracyConfirmed: false,
-};
-
-function normalizeDigits(value: string) {
-  return value
-    .replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit)))
-    .replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)));
-}
-
-function toRepositoryContent(draft: ProposalDraft, evidenceName = ""): ProposalContent {
-  return {
-    title: draft.title,
-    problemStatement: `${draft.executiveSummary}\n${draft.problemUnderstanding}`.trim(),
-    valueProposition: draft.value,
-    maturityLevel: draft.stage,
-    prototypeWeeks: normalizeDigits(draft.prototypeWeeks),
-    technologies: draft.technologies.split(/[،,]/).map((item) => item.trim()).filter(Boolean),
-    technicalApproach: draft.technicalApproach,
-    architecture: draft.architecture,
-    dataNeeds: draft.requiredData,
-    successMetrics: draft.successMetrics,
-    ipStatus: draft.ipStatus,
-    durationWeeks: normalizeDigits(draft.durationWeeks),
-    roadmap: draft.milestones,
-    dependencies: `${draft.dependencies}\nمحل پایلوت: ${draft.pilotLocation}`.trim(),
-    pilotLocation: draft.pilotLocation,
-    risks: `${draft.risks}\nبرنامه کنترل: ${draft.mitigation}`.trim(),
-    mitigation: draft.mitigation,
-    leadName: draft.teamLead,
-    teamSummary: draft.teamComposition,
-    relevantExperience: draft.relevantExperience,
-    requestedBudget: normalizeDigits(draft.requestedBudget),
-    paymentModel: draft.paymentModel,
-    budgetRationale: draft.budgetRationale,
-    startAvailability: draft.startAvailability || draft.teamAvailability,
-    teamAvailability: draft.teamAvailability,
-    ndaAccepted: draft.ndaAccepted,
-    conflictDeclared: draft.conflictDeclared,
-    ipAccepted: draft.ipAccepted,
-    accuracyConfirmed: draft.accuracyConfirmed,
-    attachmentNames: evidenceName ? [evidenceName] : [],
-  };
-}
-
-function fromRepositoryContent(content: ProposalContent): ProposalDraft {
-  const [executiveSummary = "", problemUnderstanding = ""] = content.problemStatement.split("\n");
-  const [dependencies = "", pilotLocation = ""] = content.dependencies.split("\nمحل پایلوت: ");
-  const [risks = "", mitigation = ""] = content.risks.split("\nبرنامه کنترل: ");
-  return {
-    ...initialDraft,
-    title: content.title,
-    executiveSummary,
-    problemUnderstanding,
-    stage: content.maturityLevel,
-    prototypeWeeks: content.prototypeWeeks || initialDraft.prototypeWeeks,
-    value: content.valueProposition,
-    technologies: content.technologies.join("، "),
-    technicalApproach: content.technicalApproach,
-    architecture: content.architecture,
-    requiredData: content.dataNeeds,
-    successMetrics: content.successMetrics,
-    ipStatus: content.ipStatus ?? "",
-    milestones: content.roadmap,
-    durationWeeks: content.durationWeeks,
-    pilotLocation: content.pilotLocation || pilotLocation,
-    dependencies,
-    risks,
-    mitigation: content.mitigation || mitigation,
-    teamLead: content.leadName,
-    teamComposition: content.teamSummary,
-    relevantExperience: content.relevantExperience,
-    requestedBudget: content.requestedBudget,
-    paymentModel: content.paymentModel,
-    budgetRationale: content.budgetRationale,
-    startAvailability: content.startAvailability,
-    teamAvailability: content.teamAvailability || content.startAvailability,
-    ndaAccepted: content.ndaAccepted,
-    conflictDeclared: content.conflictDeclared,
-    ipAccepted: content.ipAccepted,
-    accuracyConfirmed: content.accuracyConfirmed,
-  };
-}
-
-function validateStep(step: Exclude<ProposalStep, "review">, draft: ProposalDraft): DraftErrors {
-  const errors: DraftErrors = {};
-  if (step === "summary") {
-    if (draft.title.trim().length < 5)
-      errors.title = "عنوان راه‌حل باید حداقل ۵ کاراکتر و مشخص باشد.";
-    if (draft.executiveSummary.trim().length < 80)
-      errors.executiveSummary =
-        "خلاصه اجرایی باید حداقل ۸۰ کاراکتر و شامل مسئله، راهکار و نتیجه باشد.";
-    if (!draft.stage) errors.stage = "مرحله فعلی راه‌حل را انتخاب کنید.";
-    if (!/^\d{1,2}$/.test(normalizeDigits(draft.prototypeWeeks)) || Number(normalizeDigits(draft.prototypeWeeks)) < 1)
-      errors.prototypeWeeks = "زمان نمونه اولیه را به‌صورت عددی بین ۱ تا ۹۹ هفته وارد کنید.";
-    if (draft.value.trim().length < 40)
-      errors.value = "ارزش و مزیت راه‌حل را در حداقل ۴۰ کاراکتر توضیح دهید.";
-    if (draft.technologies.trim().length < 3)
-      errors.technologies = "حداقل یک فناوری یا کلیدواژه وارد کنید.";
-  }
-  if (step === "technical") {
-    if (draft.problemUnderstanding.trim().length < 60)
-      errors.problemUnderstanding =
-        "برداشت خود از مسئله و محدودیت‌های آن را در حداقل ۶۰ کاراکتر بنویسید.";
-    if (draft.technicalApproach.trim().length < 100)
-      errors.technicalApproach = "روش فنی باید حداقل ۱۰۰ کاراکتر و شامل منطق راهکار باشد.";
-    if (draft.architecture.trim().length < 40)
-      errors.architecture = "اجزای اصلی معماری و ارتباط آن‌ها را توضیح دهید.";
-    if (draft.requiredData.trim().length < 20)
-      errors.requiredData = "داده، دسترسی یا زیرساخت موردنیاز را مشخص کنید.";
-    if (draft.successMetrics.trim().length < 30)
-      errors.successMetrics = "حداقل یک شاخص کمی موفقیت و روش اندازه‌گیری آن را بنویسید.";
-    if (!draft.ipStatus) errors.ipStatus = "وضعیت مالکیت فکری راه‌حل را انتخاب کنید.";
-  }
-  if (step === "execution") {
-    if (draft.milestones.trim().length < 80)
-      errors.milestones = "حداقل سه مرحله با خروجی قابل تحویل و معیار پذیرش تعریف کنید.";
-    if (!/^\d{1,2}$/.test(normalizeDigits(draft.durationWeeks)) || Number(normalizeDigits(draft.durationWeeks)) < 1)
-      errors.durationWeeks = "مدت کل اجرا را به‌صورت عددی و بر حسب هفته وارد کنید.";
-    if (draft.pilotLocation.trim().length < 3)
-      errors.pilotLocation = "محل یا شرایط اجرای پایلوت را مشخص کنید.";
-    if (draft.dependencies.trim().length < 20)
-      errors.dependencies = "وابستگی‌های سازمان، داده، تجهیز یا مجوز را مشخص کنید.";
-    if (draft.risks.trim().length < 30) errors.risks = "ریسک‌های اصلی فنی یا اجرایی را توضیح دهید.";
-    if (draft.mitigation.trim().length < 30)
-      errors.mitigation = "برای ریسک‌های اصلی، برنامه کنترل و جایگزین بنویسید.";
-  }
-  if (step === "team") {
-    if (draft.teamLead.trim().length < 3) errors.teamLead = "نام مسئول اصلی پیشنهاد را وارد کنید.";
-    if (draft.teamComposition.trim().length < 50)
-      errors.teamComposition =
-        "نقش‌ها، مسئولیت‌ها و ظرفیت اعضای کلیدی را در حداقل ۵۰ کاراکتر بنویسید.";
-    if (draft.relevantExperience.trim().length < 50)
-      errors.relevantExperience = "حداقل یک تجربه مرتبط، نتیجه و نقش خود را توضیح دهید.";
-    if (!draft.teamAvailability) errors.teamAvailability = "ظرفیت زمانی فرد یا تیم را انتخاب کنید.";
-  }
-  if (step === "budget") {
-    if (
-      !/^\d+$/.test(normalizeDigits(draft.requestedBudget).replaceAll(",", "")) ||
-      Number(normalizeDigits(draft.requestedBudget).replaceAll(",", "")) < 1
-    )
-      errors.requestedBudget = "بودجه پیشنهادی را فقط به‌صورت عدد و به تومان وارد کنید.";
-    if (!draft.paymentModel) errors.paymentModel = "مدل پرداخت پیشنهادی را انتخاب کنید.";
-    if (draft.budgetRationale.trim().length < 40)
-      errors.budgetRationale = "مبنای برآورد هزینه را در حداقل ۴۰ کاراکتر توضیح دهید.";
-    if (!draft.startAvailability)
-      errors.startAvailability = "زمان آمادگی برای شروع را انتخاب کنید.";
-    if (!draft.ndaAccepted) errors.ndaAccepted = "پذیرش محرمانگی برای ارسال پیشنهاد الزامی است.";
-    if (!draft.conflictDeclared)
-      errors.conflictDeclared = "وضعیت تعارض منافع را صریحاً تأیید کنید.";
-    if (!draft.ipAccepted)
-      errors.ipAccepted = "چارچوب مالکیت فکری و استفاده از سوابق قبلی را تأیید کنید.";
-  }
-  return errors;
-}
-
-function Field({
-  label,
-  required,
-  error,
-  hint,
-  wide,
-  children,
-}: {
-  label: string;
-  required?: boolean;
-  error?: string;
-  hint?: string;
-  wide?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <label className={`rh-wizard-field ${wide ? "is-wide" : ""}`}>
-      <span>
-        {label}
-        {required && <b> *</b>}
-      </span>
-      {children}
-      {error ? (
-        <small className="rh-wizard-error" role="alert">
-          {error}
-        </small>
-      ) : hint ? (
-        <small>{hint}</small>
-      ) : null}
-    </label>
-  );
-}
-
-function wordCount(value: string) {
-  return value.trim() ? value.trim().split(/\s+/).length.toLocaleString("fa-IR") : "۰";
-}
-
-function StepFields({
-  step,
-  draft,
-  errors,
-  update,
-  space,
-  evidenceName,
-  onEvidence,
-  workspaceName,
-  profileHref,
-}: {
-  step: ProposalStep;
-  draft: ProposalDraft;
-  errors: DraftErrors;
-  update: <K extends DraftField>(field: K, value: ProposalDraft[K]) => void;
-  space: SolverSpace;
-  evidenceName: string;
-  onEvidence: (event: ChangeEvent<HTMLInputElement>) => void;
-  workspaceName: string;
-  profileHref: string;
-}) {
-  if (step === "summary")
-    return (
-      <>
-        <Field label="عنوان پیشنهادی راه‌حل" required error={errors.title} wide>
-          <input
-            value={draft.title}
-            onChange={(event) => update("title", event.target.value)}
-            placeholder="یک عنوان کوتاه، مشخص و نتیجه‌محور"
-          />
-        </Field>
-        <Field
-          label="خلاصه اجرایی"
-          required
-          error={errors.executiveSummary}
-          hint={`${wordCount(draft.executiveSummary)} واژه`}
-          wide
-        >
-          <textarea
-            rows={5}
-            value={draft.executiveSummary}
-            onChange={(event) => update("executiveSummary", event.target.value)}
-            placeholder="مسئله، راهکار پیشنهادی، روش اجرا و نتیجه مورد انتظار را در ۸۰ تا ۳۰۰ کلمه توضیح دهید."
-          />
-        </Field>
-        <Field label="مرحله فعلی راه‌حل" required error={errors.stage}>
-          <select value={draft.stage} onChange={(event) => update("stage", event.target.value)}>
-            <option value="">انتخاب کنید</option>
-            <option value="concept">ایده اعتبارسنجی‌شده</option>
-            <option value="prototype">نمونه اولیه آزمایشگاهی</option>
-            <option value="pilot">پایلوت اجراشده</option>
-            <option value="market">محصول آماده استقرار</option>
-          </select>
-        </Field>
-        <Field
-          label="زمان لازم تا نمونه اولیه"
-          required
-          error={errors.prototypeWeeks}
-          hint="بر حسب هفته"
-        >
-          <input
-            dir="ltr"
-            inputMode="numeric"
-            value={draft.prototypeWeeks}
-            onChange={(event) => update("prototypeWeeks", event.target.value)}
-            placeholder="مثلاً ۸"
-          />
-        </Field>
-        <Field label="ارزش پیشنهادی و مزیت راه‌حل" required error={errors.value} wide>
-          <textarea
-            rows={3}
-            value={draft.value}
-            onChange={(event) => update("value", event.target.value)}
-            placeholder="چرا این راه‌حل مؤثر است و نسبت به روش‌های موجود چه مزیت قابل سنجشی دارد؟"
-          />
-        </Field>
-        <Field
-          label="فناوری‌ها و کلیدواژه‌ها"
-          required
-          error={errors.technologies}
-          hint="موارد را با ویرگول جدا کنید."
-          wide
-        >
-          <input
-            value={draft.technologies}
-            onChange={(event) => update("technologies", event.target.value)}
-          />
-        </Field>
-      </>
-    );
-  if (step === "technical")
-    return (
-      <>
-        <Field label="برداشت شما از مسئله" required error={errors.problemUnderstanding} wide>
-          <textarea
-            rows={4}
-            value={draft.problemUnderstanding}
-            onChange={(event) => update("problemUnderstanding", event.target.value)}
-            placeholder="ریشه مسئله، محدودیت‌ها و فرض‌های کلیدی را توضیح دهید."
-          />
-        </Field>
-        <Field label="روش و منطق فنی راه‌حل" required error={errors.technicalApproach} wide>
-          <textarea
-            rows={6}
-            value={draft.technicalApproach}
-            onChange={(event) => update("technicalApproach", event.target.value)}
-            placeholder="فرایند، الگوریتم، تجهیزات یا روش آزمون را مرحله‌به‌مرحله شرح دهید."
-          />
-        </Field>
-        <Field
-          label="معماری و اجزای اصلی"
-          required
-          error={errors.architecture}
-          hint="اجزای نرم‌افزاری و سخت‌افزاری، نقش هر جزء و ارتباط میان آن‌ها را مشخص کنید."
-        >
-          <textarea
-            rows={4}
-            value={draft.architecture}
-            onChange={(event) => update("architecture", event.target.value)}
-            placeholder="برای نمونه: حسگرها ← درگاه جمع‌آوری ← موتور تحلیل ← داشبورد هشدار؛ نقش و ارتباط هر جزء را توضیح دهید."
-          />
-        </Field>
-        <Field
-          label="داده و زیرساخت موردنیاز"
-          required
-          error={errors.requiredData}
-          hint="نوع داده، روش دسترسی، زیرساخت پردازش و محدودیت‌های امنیتی را بنویسید."
-        >
-          <textarea
-            rows={4}
-            value={draft.requiredData}
-            onChange={(event) => update("requiredData", event.target.value)}
-            placeholder="برای نمونه: تاریخچه خرابی و داده حسگرها، دسترسی API، سرور یا فضای ابری و الزامات نگهداری امن داده."
-          />
-        </Field>
-        <Field label="شاخص‌های کمی موفقیت" required error={errors.successMetrics} wide>
-          <textarea
-            rows={3}
-            value={draft.successMetrics}
-            onChange={(event) => update("successMetrics", event.target.value)}
-            placeholder="برای نمونه: کاهش ۲۰٪ توقف خط در سه ماه، با اندازه‌گیری از داده نگهداری."
-          />
-        </Field>
-        <Field label="وضعیت مالکیت فکری" required error={errors.ipStatus} wide>
-          <select
-            value={draft.ipStatus}
-            onChange={(event) => update("ipStatus", event.target.value)}
-          >
-            <option value="">انتخاب کنید</option>
-            <option value="owned">کاملاً متعلق به فرد یا تیم ماست</option>
-            <option value="licensed">دارای مجوز استفاده معتبر است</option>
-            <option value="mixed">ترکیبی از دارایی قبلی و توسعه جدید است</option>
-            <option value="open">مبتنی بر اجزای متن‌باز با مجوز سازگار است</option>
-          </select>
-        </Field>
-      </>
-    );
-  if (step === "execution")
-    return (
-      <>
-        <Field
-          label="مراحل اجرا، خروجی و معیار پذیرش"
-          required
-          error={errors.milestones}
-          hint="حداقل سه مرحله را با شماره، مدت، خروجی و معیار پذیرش بنویسید."
-          wide
-        >
-          <textarea
-            rows={7}
-            value={draft.milestones}
-            onChange={(event) => update("milestones", event.target.value)}
-            placeholder={
-              "۱. شناخت و خط مبنا — ۲ هفته — گزارش داده — تأیید سازمان\n۲. ساخت نمونه — ۴ هفته — نمونه قابل آزمون — عبور از KPI\n۳. پایلوت — ۶ هفته — گزارش نهایی — پذیرش کمی"
-            }
-          />
-        </Field>
-        <Field label="مدت کل اجرا" required error={errors.durationWeeks} hint="بر حسب هفته">
-          <input
-            dir="ltr"
-            inputMode="numeric"
-            value={draft.durationWeeks}
-            onChange={(event) => update("durationWeeks", event.target.value)}
-            placeholder="مثلاً ۱۲"
-          />
-        </Field>
-        <Field label="محل یا شرایط پایلوت" required error={errors.pilotLocation}>
-          <input
-            value={draft.pilotLocation}
-            onChange={(event) => update("pilotLocation", event.target.value)}
-            placeholder="سایت سازمان، آزمایشگاه یا محیط شبیه‌سازی"
-          />
-        </Field>
-        <Field label="وابستگی‌ها و نیازمندی‌های سازمان" required error={errors.dependencies} wide>
-          <textarea
-            rows={3}
-            value={draft.dependencies}
-            onChange={(event) => update("dependencies", event.target.value)}
-            placeholder="داده، تجهیز، دسترسی، مجوز، مسئول سازمانی یا توقف خط موردنیاز"
-          />
-        </Field>
-        <Field label="ریسک‌های اصلی" required error={errors.risks}>
-          <textarea
-            rows={4}
-            value={draft.risks}
-            onChange={(event) => update("risks", event.target.value)}
-          />
-        </Field>
-        <Field label="برنامه کنترل و مسیر جایگزین" required error={errors.mitigation}>
-          <textarea
-            rows={4}
-            value={draft.mitigation}
-            onChange={(event) => update("mitigation", event.target.value)}
-          />
-        </Field>
-      </>
-    );
-  if (step === "team")
-    return (
-      <>
-        <div className="rh-wizard-space-note is-wide">
-          <Icon name={space === "team" ? "people" : "brief"} />
-          <div>
-            <strong>ارسال از طرف {workspaceName}</strong>
-            <span>
-              {space === "team"
-                ? "نقش و اختیار اعضا پیش از ارسال نهایی کنترل می‌شود."
-                : "توان فردی شما ارزیابی می‌شود؛ همکاران فقط در صورت مشارکت واقعی معرفی شوند."}
-            </span>
-          </div>
-          <Link href={profileHref}>مشاهده پروفایل</Link>
-        </div>
-        <Field label="مسئول اصلی پیشنهاد" required error={errors.teamLead}>
-          <input
-            value={draft.teamLead}
-            onChange={(event) => update("teamLead", event.target.value)}
-            placeholder={space === "team" ? "نام مدیر یا مسئول فنی تیم" : "نام و نام خانوادگی شما"}
-          />
-        </Field>
-        <Field label="ظرفیت زمانی برای این پروژه" required error={errors.teamAvailability}>
-          <select
-            value={draft.teamAvailability}
-            onChange={(event) => update("teamAvailability", event.target.value)}
-          >
-            <option value="">انتخاب کنید</option>
-            <option value="part">تا ۲۰ ساعت در هفته</option>
-            <option value="half">۲۰ تا ۴۰ ساعت در هفته</option>
-            <option value="full">تیم تمام‌وقت پروژه</option>
-          </select>
-        </Field>
-        <Field
-          label={space === "team" ? "ترکیب تیم، نقش‌ها و مسئولیت‌ها" : "نقش شما و همکاران احتمالی"}
-          required
-          error={errors.teamComposition}
-          wide
-        >
-          <textarea
-            rows={5}
-            value={draft.teamComposition}
-            onChange={(event) => update("teamComposition", event.target.value)}
-            placeholder="نام یا نقش، تخصص، مسئولیت در پروژه و میزان درگیری هر عضو را بنویسید."
-          />
-        </Field>
-        <Field
-          label="سابقه مرتبط و نتیجه قابل استناد"
-          required
-          error={errors.relevantExperience}
-          wide
-        >
-          <textarea
-            rows={5}
-            value={draft.relevantExperience}
-            onChange={(event) => update("relevantExperience", event.target.value)}
-            placeholder="پروژه مرتبط، کارفرما یا صنعت، نقش شما، خروجی و نتیجه قابل اندازه‌گیری را توضیح دهید."
-          />
-        </Field>
-        <label className="rh-wizard-upload is-wide">
-          <input type="file" accept=".pdf,.doc,.docx" onChange={onEvidence} />
-          <Icon name="download" />
-          <span>
-            <strong>
-              {evidenceName ||
-                (space === "team"
-                  ? "بارگذاری رزومه تیم و سوابق اعضای کلیدی"
-                  : "بارگذاری رزومه و سوابق مرتبط")}
-            </strong>
-            <small>PDF یا DOCX، حداکثر ۱۰ مگابایت؛ اطلاعات محرمانه بارگذاری نکنید.</small>
-          </span>
-        </label>
-      </>
-    );
-  if (step === "budget")
-    return (
-      <>
-        <Field
-          label="بودجه کل پیشنهادی"
-          required
-          error={errors.requestedBudget}
-          hint="مبلغ به تومان؛ مالیات و هزینه‌های جانبی را در توضیح مشخص کنید."
-        >
-          <input
-            dir="ltr"
-            inputMode="numeric"
-            value={draft.requestedBudget}
-            onChange={(event) =>
-              update("requestedBudget", event.target.value.replace(/[^0-9,]/g, ""))
-            }
-            placeholder="مثلاً 780,000,000"
-          />
-        </Field>
-        <Field label="مدل پرداخت" required error={errors.paymentModel}>
-          <select
-            value={draft.paymentModel}
-            onChange={(event) => update("paymentModel", event.target.value)}
-          >
-            <option value="">انتخاب کنید</option>
-            <option value="milestone">مرحله‌ای پس از پذیرش خروجی</option>
-            <option value="mixed">پیش‌پرداخت و پرداخت مرحله‌ای</option>
-            <option value="pilot">بودجه مستقل پایلوت</option>
-          </select>
-        </Field>
-        <Field label="مبنای برآورد و تفکیک هزینه" required error={errors.budgetRationale} wide>
-          <textarea
-            rows={4}
-            value={draft.budgetRationale}
-            onChange={(event) => update("budgetRationale", event.target.value)}
-            placeholder="نیروی انسانی، تجهیز، مواد، نرم‌افزار، آزمون و هزینه‌های سفر را شفاف کنید."
-          />
-        </Field>
-        <Field label="آمادگی برای شروع" required error={errors.startAvailability} wide>
-          <select
-            value={draft.startAvailability}
-            onChange={(event) => update("startAvailability", event.target.value)}
-          >
-            <option value="">انتخاب کنید</option>
-            <option value="immediate">بلافاصله پس از قرارداد</option>
-            <option value="2weeks">حداکثر دو هفته پس از قرارداد</option>
-            <option value="month">حداکثر یک ماه پس از قرارداد</option>
-          </select>
-        </Field>
-        <label className="rh-wizard-consent is-wide">
-          <input
-            type="checkbox"
-            checked={draft.ndaAccepted}
-            onChange={(event) => update("ndaAccepted", event.target.checked)}
-          />
-          <span>تعهد محرمانگی و استفاده محدود از داده‌های سازمان را می‌پذیرم.</span>
-          {errors.ndaAccepted && <small role="alert">{errors.ndaAccepted}</small>}
-        </label>
-        <label className="rh-wizard-consent is-wide">
-          <input
-            type="checkbox"
-            checked={draft.conflictDeclared}
-            onChange={(event) => update("conflictDeclared", event.target.checked)}
-          />
-          <span>تأیید می‌کنم تعارض منافع اعلام‌نشده‌ای با این پروژه یا سازمان ندارم.</span>
-          {errors.conflictDeclared && <small role="alert">{errors.conflictDeclared}</small>}
-        </label>
-        <label className="rh-wizard-consent is-wide">
-          <input
-            type="checkbox"
-            checked={draft.ipAccepted}
-            onChange={(event) => update("ipAccepted", event.target.checked)}
-          />
-          <span>دارایی فکری قبلی را شفاف اعلام می‌کنم و چارچوب مالکیت خروجی جدید را می‌پذیرم.</span>
-          {errors.ipAccepted && <small role="alert">{errors.ipAccepted}</small>}
-        </label>
-      </>
-    );
-  return null;
-}
 
 export function SolverProposalWizard({
   path,
@@ -676,7 +48,8 @@ export function SolverProposalWizard({
     hookContext.type === space
       ? hookContext
       : space === "team"
-        ? activeWorkspaces(initialState).find((workspace) => workspace.type === "team") ?? hookContext
+        ? (activeWorkspaces(initialState).find((workspace) => workspace.type === "team") ??
+          hookContext)
         : ({ type: "individual", workspaceId: initialState.personalWorkspace.id } as const);
   const routeStep = path.split("/").filter(Boolean).at(-1) as ProposalStep | undefined;
   const activeStep = steps.some((item) => item.key === routeStep) ? routeStep! : "summary";
@@ -686,7 +59,9 @@ export function SolverProposalWizard({
   const [saveState, setSaveState] = useState("ذخیره خودکار فعال است");
   const [notice, setNotice] = useState("");
   const [evidenceName, setEvidenceName] = useState("");
-  const [uploadState, setUploadState] = useState<"idle" | "uploading" | "success" | "error">("idle");
+  const [uploadState, setUploadState] = useState<"idle" | "uploading" | "success" | "error">(
+    "idle",
+  );
   const [uploadProgress, setUploadProgress] = useState(0);
   const [confirmationOpen, setConfirmationOpen] = useState(false);
   const [submissionReceipt, setSubmissionReceipt] = useState<MutationReceipt | null>(null);
@@ -901,7 +276,9 @@ export function SolverProposalWizard({
       <header className="rh-wizard-heading">
         <div>
           <nav aria-label="مسیر صفحه">
-            <Link href={buildSolverHref("/app/solver/opportunities", context)}>چالش‌ها و فرصت‌ها</Link>
+            <Link href={buildSolverHref("/app/solver/opportunities", context)}>
+              چالش‌ها و فرصت‌ها
+            </Link>
             <Icon name="chevron" />
             <span>{selectedChallenge.title}</span>
           </nav>
@@ -924,7 +301,9 @@ export function SolverProposalWizard({
               )}
             </span>
           </div>
-          <Link href={buildSolverHref(`/app/solver/opportunities/${selectedChallenge.slug}`, context)}>
+          <Link
+            href={buildSolverHref(`/app/solver/opportunities/${selectedChallenge.slug}`, context)}
+          >
             مشاهده جزئیات چالش
           </Link>
         </section>
@@ -999,13 +378,19 @@ export function SolverProposalWizard({
                 </small>
               </div>
             </div>
-            <Link href={buildSolverHref("/app/solver/profile", context)}>بررسی پروفایل و آمادگی</Link>
-            <p className={eligibility.status === "eligible" ? "rh-eligible" : "rh-eligibility-error"}>
+            <Link href={buildSolverHref("/app/solver/profile", context)}>
+              بررسی پروفایل و آمادگی
+            </Link>
+            <p
+              className={eligibility.status === "eligible" ? "rh-eligible" : "rh-eligibility-error"}
+            >
               <Icon name={eligibility.status === "eligible" ? "check" : "notification"} />
               {eligibility.reasons[0]}
             </p>
             {!submitPermission.allowed && (
-              <p className="rh-eligibility-error" role="note">{submitPermission.reason}</p>
+              <p className="rh-eligibility-error" role="note">
+                {submitPermission.reason}
+              </p>
             )}
           </section>
           <section className="rh-card rh-wizard-guide">
@@ -1051,10 +436,41 @@ export function SolverProposalWizard({
                         ? `فایل ${evidenceName} آماده است.`
                         : "بارگذاری فایل ناموفق بود؛ فایل معتبر دیگری انتخاب کنید."}
                   </span>
-                  {uploadState === "uploading" && <progress aria-label="پیشرفت بارگذاری پیوست پیشنهاد" max={100} value={uploadProgress}>{uploadProgress}%</progress>}
-                  {uploadState === "error" && <button type="button" onClick={() => { setUploadState("idle"); setUploadProgress(0); }}>تلاش دوباره</button>}
+                  {uploadState === "uploading" && (
+                    <progress
+                      aria-label="پیشرفت بارگذاری پیوست پیشنهاد"
+                      max={100}
+                      value={uploadProgress}
+                    >
+                      {uploadProgress}%
+                    </progress>
+                  )}
+                  {uploadState === "error" && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUploadState("idle");
+                        setUploadProgress(0);
+                      }}
+                    >
+                      تلاش دوباره
+                    </button>
+                  )}
                   {uploadState === "success" && (
-                    <button type="button" onClick={() => { setEvidenceName(""); setUploadState("idle"); setUploadProgress(0); if (selectedChallenge) saveProposalDraft(selectedChallenge.id, context.workspaceId, toRepositoryContent(draft, "")); }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEvidenceName("");
+                        setUploadState("idle");
+                        setUploadProgress(0);
+                        if (selectedChallenge)
+                          saveProposalDraft(
+                            selectedChallenge.id,
+                            context.workspaceId,
+                            toRepositoryContent(draft, ""),
+                          );
+                      }}
+                    >
                       حذف فایل
                     </button>
                   )}
@@ -1161,7 +577,9 @@ export function SolverProposalWizard({
       </div>
 
       <footer className="rh-wizard-actions">
-        <Link href={buildSolverHref(`/app/solver/opportunities/${selectedChallenge.slug}`, context)}>
+        <Link
+          href={buildSolverHref(`/app/solver/opportunities/${selectedChallenge.slug}`, context)}
+        >
           بازگشت به چالش
         </Link>
         <button type="button" onClick={saveDraft}>
@@ -1203,19 +621,41 @@ export function SolverProposalWizard({
         </div>
       </footer>
       {submissionReceipt && (
-        <section className="rh-card rh-wizard-receipt" role="status" aria-label="رسید ارسال پیشنهاد">
+        <section
+          className="rh-card rh-wizard-receipt"
+          role="status"
+          aria-label="رسید ارسال پیشنهاد"
+        >
           <Icon name="check" />
           <div>
             <h2>پیشنهاد با موفقیت ثبت شد</h2>
             <p>
-              شناسه پیشنهاد <bdi dir="ltr">{submissionReceipt.entityId}</bdi> در فضای «{workspaceName}»
-              برای چالش <bdi dir="ltr">{selectedChallenge.id}</bdi> قفل شد.
+              شناسه پیشنهاد <bdi dir="ltr">{submissionReceipt.entityId}</bdi> در فضای «
+              {workspaceName}» برای چالش <bdi dir="ltr">{selectedChallenge.id}</bdi> قفل شد.
             </p>
             <dl>
-              <div><dt>شماره رسید</dt><dd><bdi dir="ltr">{submissionReceipt.receiptId}</bdi></dd></div>
-              <div><dt>زمان ثبت</dt><dd>{new Intl.DateTimeFormat("fa-IR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(submissionReceipt.timestamp))}</dd></div>
+              <div>
+                <dt>شماره رسید</dt>
+                <dd>
+                  <bdi dir="ltr">{submissionReceipt.receiptId}</bdi>
+                </dd>
+              </div>
+              <div>
+                <dt>زمان ثبت</dt>
+                <dd>
+                  {new Intl.DateTimeFormat("fa-IR", {
+                    dateStyle: "medium",
+                    timeStyle: "short",
+                  }).format(new Date(submissionReceipt.timestamp))}
+                </dd>
+              </div>
             </dl>
-            <Link href={buildSolverHref(`/app/solver/proposals/${submissionReceipt.entityId}/preview`, context)}>
+            <Link
+              href={buildSolverHref(
+                `/app/solver/proposals/${submissionReceipt.entityId}/preview`,
+                context,
+              )}
+            >
               مشاهده پیشنهاد ثبت‌شده
             </Link>
           </div>

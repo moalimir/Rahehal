@@ -26,8 +26,10 @@ function sourceParams(source?: string | URLSearchParams): URLSearchParams {
 
 export function parseSolverContext(
   source?: string | URLSearchParams,
-  state: Pick<SolverState, "currentUser" | "personalWorkspace" | "teams" | "memberships"> =
-    createCanonicalSolverState(),
+  state: Pick<
+    SolverState,
+    "currentUser" | "personalWorkspace" | "teams" | "memberships"
+  > = createCanonicalSolverState(),
 ): SolverContextResolution {
   const params = sourceParams(source);
   const space = params.get("space");
@@ -139,20 +141,25 @@ export function buildStandaloneSolverHref(
 }
 
 export function contextFromLocation(
-  state: Pick<SolverState, "currentUser" | "personalWorkspace" | "teams" | "memberships"> =
-    createCanonicalSolverState(),
+  state: Pick<
+    SolverState,
+    "currentUser" | "personalWorkspace" | "teams" | "memberships"
+  > = createCanonicalSolverState(),
 ): SolverContextResolution {
   if (typeof window === "undefined") return { ok: true, context: DEFAULT_SOLVER_CONTEXT };
-  const source = document.documentElement.dataset.challengeStandalone === "true"
-    ? window.location.hash
-    : window.location.search;
+  const source =
+    document.documentElement.dataset.challengeStandalone === "true"
+      ? window.location.hash
+      : window.location.search;
   return parseSolverContext(source, state);
 }
 
 export function workspaceContextForTeam(
   teamId: string,
-  state: Pick<SolverState, "currentUser" | "personalWorkspace" | "teams" | "memberships"> =
-    createCanonicalSolverState(),
+  state: Pick<
+    SolverState,
+    "currentUser" | "personalWorkspace" | "teams" | "memberships"
+  > = createCanonicalSolverState(),
 ): SolverContextResolution {
   return parseSolverContext(`space=team&teamId=${encodeURIComponent(teamId)}`, state);
 }

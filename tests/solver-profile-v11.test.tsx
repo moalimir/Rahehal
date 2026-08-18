@@ -38,7 +38,11 @@ describe("فضای حرفه‌ای حل‌کننده", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("نام تیم باید حداقل ۳ کاراکتر باشد");
     individual.unmount();
 
-    window.history.replaceState({}, "", "/app/solver/team-building?space=team&workspaceId=WS-TEAM-21&teamId=TEAM-21");
+    window.history.replaceState(
+      {},
+      "",
+      "/app/solver/team-building?space=team&workspaceId=WS-TEAM-21&teamId=TEAM-21",
+    );
     render(<SolverProfileExperience section="team-building" />);
     expect(
       await screen.findByRole("heading", { level: 1, name: "تکمیل اعضای تیم" }),
@@ -89,8 +93,9 @@ describe("فضای حرفه‌ای حل‌کننده", () => {
     ).toBeInTheDocument();
     const created = readSolverState().teams.find((team) => team.name === "تیم پایش سبز");
     expect(created).toBeDefined();
-    expect(screen.getByRole("link", { name: "ورود به فضای تیم و جذب عضو" }).getAttribute("href"))
-      .toContain(`teamId=${created?.id}`);
+    expect(
+      screen.getByRole("link", { name: "ورود به فضای تیم و جذب عضو" }).getAttribute("href"),
+    ).toContain(`teamId=${created?.id}`);
   });
 
   it("درخواست‌ها را با وضعیت، فیلتر و اقدام بعدی نمایش می‌دهد", async () => {
@@ -107,7 +112,11 @@ describe("فضای حرفه‌ای حل‌کننده", () => {
   });
 
   it("فرصت‌های ذخیره‌شده را در فضای تیمی با قابلیت حذف می‌سازد", async () => {
-    window.history.replaceState({}, "", "/app/solver/saved?space=team&workspaceId=WS-TEAM-21&teamId=TEAM-21");
+    window.history.replaceState(
+      {},
+      "",
+      "/app/solver/saved?space=team&workspaceId=WS-TEAM-21&teamId=TEAM-21",
+    );
     render(<SolverProfileExperience section="saved" />);
     expect(
       await screen.findByText("چالش‌هایی که برای بررسی و اقدام بعدی در فضای تیمی ذخیره کرده‌اید."),
@@ -130,8 +139,9 @@ describe("فضای حرفه‌ای حل‌کننده", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "ثبت رد دعوت" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    expect(readSolverState().invitations.find((item) => item.id === "INV-301")?.decisionReason)
-      .toContain("ظرفیت همکاری");
+    expect(
+      readSolverState().invitations.find((item) => item.id === "INV-301")?.decisionReason,
+    ).toContain("ظرفیت همکاری");
   });
 
   it("پروفایل و رزومه تب‌های کامل و ذخیره تغییرات دارد", async () => {
@@ -141,7 +151,9 @@ describe("فضای حرفه‌ای حل‌کننده", () => {
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "نمونه‌کار و مدارک" }));
     const projects = screen.getByLabelText("پروژه‌ها");
-    fireEvent.change(projects, { target: { value: "پایش مصرف آب\nسامانه پیش‌بینی خرابی تجهیزات" } });
+    fireEvent.change(projects, {
+      target: { value: "پایش مصرف آب\nسامانه پیش‌بینی خرابی تجهیزات" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "ذخیره تغییرات" }));
     expect(screen.getByRole("status")).toHaveTextContent("ذخیره");
   });

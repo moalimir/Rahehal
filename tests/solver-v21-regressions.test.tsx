@@ -11,7 +11,11 @@ import { getInternalRoute } from "@/data/internal-routes";
 
 beforeEach(() => {
   localStorage.clear();
-  window.history.replaceState({}, "", "/app/solver/opportunities?space=team&teamId=TEAM-21&workspaceId=WS-TEAM-21");
+  window.history.replaceState(
+    {},
+    "",
+    "/app/solver/opportunities?space=team&teamId=TEAM-21&workspaceId=WS-TEAM-21",
+  );
 });
 
 afterEach(() => {
@@ -31,7 +35,9 @@ describe("رگرسیون‌های رابط کاربری نسخه ۲۱", () => {
       "aria-pressed",
       "true",
     );
-    expect(localStorage.getItem("rahhal.solver.ui.v1:challenge-layout")).toContain('"value":"list"');
+    expect(localStorage.getItem("rahhal.solver.ui.v1:challenge-layout")).toContain(
+      '"value":"list"',
+    );
     document.querySelectorAll(".rh-challenge-card--list").forEach((card) => {
       expect(card.children).toHaveLength(3);
       expect(card.querySelector(":scope > .rh-challenge-card__primary")).toBeInTheDocument();
@@ -43,7 +49,11 @@ describe("رگرسیون‌های رابط کاربری نسخه ۲۱", () => {
   it("پیش‌نمایش پیشنهاد از نسخه canonical همان رکورد ساخته می‌شود", () => {
     const route = getInternalRoute("/app/solver/proposals/PR-104/preview");
     expect(route).toBeDefined();
-    window.history.replaceState({}, "", "/app/solver/proposals/PR-104/preview?space=team&teamId=TEAM-21&workspaceId=WS-TEAM-21");
+    window.history.replaceState(
+      {},
+      "",
+      "/app/solver/proposals/PR-104/preview?space=team&teamId=TEAM-21&workspaceId=WS-TEAM-21",
+    );
     render(<SolverProposalDetail proposalId="PR-104" />);
 
     expect(
@@ -51,7 +61,9 @@ describe("رگرسیون‌های رابط کاربری نسخه ۲۱", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "نسخه جاری قفل‌شده" })).toBeInTheDocument();
     expect(screen.getAllByText("PV-104-2", { exact: false }).length).toBeGreaterThan(0);
-    expect(screen.getByRole("link", { name: "اعمال اصلاحات" }).getAttribute("href")).toContain("teamId=TEAM-21");
+    expect(screen.getByRole("link", { name: "اعمال اصلاحات" }).getAttribute("href")).toContain(
+      "teamId=TEAM-21",
+    );
   });
 
   it("تنظیمات تیم در اولین رندر کامل است و پوسته آفست دوگانه ندارد", () => {
@@ -90,7 +102,11 @@ describe("رگرسیون‌های رابط کاربری نسخه ۲۱", () => {
   });
 
   it("دعوت‌نامه تیمی جزئیات نقش، تعهد، مالکیت فکری و رد دلیل‌دار دارد", () => {
-    window.history.replaceState({}, "", "/app/solver/invitations?space=individual&workspaceId=WS-PERSONAL-001");
+    window.history.replaceState(
+      {},
+      "",
+      "/app/solver/invitations?space=individual&workspaceId=WS-PERSONAL-001",
+    );
     render(<SolverProfileExperience section="invitations" embedded space="individual" />);
     expect(screen.getByText("مدیر پیشنهاد")).toBeInTheDocument();
     expect(screen.getByText("هفته‌ای ۸ ساعت تا پایان پایلوت")).toBeInTheDocument();

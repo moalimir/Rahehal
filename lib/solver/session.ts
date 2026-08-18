@@ -16,9 +16,9 @@ export function readLastActiveWorkspace(): ActiveWorkspace {
   const available = activeWorkspaces(state);
   if (typeof window === "undefined") return available[0];
   try {
-    const parsed = JSON.parse(localStorage.getItem(SOLVER_ACTIVE_WORKSPACE_KEY) ?? "null") as
-      | ActiveWorkspaceEnvelope
-      | null;
+    const parsed = JSON.parse(
+      localStorage.getItem(SOLVER_ACTIVE_WORKSPACE_KEY) ?? "null",
+    ) as ActiveWorkspaceEnvelope | null;
     if (
       parsed?.version === 2 &&
       parsed.userId === state.currentUser.id &&
@@ -36,7 +36,9 @@ export function readLastActiveWorkspace(): ActiveWorkspace {
   } catch {
     // Corrupt context safely falls back to the canonical personal workspace.
   }
-  return available.find((workspace) => workspace.workspaceId === PERSONAL_WORKSPACE_ID) ?? available[0];
+  return (
+    available.find((workspace) => workspace.workspaceId === PERSONAL_WORKSPACE_ID) ?? available[0]
+  );
 }
 
 export function writeLastActiveWorkspace(context: ActiveWorkspace) {

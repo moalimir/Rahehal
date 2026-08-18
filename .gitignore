@@ -5,6 +5,9 @@ build/
 dist/
 coverage/
 reports/generated/
+playwright-report/
+test-results/
+blob-report/
 
 *.tsbuildinfo
 *.log

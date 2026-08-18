@@ -45,17 +45,33 @@ describe("جریان‌های اصلاح‌شده فرد و تیم در نسخه
   });
 
   it("پیوست proposal دارای progress است و پس از موفقیت در draft همان workspace می‌ماند", async () => {
-    window.location.hash = "#/app/solver/proposals/new/team?space=individual&workspaceId=WS-PERSONAL-001&challenge=CH-1405-022";
-    render(<SolverProposalWizard path="/app/solver/proposals/new/team" space="individual" onSubmit={vi.fn()} />);
+    window.location.hash =
+      "#/app/solver/proposals/new/team?space=individual&workspaceId=WS-PERSONAL-001&challenge=CH-1405-022";
+    render(
+      <SolverProposalWizard
+        path="/app/solver/proposals/new/team"
+        space="individual"
+        onSubmit={vi.fn()}
+      />,
+    );
     const input = screen.getByLabelText(/بارگذاری رزومه و سوابق مرتبط/) as HTMLInputElement;
-    fireEvent.change(input, { target: { files: [new File(["resume"], "proposal-resume.pdf", { type: "application/pdf" })] } });
-    expect(screen.getByRole("progressbar", { name: "پیشرفت بارگذاری پیوست پیشنهاد" })).toHaveAttribute("value", "25");
-    await waitFor(() => expect(screen.getAllByText(/proposal-resume\.pdf/).length).toBeGreaterThan(0));
-    expect(readProposalDraft("CH-1405-022", "WS-PERSONAL-001")?.content.attachmentNames).toContain("proposal-resume.pdf");
+    fireEvent.change(input, {
+      target: { files: [new File(["resume"], "proposal-resume.pdf", { type: "application/pdf" })] },
+    });
+    expect(
+      screen.getByRole("progressbar", { name: "پیشرفت بارگذاری پیوست پیشنهاد" }),
+    ).toHaveAttribute("value", "25");
+    await waitFor(() =>
+      expect(screen.getAllByText(/proposal-resume\.pdf/).length).toBeGreaterThan(0),
+    );
+    expect(readProposalDraft("CH-1405-022", "WS-PERSONAL-001")?.content.attachmentNames).toContain(
+      "proposal-resume.pdf",
+    );
   });
 
   it("فضای تیم درخواست عضویت افراد را همراه رزومه و تعیین نقش بررسی می‌کند", () => {
-    window.location.hash = "#/app/solver/invitations?space=team&workspaceId=WS-TEAM-21&teamId=TEAM-21";
+    window.location.hash =
+      "#/app/solver/invitations?space=team&workspaceId=WS-TEAM-21&teamId=TEAM-21";
     render(<SolverProfileExperience section="invitations" embedded space="team" />);
     expect(
       screen.getByRole("heading", { level: 2, name: "درخواست‌های عضویت" }),
@@ -65,7 +81,11 @@ describe("جریان‌های اصلاح‌شده فرد و تیم در نسخه
     expect(screen.getByRole("heading", { name: /پذیرش عضویت/ })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "تأیید اقدام" }));
     expect(screen.getByRole("status")).toHaveTextContent("عضویت پذیرفته شد");
-    expect(readSolverState().memberships.some((item) => item.userId === "USR-041" && item.teamId === "TEAM-21" && item.state === "active")).toBe(true);
+    expect(
+      readSolverState().memberships.some(
+        (item) => item.userId === "USR-041" && item.teamId === "TEAM-21" && item.state === "active",
+      ),
+    ).toBe(true);
   });
 
   it("تنظیمات فردی از اولین رندر ساختار کامل و عرض قطعی دارد", () => {
@@ -84,7 +104,7 @@ describe("جریان‌های اصلاح‌شده فرد و تیم در نسخه
   });
 
   it("فرم آمادگی تیم ردیف‌های تخصص و بلوغ را هم‌تراز نگه می‌دارد", () => {
-    const source = readFileSync("components/portal-page.tsx", "utf8");
+    const source = readFileSync("components/portal/registration-experiences.tsx", "utf8");
     const css = readFileSync("app/globals.css", "utf8");
     expect(source).toContain("solver-registration-fields--team-profile");
     expect(source).toContain('aria-label="حوزه تخصص اصلی"');

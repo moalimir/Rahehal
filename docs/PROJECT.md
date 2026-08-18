@@ -23,14 +23,14 @@ system because it has no authoritative backend.
 
 ### Roles
 
-| Role | Main namespace | Critical contract |
-| --- | --- | --- |
-| Public/guest | `/`, `/challenges`, `/organizations`, `/guides`, `/legal` | Never expose confidential data |
-| Onboarding | `/auth/*`, `/onboarding/*` | Validation, safe `returnTo`, resume, and receipts |
-| Organization | `/app/org/*` | Publication, decision, acceptance, and access gates |
-| Solver | `/app/solver/*` | Workspace isolation, eligibility, proposal versions, and evidence |
-| Reviewer | `/app/reviewer/*` | Conflict declaration before protected review material |
-| Operations | `/app/ops/*` | SLA, reason codes, disputes, payments, and audit trail |
+| Role         | Main namespace                                            | Critical contract                                                 |
+| ------------ | --------------------------------------------------------- | ----------------------------------------------------------------- |
+| Public/guest | `/`, `/challenges`, `/organizations`, `/guides`, `/legal` | Never expose confidential data                                    |
+| Onboarding   | `/auth/*`, `/onboarding/*`                                | Validation, safe `returnTo`, resume, and receipts                 |
+| Organization | `/app/org/*`                                              | Publication, decision, acceptance, and access gates               |
+| Solver       | `/app/solver/*`                                           | Workspace isolation, eligibility, proposal versions, and evidence |
+| Reviewer     | `/app/reviewer/*`                                         | Conflict declaration before protected review material             |
+| Operations   | `/app/ops/*`                                              | SLA, reason codes, disputes, payments, and audit trail            |
 
 ## 2. Runtime and delivery model
 
@@ -87,24 +87,24 @@ boundary. Browser local storage is not a production database.
 
 ### Key locations
 
-| Location | Responsibility |
-| --- | --- |
-| `app/[...slug]/page.tsx` | Static parameters and route resolution |
-| `app/page.tsx` | Landing and offline route bootstrap |
-| `components/portal-page.tsx` | Public, auth, onboarding, and policy experiences |
-| `components/internal/` | Shared shell and role-specific internal pages |
-| `components/challenge-flow/` | Challenge list/intake/edit/preview/receipt/detail |
-| `data/public-product-routes.ts` | Public/auth/onboarding route contracts |
-| `data/internal-routes.ts` | Canonical internal route contracts and aliases |
-| `data/challenge-flow-routes.ts` | Organization challenge-flow resolver |
-| `data/flow-coverage.ts` | Product-flow coverage catalogue |
-| `domain/product.ts` | Permissions, gates, transitions, and formatters |
-| `domain/challenge.ts` | Typed challenge record |
-| `domain/state-machines.ts` | Workflow transition contracts |
-| `lib/challenges/` | Challenge repository, autosave, validation, readiness |
-| `lib/services/` | Mock async service boundary for a future API client |
-| `scripts/` | Export, manifest, route/link, smoke, and offline tooling |
-| `tests/` | Unit, component, integration, accessibility, and flow tests |
+| Location                        | Responsibility                                              |
+| ------------------------------- | ----------------------------------------------------------- |
+| `app/[...slug]/page.tsx`        | Static parameters and route resolution                      |
+| `app/page.tsx`                  | Landing and offline route bootstrap                         |
+| `components/portal-page.tsx`    | Public, auth, onboarding, and policy experiences            |
+| `components/internal/`          | Shared shell and role-specific internal pages               |
+| `components/challenge-flow/`    | Challenge list/intake/edit/preview/receipt/detail           |
+| `data/public-product-routes.ts` | Public/auth/onboarding route contracts                      |
+| `data/internal-routes.ts`       | Canonical internal route contracts and aliases              |
+| `data/challenge-flow-routes.ts` | Organization challenge-flow resolver                        |
+| `data/flow-coverage.ts`         | Product-flow coverage catalogue                             |
+| `domain/product.ts`             | Permissions, gates, transitions, and formatters             |
+| `domain/challenge.ts`           | Typed challenge record                                      |
+| `domain/state-machines.ts`      | Workflow transition contracts                               |
+| `lib/challenges/`               | Challenge repository, autosave, validation, readiness       |
+| `lib/services/`                 | Mock async service boundary for a future API client         |
+| `scripts/`                      | Export, manifest, route/link, smoke, and offline tooling    |
+| `tests/`                        | Unit, component, integration, accessibility, and flow tests |
 
 ### Architecture rules
 
@@ -207,21 +207,21 @@ security, and sessions; they must retain the active session role.
 
 ### Core identities
 
-| Entity | Example | Important relationship |
-| --- | --- | --- |
-| User | `USR-*` | Member of one or more workspaces |
-| Session | `rahhal.session.v1` | Active role and workspace |
-| Workspace | `WS-*` | Individual, team, or organization context |
-| Organization | `ORG-*` | Publishes challenges |
-| Team / Membership | `TEAM-*` / `TM-*` | Users, roles, ownership, permissions |
-| Challenge | `CH-*` | Organization-owned opportunity |
-| Direct offer | `OFF-*` | Organization to solver/team invitation |
-| Proposal / Version | `PR-*` / `PR-*/v*` | Challenge plus owner workspace |
-| Review assignment | `RV-*` | Proposal plus reviewer and COI state |
-| Decision / Contract | `DEC-*` / `CTR-*/v*` | Selected proposal and legal version |
-| Pilot / Deliverable | `PIL-*` / `DLV-*` | Execution and technical acceptance |
-| Payment | `PAY-*` | Contract, deliverable, approval, reconciliation |
-| Audit / Receipt | `AUD-*` / `RC-*` | Actor, command, entity, version, result |
+| Entity              | Example              | Important relationship                          |
+| ------------------- | -------------------- | ----------------------------------------------- |
+| User                | `USR-*`              | Member of one or more workspaces                |
+| Session             | `rahhal.session.v1`  | Active role and workspace                       |
+| Workspace           | `WS-*`               | Individual, team, or organization context       |
+| Organization        | `ORG-*`              | Publishes challenges                            |
+| Team / Membership   | `TEAM-*` / `TM-*`    | Users, roles, ownership, permissions            |
+| Challenge           | `CH-*`               | Organization-owned opportunity                  |
+| Direct offer        | `OFF-*`              | Organization to solver/team invitation          |
+| Proposal / Version  | `PR-*` / `PR-*/v*`   | Challenge plus owner workspace                  |
+| Review assignment   | `RV-*`               | Proposal plus reviewer and COI state            |
+| Decision / Contract | `DEC-*` / `CTR-*/v*` | Selected proposal and legal version             |
+| Pilot / Deliverable | `PIL-*` / `DLV-*`    | Execution and technical acceptance              |
+| Payment             | `PAY-*`              | Contract, deliverable, approval, reconciliation |
+| Audit / Receipt     | `AUD-*` / `RC-*`     | Actor, command, entity, version, result         |
 
 An ID represents exactly one identity across every role. Lists and details are
 projections of shared registry/repository records.
@@ -229,14 +229,14 @@ projections of shared registry/repository records.
 ### State machines
 
 - Challenge: `draft → under_review → ready → published → evaluating → decided →
-  contracted → piloting → closed`.
+contracted → piloting → closed`.
 - Proposal: `draft → submitted → locked → eligible → clarification/reviewing →
-  selected|rejected`, with revision and resubmission branches.
+selected|rejected`, with revision and resubmission branches.
 - Direct offer: `pending → accepted|declined|expired|cancelled`.
 - Team membership: `requested|invited → active|rejected|expired`, then optionally
   `active → removed`.
 - Review: `assigned → coi_pending → accepted|declined → in_progress → submitted →
-  locked`, with invalidation support.
+locked`, with invalidation support.
 - Contract: `draft → negotiation → approval → signature → effective`, with rejected
   and superseded branches.
 - Pilot: `planned → active → completed|paused|cancelled`.
@@ -277,16 +277,16 @@ synthesis is disabled.
 
 ### Core tokens
 
-| Purpose | Token | Value/meaning |
-| --- | --- | --- |
-| Primary text | `--app-ink` | `#14243b` |
-| Secondary text | `--app-muted` | `#65748a` |
-| Canvas | `--app-canvas` | `#f4f7fa` |
-| Border | `--app-line` | `#dce4ed` |
-| Primary action | `--app-blue` | Role-aware blue |
-| Success | `--app-green` | `#07866f` |
-| Warning | `--app-amber` | `#ad6504` |
-| Danger | `--app-red` | `#c1384f` |
+| Purpose        | Token          | Value/meaning   |
+| -------------- | -------------- | --------------- |
+| Primary text   | `--app-ink`    | `#14243b`       |
+| Secondary text | `--app-muted`  | `#65748a`       |
+| Canvas         | `--app-canvas` | `#f4f7fa`       |
+| Border         | `--app-line`   | `#dce4ed`       |
+| Primary action | `--app-blue`   | Role-aware blue |
+| Success        | `--app-green`  | `#07866f`       |
+| Warning        | `--app-amber`  | `#ad6504`       |
+| Danger         | `--app-red`    | `#c1384f`       |
 
 Shared patterns include panels, metric cards, status badges, case headers and
 navigation, gate checklists, confirmation dialogs, receipt panels, and notices for
@@ -346,23 +346,23 @@ visual regression.
 These are results reported by each historical release, not a claim that the current
 checkout was rebuilt during this documentation consolidation.
 
-| Release | Automated tests | Static output | Other reported gates |
-| --- | ---: | ---: | --- |
-| 1.4 | 86 | — | TypeScript, lint, build, links, offline, RTL shell pass |
-| 1.5 | 88 | 410 HTML files | 248 routes and standalone pass |
-| 1.6 | 93 | 411 pages | 23 E2E tests, links, offline, smoke pass |
-| 1.7 | 95 | 411 pages | 23 E2E tests and route/offline checks pass |
-| 1.8 | 100 | 417 pages | 23 E2E tests and 248 routes pass |
-| 1.9 | 104 | 417 pages | 23 E2E tests and offline checks pass |
-| 2.0 | 106 | 417 pages | Auth/team regressions and offline checks pass |
-| 2.1 | 110 | 417 pages | 248 routes and 416 HTML files pass |
-| 2.2 | 112 | 417 pages | Route/link/standalone checks pass |
-| 2.3 | 116 | 417 pages | Route/link/standalone checks pass |
-| 2.4 | 120 | 420 pages | Offer response and organization-profile checks pass |
-| 2.5 | 124 | 422 pages | Four organization flows and 23 E2E tests pass |
-| 2.7 | 141 | 466 pages | 464 routes, 465 HTML files, standalone pass |
-| 2.8 release gate | 137 | 466 pages | 42 critical tests, axe, route/link/offline pass |
-| 2.9 | 181 | 506 pages | 504 routes, 505 HTML files, 23 E2E and offline pass |
+| Release          | Automated tests |  Static output | Other reported gates                                    |
+| ---------------- | --------------: | -------------: | ------------------------------------------------------- |
+| 1.4              |              86 |              — | TypeScript, lint, build, links, offline, RTL shell pass |
+| 1.5              |              88 | 410 HTML files | 248 routes and standalone pass                          |
+| 1.6              |              93 |      411 pages | 23 E2E tests, links, offline, smoke pass                |
+| 1.7              |              95 |      411 pages | 23 E2E tests and route/offline checks pass              |
+| 1.8              |             100 |      417 pages | 23 E2E tests and 248 routes pass                        |
+| 1.9              |             104 |      417 pages | 23 E2E tests and offline checks pass                    |
+| 2.0              |             106 |      417 pages | Auth/team regressions and offline checks pass           |
+| 2.1              |             110 |      417 pages | 248 routes and 416 HTML files pass                      |
+| 2.2              |             112 |      417 pages | Route/link/standalone checks pass                       |
+| 2.3              |             116 |      417 pages | Route/link/standalone checks pass                       |
+| 2.4              |             120 |      420 pages | Offer response and organization-profile checks pass     |
+| 2.5              |             124 |      422 pages | Four organization flows and 23 E2E tests pass           |
+| 2.7              |             141 |      466 pages | 464 routes, 465 HTML files, standalone pass             |
+| 2.8 release gate |             137 |      466 pages | 42 critical tests, axe, route/link/offline pass         |
+| 2.9              |             181 |      506 pages | 504 routes, 505 HTML files, 23 E2E and offline pass     |
 
 Some older documents used “version 16–25” labels for the same release sequence.
 Artifact counts can change with route fixtures; scripts and current output are
@@ -373,9 +373,32 @@ Vitest tests passed and npm reported zero vulnerabilities. The full production
 build was delegated to the repository owner and is not recorded as verified after
 that migration.
 
+### Frontend optimization baseline
+
+The source and existing generated artifacts measured on 2026-08-19 establish the
+following non-regression budgets:
+
+| Metric                |             Baseline |
+| --------------------- | -------------------: |
+| Source modules        |                  132 |
+| Internal import edges |                  423 |
+| Import cycles         |                    0 |
+| Source CSS            |        613,852 bytes |
+| Standalone HTML       |      5,056,799 bytes |
+| Standalone CSS        | 2,463,632 characters |
+| Standalone JavaScript | 2,211,664 characters |
+| Static JavaScript     |      1,773,747 bytes |
+| Static CSS            |        503,436 bytes |
+
+The exact limits live in `config/performance-budgets.json`. Source architecture,
+build-asset, bundle, and budget commands are documented in `README.md`; generated
+reports are written to `reports/generated/`.
+
 ### Known QA limits
 
-- Historical environments often lacked a real browser screenshot service.
+- Playwright visual and behavior infrastructure now covers seven fixed viewports,
+  but its immutable Golden Master must still be generated and reviewed in the
+  repository owner's browser environment.
 - DOM/CSS/JSDOM tests do not prove pixel parity, browser color contrast, CLS, LCP,
   or INP.
 - Visual approval should use Playwright or an equivalent browser pipeline at
@@ -490,7 +513,7 @@ release gates after changes.
 - Temporarily kept new React Compiler behavioral diagnostics disabled so dependency
   remediation did not become an unrelated behavioral refactor.
 - Replaced the incompatible Node preload build invocation with `next build
-  --webpack`; the owner will validate the production build.
+--webpack`; the owner will validate the production build.
 
 ## 11. Assumptions and deferred work
 

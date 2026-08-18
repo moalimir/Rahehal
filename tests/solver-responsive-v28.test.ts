@@ -16,8 +16,12 @@ describe("قرارداد responsive حل‌کننده نسخه ۲۸", () => {
 
   it("drawer، touch target، overflow جدول و reduced motion قرارداد CSS صریح دارند", () => {
     expect(shellCss).toMatch(/\.unified-sidebar\.is-open\s*\{[\s\S]*?visibility:\s*visible/);
-    expect(shellCss).toMatch(/\.unified-topbar__menu[\s\S]*?inline-size:\s*44px[\s\S]*?block-size:\s*44px/);
-    expect(solverCss).toContain(".unified-shell--solver :is(button, select");
+    expect(shellCss).toMatch(
+      /\.unified-topbar__menu[\s\S]*?inline-size:\s*44px[\s\S]*?block-size:\s*44px/,
+    );
+    expect(solverCss).toMatch(
+      /@media \(max-width: 760px\)[\s\S]*?\.unified-shell--solver\s+:is\(\s*button,\s*select,[\s\S]*?\)\s*\{[\s\S]*?min-block-size:\s*44px/,
+    );
     expect(solverCss).toMatch(/\.rh-table[\s\S]*?overflow-x:\s*auto/);
     expect(solverCss).toContain("@media (prefers-reduced-motion: reduce)");
   });

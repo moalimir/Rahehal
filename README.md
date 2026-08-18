@@ -15,6 +15,7 @@ enforcement, object storage, and integrations.
 - React 19 and strict TypeScript
 - Tailwind CSS 3 plus project CSS and local Estedad fonts
 - Vitest, Testing Library, JSDOM, ESLint, and Prettier
+- Playwright browser journeys and immutable visual snapshots
 - Local assets with no runtime CDN requirement
 
 Recommended runtime: Node.js 20.9 or newer.
@@ -84,6 +85,34 @@ npm run test:e2e
 npm run test:challenge
 npm run test:organization
 ```
+
+Install the pinned Chromium build once, establish the visual Golden Master, and
+run browser behavior and visual regression checks:
+
+```bash
+npx playwright install chromium
+npm run test:visual:update
+npm run test:browser
+npm run test:visual
+```
+
+Do not update visual snapshots to hide an unexplained difference. The configured
+matrix covers seven viewports from 360×800 through 1440×900 and representative
+public, authentication, solver, organization, reviewer, and operations routes.
+
+Architecture and performance analysis uses the existing build artifacts unless
+the command explicitly invokes a build:
+
+```bash
+npm run analyze:source
+npm run analyze:source:check
+npm run analyze:build
+npm run check:budgets
+npm run analyze:bundle
+```
+
+`analyze:bundle` performs a production build with the bundle analyzer enabled.
+Generated JSON reports are written under `reports/generated/` and remain ignored.
 
 Dependency health:
 

@@ -79,7 +79,9 @@ describe("سناریوهای چالش و جزئیات", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("معیارهای ارزیابی")).toBeInTheDocument();
     expect(screen.getByText("فرایند همکاری")).toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: "اعمال اصلاحات در راه‌حل" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("link", { name: "اعمال اصلاحات در راه‌حل" }).length).toBeGreaterThan(
+      0,
+    );
     expect(screen.getByRole("button", { name: "ذخیره فرصت" })).toBeInTheDocument();
   });
 });

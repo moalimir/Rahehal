@@ -47,11 +47,17 @@ export function decideTeamPermission(
     return denied("دعوت عضو برای نقش فعلی شما مجاز نیست.");
   }
   if (action === "review-membership-request")
-    return role === "admin" ? { allowed: true } : denied("فقط مالک یا مدیر درخواست عضویت را بررسی می‌کند.");
+    return role === "admin"
+      ? { allowed: true }
+      : denied("فقط مالک یا مدیر درخواست عضویت را بررسی می‌کند.");
   if (action === "change-member-role")
-    return role === "admin" ? { allowed: true } : denied("تغییر نقش اعضا برای نقش فعلی شما مجاز نیست.");
+    return role === "admin"
+      ? { allowed: true }
+      : denied("تغییر نقش اعضا برای نقش فعلی شما مجاز نیست.");
   if (action === "create-proposal")
-    return role === "viewer" ? denied("نقش مشاهده‌گر اجازه ساخت پیشنهاد ندارد.") : { allowed: true };
+    return role === "viewer"
+      ? denied("نقش مشاهده‌گر اجازه ساخت پیشنهاد ندارد.")
+      : { allowed: true };
   if (action === "edit-proposal") {
     if (role === "admin" || role === "proposal-manager" || (role === "contributor" && assigned))
       return { allowed: true };
@@ -60,7 +66,9 @@ export function decideTeamPermission(
   if (action === "submit-proposal") {
     if (role === "admin" && policy.adminsCanSubmit) return { allowed: true };
     if (role === "proposal-manager" && policy.proposalManagersCanSubmit) return { allowed: true };
-    return denied("ارسال نهایی برای نقش شما مجاز نیست؛ از مالک یا ارسال‌کننده مجاز بخواهید نسخه را ثبت کند.");
+    return denied(
+      "ارسال نهایی برای نقش شما مجاز نیست؛ از مالک یا ارسال‌کننده مجاز بخواهید نسخه را ثبت کند.",
+    );
   }
   if (action === "view-case-messages") {
     if (role === "admin" || role === "proposal-manager" || (role === "contributor" && assigned))
@@ -77,15 +85,13 @@ export function decideTeamPermission(
   if (action === "manage-team-settings")
     return role === "admin" ? { allowed: true } : denied("تنظیمات تیم به مالک و مدیر محدود است.");
   if (action === "approve-contract")
-    return role === "admin" ? { allowed: true } : denied("تأیید قرارداد به مالک یا مدیر مجاز محدود است.");
+    return role === "admin"
+      ? { allowed: true }
+      : denied("تأیید قرارداد به مالک یا مدیر مجاز محدود است.");
   return denied("این اقدام برای نقش فعلی تعریف نشده است.");
 }
 
-export function activeMembershipFor(
-  memberships: TeamMembership[],
-  teamId: string,
-  userId: string,
-) {
+export function activeMembershipFor(memberships: TeamMembership[], teamId: string, userId: string) {
   return memberships.find(
     (membership) =>
       membership.teamId === teamId && membership.userId === userId && membership.state === "active",
