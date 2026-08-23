@@ -7,7 +7,7 @@ import { PageHeading } from "@/components/solver-profile/shared";
 import { TeamMemberDiscoveryPage } from "@/components/solver-profile/team-discovery-page";
 import { useSolverContext, type SolverSpace } from "@/components/solver-shell";
 import { challenges } from "@/data/mock";
-import type { TeamType } from "@/domain/solver";
+import { isTeamKind, type TeamKind } from "@/domain/taxonomy";
 import { buildSolverHref } from "@/lib/solver/context";
 import {
   readTeamCreationDraft,
@@ -23,7 +23,7 @@ import {
 type TeamCreationDraft = {
   name: string;
   focus: string;
-  type: string;
+  teamKind: TeamKind | "";
   maturity: string;
   objective: string;
   targetChallenge: string;
@@ -40,7 +40,7 @@ type TeamCreationDraft = {
 const emptyTeamCreationDraft: TeamCreationDraft = {
   name: "",
   focus: "",
-  type: "",
+  teamKind: "",
   maturity: "",
   objective: "",
   targetChallenge: "",
@@ -54,6 +54,33 @@ const emptyTeamCreationDraft: TeamCreationDraft = {
   approvalBeforeSubmit: false,
 };
 
+const teamKindLabels: Record<TeamKind, string> = {
+  "expert-team": "تیم مستقل",
+  company: "شرکت رسمی",
+  lab: "آزمایشگاه",
+  "academic-group": "تیم دانشگاهی",
+};
+
+const legacyTeamKindByLabel: Record<string, TeamKind> = {
+  "تیم مستقل": "expert-team",
+  "هسته استارتاپی": "expert-team",
+  "تیم دانشگاهی": "academic-group",
+  آزمایشگاه: "lab",
+  "شرکت رسمی": "company",
+};
+
+function normalizeTeamCreationDraft(
+  stored: Partial<TeamCreationDraft> & { type?: unknown },
+): Partial<TeamCreationDraft> {
+  const { type, ...draft } = stored;
+  const teamKind = isTeamKind(draft.teamKind)
+    ? draft.teamKind
+    : typeof type === "string"
+      ? legacyTeamKindByLabel[type]
+      : undefined;
+  return { ...draft, teamKind: teamKind ?? "" };
+}
+
 function IndividualTeamCreationPage() {
   const context = useSolverContext();
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -64,9 +91,10 @@ function IndividualTeamCreationPage() {
   const [receiptId, setReceiptId] = useState("");
 
   useEffect(() => {
+    const stored = readTeamCreationDraft<Partial<TeamCreationDraft> & { type?: unknown }>({});
     setDraft((current) => ({
       ...current,
-      ...readTeamCreationDraft<Partial<TeamCreationDraft>>({}),
+      ...normalizeTeamCreationDraft(stored),
     }));
   }, []);
 
@@ -88,7 +116,7 @@ function IndividualTeamCreationPage() {
       setError("حوزه اصلی فعالیت تیم را انتخاب کنید.");
       return;
     }
-    if (!draft.type) {
+    if (!draft.teamKind) {
       setError("نوع تیمی را که می‌خواهید بسازید انتخاب کنید.");
       return;
     }
@@ -104,6 +132,10 @@ function IndividualTeamCreationPage() {
   };
 
   const createTeam = () => {
+    if (!draft.teamKind) {
+      setError("نوع تیمی را که می‌خواهید بسازید انتخاب کنید.");
+      return;
+    }
     if (!draft.requiredRole) {
       setError("اولین نقش موردنیاز تیم را انتخاب کنید.");
       return;
@@ -128,17 +160,9 @@ function IndividualTeamCreationPage() {
       setError("ایمیل دعوت اولیه معتبر نیست.");
       return;
     }
-    const teamType: TeamType =
-      draft.type === "تیم دانشگاهی"
-        ? "academic-group"
-        : draft.type === "آزمایشگاه"
-          ? "lab"
-          : draft.type === "شرکت رسمی"
-            ? "company"
-            : "expert-team";
     const result = createSolverTeam({
       name: draft.name,
-      teamType,
+      teamKind: draft.teamKind,
       introduction: draft.objective,
       expertise: draft.skills
         .split(/[،,]/)
@@ -305,15 +329,14 @@ function IndividualTeamCreationPage() {
                 <label>
                   <span>نوع تیم</span>
                   <select
-                    value={draft.type}
-                    onChange={(event) => update("type", event.target.value)}
+                    value={draft.teamKind}
+                    onChange={(event) => update("teamKind", event.target.value as TeamKind | "")}
                   >
                     <option value="">انتخاب نوع تیم</option>
-                    <option>تیم مستقل</option>
-                    <option>تیم دانشگاهی</option>
-                    <option>آزمایشگاه</option>
-                    <option>هسته استارتاپی</option>
-                    <option>شرکت رسمی</option>
+                    <option value="expert-team">تیم مستقل</option>
+                    <option value="academic-group">تیم دانشگاهی</option>
+                    <option value="lab">آزمایشگاه</option>
+                    <option value="company">شرکت رسمی</option>
                   </select>
                 </label>
                 <label className="is-wide">
@@ -472,7 +495,8 @@ function IndividualTeamCreationPage() {
                   <strong>{draft.name}</strong>
                   <p>{draft.objective}</p>
                   <p>
-                    {draft.type} · {draft.focus} · {draft.collaboration}
+                    {draft.teamKind ? teamKindLabels[draft.teamKind] : "نوع انتخاب‌نشده"} ·{" "}
+                    {draft.focus} · {draft.collaboration}
                   </p>
                   <p>
                     نقش موردنیاز: {draft.requiredRole} · {draft.skills}

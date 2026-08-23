@@ -12,8 +12,8 @@ import type {
   TeamProfile,
   TeamRole,
   TeamSettings,
-  TeamType,
 } from "@/domain/solver";
+import type { TeamKind } from "@/domain/taxonomy";
 import { canRemoveMembership, permissionForMembership } from "@/lib/solver/permissions";
 import { clone, fail, id, now } from "@/lib/solver/repository/primitives";
 import { receipt, updateState } from "@/lib/solver/repository/receipts";
@@ -212,7 +212,7 @@ export function submitProposal(
 
 export function createTeam(input: {
   name: string;
-  teamType: TeamType;
+  teamKind: TeamKind;
   introduction: string;
   expertise: string[];
   publicContact: string;
@@ -234,7 +234,7 @@ export function createTeam(input: {
       type: "team" as const,
       workspaceId,
       name,
-      teamType: input.teamType,
+      teamKind: input.teamKind,
       status: "active" as const,
       ownerUserId: state.currentUser.id,
       profileId: `TP-${teamId}`,
@@ -293,11 +293,11 @@ export function createTeam(input: {
         {
           id: `DOC-${teamId}-FOUNDATION`,
           label:
-            input.teamType === "lab"
+            input.teamKind === "lab"
               ? "مجوز آزمایشگاه"
-              : input.teamType === "company"
+              : input.teamKind === "company"
                 ? "مدرک ثبت شرکت"
-                : input.teamType === "academic-group"
+                : input.teamKind === "academic-group"
                   ? "معرفی‌نامه گروه دانشگاهی"
                   : "توافق اعضای تیم",
           state: "draft",

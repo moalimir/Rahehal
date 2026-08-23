@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  CURRENT_SOLVER_USER_ID,
   DEFAULT_TEAM_POLICY,
   PERSONAL_WORKSPACE_ID,
   PRIMARY_TEAM_ID,
@@ -33,6 +34,7 @@ import {
   canAccessRestrictedDocument,
   closeCase,
   createContractVersion,
+  createTeam,
   approveContract,
   declineDirectOffer,
   directOffersForWorkspace,
@@ -62,11 +64,240 @@ const personal: ActiveWorkspace = {
   workspaceId: PERSONAL_WORKSPACE_ID,
 };
 
+const LEGACY_SOLVER_STORE_KEY = `rahhal.solver.v3.user.${CURRENT_SOLVER_USER_ID}`;
+const LEGACY_SOLVER_STORE_FRESH_KEY = `rahhal.solver.v3.mirror-fresh.user.${CURRENT_SOLVER_USER_ID}`;
+
+type RawSolverState = Record<string, unknown> & {
+  version: number;
+  teams: Array<Record<string, unknown>>;
+  savedByWorkspace: Record<string, string[]>;
+};
+
+function rawCanonicalSolverState(): RawSolverState {
+  return JSON.parse(JSON.stringify(createCanonicalSolverState())) as RawSolverState;
+}
+
+function legacyV3SolverState(): RawSolverState {
+  const state = rawCanonicalSolverState();
+  state.version = 3;
+  state.teams = state.teams.map((team) => {
+    const { teamKind, teamType, ...legacyTeam } = team;
+    return { ...legacyTeam, teamType: teamKind ?? teamType };
+  });
+  return state;
+}
+
+function rawState(value: unknown): RawSolverState {
+  return value as RawSolverState;
+}
+
 function contextForTeam(teamId: string) {
   const resolution = parseSolverContext(`space=team&teamId=${teamId}`);
   if (!resolution.ok) throw new Error(resolution.message);
   return resolution.context;
 }
+
+describe("Solver store v3 → v4 taxonomy migration", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("داده کاربر را حفظ، TeamKind را canonical و مهاجرت را idempotent می‌کند", () => {
+    const legacy = legacyV3SolverState();
+    legacy.savedByWorkspace[PERSONAL_WORKSPACE_ID] = ["CH-USER-PRESERVED"];
+    legacy.teams[0] = { ...legacy.teams[0], name: "تیم حفظ‌شده کاربر" };
+    localStorage.setItem(LEGACY_SOLVER_STORE_KEY, JSON.stringify(legacy));
+
+    const first = rawState(readSolverState());
+    expect(SOLVER_STORE_KEY).toBe(`rahhal.solver.v4.user.${CURRENT_SOLVER_USER_ID}`);
+    expect(first.version).toBe(4);
+    expect(first.savedByWorkspace[PERSONAL_WORKSPACE_ID]).toEqual(["CH-USER-PRESERVED"]);
+    expect(first.teams.find((team) => team.name === "تیم حفظ‌شده کاربر")).toMatchObject({
+      teamKind: "expert-team",
+    });
+    expect(first.teams.every((team) => !("teamType" in team))).toBe(true);
+    const initialRollbackMirror = rawState(
+      JSON.parse(localStorage.getItem(LEGACY_SOLVER_STORE_KEY) ?? "null"),
+    );
+    expect(initialRollbackMirror.version).toBe(3);
+    expect(initialRollbackMirror.teams[0]).toMatchObject({ teamType: "expert-team" });
+    expect(initialRollbackMirror.teams.every((team) => !("teamKind" in team))).toBe(true);
+
+    const persistedAfterFirstRead = localStorage.getItem(SOLVER_STORE_KEY);
+    const second = rawState(readSolverState());
+    expect(second.teams).toHaveLength(first.teams.length);
+    expect(second.savedByWorkspace).toEqual(first.savedByWorkspace);
+    expect(localStorage.getItem(SOLVER_STORE_KEY)).toBe(persistedAfterFirstRead);
+
+    setSavedOpportunity(PERSONAL_WORKSPACE_ID, "CH-AFTER-MIGRATION", true);
+    const createdTeam = createTeam({
+      name: "شرکت تازه پس از مهاجرت",
+      teamKind: "company",
+      introduction: "تیم تازه برای بررسی mirror سازگار نسخه قبل.",
+      expertise: ["تحلیل داده"],
+      publicContact: "rollback-team@example.test",
+    });
+    expect(createdTeam.ok).toBe(true);
+    const rollbackMirror = rawState(
+      JSON.parse(localStorage.getItem(LEGACY_SOLVER_STORE_KEY) ?? "null"),
+    );
+    expect(rollbackMirror.savedByWorkspace[PERSONAL_WORKSPACE_ID]).toContain("CH-AFTER-MIGRATION");
+    expect(rollbackMirror.teams.every((team) => !("teamKind" in team))).toBe(true);
+    expect(
+      rollbackMirror.teams.find((team) => team.name === "شرکت تازه پس از مهاجرت"),
+    ).toMatchObject({ teamType: "company" });
+  });
+
+  it("store معتبر v4 را بر snapshot قدیمی v3 مقدم می‌داند", () => {
+    const legacy = legacyV3SolverState();
+    legacy.savedByWorkspace[PERSONAL_WORKSPACE_ID] = ["CH-STALE-V3"];
+    const current = rawCanonicalSolverState();
+    current.savedByWorkspace[PERSONAL_WORKSPACE_ID] = ["CH-CURRENT-V4"];
+    localStorage.setItem(LEGACY_SOLVER_STORE_KEY, JSON.stringify(legacy));
+    localStorage.setItem(SOLVER_STORE_KEY, JSON.stringify(current));
+
+    const result = rawState(readSolverState());
+    expect(result.savedByWorkspace[PERSONAL_WORKSPACE_ID]).toEqual(["CH-CURRENT-V4"]);
+    expect(result.savedByWorkspace[PERSONAL_WORKSPACE_ID]).not.toContain("CH-STALE-V3");
+    const refreshedMirror = rawState(
+      JSON.parse(localStorage.getItem(LEGACY_SOLVER_STORE_KEY) ?? "null"),
+    );
+    expect(refreshedMirror.savedByWorkspace[PERSONAL_WORKSPACE_ID]).toEqual(["CH-CURRENT-V4"]);
+  });
+
+  it("در خرابی store جاری، snapshot معتبر v3 را بازیابی و به v4 می‌برد", () => {
+    const legacy = legacyV3SolverState();
+    legacy.savedByWorkspace[PERSONAL_WORKSPACE_ID] = ["CH-RECOVERED-FROM-V3"];
+    localStorage.setItem(LEGACY_SOLVER_STORE_KEY, JSON.stringify(legacy));
+    expect(readSolverState().savedByWorkspace[PERSONAL_WORKSPACE_ID]).toContain(
+      "CH-RECOVERED-FROM-V3",
+    );
+    localStorage.setItem(SOLVER_STORE_KEY, "{broken");
+
+    const recovered = rawState(readSolverState());
+    expect(recovered.version).toBe(4);
+    expect(recovered.savedByWorkspace[PERSONAL_WORKSPACE_ID]).toContain("CH-RECOVERED-FROM-V3");
+    expect(localStorage.getItem(SOLVER_STORAGE_RECOVERY_KEY)).toContain(
+      "invalid-or-corrupt-envelope",
+    );
+    expect(JSON.parse(localStorage.getItem(SOLVER_STORE_KEY) ?? "null")).toMatchObject({
+      version: 4,
+    });
+  });
+
+  it.each([
+    ["mirror", LEGACY_SOLVER_STORE_KEY],
+    ["freshness marker", LEGACY_SOLVER_STORE_FRESH_KEY],
+  ])("خرابی %s کمکی، mutation موفق v4 را به شکست مبهم تبدیل نمی‌کند", (_label, failedKey) => {
+    resetSolverDemoData();
+    const originalSetItem = Storage.prototype.setItem;
+    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (
+      this: Storage,
+      key,
+      value,
+    ) {
+      if (key === failedKey) throw new DOMException("rollback mirror quota", "QuotaExceededError");
+      return originalSetItem.call(this, key, value);
+    });
+
+    let result: ReturnType<typeof createTeam>;
+    try {
+      result = createTeam({
+        name: `تیم با ${_label} ناموجود`,
+        teamKind: "expert-team",
+        introduction: "mutation باید فقط بر مبنای store اصلی موفق یا ناموفق شود.",
+        expertise: ["کنترل"],
+        publicContact: "mirror-failure@example.test",
+      });
+      expect(result.ok).toBe(true);
+      const persisted = rawState(JSON.parse(localStorage.getItem(SOLVER_STORE_KEY) ?? "null"));
+      expect(
+        persisted.teams.filter((team) => team.name === `تیم با ${_label} ناموجود`),
+      ).toHaveLength(1);
+      expect(localStorage.getItem(LEGACY_SOLVER_STORE_KEY)).toBeNull();
+      expect(localStorage.getItem(LEGACY_SOLVER_STORE_FRESH_KEY)).toBeNull();
+    } finally {
+      setItem.mockRestore();
+    }
+
+    expect(
+      readSolverState().teams.filter((team) => team.name === `تیم با ${_label} ناموجود`),
+    ).toHaveLength(1);
+  });
+
+  it.each([
+    ["ناشناخته", "unsupported-kind"],
+    ["مفقود", undefined],
+  ] as const)("TeamType %s را بی‌صدا reclassify نمی‌کند", (_label, legacyTeamType) => {
+    const legacy = legacyV3SolverState();
+    const corruptTeam: Record<string, unknown> = {
+      ...legacy.teams[0],
+      name: `تیم با نوع ${_label}`,
+    };
+    if (legacyTeamType === undefined) delete corruptTeam.teamType;
+    else corruptTeam.teamType = legacyTeamType;
+    legacy.teams[0] = corruptTeam;
+    localStorage.setItem(LEGACY_SOLVER_STORE_KEY, JSON.stringify(legacy));
+
+    const recovered = rawState(readSolverState());
+    expect(recovered.teams.some((team) => team.name === `تیم با نوع ${_label}`)).toBe(false);
+    expect(recovered.teams).toEqual(rawCanonicalSolverState().teams);
+    expect(localStorage.getItem(SOLVER_STORAGE_RECOVERY_KEY)).toContain(
+      "invalid-or-corrupt-envelope",
+    );
+  });
+
+  it("در رکورد نیمه‌مهاجرت‌یافته TeamKind canonical را مقدم و TeamType را حذف می‌کند", () => {
+    const legacy = legacyV3SolverState();
+    legacy.teams[0] = {
+      ...legacy.teams[0],
+      teamKind: "lab",
+      teamType: "expert-team",
+    };
+    localStorage.setItem(LEGACY_SOLVER_STORE_KEY, JSON.stringify(legacy));
+
+    const migrated = rawState(readSolverState());
+    expect(migrated.teams[0]).toMatchObject({ teamKind: "lab" });
+    expect(migrated.teams[0]).not.toHaveProperty("teamType");
+    const persisted = rawState(JSON.parse(localStorage.getItem(SOLVER_STORE_KEY) ?? "null"));
+    expect(persisted.teams[0]).toMatchObject({ teamKind: "lab" });
+    expect(persisted.teams[0]).not.toHaveProperty("teamType");
+  });
+
+  it("draft بسیار قدیمی تیم را با TeamKind صریح به store جاری می‌آورد", () => {
+    localStorage.setItem(
+      "rahhal:solver-team-draft",
+      JSON.stringify({ teamName: "تیم مهاجرت‌یافته قدیمی" }),
+    );
+
+    const migrated = rawState(readSolverState());
+    expect(migrated.teams.find((team) => team.name === "تیم مهاجرت‌یافته قدیمی")).toMatchObject({
+      teamKind: "expert-team",
+      status: "draft",
+    });
+    expect(migrated.teams.every((team) => !("teamType" in team))).toBe(true);
+  });
+
+  it("reset، mirror قدیمی را تازه می‌کند و داده کاربر را دوباره زنده نمی‌کند", () => {
+    const legacy = legacyV3SolverState();
+    legacy.teams[0] = { ...legacy.teams[0], name: "تیم قدیمی حذف‌شده" };
+    localStorage.setItem(LEGACY_SOLVER_STORE_KEY, JSON.stringify(legacy));
+    expect(readSolverState().teams.some((team) => team.name === "تیم قدیمی حذف‌شده")).toBe(true);
+
+    resetSolverDemoData();
+    const resetCurrent = rawState(JSON.parse(localStorage.getItem(SOLVER_STORE_KEY) ?? "null"));
+    const resetMirror = rawState(
+      JSON.parse(localStorage.getItem(LEGACY_SOLVER_STORE_KEY) ?? "null"),
+    );
+    expect(resetCurrent.version).toBe(4);
+    expect(resetMirror.version).toBe(3);
+    expect(resetCurrent.teams.some((team) => team.name === "تیم قدیمی حذف‌شده")).toBe(false);
+    expect(resetMirror.teams.some((team) => team.name === "تیم قدیمی حذف‌شده")).toBe(false);
+    localStorage.removeItem(SOLVER_STORE_KEY);
+
+    const recoveredAfterReset = readSolverState();
+    expect(recoveredAfterReset.teams.some((team) => team.name === "تیم قدیمی حذف‌شده")).toBe(false);
+    expect(recoveredAfterReset.teams).toHaveLength(createCanonicalSolverState().teams.length);
+  });
+});
 
 describe("Solver v28 foundation contracts", () => {
   beforeEach(() => {
@@ -141,7 +372,7 @@ describe("Solver v28 foundation contracts", () => {
     localStorage.setItem("rahhal:saved:CH-LEGACY", "1");
     localStorage.setItem(SOLVER_STORE_KEY, "{broken");
     const recovered = readSolverState();
-    expect(recovered.version).toBe(3);
+    expect(recovered.version).toBe(4);
     expect(recovered.savedByWorkspace[PERSONAL_WORKSPACE_ID]).toContain("CH-LEGACY");
     expect(localStorage.getItem(SOLVER_STORAGE_RECOVERY_KEY)).toContain(
       "invalid-or-corrupt-envelope",
@@ -243,6 +474,14 @@ describe("Solver v28 foundation contracts", () => {
     expect(evaluateEligibility(undefined, state, personal).status).toBe("needs-review");
     expect(
       evaluateEligibility(challengeEligibilityRules["CH-1405-028"], state, personal).status,
+    ).toBe("ineligible");
+    expect(
+      evaluateEligibility(challengeEligibilityRules["CH-1405-022"], state, {
+        type: "team",
+        workspaceId: "WS-TEAM-MISSING",
+        teamId: "TEAM-MISSING",
+        membershipId: "MEM-MISSING",
+      }).status,
     ).toBe("ineligible");
   });
 

@@ -1,6 +1,6 @@
 import type { ActiveWorkspace, SolverState, VerificationState } from "@/domain/solver";
+import type { ApplicantType } from "@/domain/taxonomy";
 
-export type ApplicantType = "individual" | "expert-team" | "lab" | "academic-group" | "company";
 export type EligibilityRule = {
   challengeId: string;
   allowedApplicantTypes: ApplicantType[];
@@ -102,9 +102,9 @@ export function profileReadiness(state: SolverState, context: ActiveWorkspace) {
   return Math.round((checks.filter(Boolean).length / checks.length) * 100);
 }
 
-function applicantType(state: SolverState, context: ActiveWorkspace): ApplicantType {
+function applicantType(state: SolverState, context: ActiveWorkspace): ApplicantType | null {
   if (context.type === "individual") return "individual";
-  return state.teams.find((team) => team.id === context.teamId)?.teamType ?? "expert-team";
+  return state.teams.find((team) => team.id === context.teamId)?.teamKind ?? null;
 }
 
 function verificationState(state: SolverState, context: ActiveWorkspace): VerificationState {
@@ -129,6 +129,12 @@ export function evaluateEligibility(
   if (rule.state !== "open" || new Date(rule.deadline).getTime() <= at)
     return { status: "ineligible", reasons: ["مهلت دریافت پیشنهاد پایان یافته است."], actions: [] };
   const type = applicantType(state, context);
+  if (!type)
+    return {
+      status: "ineligible",
+      reasons: ["نوع تیم فضای کاری فعال قابل تشخیص نیست."],
+      actions: [],
+    };
   if (!rule.allowedApplicantTypes.includes(type))
     return {
       status: "ineligible",

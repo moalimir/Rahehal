@@ -1,42 +1,73 @@
 import { createCanonicalSolverState } from "@/data/solver-fixtures";
 import type { SolverState } from "@/domain/solver";
 import {
+  SOLVER_PREVIOUS_STORE_FRESH_KEY,
+  SOLVER_PREVIOUS_STORE_KEY,
+  SOLVER_PREVIOUS_STORE_VERSION,
   SOLVER_STORAGE_RECOVERY_KEY,
   SOLVER_STORE_EVENT,
   SOLVER_STORE_KEY,
 } from "@/lib/solver/repository/constants";
-import { migrateLegacy, validState } from "@/lib/solver/repository/migrations";
+import {
+  migrateLegacy,
+  migrateSolverStateV3,
+  normalizeCurrentSolverState,
+} from "@/lib/solver/repository/migrations";
 import { clone, now, storageAvailable } from "@/lib/solver/repository/primitives";
+
+function previousStoreSnapshot(state: SolverState) {
+  const teams = state.teams.map(({ teamKind, ...team }) => ({
+    ...team,
+    teamType: teamKind,
+  }));
+  return { ...state, version: SOLVER_PREVIOUS_STORE_VERSION, teams };
+}
+
+function refreshPreviousStoreSnapshot(state: SolverState) {
+  try {
+    localStorage.removeItem(SOLVER_PREVIOUS_STORE_FRESH_KEY);
+    const serialized = JSON.stringify(previousStoreSnapshot(state));
+    if (localStorage.getItem(SOLVER_PREVIOUS_STORE_KEY) !== serialized)
+      localStorage.setItem(SOLVER_PREVIOUS_STORE_KEY, serialized);
+    localStorage.setItem(SOLVER_PREVIOUS_STORE_FRESH_KEY, state.updatedAt);
+  } catch {
+    try {
+      localStorage.removeItem(SOLVER_PREVIOUS_STORE_KEY);
+      localStorage.removeItem(SOLVER_PREVIOUS_STORE_FRESH_KEY);
+    } catch {
+      // The authoritative v4 write remains valid even when rollback storage is unavailable.
+    }
+  }
+}
 
 export function persist(state: SolverState) {
   if (!storageAvailable()) return;
   localStorage.setItem(SOLVER_STORE_KEY, JSON.stringify(state));
+  refreshPreviousStoreSnapshot(state);
   window.dispatchEvent(
     new CustomEvent(SOLVER_STORE_EVENT, { detail: { updatedAt: state.updatedAt } }),
   );
 }
 
-export function readSolverState(): SolverState {
-  if (!storageAvailable()) return createCanonicalSolverState();
-  const raw = localStorage.getItem(SOLVER_STORE_KEY);
-  if (!raw) {
-    const seeded = migrateLegacy(createCanonicalSolverState());
-    persist(seeded);
-    return clone(seeded);
-  }
+function parseState(raw: string | null, normalize: (value: unknown) => SolverState | null) {
+  if (!raw) return null;
   try {
-    const parsed: unknown = JSON.parse(raw);
-    if (validState(parsed)) {
-      const compatible = clone(parsed);
-      const defaults = createCanonicalSolverState();
-      compatible.users ??= defaults.users;
-      compatible.accountSettings.sessions ??= defaults.accountSettings.sessions;
-      return compatible;
-    }
+    return normalize(JSON.parse(raw) as unknown);
   } catch {
-    // The recovery marker below documents a safe corruption fallback for QA.
+    return null;
   }
-  const recovered = migrateLegacy(createCanonicalSolverState());
+}
+
+function withCompatibilityDefaults(state: SolverState) {
+  const compatible = clone(state);
+  const defaults = createCanonicalSolverState();
+  compatible.users ??= defaults.users;
+  compatible.accountSettings ??= defaults.accountSettings;
+  compatible.accountSettings.sessions ??= defaults.accountSettings.sessions;
+  return compatible;
+}
+
+function markRecovery() {
   try {
     localStorage.setItem(
       SOLVER_STORAGE_RECOVERY_KEY,
@@ -45,11 +76,43 @@ export function readSolverState(): SolverState {
   } catch {
     // Storage can be unavailable; the recovered in-memory projection remains usable.
   }
+}
+
+export function readSolverState(): SolverState {
+  if (!storageAvailable()) return createCanonicalSolverState();
+  const currentRaw = localStorage.getItem(SOLVER_STORE_KEY);
+  const current = parseState(currentRaw, normalizeCurrentSolverState);
+  if (current) {
+    const compatible = withCompatibilityDefaults(current);
+    refreshPreviousStoreSnapshot(compatible);
+    return compatible;
+  }
+
+  const previousRaw = localStorage.getItem(SOLVER_PREVIOUS_STORE_KEY);
+  const previous = parseState(previousRaw, migrateSolverStateV3);
+  const previousIsFresh =
+    !currentRaw ||
+    Boolean(
+      previous && localStorage.getItem(SOLVER_PREVIOUS_STORE_FRESH_KEY) === previous.updatedAt,
+    );
+  if (previous && previousIsFresh) {
+    const migrated = withCompatibilityDefaults(previous);
+    if (currentRaw) markRecovery();
+    persist(migrated);
+    return clone(migrated);
+  }
+
+  const recovered = migrateLegacy(createCanonicalSolverState());
+  if (currentRaw || previousRaw) markRecovery();
   persist(recovered);
   return clone(recovered);
 }
 
 export function resetSolverDemoData() {
+  if (storageAvailable()) {
+    localStorage.removeItem(SOLVER_PREVIOUS_STORE_KEY);
+    localStorage.removeItem(SOLVER_PREVIOUS_STORE_FRESH_KEY);
+  }
   const state = createCanonicalSolverState(now());
   persist(state);
   return clone(state);

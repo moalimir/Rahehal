@@ -4,23 +4,59 @@ import {
   EMPTY_PROPOSAL_CONTENT,
   PERSONAL_WORKSPACE_ID,
 } from "@/data/solver-fixtures";
-import type { ProposalContent, SolverState } from "@/domain/solver";
-import { SOLVER_STORE_VERSION } from "@/lib/solver/repository/constants";
+import type { ProposalContent, SolverState, SolverTeam } from "@/domain/solver";
+import { isTeamKind } from "@/domain/taxonomy";
+import {
+  SOLVER_PREVIOUS_STORE_VERSION,
+  SOLVER_STORE_VERSION,
+} from "@/lib/solver/repository/constants";
 import { clone, now, storageAvailable } from "@/lib/solver/repository/primitives";
 
-export function validState(value: unknown): value is SolverState {
-  if (!value || typeof value !== "object") return false;
-  const state = value as Partial<SolverState>;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasStateShape(value: unknown, version: number): value is Record<string, unknown> {
+  if (!isRecord(value)) return false;
+  const currentUser = value.currentUser;
   return (
-    state.version === SOLVER_STORE_VERSION &&
-    typeof state.currentUser?.id === "string" &&
-    state.currentUser.id === CURRENT_SOLVER_USER_ID &&
-    Array.isArray(state.teams) &&
-    Array.isArray(state.memberships) &&
-    Array.isArray(state.proposals) &&
-    Array.isArray(state.directOffers) &&
-    Boolean(state.savedByWorkspace)
+    value.version === version &&
+    isRecord(currentUser) &&
+    currentUser.id === CURRENT_SOLVER_USER_ID &&
+    Array.isArray(value.teams) &&
+    Array.isArray(value.memberships) &&
+    Array.isArray(value.proposals) &&
+    Array.isArray(value.directOffers) &&
+    isRecord(value.savedByWorkspace)
   );
+}
+
+function normalizeTeam(value: unknown): SolverTeam | null {
+  if (!isRecord(value)) return null;
+  const candidate = value.teamKind ?? value.teamType;
+  if (!isTeamKind(candidate)) return null;
+  const normalized: Record<string, unknown> = { ...value, teamKind: candidate };
+  delete normalized.teamType;
+  return normalized as SolverTeam;
+}
+
+function normalizeState(value: unknown, version: number): SolverState | null {
+  if (!hasStateShape(value, version)) return null;
+  const teams = (value.teams as unknown[]).map(normalizeTeam);
+  if (teams.some((team) => team === null)) return null;
+  return {
+    ...value,
+    version: SOLVER_STORE_VERSION,
+    teams: teams as SolverTeam[],
+  } as SolverState;
+}
+
+export function normalizeCurrentSolverState(value: unknown): SolverState | null {
+  return normalizeState(value, SOLVER_STORE_VERSION);
+}
+
+export function migrateSolverStateV3(value: unknown): SolverState | null {
+  return normalizeState(value, SOLVER_PREVIOUS_STORE_VERSION);
 }
 
 function legacySavedIds() {
@@ -164,7 +200,7 @@ export function migrateLegacy(seed: SolverState): SolverState {
           type: "team",
           workspaceId: `WS-${teamId}`,
           name,
-          teamType: "expert-team",
+          teamKind: "expert-team",
           status: "draft",
           ownerUserId: CURRENT_SOLVER_USER_ID,
           profileId: `TP-${teamId}`,

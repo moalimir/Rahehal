@@ -68,9 +68,14 @@ CREATE TABLE workspace (
   id          text PRIMARY KEY,              -- wsp_*
   tenant_id   text NOT NULL REFERENCES tenant(id),
   kind        text NOT NULL CHECK (kind IN ('org','individual','team')),
+  team_kind   text CHECK (team_kind IS NULL OR team_kind IN
+                 ('expert-team','lab','academic-group','company')), -- canonical TeamKind (20 §5)
   owner_user_id text REFERENCES app_user(id),  -- individual/team owner
   name        text NOT NULL,
-  created_at  timestamptz NOT NULL DEFAULT now()
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT workspace_team_kind_matches_kind CHECK (
+    (kind = 'team') = (team_kind IS NOT NULL)
+  )
 );
 
 -- roles are namespaced text: 'org:owner','org:approver_technical','team:proposal-manager','platform:reviewer'... (20 §3)
@@ -354,7 +359,7 @@ CREATE TABLE notification_delivery (
 
 Also: `policy_version` (versioned trust/legal/privacy content), `consent`, `dispute`, `privileged_access_grant`, `nda_acceptance` (from `solver.ts:349`), `verification_record` (from `solver.ts:332`) — same patterns.
 
-**AI/matching tables** — `embedding` (pgvector), `match_run`, `match_result`, and the `ai_interaction` governance log, plus the `CREATE EXTENSION vector;` requirement — are specified in [45_AI_AND_MATCHING](45_AI_AND_MATCHING.md) §6. Add the `embedding` table and emit its `embedding.requested` outbox event in Phase 1 so enabling AI later is a deploy, not a migration.
+**AI/matching is deferred** under ADR-0012. Phase 1 adds only the provider-neutral `embedding.requested` outbox event contract. The future `embedding`, `match_run`, `match_result`, `ai_interaction`, pgvector extension, model adapter, and any data egress land only in the later authorized AI phase described by [45_AI_AND_MATCHING](45_AI_AND_MATCHING.md).
 
 ## 9. Migration mapping (browser stores → tables)
 
@@ -362,13 +367,15 @@ Also: `policy_version` (versioned trust/legal/privacy content), `consent`, `disp
 | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `rahhal.session.v1` (`lib/auth/session.ts`)                     | IdP + `app_user` + server session (not a table — token/refresh store)                                                                                                            |
 | `rahhal.organization-challenges.v8` (`v7`/`v6` migrate on read) | `challenge`, `challenge_version`, `challenge_approval`, `challenge_public_projection`                                                                                            |
-| `rahhal.solver.v3.user.*` (`SolverState`)                       | `workspace`, `membership`, `proposal`, `proposal_version`, `direct_offer`, `verification_record`, `nda_acceptance`, `contract_version`, `case`, `audit_event`, `idempotency_key` |
+| `rahhal.solver.v4.user.*` (`v3` migrates on read)               | `workspace`, `membership`, `proposal`, `proposal_version`, `direct_offer`, `verification_record`, `nda_acceptance`, `contract_version`, `case`, `audit_event`, `idempotency_key` |
 | `rahhal.demo-command-store.v1`                                  | `idempotency_key`, `outbox_event`, `audit_event`                                                                                                                                 |
 | Direct-offer store (`lib/offers/store.ts`)                      | `direct_offer` + `offer_response`                                                                                                                                                |
 | Reviewer COI keys (`lib/reviews/access.ts`)                     | `review_assignment` + `coi_declaration`                                                                                                                                          |
 | Payment store (`lib/payments/store.ts`)                         | `payment` + `ledger_entry` + reconciliation                                                                                                                                      |
 
-The `SolverState.idempotency` map and `MutationReceipt`/`MutationFailure` types (`solver.ts:494–512`) are already the exact runtime contract for `idempotency_key` and the API result envelope — the migration is a persistence swap, not a redesign.
+Solver demo-store v4 maps each valid v3 `SolverTeam.teamType` to `teamKind` without changing its value, strips the legacy field, and preserves the rest of the aggregate. An authoritative v4 persist attempts a down-mapped v3 rollback mirror (`teamKind` → `teamType`) and marks it fresh only after success; auxiliary mirror failure does not fail or duplicate the v4 mutation. Valid v4 wins when both records are readable, and corrupt-current recovery accepts only a mirror whose freshness marker matches. This mirror supports one-version rollback and recovery, not concurrent consistency between open v3 and v4 tabs. An unknown or missing team classification invalidates the snapshot rather than becoming `expert-team`. The very old name-only `rahhal:solver-team-draft` is the explicit exception and becomes a draft `expert-team`. The ephemeral `rahhal.solver-registration` draft and its UI-only `SolverTeamType` variants are not an authoritative migration source.
+
+The `SolverState.idempotency` map and `MutationReceipt`/`MutationFailure` types (`solver.ts:494–512`) are already the exact runtime contract for `idempotency_key` and the API result envelope — the production migration is a persistence swap, not a redesign.
 
 ## 10. Indexing & integrity checklist
 

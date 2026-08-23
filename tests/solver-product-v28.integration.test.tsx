@@ -100,7 +100,7 @@ describe("محصول canonical فرد و تیم نسخه ۲۸", () => {
   it("ساخت تیم، workspace، مالک، پروفایل، تنظیمات و احراز مستقل می‌سازد", () => {
     const result = createTeam({
       name: "تیم آزمون یکپارچه",
-      teamType: "lab",
+      teamKind: "lab",
       introduction: "تیم نمونه برای آزمون جریان ساخت و دعوت اولیه.",
       expertise: ["سنجش"],
       publicContact: "new-team@example.test",

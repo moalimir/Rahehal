@@ -1,3 +1,5 @@
+import type { TeamKind } from "@/domain/taxonomy";
+
 export type SolverSpace = "individual" | "team";
 
 export type SolverUser = {
@@ -17,7 +19,6 @@ export type PersonalWorkspace = {
 };
 
 export type TeamRole = "owner" | "admin" | "proposal-manager" | "contributor" | "viewer";
-export type TeamType = "expert-team" | "lab" | "academic-group" | "company";
 
 export type TeamPolicy = {
   proposalManagersCanEditProfile: boolean;
@@ -35,7 +36,7 @@ export type SolverTeam = {
   type: "team";
   workspaceId: string;
   name: string;
-  teamType: TeamType;
+  teamKind: TeamKind;
   status: "draft" | "active" | "archived";
   ownerUserId: string;
   profileId: string;
@@ -465,7 +466,7 @@ export type SolverAuditEvent = {
 };
 
 export type SolverState = {
-  version: 3;
+  version: 4;
   seededAt: string;
   updatedAt: string;
   currentUser: SolverUser;

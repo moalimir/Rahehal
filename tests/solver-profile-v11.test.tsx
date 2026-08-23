@@ -60,7 +60,7 @@ describe("فضای حرفه‌ای حل‌کننده", () => {
     fireEvent.change(screen.getByLabelText("حوزه اصلی فعالیت"), {
       target: { value: "انرژی و محیط‌زیست" },
     });
-    fireEvent.change(screen.getByLabelText("نوع تیم"), { target: { value: "تیم مستقل" } });
+    fireEvent.change(screen.getByLabelText("نوع تیم"), { target: { value: "expert-team" } });
     fireEvent.change(screen.getByLabelText(/مرحله فعلی تیم/), {
       target: { value: "در حال شکل‌گیری" },
     });
@@ -93,9 +93,33 @@ describe("فضای حرفه‌ای حل‌کننده", () => {
     ).toBeInTheDocument();
     const created = readSolverState().teams.find((team) => team.name === "تیم پایش سبز");
     expect(created).toBeDefined();
+    expect(created?.teamKind).toBe("expert-team");
     expect(
       screen.getByRole("link", { name: "ورود به فضای تیم و جذب عضو" }).getAttribute("href"),
     ).toContain(`teamId=${created?.id}`);
+  });
+
+  it.each([
+    ["تیم مستقل", { type: "تیم مستقل" }, "expert-team"],
+    ["هسته استارتاپی", { type: "هسته استارتاپی" }, "expert-team"],
+    ["تیم دانشگاهی", { type: "تیم دانشگاهی" }, "academic-group"],
+    ["آزمایشگاه", { type: "آزمایشگاه" }, "lab"],
+    ["شرکت رسمی", { type: "شرکت رسمی" }, "company"],
+    ["canonical مقدم", { teamKind: "company", type: "آزمایشگاه" }, "company"],
+    ["برچسب ناشناخته", { type: "تعاونی" }, ""],
+  ])("draft قدیمی %s را به TeamKind پایدار تبدیل می‌کند", async (_label, value, expected) => {
+    localStorage.setItem(
+      "rahhal.solver.ui.v1:team-creation-draft",
+      JSON.stringify({
+        version: 1,
+        value,
+        updatedAt: "2026-08-20T10:00:00.000Z",
+      }),
+    );
+
+    render(<SolverProfileExperience section="team-building" />);
+
+    await waitFor(() => expect(screen.getByLabelText("نوع تیم")).toHaveValue(expected));
   });
 
   it("درخواست‌ها را با وضعیت، فیلتر و اقدام بعدی نمایش می‌دهد", async () => {

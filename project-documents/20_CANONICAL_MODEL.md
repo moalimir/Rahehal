@@ -153,19 +153,20 @@ The `coi-gate → accepted` transition's precondition `coi-clear` = `coiStatus =
 ApplicantType = individual | expert-team | company | lab | academic-group
 ```
 
-| Old enum                                   | Value                                        | → Canonical                                             |
-| ------------------------------------------ | -------------------------------------------- | ------------------------------------------------------- |
-| `challenge.ts:44` `SolverType`             | individual                                   | individual                                              |
-|                                            | team                                         | expert-team                                             |
-|                                            | company                                      | company                                                 |
-|                                            | university                                   | academic-group (or lab if research facility)            |
-| `solver.ts:20` `TeamType` → **`TeamKind`** | expert-team / lab / academic-group / company | same (subset of `ApplicantType`, excludes `individual`) |
-| `eligibility.ts:3` `ApplicantType`         | already canonical                            | canonical                                               |
+| Old enum                                | Value                                        | → Canonical                                            |
+| --------------------------------------- | -------------------------------------------- | ------------------------------------------------------ |
+| `challenge.ts:44` `SolverType`          | individual                                   | individual                                             |
+|                                         | team                                         | expert-team                                            |
+|                                         | company                                      | company                                                |
+|                                         | university                                   | academic-group (or lab if research facility)           |
+| Former `solver.ts` `TeamType`           | expert-team / lab / academic-group / company | implemented as `TeamKind`, a subset of `ApplicantType` |
+| Former `eligibility.ts` `ApplicantType` | already canonical                            | shared from `domain/taxonomy.ts`                       |
 
 **`TeamType` name collision resolved (D7):**
 
 - The challenge-side `TeamType = person|team|both` is implemented as **`ApplicantScope`** in `domain/taxonomy.ts`, and `ChallengeRecord.applicantScope` answers "who may apply to this challenge". Demo-store v8 migrates the v7/v6 values one-to-one and rejects unknown legacy values to the empty authoring sentinel.
-- The solver-side legacy `solver.ts:20` `TeamType` must be renamed **`TeamKind`** (answers "what kind of team is this"); it remains a separate migration because the solver store is independently versioned.
+- The solver-side collision is implemented as **`TeamKind`** in `domain/taxonomy.ts`, and `SolverTeam.teamKind` answers "what kind of team is this". Solver demo-store v4 migrates a valid v3 `teamType` one-to-one, prefers a valid canonical `teamKind` in a partially migrated record, and strips the legacy field. Each authoritative v4 persist makes a best-effort refresh of a one-version v3 rollback mirror by down-mapping `teamKind` to `teamType`; mirror failure never turns a committed v4 mutation into a reported failure. Corrupt-current recovery uses v3 only when its freshness marker matches, while a missing marker fails closed to canonical recovery. An unknown or missing classification is rejected instead of silently defaulted; the mirror is rollback compatibility, not a guarantee that simultaneously open v3 and v4 tabs remain consistent.
+- `SolverTeamType` in `components/portal/registration-experiences.tsx` is deliberately **not** `TeamKind`: its `formal-company` / `independent` / university-supervision values are an ephemeral onboarding UI draft, are not persisted into `SolverState`, and remain deferred until team onboarding has a canonical affiliation/verification contract. These presentation variants must not extend `TeamKind` or enter an API/database schema.
 
 ## 6. Core entity graph (canonical)
 

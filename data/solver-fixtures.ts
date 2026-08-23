@@ -85,7 +85,7 @@ const submittedContent: ProposalContent = {
 
 export function createCanonicalSolverState(now = "2026-08-17T09:00:00.000Z"): SolverState {
   return {
-    version: 3,
+    version: 4,
     seededAt: now,
     updatedAt: now,
     currentUser: {
@@ -158,7 +158,7 @@ export function createCanonicalSolverState(now = "2026-08-17T09:00:00.000Z"): So
         type: "team",
         workspaceId: "WS-TEAM-21",
         name: "تیم نوآوران صنعت",
-        teamType: "expert-team",
+        teamKind: "expert-team",
         status: "active",
         ownerUserId: CURRENT_SOLVER_USER_ID,
         profileId: "TP-TEAM-21",
@@ -171,7 +171,7 @@ export function createCanonicalSolverState(now = "2026-08-17T09:00:00.000Z"): So
         type: "team",
         workspaceId: "WS-TEAM-34",
         name: "آزمایشگاه پایش سبز",
-        teamType: "lab",
+        teamKind: "lab",
         status: "active",
         ownerUserId: "USR-034",
         profileId: "TP-TEAM-34",
@@ -191,7 +191,7 @@ export function createCanonicalSolverState(now = "2026-08-17T09:00:00.000Z"): So
         type: "team",
         workspaceId: "WS-TEAM-55",
         name: "همکاران داده زیست",
-        teamType: "academic-group",
+        teamKind: "academic-group",
         status: "active",
         ownerUserId: "USR-055",
         profileId: "TP-TEAM-55",
