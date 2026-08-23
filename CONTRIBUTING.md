@@ -26,10 +26,12 @@ Never infer business state from labels, CSS classes, route names, or sample IDs.
 ## Before you push
 
 ```bash
-npm run typecheck && npm run lint && npm run format:check && npm test
+npm run typecheck && npm run lint && npm run format:check && npm test && npm run verify:boundaries
 ```
 
-Touching UI? also `npm run build`, and for visuals `npx playwright install chromium && npm run test:browser`.
+Touching API/contracts? also run `npm run test:contracts`, `npm run test:api`, and
+`npm run test:worker`. Touching UI? also `npm run build`, and for visuals
+`npx playwright install chromium && npm run test:browser`.
 Don't update visual snapshots just to make CI green. Conventional Commit messages; branch from `main`.
 
 ## Security

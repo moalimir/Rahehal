@@ -1,24 +1,27 @@
-# Rahhal Solver
+# Rahhal / راه‌حل
 
-Rahhal is a Persian, RTL, static-exportable frontend prototype for managing an
-open-innovation workflow from challenge discovery through proposal, review,
-contract, pilot, delivery, payment, and impact tracking.
+Rahhal is a Persian-first, RTL open-innovation product spanning challenge
+discovery, proposal, review, contract, pilot, delivery, payment, and impact.
 
-This repository is a frontend application. Authentication, OTP, signatures,
-payments, notifications, persistence, and audit services are simulated locally.
-A production deployment still needs a backend, database, server-side permission
-enforcement, object storage, and integrations.
+The repository currently contains the advanced static/offline web prototype and
+the first executable API, worker, domain, contract, and testkit workspaces. The
+new services use explicit in-memory development adapters: they prove transport,
+authorization, concurrency, idempotency, audit/outbox, and contract boundaries,
+but they are not production persistence or identity authority.
 
 ## Technology
 
 - Next.js 16.3.1 with App Router and static export
 - React 19 and strict TypeScript
+- npm workspaces with Fastify 5 API and Node worker applications
+- Shared domain primitives, OpenAPI 3.1 contracts, and deterministic test builders
 - Tailwind CSS 3 plus project CSS and local Estedad fonts
 - Vitest, Testing Library, JSDOM, ESLint, and Prettier
-- Playwright browser journeys and immutable visual snapshots
+- Playwright browser journeys; the reviewed visual Golden Master is still pending
 - Local assets with no runtime CDN requirement
 
-Recommended runtime: Node.js 20.9 or newer.
+Use the repository pins: Node.js 22 (`.nvmrc`) and npm 11.13.0. The looser
+`engines` values are compatibility floors, not the reproducible development target.
 
 ## Install and run
 
@@ -36,6 +39,15 @@ npm run dev
 
 Open `http://localhost:3000`.
 
+Run the explicit development-only API and worker compositions in separate shells:
+
+```bash
+RAHHAL_API_MODE=demo npm run dev:api
+RAHHAL_WORKER_MODE=demo npm run dev:worker
+```
+
+Neither service falls back to its demo adapter in production mode.
+
 Build and serve the static export:
 
 ```bash
@@ -43,8 +55,9 @@ npm run build
 npm start
 ```
 
-`npm start` runs `npx serve out`, which starts a small local HTTP server for the
-already-generated `out/` directory. It does not compile the application.
+`npm run build` builds the web/offline artifacts and every workspace. `npm start`
+runs the pinned local `serve` package, which starts a small HTTP server for the already-generated
+web export; it does not start the API.
 
 You can use Python instead:
 
@@ -66,6 +79,7 @@ npm run typecheck
 npm run lint
 npm test
 npm run format:check
+npm run verify:boundaries
 ```
 
 After `npm run build`, validate the generated artifacts:
@@ -81,9 +95,12 @@ npm run test:standalone-interactive
 Useful focused suites:
 
 ```bash
-npm run test:e2e
+npm run test:flows
 npm run test:challenge
 npm run test:organization
+npm run test:contracts
+npm run test:api
+npm run test:worker
 ```
 
 Install the pinned Chromium build once, establish the visual Golden Master, and
@@ -120,11 +137,6 @@ Dependency health:
 npm audit
 ```
 
-The dependency maintenance performed on 2026-08-19 removed the deprecated
-`whatwg-encoding` chain, upgraded Next.js and its lint configuration, and reported
-zero npm vulnerabilities. The production build after that migration is intentionally
-left for the repository owner to run.
-
 ## Primary routes
 
 - `/challenges/` — public challenge discovery
@@ -145,10 +157,15 @@ Routes are data-driven. The authoritative registries are
 
 ```text
 app/                         Next.js routes, layouts, and styles
+apps/api/                    Fastify transport and injected application ports
+apps/worker/                 Validated, retrying/dead-letter outbox worker skeleton
 components/                  Public, shared, and role-specific UI
 data/                        Route contracts, fixtures, and registries
 domain/                      Entities, permissions, gates, and state machines
 lib/                         Local repositories, services, validation, and storage
+packages/contracts/          Typed envelopes, JSON schemas, and OpenAPI 3.1
+packages/domain/             Browser-free canonical domain primitives
+packages/testkit/            Deterministic cross-workspace test builders
 public/                      Fonts and local image assets
 scripts/                     Build, export, smoke, and verification tooling
 tests/                       Unit, component, integration, and flow tests
@@ -159,13 +176,16 @@ index.html                   Generated single-file offline application
 ## Documentation
 
 - This file contains setup, commands, runtime boundaries, and the repository map.
-- [`docs/PROJECT.md`](docs/PROJECT.md) contains architecture, routes, domain/state,
-  design rules, testing strategy, known limitations, and consolidated history.
+- [`project-documents/README.md`](project-documents/README.md) is the authoritative
+  documentation portal; accepted decisions and the canonical model take precedence.
+- [`docs/PROJECT.md`](docs/PROJECT.md) is retained as historical frontend background,
+  not as a competing source of product or backend truth.
 - `public/fonts/README.md` documents the bundled font files.
 
 ## Production warning
 
-Local storage, frontend guards, mock receipts, and mock state transitions are not
-security boundaries. Production authorization and workflow invariants must be
-validated by the backend, including reviewer conflict rules, publication gates,
-payment gates, audit records, and idempotency.
+Local storage, frontend guards, in-memory API repositories, demo tokens, mock
+receipts, and mock state transitions are not production security boundaries. A
+production release still requires managed OIDC, PostgreSQL transactions and RLS,
+durable audit/outbox storage, private scanned object storage, provider integrations,
+and the Phase-1 security/operational gates.

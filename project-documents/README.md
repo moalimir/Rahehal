@@ -11,6 +11,7 @@ Read in order:
 | 15  | [15_PRODUCT_REQUIREMENTS](15_PRODUCT_REQUIREMENTS.md)           | _(ref)_ FR/NFR requirement catalog, success measures, MVP acceptance criteria                                 |
 | 20  | [20_CANONICAL_MODEL](20_CANONICAL_MODEL.md)                     | **Single source of truth** — glossary, actors, entities, one lifecycle, one role & permission model           |
 | 25  | [25_DECISIONS](25_DECISIONS.md)                                 | **Decisions register** — ADRs + P0 decision log (owners, status)                                              |
+| 27  | [27_PHASE1_OWNER_APPROVALS](27_PHASE1_OWNER_APPROVALS.md)       | **Production approval gate** — tenancy, IdP, residency, classification and provider inputs                    |
 | 30  | [30_CONSISTENCY_AUDIT](30_CONSISTENCY_AUDIT.md)                 | Every contradiction (with `file:line`) + resolution + decision log                                            |
 | 40  | [40_BACKEND_ARCHITECTURE](40_BACKEND_ARCHITECTURE.md)           | Modular monolith + workers, modules, runtime, tech choices                                                    |
 | 42  | [42_FOUNDATION_HARDENING](42_FOUNDATION_HARDENING.md)           | **Robustness review** — cross-tenant access, consistency, concurrency, resilience, scaling, fitness functions |

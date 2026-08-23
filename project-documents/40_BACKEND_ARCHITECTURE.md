@@ -54,42 +54,42 @@ One deployable API process; internally, strict module boundaries with dependency
 | **Notification**           | preference, template_version, delivery, retry/dead-letter                                 | delivery failure never changes business state                  |
 | **Audit & Compliance**     | audit_event, correlation, export, retention, privileged_access_grant                      | append-only; independent of app admins                         |
 
-Cross-cutting platform services (not domain modules): **Idempotency**, **Outbox/Eventing**, **File**, **Search**, **AuthZ**, **Observability**, and **AI/Inference** (embeddings + provider-agnostic model-serving adapter — see [45_AI_AND_MATCHING](45_AI_AND_MATCHING.md)).
+Cross-cutting platform services (not domain modules): **Idempotency**, **Outbox/Eventing**, **File**, **Search**, **AuthZ**, and **Observability**. AI/inference remains a deferred RFC and is not part of the foundation runtime (ADR-0012).
 
 ## 3. Runtime & deployment model (D10)
 
 - **Hybrid Next.js.** Public content (landing, challenge catalog, policy pages) keeps static/SSR generation for resilience and SEO. Authenticated workspaces are a client shell that calls the versioned API. Full static export is retained only as a demo/read-only artifact (never authoritative).
-- **Repository shape** (introduce boundaries only as slices need them; do not move files to match a diagram):
+- **Repository shape** (introduce boundaries only as slices need them; do not move files to match a diagram). The current workspace layout is exact below; the existing Next.js web stays at the repository root during the Phase-1 transition:
   ```
-  apps/web             Next.js client + public rendering
-  apps/api             Application API + domain modules (the monolith)
-  apps/worker          Outbox, notification, search, file-scan, payment jobs
-  packages/contracts   OpenAPI + generated clients + event schemas
-  packages/domain      Shared domain types + state machines (from domain/*)
-  packages/testkit     Builders, invariants, scenario fixtures (from data/*)
-  infra                Env + deployment definitions (IaC)
+  app/, components/    Root Next.js web + static/offline demo
+  apps/api             Fastify transport + injected application ports
+  apps/worker          Validated outbox-consumer boundary
+  packages/contracts   Typed envelopes, JSON schemas, OpenAPI, event envelope
+  packages/domain      Browser-free IDs, taxonomy, workspace, challenge primitives
+  packages/testkit     Deterministic cross-workspace builders
   ```
+- A later behavior-neutral target move may create `apps/web`; it is not a prerequisite for the API boundary. Generated web clients and `infra/` deployment definitions are also future additions. The root `domain/state-machines.ts` remains the current transition oracle and has not been moved into `packages/domain`.
 - **Environments:** isolated dev / test / preview / staging / production with separate data, credentials, domains, provider accounts, and audit retention. Never clone production identity documents or confidential files into preview.
 
-### Technology recommendation (adjust to team skills — ADR-010/006)
+### Technology recommendation (ADR-0013/0014)
 
-| Concern        | Recommendation                                                                                                                                     | Rationale                                                                                                          |
-| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| API language   | **TypeScript/Node** (NestJS or Fastify)                                                                                                            | Reuse `domain/*` types & state machines verbatim; one language across web/api/worker; strong type-sharing.         |
-| DB             | **PostgreSQL**                                                                                                                                     | Transactions, constraints, RLS option, JSONB for versioned content, `tsvector` + Persian normalization for search. |
-| Queue          | **Postgres-backed (pgmq/SKIP LOCKED)** at pilot scale → **Redis/SQS** if throughput demands                                                        | Fewer moving parts; the outbox lives in the same DB tx.                                                            |
-| Object storage | **S3-compatible in-region**, private buckets, pre-signed uploads                                                                                   | Residency (D-07); signed reads; scanning pipeline.                                                                 |
-| Search         | **Postgres FTS** first; **OpenSearch** if ranking/faceting outgrows it                                                                             | Persian analyzer + permission filtering.                                                                           |
-| Identity       | **Managed OIDC IdP** (self-hostable, in-region) + separate KYB/verification workflow                                                               | Don't build auth; do own verification.                                                                             |
-| Audit sink     | Append-only Postgres table with periodic export to WORM storage                                                                                    | Independence from app admins (40 §5).                                                                              |
-| Vector / AI    | **pgvector** on the same PostgreSQL + a provider-agnostic model-serving adapter (Persian-capable, residency-safe embeddings; Claude for reasoning) | AI-ready without a new datastore; full design + graduation path in [45_AI_AND_MATCHING](45_AI_AND_MATCHING.md).    |
+| Concern        | Recommendation                                                                               | Rationale                                                                                                                                |
+| -------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| API language   | **TypeScript/Node + Fastify 5** (ADR-0014)                                                   | Thin validated transport over injected application ports; one language across web/api/worker.                                            |
+| DB             | **PostgreSQL**                                                                               | Transactions, constraints, RLS option, JSONB for versioned content, `tsvector` + Persian normalization for search.                       |
+| Queue          | **Postgres-backed (pgmq/SKIP LOCKED)** at pilot scale → **Redis/SQS** if throughput demands  | Fewer moving parts; the outbox lives in the same DB tx.                                                                                  |
+| Object storage | **S3-compatible in-region**, private buckets, pre-signed uploads                             | Residency (D-07); signed reads; scanning pipeline.                                                                                       |
+| Search         | **Postgres FTS** first; **OpenSearch** if ranking/faceting outgrows it                       | Persian analyzer + permission filtering.                                                                                                 |
+| Identity       | **Managed OIDC IdP** in the owner-approved pilot region + separate KYB/verification workflow | Don't build auth; do own verification. Concrete provider/issuer is blocked on the approval packet in [27](27_PHASE1_OWNER_APPROVALS.md). |
+| Audit sink     | Append-only Postgres table with periodic export to WORM storage                              | Independence from app admins (40 §5).                                                                                                    |
+| Vector / AI    | **Deferred; no foundation datastore, model adapter, or provider egress** (ADR-0012)          | A later approved RFC may add schema and infrastructure after classification/residency review; see [45](45_AI_AND_MATCHING.md).           |
 
 ## 4. Identity, session & tenancy
 
 - **Authentication** delegated to an OIDC IdP. The app stores only a `user↔subject` link, verified contacts, and MFA status. OTP/password/recovery are the IdP's job (retires the browser session in `lib/auth/session.ts`).
 - **Session** = short-lived access token + rotating refresh; server-side revocation list; membership changes and session revocation **immediately** deny protected operations (a Phase-1 exit gate).
 - **Safe return-to**: keep `lib/auth/return-to.ts`'s allowlisting, but validate server-side against authorized role context (FR-IAM-006).
-- **Tenancy**: every protected row carries `tenant_id` + `workspace_id`. Active context is explicit (`ActiveWorkspace`), switched deliberately, never inferred from URL. A user may hold memberships in multiple workspaces/tenants (D-02 default).
+- **Tenancy**: every protected row carries `tenant_id` + `workspace_id`. Active context is explicit (`ActiveWorkspace`), switched deliberately, never inferred from URL. A user may hold memberships in multiple workspaces/tenants. DEC-2026-011 proposes explicit `organization`/`solver`/`platform` tenant kinds and remains owner-gated in [27](27_PHASE1_OWNER_APPROVALS.md).
 
 ## 5. Audit & correlation (ADR-008)
 
@@ -114,6 +114,7 @@ Allowlisted types, size caps, per-tenant quotas, retention + deletion jobs, and 
 ## 7. Eventing, outbox & workflow orchestration
 
 - **Transactional outbox**: aggregate change + `outbox_event` committed atomically; a relay worker publishes to the queue. Consumers are **idempotent**; delivery is at-least-once unless stronger semantics are proven.
+- **Delivery boundary**: validate every claimed record before dispatch, reject unsupported schema versions/event names, isolate failures per record, and dead-letter malformed or exhausted work. Provider handlers must reuse `event_id` as their idempotency key so a crash after a remote effect but before local ledger completion does not duplicate the effect. The checked-in worker exercises this contract with stable in-memory claims and bounded retries; durable leases, retry scheduling, and dead-letter operations remain production-adapter requirements.
 - **State machines as orchestration**: the `Transition` records (`from,to,actors,preconditions,sideEffects,notification,audit,retry`) become the server workflow definition. `sideEffects` (e.g. `create-approval-tasks`, `freeze-submissions`, `create-contract`) are enqueued jobs; `retry` (`idempotent`/`manual-review`/`not-applicable`) drives the queue's retry policy.
 - **Sagas for cross-module flows** (publish, decide→create-case, payment): each step is a command with compensations; `manual-review` transitions (decision, selection, payment reconcile, deliverable accept) route to an **operations exception queue** rather than auto-retrying.
 - **Provider callbacks** (payment/signature) are authenticated, replay-safe, and **reconciled** against the ledger — never trusted as the sole source of truth.
@@ -128,11 +129,11 @@ Allowlisted types, size caps, per-tenant quotas, retention + deletion jobs, and 
 ## 9. Migration strategy (browser authority → server authority)
 
 1. **Freeze contracts** — adopt [20_CANONICAL_MODEL](20_CANONICAL_MODEL.md) as law (this step is done in this blueprint).
-2. **Adapters first** — components call typed query/command interfaces (mirroring `MutationResult`) instead of importing browser repositories directly.
+2. **Adapters first** — components call typed query/command interfaces instead of importing browser repositories directly. The organization challenge UI now uses `ChallengeQueries`/`ChallengeCommands`; public discovery receives only the allowlisted `OpportunityView`. The checked-in web composition still selects `demoChallengeGateway`/`demoOpportunityGateway` unconditionally and is therefore demo-only. A future network composition must fail closed and must never fall back to either browser adapter after an API error.
 3. **Identity + tenancy** — real sessions, tenants, workspaces, memberships, deny-by-default middleware.
 4. **Aggregate by aggregate** — challenge+publication → proposal+version → review+decision → case execution+payment.
 5. **Dual-run in non-production only** — contract-test browser fixtures vs API responses; never make browser state authoritative in prod.
-6. **Remove demo authority** — production builds disable mock mutations and QA state switchers by default.
+6. **Remove demo authority** — before any authoritative deployment, add an explicit production web composition that refuses mock repositories and QA state switchers; the current static/offline web remains a demo artifact.
 7. **Fixtures → testkits** — canonical seeds become deterministic factories (`packages/testkit`).
 
 ## 10. Frontend refactoring aligned to the backend

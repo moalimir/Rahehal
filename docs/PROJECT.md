@@ -1,8 +1,10 @@
-# Rahhal project reference
+# Rahhal historical frontend reference
 
-This is the durable technical and historical reference for the Rahhal frontend.
-Route registries, domain types, tests, and generator scripts remain the executable
-source of truth whenever this document and code differ.
+> Archived snapshot. This file preserves frontend background from before the
+> workspace/backend foundation landed. Use `README.md` for current repository
+> commands and `project-documents/README.md` for authoritative product and backend
+> contracts. Route registries, domain types, tests, and generator scripts remain
+> executable truth whenever this historical account differs from code.
 
 ## 1. Product scope
 
@@ -319,7 +321,7 @@ migration would alter markup and styling and requires visual review.
 npm run typecheck
 npm run lint
 npm test
-npm run test:e2e
+npm run test:flows
 npm run format:check
 ```
 

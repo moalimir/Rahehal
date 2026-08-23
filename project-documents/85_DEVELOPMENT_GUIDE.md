@@ -3,7 +3,7 @@
 ## 1. Prerequisites
 
 - Use the lockfile; do not develop against floating dependency versions.
-- The repository recommends Node `20.9+`, but does not pin an exact runtime. Phase 0 should select and pin an LTS runtime for developers and CI.
+- Node 22 LTS is pinned in `.nvmrc` and `.node-version`; CI reads the same pin.
 - npm is the current package manager because `package-lock.json` is authoritative.
 - Install Chromium only when running browser/visual tests.
 
@@ -16,13 +16,7 @@ npm run dev
 
 Open `http://localhost:3000`.
 
-On the audited macOS ARM64 machine, plain `npm ci` omitted `@img/sharp-libvips-darwin-arm64` even though it exists in the lockfile. The production build then failed while importing WebP assets. This local recovery installed the lockfile's optional platform dependencies without changing the lockfile:
-
-```bash
-npm install --include=optional --package-lock=false
-```
-
-Treat that as a setup defect to fix, not a permanent undocumented ritual. Verify supported macOS and Linux environments in CI.
+`.npmrc` already enables optional platform packages, so a clean install includes the pinned Sharp/libvips binary on supported macOS and Linux runners.
 
 ## 2. Common commands
 
@@ -33,14 +27,18 @@ npm run typecheck
 npm run lint
 npm test
 npm run format:check
+npm run verify:boundaries
 ```
 
 Focused suites:
 
 ```bash
-npm run test:e2e
+npm run test:flows
 npm run test:challenge
 npm run test:organization
+npm run test:contracts
+npm run test:api
+npm run test:worker
 ```
 
 ### Build and static checks
@@ -176,39 +174,35 @@ Do not dispatch behavior from localized button labels. The current generic mock 
 Use interfaces that allow the current UI to move from local repositories to HTTP without duplicating business behavior:
 
 ```ts
-type CommandContext = {
-  idempotencyKey: string;
-  expectedVersion?: number;
-  reason?: string;
+type ChallengeGateway = {
+  queries: ChallengeQueries; // list/get private organization aggregates
+  commands: ChallengeCommands; // create/save/delete/submit/publish
 };
 
-interface ChallengeGateway {
-  get(id: string): Promise<ChallengeView>;
-  saveDraft(id: string, input: ChallengeDraftInput, context: CommandContext): Promise<Receipt>;
-  submit(id: string, context: CommandContext): Promise<Receipt>;
-  publish(id: string, context: CommandContext): Promise<Receipt>;
-}
+type OpportunityGateway = {
+  queries: OpportunityQueries; // explicit public allowlisted projections only
+};
 ```
 
-The actual contract should be generated from or verified against the API schema. Components should consume a feature hook/application adapter, not choose between local and network storage themselves. Production builds should have no automatic fallback from a failed API to mutable local demo data.
+Every operation resolves to a typed success/error envelope; unknown IDs return `NOT_FOUND`, never a fixture. The local browser composition is explicit in `lib/challenges/runtime.ts`, while public discovery receives only `OpportunityView` rather than trimming private `ChallengeRecord` aggregates in the component. The checked-in web composition selects those demo gateways unconditionally and is therefore demo-only; no production/network web composition exists yet. The future network implementation must be generated from or verified against the API schema, must fail closed in production, and must never fall back to mutable local demo data after an API error. Components consume a feature hook/application adapter, not choose between local and network storage themselves.
 
 ## 7. Testing strategy
 
-| Layer                  | What to prove                                                                               |
-| ---------------------- | ------------------------------------------------------------------------------------------- |
-| Domain unit            | State transitions, gates, formatting, eligibility, permission, validation                   |
-| Repository/application | Transactions, versions, idempotency, migrations, audit/outbox, projections                  |
-| API contract           | Schema, authn/authz, status/error model, cross-tenant denial, concurrency                   |
-| Component              | Forms, errors, focus, keyboard, accessible names, role states, receipts                     |
-| Integration            | Cross-role projection of the same entity and complete bounded flows                         |
-| Browser E2E            | Real navigation/session/API, deep link, refresh, back/forward, mobile drawer, failures      |
-| Visual                 | Approved content/layout at seven viewports, RTL, long text, empty/error/permission states   |
-| Security               | Horizontal/vertical access, object/file access, injection, abuse/rate, replay, CSRF/session |
-| Resilience             | Retry, duplicate, stale write, provider outage, queue backlog, restore/reconciliation       |
+| Layer                  | What to prove                                                                                                                                          |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Domain unit            | State transitions, gates, formatting, eligibility, permission, validation                                                                              |
+| Repository/application | Transactions, versions, idempotency, migrations, audit/outbox, projections                                                                             |
+| API contract           | Schema, authn/authz, status/error model, cross-tenant denial, concurrency                                                                              |
+| Component              | Forms, errors, focus, keyboard, accessible names, role states, receipts                                                                                |
+| Integration            | Cross-role projection of the same entity and complete bounded flows                                                                                    |
+| Browser E2E            | Real navigation/session/API, deep link, refresh, back/forward, mobile drawer, failures                                                                 |
+| Visual                 | Approved content/layout at seven viewports, RTL, long text, empty/error/permission states                                                              |
+| Security               | Horizontal/vertical access, object/file access, injection, abuse/rate, replay, CSRF/session                                                            |
+| Resilience             | Retry, duplicate, stale write, provider outage, poison isolation, bounded dead-letter, crash-window idempotency, queue backlog, restore/reconciliation |
 
 Avoid calling component tests “E2E” when they do not run a real browser and backend. Keep fast integration coverage, but label evidence precisely.
 
-## 8. Proposed CI pipeline
+## 8. CI pipeline
 
 ### Pull request jobs
 
@@ -217,7 +211,7 @@ Avoid calling component tests “E2E” when they do not run a real browser and 
 3. **Build:** production export, route/link crawl, HTTP smoke, offline generation/verification/interaction, payload budgets.
 4. **Browser:** Playwright behavior on representative mobile/tablet/desktop projects; all projects on protected branches.
 5. **Visual/accessibility:** immutable screenshots, axe/browser checks, artifact upload for review.
-6. **Backend when added:** migrations, unit/integration/contract/security tests with ephemeral database/object/queue dependencies.
+6. **Backend foundation:** shared-package builds, API/worker unit and contract tests, workspace-boundary enforcement, and compiled service artifacts. Ephemeral PostgreSQL/object/queue migration and integration gates become mandatory when those production adapters land.
 
 ### Release jobs
 

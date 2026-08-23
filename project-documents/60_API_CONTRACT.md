@@ -1,6 +1,6 @@
 # API Contract — conventions, command envelope, and MVP endpoints
 
-The API is the **only** authority. It reuses the command-result contract already defined in `domain/solver.ts` (20 §9) and the state machines in `domain/state-machines.ts`. Publish a versioned OpenAPI schema and generate the typed web client from it. Names/states from [20_CANONICAL_MODEL](20_CANONICAL_MODEL.md).
+The production API is the **only** authority. The executable initial contract is defined once in [`packages/contracts/src/openapi.ts`](../packages/contracts/src/openapi.ts), served by the development API at `GET /api/v1/openapi.json`, and exported as `packages/contracts/dist/openapi.json` during the package build. It promotes the canonical command-result invariants in [20 §9](20_CANONICAL_MODEL.md) and the state machines in `domain/state-machines.ts`; generated clients remain a later consumer of this source contract.
 
 ---
 
@@ -9,7 +9,7 @@ The API is the **only** authority. It reuses the command-result contract already
 - **Base**: `/api/v1`. Version in the path; breaking changes bump the version.
 - **Transport**: JSON over HTTPS; UTF-8; Persian text unescaped. All times ISO-8601 UTC; server echoes `server_time`.
 - **Auth**: `Authorization: Bearer <access_token>` (OIDC). Active workspace via `X-Workspace-Id` header (validated against membership — never trusted blindly).
-- **Resource style**: reads are REST resources (`GET /challenges/{id}`); **mutations are explicit commands** (`POST …:action`) because the domain is workflow/transition-driven, not CRUD.
+- **Resource style**: reads are REST resources (`GET /challenges/{id}`); incomplete-draft autosave uses `PATCH`; workflow transitions are explicit commands (`POST …:action`) because authoritative state changes are not generic CRUD.
 - **IDs** are opaque prefixed strings (50 §1). Never expose tenant secrets in URLs or IDs.
 - **Pagination**: cursor-based — `?limit=&cursor=`; responses return `{ items, next_cursor }`. No offset pagination on large sets.
 - **Filtering**: explicit query params only; server ignores unknown params (no mass-assignment via query).
@@ -33,7 +33,7 @@ The API is the **only** authority. It reuses the command-result contract already
 
 ## 3. Command envelope (writes)
 
-Mirrors `MutationReceipt` (`solver.ts:497`). Every mutation:
+Every write requires a versioned command body and `Idempotency-Key`; protected workspace writes also require `X-Workspace-Id`. The example below is a workflow mutation whose success data is the canonical receipt:
 
 ```http
 POST /api/v1/challenges/chl_123:publish
@@ -58,18 +58,25 @@ Success returns the canonical receipt:
     "idempotent": false, // true when the key replayed a prior result
     "next_actions": ["evaluating"], // allowed next transitions (from the state machine)
   },
-  "meta": { "entity_version": 7, "correlation_id": "cor_9f…" },
+  "meta": {
+    "server_time": "2026-08-20T12:00:00Z",
+    "entity_version": 7,
+    "correlation_id": "cor_9f…",
+  },
 }
 ```
 
-- **Idempotency**: `Idempotency-Key` is stored per `(tenant, command, key)` (50 §8) with the cached response; a retry within TTL returns the _same_ receipt with `idempotent:true`. Prevents duplicate submissions, decisions, invitations, signatures, payments (NFR-REL-001).
+Session exchange and refresh are the one response-shape specialization: their successful `data` is `{ tokens, receipt }`, because the write must return the rotated credentials and its canonical mutation receipt together. Session revoke, workspace context switch, challenge create, and challenge save return the receipt directly. Every mutation response still carries versioned meta.
+
+- **Idempotency**: `Idempotency-Key` is stored per `(tenant, command, key)` (50 §8) with the cached response and a canonical request fingerprint. The fingerprint binds the actor, active workspace, target, and normalized command body; an exact retry within TTL returns the _same_ receipt with `idempotent:true`, while reuse for a different command context/body returns `409 CONFLICT` and never discloses the first receipt. Session exchange/rotation use an equivalent credential-scoped fingerprint before a tenant context exists. This prevents duplicate submissions, decisions, invitations, signatures, and payments without turning a shared key into a cross-workspace read channel (NFR-REL-001).
 - **Optimistic concurrency**: `expected_version` must equal the aggregate's current `version`, else `409 CONFLICT` (see §4). Retry never silently overwrites.
 - **Step-up**: sensitive commands (`sensitiveActions`, `product.ts:42`: decide, accept-deliverable, approve-payment, manage-access, resolve-dispute) require a fresh `step_up_token`; absence → `403` with `code:"STEP_UP_REQUIRED"`.
 - **Reason**: `manual-review` transitions and all ops interventions require a structured `reason`.
+- **Unit of work**: the development API revalidates session/membership inside its shared in-memory critical section and snapshots mutation state so aggregate/version, business audit, outbox, idempotency result, and receipt commit or roll back together. This proves the boundary but is not durable. The production adapter must perform the same write set in one PostgreSQL transaction; access-decision audit remains an independently defined authorization record.
 
 ## 4. Error contract
 
-Maps the six `MutationFailure` codes (`solver.ts:508`) to HTTP + a stable envelope. Errors are **non-enumerating** for protected records (a hidden record and a denied record both return `404` to non-members).
+Maps the seven canonical error codes to HTTP plus a stable envelope. Errors are **non-enumerating** for protected records (a hidden record and a denied record both return `404` to non-members).
 
 ```jsonc
 {
@@ -80,21 +87,29 @@ Maps the six `MutationFailure` codes (`solver.ts:508`) to HTTP + a stable envelo
     "current_version": 7,
     "recovery": "refetch_and_retry",
   },
+  "meta": {
+    "server_time": "2026-08-20T12:00:00Z",
+    "correlation_id": "cor_9f…",
+    "entity_version": 7,
+  },
 }
 ```
 
-| `code`          | HTTP                       | When                                        | Recovery hint                                    |
-| --------------- | -------------------------- | ------------------------------------------- | ------------------------------------------------ |
-| `VALIDATION`    | 422                        | Field/schema/readiness failure              | Field-level errors in `error.fields`             |
-| `NO_ACCESS`     | 403 (or 404 for protected) | AuthZ deny; step-up missing                 | Non-enumerating for protected records            |
-| `NOT_FOUND`     | 404                        | Unknown/removed/cross-tenant ID             | Never falls back to a sample (invariant 20 §7.5) |
-| `INVALID_STATE` | 409                        | Transition not allowed from current state   | Show current state + allowed transitions         |
-| `CONFLICT`      | 409                        | Stale `expected_version` / duplicate unique | Return `current_version`; refetch & merge        |
-| `STORAGE`       | 503                        | Transient persistence/provider failure      | Safe to retry with same idempotency key          |
+| `code`             | HTTP                       | When                                        | Recovery hint                                    |
+| ------------------ | -------------------------- | ------------------------------------------- | ------------------------------------------------ |
+| `VALIDATION`       | 422                        | Field/schema/readiness failure              | Field-level errors in `error.fields`             |
+| `NO_ACCESS`        | 403 (or 404 for protected) | AuthN/AuthZ deny                            | Non-enumerating for protected records            |
+| `NOT_FOUND`        | 404                        | Unknown/removed/cross-tenant ID             | Never falls back to a sample (invariant 20 §7.5) |
+| `INVALID_STATE`    | 409                        | Transition not allowed from current state   | Show current state + allowed transitions         |
+| `CONFLICT`         | 409                        | Stale `expected_version` / duplicate unique | Return `current_version`; refetch & merge        |
+| `STORAGE`          | 503                        | Transient persistence/provider failure      | Safe to retry with same idempotency key          |
+| `STEP_UP_REQUIRED` | 403                        | Authenticated action needs fresh step-up    | Start the approved IdP step-up flow              |
 
 Rate-limited requests return `429` with `Retry-After`. All errors carry `correlation_id`.
 
 ## 5. MVP slice endpoints
+
+The first published OpenAPI increment has exactly **8 paths / 9 operations**: `GET /api/v1/openapi.json`; `POST` session exchange/refresh/revoke; `GET /api/v1/me`; `POST /api/v1/me/context:switch`; `POST /api/v1/challenges`; and `GET` + `PATCH /api/v1/challenges/{challengeId}`. It implements §5.1 plus challenge draft create/read/save from §5.2. All three session writes carry `expected_version` (`0` for exchange) and `Idempotency-Key`; protected challenge writes additionally require `X-Workspace-Id`. The remaining endpoint inventory below is the approved MVP target, not a claim that those routes already exist. Its in-memory API composition is for deterministic development/contract evidence only and refuses production mode; it is not a substitute for managed OIDC, PostgreSQL, RLS, or transactional durability.
 
 ### 5.1 Identity & context
 
@@ -111,7 +126,7 @@ POST /me/context:switch            # set active workspace (validated vs membersh
 ```
 POST /challenges                              # create draft            → chl_*
 GET  /challenges/{id}                          # private aggregate (member-scoped)
-PATCH/challenges/{id}                          # autosave draft (expected_version)
+PATCH /challenges/{id}                         # autosave draft (expected_version)
 POST /challenges/{id}:request-triage           # draft → triage        (pre: brief-valid)
 POST /challenges/{id}:advance-formulation      # triage → formulation
 POST /challenges/{id}/approvals:record         # per-gate approval (business/technical/finance/legal/quality)
@@ -135,7 +150,7 @@ GET  /opportunities?…&cursor=                  # searchable published challeng
 POST /opportunities/{challengeId}:save
 GET  /challenges/{id}/eligibility              # server evaluateEligibility → {status, reasons[], actions[]}
 POST /proposals                                # create draft for (challenge, active workspace)
-PATCH/proposals/{id}                           # autosave draft
+PATCH /proposals/{id}                          # autosave draft
 POST /proposals/{id}:submit                    # draft → submitted (pre: form-valid, sender-authorized, terms-accepted; locks version, receipt)
 POST /proposals/{id}:submit-clarification      # clarification_requested → clarification_submitted
 POST /proposals/{id}:start-revision            # revision_requested → revision_draft
@@ -165,7 +180,9 @@ POST /challenges/{id}/decision:record          # evaluating → decided (authori
 
 ## 7. Events emitted (outbox → consumers)
 
-Event names reuse the state machines' `audit` codes verbatim, so audit and integration share one vocabulary:
+The executable schema-v1 worker allowlist is initially exact and intentionally small: `challenge.draft.created`, `challenge.draft.updated`, `session.exchanged`, `session.refreshed`, `session.revoked`, and `session.context.switched`. No `challenge.draft.saved`, generic `challenge.stage.changed`, or AI event is accepted. These walking-skeleton application audit codes cover draft/session effects that do not yet have canonical transition-table rows.
+
+For the target lifecycle commands below, event names reuse the state machines' `audit` codes verbatim so audit and integration share one vocabulary:
 
 | Command                      | Event(s)                                                            | Consumers                                                         |
 | ---------------------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------- |
@@ -175,7 +192,7 @@ Event names reuse the state machines' `audit` codes verbatim, so audit and integ
 | `challenges/decision:record` | `challenge.decision.recorded`, `direct-offer.selected`/case-created | notification (all parties), case module                           |
 | `payment` transitions        | `payment.processing`…`payment.reconciled`                           | ledger, reconciliation, notification                              |
 
-Consumers are idempotent; delivery is at-least-once. A delivery failure never changes business state (FR-OPS-006).
+Consumers are idempotent; delivery is at-least-once. Every downstream handler receives `event_id` unchanged as its provider idempotency key, because an application ledger cannot atomically cover a remote side effect. Records are runtime-validated against the envelope, supported schema version, and an explicit event-type allowlist; malformed/unsupported records are dead-lettered, while handler failures retry per record with a bounded attempt count so one poison event cannot starve the batch. A delivery failure never changes business state (FR-OPS-006). The current in-memory worker proves these semantics only; a production source still needs durable claims/visibility timeouts, retry scheduling, and an operated dead-letter queue.
 
 ## 8. File upload sub-protocol
 

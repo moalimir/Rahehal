@@ -18,7 +18,7 @@ before any public write-up.
 
 ## Scope
 
-In scope: this repository, the (forthcoming) API/worker, authorization, tenant &
+In scope: this repository, the API/worker workspaces, authorization, tenant &
 cross-tenant access (`access_grant`), file handling, audit integrity, and payment
 gates. Out of scope during the prototype phase: the mock/demo browser stores —
 these are **known** to be non-authoritative (see R-01) and are being replaced by
@@ -26,11 +26,13 @@ server authority in Phase 1.
 
 ## Current security posture (must be understood before use)
 
-This repository is a **frontend prototype**. Sessions, permissions, COI,
-approvals, payments, and audit are currently simulated in the browser and are
-**not** enforceable (R-01). Do not place real credentials, identity documents,
-confidential briefs, proposals, contracts, or payment data in it. Production
-security is delivered in Phase 1 (server authority) — see
+This repository is a **prototype with an in-memory backend walking skeleton**.
+The initial API proves scoped session/workspace/challenge behavior, but its demo
+tokens, repositories, audit, and outbox are not durable or production authority;
+the rest of the lifecycle is still simulated in the browser (R-01). Do not place
+real credentials, identity documents, confidential briefs, proposals, contracts,
+or payment data in it. Production security exists only after the managed OIDC,
+PostgreSQL/RLS, durable audit/outbox, provider, and Phase-1 exit gates pass — see
 [project-documents/70_SECURITY_AND_AUTHZ.md](project-documents/70_SECURITY_AND_AUTHZ.md).
 
 ## Handling & standards

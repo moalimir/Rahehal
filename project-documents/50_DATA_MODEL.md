@@ -1,6 +1,6 @@
 # Data Model — PostgreSQL schema, tenancy, and projections
 
-Implementation-ready schema for the MVP vertical slice (challenge → proposal → review → decision) plus the cross-cutting platform tables every slice needs. Names and states come from [20_CANONICAL_MODEL](20_CANONICAL_MODEL.md); the command-result shape comes from `domain/solver.ts` (20 §9). DDL is PostgreSQL 15+.
+Implementation-ready schema for the MVP vertical slice (challenge → proposal → review → decision) plus the cross-cutting platform tables every slice needs. Names and states come from [20_CANONICAL_MODEL](20_CANONICAL_MODEL.md); executable command/result envelopes come from `packages/contracts` and [60_API_CONTRACT](60_API_CONTRACT.md). The browser solver aggregate remains migration evidence, not the API contract. DDL is PostgreSQL 15+.
 
 ---
 
@@ -47,7 +47,7 @@ CREATE POLICY proposal_access ON proposal USING (
 ```sql
 CREATE TABLE tenant (
   id          text PRIMARY KEY,              -- ten_*
-  kind        text NOT NULL CHECK (kind IN ('organization','platform')),
+  kind        text NOT NULL CHECK (kind IN ('organization','solver','platform')),
   display_name text NOT NULL,
   region      text NOT NULL,                 -- data residency (D-07)
   created_at  timestamptz NOT NULL DEFAULT now()
@@ -97,6 +97,8 @@ CREATE INDEX ON membership (user_id) WHERE state = 'active';
 CREATE INDEX ON membership (workspace_id, state);
 ```
 
+The `solver` tenant kind and workspace-ownership rules are the engineering default in DEC-2026-011 and remain blocked on product+security owner sign-off. Every protected row has one owning tenant; multi-tenant user reach comes from active memberships and explicit `access_grant` rows, never from a shared platform-tenant bucket.
+
 ## 4. Challenge aggregate + public projection
 
 ```sql
@@ -111,7 +113,6 @@ CREATE TABLE challenge (
                   ('draft','ready','under_review','needs_changes','published','closed')),
   current_version_id text,                   -- FK set after first version
   published_version_id text,                 -- locked at publication
-  applicant_scope text CHECK (applicant_scope IN ('person','team','both')),  -- was TeamType (D7)
   version       integer NOT NULL DEFAULT 0,  -- optimistic concurrency
   created_at    timestamptz NOT NULL DEFAULT now(),
   updated_at    timestamptz NOT NULL DEFAULT now()
@@ -122,7 +123,7 @@ CREATE TABLE challenge_version (
   challenge_id  text NOT NULL REFERENCES challenge(id),
   number        integer NOT NULL,
   actor_user_id text NOT NULL REFERENCES app_user(id),
-  content       jsonb NOT NULL,             -- full ChallengeRecord payload (challenge.ts:51)
+  content       jsonb NOT NULL,             -- canonical ChallengeDraftContent; transport projection is ChallengeDraftContentResource
   locked        boolean NOT NULL DEFAULT false,   -- true once submitted/published
   created_at    timestamptz NOT NULL DEFAULT now(),
   UNIQUE (challenge_id, number)
@@ -168,6 +169,8 @@ CREATE TABLE challenge_public_projection (
 );
 CREATE INDEX challenge_projection_fts ON challenge_public_projection USING gin (search_vector);
 ```
+
+`allowed_applicant_types` is authoritative. `applicant_scope` remains a compatibility field in the versioned transport/content document and is derived by DEC-2026-010; it is not an independently writable aggregate column. Commands validate any supplied compatibility value and persist only the derived projection.
 
 ## 5. Proposal aggregate (immutable versions)
 
@@ -298,25 +301,33 @@ CREATE TABLE payment (
 
 ```sql
 CREATE TABLE idempotency_key (
-  key         text NOT NULL,                 -- client-supplied
-  tenant_id   text NOT NULL,
-  command     text NOT NULL,                 -- command name/scope
-  entity_id   text,
-  receipt_id  text,
-  response    jsonb,                          -- cached result for exact-once replay
-  created_at  timestamptz NOT NULL DEFAULT now(),
-  expires_at  timestamptz NOT NULL,
-  PRIMARY KEY (tenant_id, command, key)
+  scope_kind text NOT NULL CHECK (scope_kind IN ('tenant','credential')),
+  scope_id   text NOT NULL,                  -- tenant ID or one-way credential-scope digest; never a raw token/code
+  tenant_id  text,                           -- null only before tenant context exists
+  key        text NOT NULL,                  -- client-supplied
+  command    text NOT NULL,                  -- stable command name
+  request_fingerprint text NOT NULL,          -- actor/workspace/target/normalized-body binding
+  actor_user_id text,
+  workspace_id text,
+  entity_id  text,
+  receipt_id text,
+  response   jsonb NOT NULL,                 -- cached exact response for replay
+  created_at timestamptz NOT NULL DEFAULT now(),
+  expires_at timestamptz NOT NULL,
+  PRIMARY KEY (scope_kind, scope_id, command, key),
+  CHECK ((scope_kind = 'tenant' AND tenant_id = scope_id) OR
+         (scope_kind = 'credential' AND tenant_id IS NULL))
 );
 
 CREATE TABLE outbox_event (
-  id          bigserial PRIMARY KEY,
-  tenant_id   text NOT NULL,
+  event_id    text PRIMARY KEY,              -- evt_*; stable downstream idempotency key
+  event_type  text NOT NULL,
+  schema_version integer NOT NULL CHECK (schema_version > 0),
   aggregate_type text NOT NULL, aggregate_id text NOT NULL,
-  event_type  text NOT NULL,                 -- e.g. 'challenge.published'
-  payload     jsonb NOT NULL,
+  tenant_id   text NOT NULL,
   correlation_id text NOT NULL,
-  created_at  timestamptz NOT NULL DEFAULT now(),
+  occurred_at timestamptz NOT NULL,
+  payload     jsonb NOT NULL,
   published_at timestamptz                    -- null = unrelayed
 );
 CREATE INDEX ON outbox_event (published_at) WHERE published_at IS NULL;
@@ -357,25 +368,29 @@ CREATE TABLE notification_delivery (
 );
 ```
 
+The relay/queue adapter, not the business event envelope, owns stable claim IDs, delivery attempts, visibility/lease time, published/dead-letter state, retry scheduling, and the operated dead-letter queue. Every consumer validates the envelope plus supported schema version/event allowlist and passes `event_id` unchanged as the downstream provider idempotency key. The checked-in worker proves those semantics in memory only; the production queue mapping remains a Phase-1 adapter and migration.
+
 Also: `policy_version` (versioned trust/legal/privacy content), `consent`, `dispute`, `privileged_access_grant`, `nda_acceptance` (from `solver.ts:349`), `verification_record` (from `solver.ts:332`) — same patterns.
 
 **AI/matching is deferred** under ADR-0012. Phase 1 adds only the provider-neutral `embedding.requested` outbox event contract. The future `embedding`, `match_run`, `match_result`, `ai_interaction`, pgvector extension, model adapter, and any data egress land only in the later authorized AI phase described by [45_AI_AND_MATCHING](45_AI_AND_MATCHING.md).
 
 ## 9. Migration mapping (browser stores → tables)
 
-| Browser store (evidence)                                        | → Table(s)                                                                                                                                                                       |
-| --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `rahhal.session.v1` (`lib/auth/session.ts`)                     | IdP + `app_user` + server session (not a table — token/refresh store)                                                                                                            |
-| `rahhal.organization-challenges.v8` (`v7`/`v6` migrate on read) | `challenge`, `challenge_version`, `challenge_approval`, `challenge_public_projection`                                                                                            |
-| `rahhal.solver.v4.user.*` (`v3` migrates on read)               | `workspace`, `membership`, `proposal`, `proposal_version`, `direct_offer`, `verification_record`, `nda_acceptance`, `contract_version`, `case`, `audit_event`, `idempotency_key` |
-| `rahhal.demo-command-store.v1`                                  | `idempotency_key`, `outbox_event`, `audit_event`                                                                                                                                 |
-| Direct-offer store (`lib/offers/store.ts`)                      | `direct_offer` + `offer_response`                                                                                                                                                |
-| Reviewer COI keys (`lib/reviews/access.ts`)                     | `review_assignment` + `coi_declaration`                                                                                                                                          |
-| Payment store (`lib/payments/store.ts`)                         | `payment` + `ledger_entry` + reconciliation                                                                                                                                      |
+| Browser store (evidence)                                                   | → Table(s)                                                                                                                                                                       |
+| -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rahhal.session.v1` (`lib/auth/session.ts`)                                | IdP + `app_user` + server session (not a table — token/refresh store)                                                                                                            |
+| `rahhal.organization-challenges.v9` (`v8`/`v7`/`v6` first-upgrade sources) | `challenge`, `challenge_version`, `challenge_approval`, `challenge_public_projection`                                                                                            |
+| `rahhal.solver.v5.user.*` (`v4` role and direct `v3` taxonomy migrations)  | `workspace`, `membership`, `proposal`, `proposal_version`, `direct_offer`, `verification_record`, `nda_acceptance`, `contract_version`, `case`, `audit_event`, `idempotency_key` |
+| `rahhal.demo-command-store.v1`                                             | `idempotency_key`, `outbox_event`, `audit_event`                                                                                                                                 |
+| Direct-offer store (`lib/offers/store.ts`)                                 | `direct_offer` + `offer_response`                                                                                                                                                |
+| Reviewer COI keys (`lib/reviews/access.ts`)                                | `review_assignment` + `coi_declaration`                                                                                                                                          |
+| Payment store (`lib/payments/store.ts`)                                    | `payment` + `ledger_entry` + reconciliation                                                                                                                                      |
 
-Solver demo-store v4 maps each valid v3 `SolverTeam.teamType` to `teamKind` without changing its value, strips the legacy field, and preserves the rest of the aggregate. An authoritative v4 persist attempts a down-mapped v3 rollback mirror (`teamKind` → `teamType`) and marks it fresh only after success; auxiliary mirror failure does not fail or duplicate the v4 mutation. Valid v4 wins when both records are readable, and corrupt-current recovery accepts only a mirror whose freshness marker matches. This mirror supports one-version rollback and recovery, not concurrent consistency between open v3 and v4 tabs. An unknown or missing team classification invalidates the snapshot rather than becoming `expert-team`. The very old name-only `rahhal:solver-team-draft` is the explicit exception and becomes a draft `expert-team`. The ephemeral `rahhal.solver-registration` draft and its UI-only `SolverTeamType` variants are not an authoritative migration source.
+Challenge demo-store v9 renames v8 `solverTypes` to canonical `allowedApplicantTypes` and maps `individual → individual`, `team → expert-team`, `company → company`, and `university → academic-group`; it never infers `lab`. A present canonical detailed field wins in mixed records, unknown or missing values become an empty allow-set, and `applicantScope` is derived from that set. Existing contradictory v9 records are normalized and rewritten on read. The migration validates the complete `ChallengeRecord` shape—including required identifiers/timestamps, enums, booleans, and nested attachment/criterion/applicant arrays—and rejects malformed records before sorting or use. The v8 rollback mirror is all-or-nothing: it is written and marked fresh only when every applicant value has an exact old representation. If any record contains `lab`, v9 removes the entire v8 mirror/freshness pair rather than advertising a truncated snapshot. A v9-seen marker plus cleanup of consumed v7/v6 inputs ensures those older stores remain first-upgrade sources only and cannot resurrect after v9 is lost or corrupt. Auxiliary mirror/cleanup failure does not reverse an authoritative v9 write.
 
-The `SolverState.idempotency` map and `MutationReceipt`/`MutationFailure` types (`solver.ts:494–512`) are already the exact runtime contract for `idempotency_key` and the API result envelope — the production migration is a persistence swap, not a redesign.
+Solver demo-store v5 maps each valid flat v4 team role to its `team:*` value throughout memberships, invitations, membership requests, and settings. Direct v3 upgrade additionally maps `SolverTeam.teamType` to `teamKind`. An authoritative v5 persist attempts a down-mapped v4 rollback mirror (canonical `teamKind`, flat role values) and marks it fresh only after success; auxiliary mirror failure does not fail or duplicate the v5 mutation. Valid v5 wins, corrupt-current recovery accepts only a fresh v4 mirror, and a v5-seen guard prevents stale v3 resurrection. Unknown/missing kinds or roles invalidate the snapshot instead of widening access. The old name-only team draft remains the explicit `expert-team` exception; the ephemeral registration `SolverTeamType` is not an authoritative migration source.
+
+The browser `SolverState.idempotency` map and solver receipt/failure types were useful prototype inputs. The exact executable contract is now `packages/contracts`; production migration must add durable authorization, fingerprint-scoped idempotency, optimistic concurrency, and a single PostgreSQL unit of work for aggregate/version + audit + outbox + cached response. It is therefore more than a persistence swap, even where field meanings are preserved.
 
 ## 10. Indexing & integrity checklist
 

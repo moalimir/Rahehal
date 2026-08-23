@@ -6,9 +6,9 @@ Canonical, always-on instructions for AI coding agents working in this repositor
 
 Rahhal is a Persian-first, RTL open-innovation platform. Organizations publish governed operational challenges; eligible solvers submit versioned proposals; assigned reviewers clear conflict-of-interest checks and score exact proposal versions; organizations record reasoned decisions; selected work continues through a case, contract, pilot, deliverables, payment, and impact evidence.
 
-The current repository is an advanced frontend prototype, not a production authority. Sessions, permissions, workflows, audit, payments, and persistence are simulated in the browser. The delivery strategy is **depth before breadth**: finish Phase-0 gates and make one thin vertical slice authoritative before adding more screens. Current status and remaining gates are owned by `project-documents/82_PHASE0_COMPLETION.md`; delivery order is owned by `project-documents/80_DELIVERY_ROADMAP.md`.
+The current repository is an advanced frontend prototype plus an initial API/worker walking skeleton, not a production authority. The first session/workspace/challenge routes exercise injected ports with explicit in-memory development adapters; the broader workflows and persistence remain simulated in the browser. Managed OIDC, PostgreSQL/RLS, durable audit/outbox, private storage, and provider integrations are not implemented. The delivery strategy is **depth before breadth**: finish Phase-0 gates and make one thin vertical slice authoritative before adding more screens. Current status and remaining gates are owned by `project-documents/82_PHASE0_COMPLETION.md`; delivery order is owned by `project-documents/80_DELIVERY_ROADMAP.md`.
 
-Current stack: Next.js 16, React 19, strict TypeScript, Vitest, Testing Library, Playwright, and a statically exported/offline demo artifact. The production target is a hybrid Next.js web client backed by a TypeScript/Node modular monolith, PostgreSQL, asynchronous workers, private object storage, managed OIDC, and generated API contracts. Introduce target directories only when a vertical slice needs them; do not reorganize the repository merely to match an architecture diagram.
+Current stack: npm workspaces; Next.js 16 and React 19 for the statically exported/offline web demo; Fastify 5 for the initial API transport; a Node outbox worker; shared strict-TypeScript domain/contracts/testkit packages; Vitest, Testing Library, and Playwright. The production target remains a hybrid Next.js web client backed by the TypeScript/Node modular monolith, PostgreSQL, asynchronous workers, private object storage, managed OIDC, and generated API clients. Introduce boundaries only when a vertical slice needs them; do not reorganize the repository merely to match an architecture diagram.
 
 ## Source-of-truth order
 
@@ -76,6 +76,7 @@ npm run typecheck
 npm run lint
 npm run format:check
 npm test
+npm run verify:boundaries
 npm run analyze:source:check
 npm run build
 npm run verify:routes
@@ -131,3 +132,13 @@ For an implemented task, finish with:
 - **Risks and review focus:** especially authority, tenancy, data exposure, concurrency, Persian/RTL, or payload.
 - **Migration and rollback:** compatibility impact and safe reversal where applicable.
 - **Docs/decisions:** updated sources or unresolved owner decisions.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

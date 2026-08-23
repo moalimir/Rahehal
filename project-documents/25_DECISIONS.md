@@ -26,12 +26,13 @@ Status values: `accepted` · `accepted (eng) / pending-owner-sign-off` · `propo
 | 0011 | Non-custodial payment orchestration (pilot)                                   | accepted (eng) / pending-owner-sign-off | D-06, DEC-2026-008 |
 | 0012 | AI posture: assistive-only, deferred, egress-gated                            | accepted                                | D14                |
 | 0013 | TypeScript/Node; one language across web/api/worker                           | accepted                                | 40 §3              |
+| 0014 | Fastify 5 transport over injected application ports                           | accepted                                | 40 §3, 60          |
 
 ### ADR-0001 — Adopt the canonical model as law
 
 **Context.** Source encoded one lifecycle three ways, three role models, four solver-type enums (30 §A).
 **Decision.** [20_CANONICAL_MODEL](20_CANONICAL_MODEL.md) is binding for every schema column, API field, permission rule, event, and label: one 11-stage lifecycle; role namespaces `platform:*`/`org:*`/`team:*`; one `ApplicantType`; `TeamKind`/`ApplicantScope` renames; immutable versions.
-**Consequences.** Rename collisions in code (`TeamType`), retire the duplicate `canTransition`. Fitness test enforces the vocabulary. Enables all later ADRs.
+**Consequences.** Rename collisions in code (`TeamType`), retire the duplicate `canTransition`, derive `ApplicantScope` from the authoritative detailed set (DEC-2026-010), and migrate all persisted team roles to `team:*`. Fitness tests enforce the vocabulary. Enables all later ADRs.
 
 ### ADR-0002 — Hybrid Next.js runtime
 
@@ -61,7 +62,7 @@ Status values: `accepted` · `accepted (eng) / pending-owner-sign-off` · `propo
 
 ### ADR-0007 — Command contract (idempotency, concurrency, receipts, typed errors)
 
-**Decision.** Every mutation: `Idempotency-Key`, `expected_version` (optimistic concurrency), returns `MutationReceipt`; six typed error codes → HTTP (60 §4). Promotes the shape already in `domain/solver.ts`.
+**Decision.** Every mutation: `Idempotency-Key`, `expected_version` (optimistic concurrency), returns the canonical API receipt; seven typed error codes → HTTP (60 §4), including the distinct `STEP_UP_REQUIRED`. Promotes and extends the shape already in `domain/solver.ts` without keeping a competing API error vocabulary.
 **Consequences.** Safe retries; no duplicate submissions/decisions/payments; stale writes 409.
 
 ### ADR-0008 — Transactional outbox + append-only immutable audit
@@ -87,13 +88,18 @@ Status values: `accepted` · `accepted (eng) / pending-owner-sign-off` · `propo
 
 ### ADR-0012 — AI posture: assistive-only, deferred, egress-gated
 
-**Decision.** AI (matching/assist) is deferred to a later wave ([45](45_AI_AND_MATCHING.md)); when built it ranks/explains only, never decides eligibility/review/selection/payment; classification gates model egress (confidential → self-hosted in-region or excluded); no external training/retention. Forward hook: emit `embedding.requested` outbox events in Phase 1.
-**Consequences.** Foundation stays lean; AI becomes a deploy, not a migration.
+**Decision.** AI (matching/assist) is deferred to a later wave ([45](45_AI_AND_MATCHING.md)); when built it ranks/explains only, never decides eligibility/review/selection/payment; classification gates model egress (confidential → self-hosted in-region or excluded); no external training/retention. Phase 1 defines a provider-neutral outbox envelope only and does not emit AI events or provision AI infrastructure.
+**Consequences.** Foundation stays lean. Enabling AI later requires its own approved RFC, data-classification review, schema migration, and deployment.
 
 ### ADR-0013 — TypeScript/Node stack
 
-**Decision.** TypeScript/Node (NestJS or Fastify) for API + worker; reuse `domain/*` types & state machines; one language across web/api/worker. Optional Python inference worker behind the queue only if self-hosted models are needed later.
+**Decision.** TypeScript/Node for API + worker; reuse browser-free primitives from `packages/domain`. The shared package owns the canonical challenge lifecycle, while root `domain/state-machines.ts` retains the remaining prototype sub-entity oracles until their authoritative slices move them behind shared server-safe boundaries. One language spans web/api/worker. ADR-0014 selects Fastify 5 for transport. Optional Python inference worker behind the queue only if self-hosted models are needed later.
 **Consequences.** Maximum type-sharing with the existing prototype; low context-switching.
+
+### ADR-0014 — Fastify 5 transport over injected application ports
+
+**Decision.** Use Fastify 5 for the initial Node API transport. Route modules validate the versioned JSON contract and depend on injected session, workspace, and challenge application ports; Fastify, demo repositories, and provider adapters remain outside `packages/domain` and `packages/contracts`.
+**Consequences.** The API is testable through in-process HTTP injection, starts quickly, and does not couple domain policy to a framework. The initial in-memory composition is explicitly demo-only and refuses production mode; PostgreSQL and managed OIDC adapters remain Phase-1 release requirements.
 
 ---
 
@@ -144,4 +150,16 @@ Each resolves a P0 item from [95 §2](95_RISKS_AND_OPEN_QUESTIONS.md). Defaults 
 ### DEC-2026-009 — Performance budgets: rebaseline + web-vital targets
 
 - **Status:** accepted (eng) · **Owner:** Frontend + Architecture · **Risks:** R-07
-- **Decision:** rebaseline the byte ceilings in `config/performance-budgets.json` to the 2026-08-23 build actuals + ~2% headroom (an anti-regression gate anchored to today), and record user-centric **p75 web-vital targets** (LCP < 2.5s, INP < 200ms, CLS < 0.1 on Persian-market mobile). This is not "inflating to hide a regression" — the 8 overages were baseline drift, not new payload. **Payload reduction** (role code-split + feature-CSS split off the ~1.3 MB common JS) is tracked as a **Phase-1 task** ([80](80_DELIVERY_ROADMAP.md) §4/§10); ceilings are **lowered as reduction lands, never raised** without an ADR.
+- **Decision:** rebaseline the byte ceilings in `config/performance-budgets.json` to the 2026-08-23 build actuals + ~2% headroom (an anti-regression gate anchored to today), and record user-centric **p75 web-vital targets** (LCP < 2.5s, INP < 200ms, CLS < 0.1 on Persian-market mobile). This is not "inflating to hide a regression" — the 8 overages were baseline drift, not new payload. **Payload reduction** (role code-split + feature-CSS split off the ~1.3 MB common JS) is tracked as **P1-F8** ([80](80_DELIVERY_ROADMAP.md) §5); ceilings are **lowered as reduction lands, never raised** without an ADR.
+
+### DEC-2026-010 — Applicant scope is a derived projection
+
+- **Status:** accepted (eng) / pending product-owner sign-off · **Owner:** Product · **Blocking milestone:** P1-F1 production acceptance
+- **Decision (default):** `allowedApplicantTypes` is authoritative. `ApplicantScope` is derived as: empty set → `null`; individual only → `person`; team kinds only → `team`; individual plus at least one team kind → `both`. It is not independently authored and never expands the detailed allow-set.
+- **Consequences:** browser-store v9 normalizes existing contradictions on read; web authoring computes the scope; the API returns `VALIDATION/derived_value` for contradictory compatibility input. Database writes compute/validate the projection. Reversing this decision requires a migration and eligibility review.
+
+### DEC-2026-011 — Tenant/workspace identity boundary
+
+- **Status:** accepted (eng) / pending product+security owner sign-off · **Owner:** Product + Security · **Blocking milestones:** P1-F2/P1-F4
+- **Decision (default):** tenant kinds are `organization`, `solver`, and `platform`. Organization workspaces belong to an organization tenant; each individual or team solver workspace belongs to a solver tenant; platform workspaces belong to the platform tenant. One user identity may hold active memberships across multiple tenants/workspaces. A solver company remains a `team` workspace with `TeamKind=company`, not an organization tenant; a company that also publishes challenges receives a separate organization tenant. Cross-tenant collaboration is possible only through the explicit `access_grant` model.
+- **Consequences:** every protected row has one owning tenant; context switching is explicit; membership removal cuts access immediately; team ownership transfer does not change tenant ownership. The first production migration must encode tenant kind and workspace-kind compatibility constraints after owner approval.
