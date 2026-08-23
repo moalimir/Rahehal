@@ -1,0 +1,46 @@
+{
+  "name": "@rahhal/domain",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./challenge": {
+      "types": "./src/challenge.ts",
+      "import": "./dist/challenge.js",
+      "default": "./dist/challenge.js"
+    },
+    "./id": {
+      "types": "./src/id.ts",
+      "import": "./dist/id.js",
+      "default": "./dist/id.js"
+    },
+    "./taxonomy": {
+      "types": "./src/taxonomy.ts",
+      "import": "./dist/taxonomy.js",
+      "default": "./dist/taxonomy.js"
+    },
+    "./workspace": {
+      "types": "./src/workspace.ts",
+      "import": "./dist/workspace.js",
+      "default": "./dist/workspace.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run --config vitest.config.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "5.9.2",
+    "vitest": "4.1.10"
+  }
+}
