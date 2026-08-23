@@ -13,7 +13,7 @@ Installed and verified locally on 2026-08-23 (macOS arm64, Node 24.16.0 / npm 11
 | `npm run typecheck`                                                | ✅ pass                                                                                                                                |
 | `npm run lint`                                                     | ✅ pass (`--max-warnings=0`)                                                                                                           |
 | `npm run format:check`                                             | ✅ pass                                                                                                                                |
-| `npm test`                                                         | ✅ **35 files, 194 tests** pass                                                                                                        |
+| `npm test`                                                         | ✅ **35 files, 211 tests** pass                                                                                                        |
 | `npm run build`                                                    | ✅ **506 static pages**, offline bundle regenerated, **no manual retry**                                                               |
 | `verify:routes` / `verify:links` / `test:smoke` / `verify:offline` | ✅ all pass                                                                                                                            |
 | `test:standalone-interactive`                                      | ✅ **now passes** — was a harness bug (T-C), fixed in `scripts/smoke-standalone-interactive.mjs`; the offline bundle renders correctly |

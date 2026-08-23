@@ -34,6 +34,8 @@ Every finding below was observed directly in source on 2026-08-20 and carries `f
 | M-06 | **M** | **Recognizable org names/logos** (a `real` asset directory) sit alongside "demo" data with disclaimer text.                                                                                                                | 95 R-05                                                                            | Disclaimers don't grant trademark/endorsement rights.                                        |
 | M-07 | **M** | **Payment states show money moving** with receipts; there is no provider, ledger, or reconciliation.                                                                                                                       | `payments/store.ts`, `state-machines.ts:870`                                       | The most dangerous "looks real": financial correctness is simulated.                         |
 
+**Phase-0 status (2026-08-23):** M-05 is resolved: `index.html` is regenerated from current source and passes offline, standalone-interactive, static-smoke, budget, and browser checks. The remaining rows still describe prototype-vs-production boundaries or owner risk.
+
 ## C. Missing decisions (block the backend)
 
 These are unresolved _business_ choices without which the schema/authz cannot be finalized. Full list with owners in the v1 doc `95_RISKS_AND_OPEN_QUESTIONS.md §2`; the blocking few:
@@ -49,6 +51,8 @@ These are unresolved _business_ choices without which the schema/authz cannot be
 | D-07 | Data residency & classification tiers                                               | hosting, storage, backup, audit          |
 | D-08 | Static-export vs hybrid runtime for authenticated workspaces                        | whole deployment architecture            |
 
+**Decision status (2026-08-23):** engineering planning defaults and named owners now live in [25_DECISIONS](25_DECISIONS.md). Pending owner sign-offs are tracked by the phase they block; they are not all prerequisites for starting Phase 1.
+
 ## D. Architectural risks (technical)
 
 | ID   | Sev   | Risk                                                                                                                                        | Evidence                          | Treatment                                                               |
@@ -60,6 +64,8 @@ These are unresolved _business_ choices without which the schema/authz cannot be
 | T-05 | **M** | **No CI/CD, env contract, or migration/rollback**; snapshot has no `.git`.                                                                  | 95 R-09                           | Phase 0 CI with all release gates.                                      |
 | T-06 | **M** | **Route generation includes fixtures**: static paths per demo entity risk accidental exposure and unbounded builds.                         | 95 R-14                           | Generate only publishable/authorized projections.                       |
 
+**Phase-0 status (2026-08-23):** T-01's payload concern remains, but all 8 rebaselined byte gates pass under DEC-2026-009 and reduction is a Phase-1 task. T-04 is resolved with pinned runtime and deterministic optional dependencies. T-05's CI/env/baseline portion is resolved; production migrations and deployment/CD remain future work.
+
 ## E. What is genuinely strong (keep, don't rebuild)
 
 Not everything is a problem — these are assets to preserve and build _on_:
@@ -70,19 +76,6 @@ Not everything is a problem — these are assets to preserve and build _on_:
 4. **Negative-state vocabulary** — loading/empty/partial/error/offline/permission/locked/conflict/closed/success, plus non-enumerating not-found. **Rare and valuable; carry into API error contract.**
 5. **Zero import cycles**, strict TS, and a large green test suite — a healthy base to refactor from.
 
-## F. Decision log (ADR stubs to open)
+## F. Decision log (opened)
 
-Open one ADR per row; template in `95_RISKS_AND_OPEN_QUESTIONS.md` §10. Marked ✅ where this blueprint already sets a consistency default (still needs owner sign-off).
-
-| ADR     | Title                                                | Default set here       |
-| ------- | ---------------------------------------------------- | ---------------------- |
-| ADR-001 | Canonical lifecycle & vocabulary                     | ✅ 20 §4               |
-| ADR-002 | Role namespaces & authz subject                      | ✅ 20 §3, 70 §2        |
-| ADR-003 | `ApplicantType`/`TeamKind`/`ApplicantScope` taxonomy | ✅ 20 §5               |
-| ADR-004 | COI as first-class record                            | ✅ 20 §4.3             |
-| ADR-005 | Runtime model (hybrid Next + API)                    | ✅ D10 (needs owner)   |
-| ADR-006 | Postgres tenancy strategy (RLS vs app-scoped)        | ✅ 50 §2 (needs owner) |
-| ADR-007 | Object storage, scanning, retention                  | proposed 40 §6         |
-| ADR-008 | Audit immutability & correlation                     | proposed 40 §5         |
-| ADR-009 | Payment/ledger custody boundary                      | ⚠ D-06 open           |
-| ADR-010 | Identity provider & session architecture             | proposed 40 §4         |
+The original ADR stub list is superseded. ADR-0001…0013 and DEC-2026-001…009 are recorded with status, owners, consequences, and blocking phases in [25_DECISIONS](25_DECISIONS.md). Do not open duplicate short-form ADR-001…010 records from the historical audit.

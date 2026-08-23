@@ -198,4 +198,4 @@ Even before building any AI, three low-cost decisions in the MVP keep the door o
 
 1. **Store the raw text** that will later be embedded (profile bio/skills, challenge brief, proposal content) as clean, classification-tagged fields — already true in the canonical model.
 2. **Keep the eligibility engine deterministic and server-side** (Phase 3) — it is the safety boundary every AI feature depends on.
-3. **Add `CREATE EXTENSION vector;` and the `embedding` table in Phase 1**, and emit `embedding.requested` outbox events on the relevant writes (even if no worker consumes them yet). Turning AI on later becomes "deploy the worker + the two read endpoints" — no migration, no re-platform.
+3. **Emit only the provider-neutral `embedding.requested` outbox contract in Phase 1.** Add pgvector, embedding/governance tables, model adapters, and consumers only when the later AI roadmap phase and ADR authorize them.

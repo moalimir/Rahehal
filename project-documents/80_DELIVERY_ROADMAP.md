@@ -36,7 +36,7 @@ Ranges assume a small cross-functional team; provider procurement, legal review,
 
 > **Status (2026-08-23):** the **decisions** half and the **repository baseline** are done — canonical model adopted, 13 ADRs + 9 P0 decisions recorded ([25_DECISIONS](25_DECISIONS.md)), runtime pinned, env/security/license/ownership/contribution files and the CI pipeline in place. Offline bundle, performance budgets, and Chromium behavior checks are green. The **visual Golden Master**, first-green-CI, and **owner sign-offs/placeholders** remain — all tracked with owners and acceptance criteria in [82_PHASE0_COMPLETION](82_PHASE0_COMPLETION.md). Phase 1 design may begin now.
 
-**Deliverables:** resolve the ⚠ P0 decisions (00 §4: brand, MVP boundary, launch posture, tenancy, identity/KYB, residency, offline scope, payment custody) with named owners; adopt [20_CANONICAL_MODEL](20_CANONICAL_MODEL.md); pin Node/npm (`.nvmrc`) and make `npm ci` install Sharp/libvips reproducibly (T-04); regenerate `index.html` and pass the standalone login→workspace smoke (M-05); restore the 5 failing byte budgets or rebaseline with user-centric targets (T-01); install pinned Playwright Chromium, run the 70 behavior cases, commit a reviewed visual Golden Master; add CI running every release gate; add `.env.example`, `SECURITY.md`, license, ownership; open ADR-001…010 (30 §F).
+**Deliverables:** resolve the ⚠ P0 decisions (00 §4: brand, MVP boundary, launch posture, tenancy, identity/KYB, residency, offline scope, payment custody) with named owners; adopt [20_CANONICAL_MODEL](20_CANONICAL_MODEL.md); pin Node/npm (`.nvmrc`) and make `npm ci` install Sharp/libvips reproducibly (T-04); regenerate `index.html` and pass the standalone login→workspace smoke (M-05); rebaseline byte budgets with user-centric targets and keep all 8 gates green (T-01/DEC-2026-009); install pinned Playwright Chromium, run the 70 behavior cases, commit a reviewed visual Golden Master; add CI running every release gate; add `.env.example`, `SECURITY.md`, license, ownership; open ADR-0001…0013 (30 §F).
 
 **Exit gates:** a clean CI clone passes every release command with no manual workaround; no checked-in/generated artifact is stale; perf + browser + visual gates green or signed-with-expiry; MVP scope, data classes, roles, launch boundary have named owners.
 
@@ -73,7 +73,7 @@ External pen-test + remediation; privacy impact assessment + data map + retentio
 
 1. **Baseline:** pin Node/npm; make `npm ci` install Sharp/libvips on macOS + CI Linux.
 2. **Release:** regenerate offline bundle; fix the login/workspace standalone smoke; document offline as demo-only.
-3. **Canonical:** land [20_CANONICAL_MODEL](20_CANONICAL_MODEL.md) as shared `packages/domain` types; rename `TeamType`→`ApplicantScope`/`TeamKind`; unify `ApplicantType`; delete the duplicate `canTransition`.
+3. **Canonical (in progress):** `ApplicantScope`, `TeamKind`, and the shared eligibility `ApplicantType` are landed; map challenge `SolverType` into that taxonomy and delete the duplicate `canTransition`.
 4. **Performance:** locate the 57–237-byte regressions; plan role code + CSS split off the 1.31 MB common JS.
 5. **Browser:** install pinned Chromium; run behavior tests; review 18 visual scenarios × 7 viewports; commit approved snapshots.
 6. **Decisions:** product/legal/security workshop closing the ⚠ P0 questions.
