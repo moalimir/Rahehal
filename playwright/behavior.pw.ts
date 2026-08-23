@@ -1,5 +1,9 @@
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { expect, test } from "@playwright/test";
 import { behaviorRoutes } from "./coverage-matrix";
+
+const standaloneURL = pathToFileURL(resolve("index.html")).href;
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -20,7 +24,10 @@ for (const route of behaviorRoutes) {
 
 test("public navigation preserves back and forward history", async ({ page }) => {
   await page.goto("/");
-  await page.locator('a[href="/challenges"]').first().click();
+  await page
+    .locator('a[href="/challenges"]:visible, a[href="/challenges/"]:visible')
+    .first()
+    .click();
   await expect(page).toHaveURL(/\/challenges\/?$/);
   await page.goBack();
   await expect(page).toHaveURL(/\/$/);
@@ -31,8 +38,9 @@ test("public navigation preserves back and forward history", async ({ page }) =>
 test("standalone-style hash navigation resolves without changing the pathname", async ({
   page,
 }) => {
-  await page.goto("/#/challenges");
-  await expect(page).toHaveURL(/\/#\/challenges$/);
+  await page.goto(`${standaloneURL}#/challenges`);
+  await expect(page).toHaveURL(/index\.html#\/challenges\/?$/);
+  await expect(page.locator('[data-standalone-current="/challenges"]')).toBeVisible();
   await expect(page.locator("main").first()).toBeVisible();
   await expect(page.getByRole("heading", { level: 1 }).first()).toContainText("چالش");
 });

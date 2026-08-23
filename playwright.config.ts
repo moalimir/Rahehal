@@ -1,6 +1,6 @@
 import { defineConfig } from "@playwright/test";
 
-const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3000";
+const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000";
 const viewports = [
   { name: "mobile-360x800", width: 360, height: 800 },
   { name: "mobile-390x844", width: 390, height: 844 },
