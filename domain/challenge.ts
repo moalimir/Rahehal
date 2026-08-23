@@ -1,3 +1,5 @@
+import type { ApplicantScope } from "@/domain/taxonomy";
+
 export type ChallengeStatus =
   | "draft"
   | "ready"
@@ -42,7 +44,6 @@ export type SuccessCriterion = {
 export type OutputType = "idea" | "solution" | "poc" | "pilot" | "project" | "technology" | "";
 export type SourcingModel = "public" | "private" | "hybrid" | "";
 export type SolverType = "individual" | "team" | "company" | "university";
-export type TeamType = "person" | "team" | "both" | "";
 export type WorkMode = "onsite" | "remote" | "hybrid" | "";
 export type BudgetStatus = "fixed" | "quote" | "undecided" | "non_cash" | "";
 export type Visibility = "public" | "registered" | "invite_only" | "nda" | "";
@@ -70,7 +71,7 @@ export type ChallengeRecord = {
   outputType: OutputType;
   sourcingModel: SourcingModel;
   solverTypes: SolverType[];
-  teamType: TeamType;
+  applicantScope: ApplicantScope | "";
   workMode: WorkMode;
   proposalDeadline: string;
   preferredStartDate: string;

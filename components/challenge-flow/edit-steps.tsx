@@ -24,10 +24,10 @@ import {
   type OutputType,
   type SolverType,
   type SourcingModel,
-  type TeamType,
   type Visibility,
   type WorkMode,
 } from "@/domain/challenge";
+import type { ApplicantScope } from "@/domain/taxonomy";
 import { createAttachment } from "@/lib/challenges/storage";
 import { issueFor, type ValidationIssue } from "@/lib/challenges/validation";
 import { CHALLENGE_UPLOAD_ACCEPT, challengeUploadError } from "@/lib/validation/upload";
@@ -346,18 +346,18 @@ export function CollaborationStep({ record, issues, update }: StepProps) {
         error={issueFor(issues, "solverTypes")}
       />
       <div className="challenge-form-grid">
-        <RadioGroup<TeamType>
+        <RadioGroup<ApplicantScope | "">
           legend="نوع همکاری"
           required
-          value={record.teamType}
+          value={record.applicantScope}
           compact
           options={[
             ["person", "شخص"],
             ["team", "تیم"],
             ["both", "هر دو"],
           ]}
-          onChange={(value) => setField(update, "teamType", value)}
-          error={issueFor(issues, "teamType")}
+          onChange={(value) => setField(update, "applicantScope", value)}
+          error={issueFor(issues, "applicantScope")}
         />
         <RadioGroup<WorkMode>
           legend="شیوه انجام"

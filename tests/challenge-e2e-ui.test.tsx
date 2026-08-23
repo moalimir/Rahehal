@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ChallengeFlowApp } from "@/components/challenge-flow/challenge-flow-app";
 import { getChallengeFlowRoute } from "@/data/challenge-flow-routes";
+import { getChallenge, listChallenges } from "@/lib/challenges/storage";
 
 function route(path: string) {
   const resolved = getChallengeFlowRoute(path);
@@ -52,12 +53,11 @@ describe("E2E رابط چهارمرحله‌ای مسئله سازمانی", () 
 
     await screen.findByRole("heading", { level: 1, name: "تکمیل مسئله" });
     expect(window.location.hash).toContain("/edit?step=2");
-    const recordsAfterCreate = JSON.parse(
-      window.localStorage.getItem("rahhal.organization-challenges.v6") || "[]",
+    const created = listChallenges().find(
+      (record) => record.title === "کاهش مصرف انرژی سامانه هوای فشرده",
     );
-    const created = recordsAfterCreate.find(
-      (record: { title: string }) => record.title === "کاهش مصرف انرژی سامانه هوای فشرده",
-    );
+    expect(created).toBeDefined();
+    if (!created) throw new Error("رکورد ساخته‌شده پیدا نشد.");
     expect(created.id).toBe("CH-DRAFT-001");
 
     fireEvent.change(screen.getByLabelText(/شرح وضعیت فعلی/), {
@@ -130,10 +130,7 @@ describe("E2E رابط چهارمرحله‌ای مسئله سازمانی", () 
     fireEvent.click(screen.getByRole("button", { name: "تأیید و ارسال" }));
 
     await screen.findByRole("heading", { level: 2, name: "پرونده با موفقیت برای بررسی ارسال شد" });
-    const finalRecords = JSON.parse(
-      window.localStorage.getItem("rahhal.organization-challenges.v6") || "[]",
-    );
-    expect(finalRecords.find((record: { id: string }) => record.id === created.id)).toMatchObject({
+    expect(getChallenge(created.id)).toMatchObject({
       status: "under_review",
     });
     fireEvent.click(screen.getByRole("link", { name: "بازگشت به مسئله‌ها" }));

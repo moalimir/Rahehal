@@ -358,15 +358,15 @@ Also: `policy_version` (versioned trust/legal/privacy content), `consent`, `disp
 
 ## 9. Migration mapping (browser stores → tables)
 
-| Browser store (evidence)                    | → Table(s)                                                                                                                                                                       |
-| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `rahhal.session.v1` (`lib/auth/session.ts`) | IdP + `app_user` + server session (not a table — token/refresh store)                                                                                                            |
-| `rahhal.organization-challenges.v7`         | `challenge`, `challenge_version`, `challenge_approval`, `challenge_public_projection`                                                                                            |
-| `rahhal.solver.v3.user.*` (`SolverState`)   | `workspace`, `membership`, `proposal`, `proposal_version`, `direct_offer`, `verification_record`, `nda_acceptance`, `contract_version`, `case`, `audit_event`, `idempotency_key` |
-| `rahhal.demo-command-store.v1`              | `idempotency_key`, `outbox_event`, `audit_event`                                                                                                                                 |
-| Direct-offer store (`lib/offers/store.ts`)  | `direct_offer` + `offer_response`                                                                                                                                                |
-| Reviewer COI keys (`lib/reviews/access.ts`) | `review_assignment` + `coi_declaration`                                                                                                                                          |
-| Payment store (`lib/payments/store.ts`)     | `payment` + `ledger_entry` + reconciliation                                                                                                                                      |
+| Browser store (evidence)                                        | → Table(s)                                                                                                                                                                       |
+| --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rahhal.session.v1` (`lib/auth/session.ts`)                     | IdP + `app_user` + server session (not a table — token/refresh store)                                                                                                            |
+| `rahhal.organization-challenges.v8` (`v7`/`v6` migrate on read) | `challenge`, `challenge_version`, `challenge_approval`, `challenge_public_projection`                                                                                            |
+| `rahhal.solver.v3.user.*` (`SolverState`)                       | `workspace`, `membership`, `proposal`, `proposal_version`, `direct_offer`, `verification_record`, `nda_acceptance`, `contract_version`, `case`, `audit_event`, `idempotency_key` |
+| `rahhal.demo-command-store.v1`                                  | `idempotency_key`, `outbox_event`, `audit_event`                                                                                                                                 |
+| Direct-offer store (`lib/offers/store.ts`)                      | `direct_offer` + `offer_response`                                                                                                                                                |
+| Reviewer COI keys (`lib/reviews/access.ts`)                     | `review_assignment` + `coi_declaration`                                                                                                                                          |
+| Payment store (`lib/payments/store.ts`)                         | `payment` + `ledger_entry` + reconciliation                                                                                                                                      |
 
 The `SolverState.idempotency` map and `MutationReceipt`/`MutationFailure` types (`solver.ts:494–512`) are already the exact runtime contract for `idempotency_key` and the API result envelope — the migration is a persistence swap, not a redesign.
 

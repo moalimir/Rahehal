@@ -56,7 +56,8 @@ export function validateStep(record: ChallengeRecord, step: WizardStep): Validat
       add("sourcingModel", "sourcingModel", "شیوه جذب حل‌کننده را انتخاب کنید.");
     if (!record.solverTypes.length)
       add("solverTypes", "solverTypes", "حداقل یک نوع مشارکت‌کننده مجاز انتخاب کنید.");
-    if (!record.teamType) add("teamType", "teamType", "نوع همکاری را انتخاب کنید.");
+    if (!record.applicantScope)
+      add("applicantScope", "applicantScope", "نوع همکاری را انتخاب کنید.");
     if (!record.workMode) add("workMode", "workMode", "شیوه انجام همکاری را انتخاب کنید.");
     if (!record.proposalDeadline)
       add("proposalDeadline", "proposalDeadline", "مهلت دریافت پیشنهاد را وارد کنید.");

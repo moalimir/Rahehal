@@ -164,8 +164,8 @@ ApplicantType = individual | expert-team | company | lab | academic-group
 
 **`TeamType` name collision resolved (D7):**
 
-- `challenge.ts:45` `TeamType = person|team|both` → renamed **`ApplicantScope`** (answers "who may apply to this challenge").
-- `solver.ts:20` `TeamType` → renamed **`TeamKind`** (answers "what kind of team is this").
+- The challenge-side `TeamType = person|team|both` is implemented as **`ApplicantScope`** in `domain/taxonomy.ts`, and `ChallengeRecord.applicantScope` answers "who may apply to this challenge". Demo-store v8 migrates the v7/v6 values one-to-one and rejects unknown legacy values to the empty authoring sentinel.
+- The solver-side legacy `solver.ts:20` `TeamType` must be renamed **`TeamKind`** (answers "what kind of team is this"); it remains a separate migration because the solver store is independently versioned.
 
 ## 6. Core entity graph (canonical)
 

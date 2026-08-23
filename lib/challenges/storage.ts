@@ -4,20 +4,30 @@ import {
   type ChallengeRecord,
   type ChallengeStatus,
 } from "@/domain/challenge";
+import { isApplicantScope } from "@/domain/taxonomy";
 import { createDemoSession } from "@/lib/auth/session";
 import { isRecordReady } from "@/lib/challenges/validation";
 import { safeUploadName } from "@/lib/validation/upload";
 
-const STORAGE_KEY = "rahhal.organization-challenges.v7";
+const STORAGE_KEY = "rahhal.organization-challenges.v8";
+const PREVIOUS_STORAGE_KEY = "rahhal.organization-challenges.v7";
 const LEGACY_STORAGE_KEY = "rahhal.organization-challenges.v6";
-const SEEDED_KEY = "rahhal.organization-challenges.seeded.v7";
-const STORE_VERSION = 7;
+const SEEDED_KEY = "rahhal.organization-challenges.seeded.v8";
+const PREVIOUS_SEEDED_KEY = "rahhal.organization-challenges.seeded.v7";
+const STORE_VERSION = 8;
+const PREVIOUS_STORE_VERSION = 7;
 const STORE_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 
 type ChallengeStoreEnvelope = {
   version: typeof STORE_VERSION;
   updatedAt: string;
   records: ChallengeRecord[];
+};
+
+type StoredChallengeEnvelope = {
+  version: typeof STORE_VERSION | typeof PREVIOUS_STORE_VERSION;
+  updatedAt: string;
+  records: unknown[];
 };
 
 export const DRAFT_ID_POOL = Array.from(
@@ -32,20 +42,34 @@ function canUseStorage() {
   return typeof window !== "undefined" && Boolean(window.localStorage);
 }
 
+function migrateRecord(value: unknown): ChallengeRecord | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const stored = value as Record<string, unknown>;
+  const candidate = stored.applicantScope ?? stored.teamType;
+  const applicantScope = candidate === "" || isApplicantScope(candidate) ? candidate : "";
+  const record = { ...stored };
+  delete record.teamType;
+  return { ...record, applicantScope } as ChallengeRecord;
+}
+
 function parseRecords(value: string | null): ChallengeRecord[] {
   if (!value) return [];
   try {
-    const parsed = JSON.parse(value) as ChallengeRecord[] | ChallengeStoreEnvelope;
-    if (Array.isArray(parsed)) return parsed;
-    if (
-      parsed &&
-      parsed.version === STORE_VERSION &&
-      Array.isArray(parsed.records) &&
-      Date.now() - new Date(parsed.updatedAt).getTime() <= STORE_TTL_MS
-    ) {
-      return parsed.records;
-    }
-    return [];
+    const parsed = JSON.parse(value) as unknown;
+    const records = Array.isArray(parsed)
+      ? parsed
+      : parsed &&
+          typeof parsed === "object" &&
+          ((parsed as StoredChallengeEnvelope).version === STORE_VERSION ||
+            (parsed as StoredChallengeEnvelope).version === PREVIOUS_STORE_VERSION) &&
+          Array.isArray((parsed as StoredChallengeEnvelope).records) &&
+          Date.now() - new Date((parsed as StoredChallengeEnvelope).updatedAt).getTime() <=
+            STORE_TTL_MS
+        ? (parsed as StoredChallengeEnvelope).records
+        : [];
+    return records
+      .map(migrateRecord)
+      .filter((record): record is ChallengeRecord => record !== null);
   } catch {
     return [];
   }
@@ -149,7 +173,7 @@ function seedRecords(): ChallengeRecord[] {
       outputType: "pilot",
       sourcingModel: "hybrid",
       solverTypes: ["team", "company", "university"],
-      teamType: "both",
+      applicantScope: "both",
       workMode: "hybrid",
       proposalDeadline: "2026-09-20",
       budgetStatus: "quote",
@@ -171,7 +195,7 @@ function completeSeed(id: string, createdAt: string): ChallengeRecord {
     outputType: "poc",
     sourcingModel: "public",
     solverTypes: ["team", "company", "university"],
-    teamType: "both",
+    applicantScope: "both",
     workMode: "hybrid",
     proposalDeadline: "2026-10-01",
     preferredStartDate: "2026-10-20",
@@ -208,7 +232,7 @@ export function emptyChallenge(id: string, now = new Date().toISOString()): Chal
     outputType: "",
     sourcingModel: "",
     solverTypes: [],
-    teamType: "",
+    applicantScope: "",
     workMode: "",
     proposalDeadline: "",
     preferredStartDate: "",
@@ -238,9 +262,13 @@ function writeRecords(records: ChallengeRecord[]) {
     updatedAt: new Date().toISOString(),
     records,
   };
+  const legacyRecords = records.map(({ applicantScope, ...record }) => ({
+    ...record,
+    teamType: applicantScope,
+  }));
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(envelope));
-  // One-version compatibility mirror; removed after the v6 migration window.
-  window.localStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify(records));
+  // Demo-only one-version rollback mirror. Remove after the v8 migration window closes.
+  window.localStorage.setItem(PREVIOUS_STORAGE_KEY, JSON.stringify(legacyRecords));
   window.localStorage.setItem(SEEDED_KEY, "true");
   window.dispatchEvent(new CustomEvent("rahhal:challenges"));
 }
@@ -249,8 +277,10 @@ function ensureSeedData() {
   if (!canUseStorage()) return;
   const current = parseRecords(window.localStorage.getItem(STORAGE_KEY));
   if (current.length) return;
-  const legacy = parseRecords(window.localStorage.getItem(LEGACY_STORAGE_KEY));
-  if (legacy.length) {
+  const legacy = [PREVIOUS_STORAGE_KEY, LEGACY_STORAGE_KEY]
+    .map((key) => parseRecords(window.localStorage.getItem(key)))
+    .find((records) => records.length);
+  if (legacy?.length) {
     writeRecords(legacy);
     return;
   }
@@ -333,8 +363,10 @@ export function createAttachment(file: File): Attachment {
 export function resetChallengeDemoData() {
   if (!canUseStorage()) return;
   window.localStorage.removeItem(STORAGE_KEY);
+  window.localStorage.removeItem(PREVIOUS_STORAGE_KEY);
   window.localStorage.removeItem(LEGACY_STORAGE_KEY);
   window.localStorage.removeItem(SEEDED_KEY);
+  window.localStorage.removeItem(PREVIOUS_SEEDED_KEY);
   ensureSeedData();
 }
 
