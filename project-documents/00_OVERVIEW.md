@@ -1,0 +1,90 @@
+# Rahhal / راه‌حل — Consolidated Product & Backend Blueprint
+
+**Version:** 3.0 (consolidated)  **Snapshot date:** 2026-08-20  **Application version audited:** `2.9.0`
+**Evidence base:** source code, route registries, domain types, state machines, tests, and a fresh static export — validated on 2026-08-20.
+**Structure:** This is the authoritative, consolidated blueprint (docs 00–80). Four v1 reference docs are retained in the same folder as supporting detail — [15_PRODUCT_REQUIREMENTS](15_PRODUCT_REQUIREMENTS.md) (FR/NFR/acceptance catalog), [85_DEVELOPMENT_GUIDE](85_DEVELOPMENT_GUIDE.md), [90_REQUIREMENTS_TRACEABILITY](90_REQUIREMENTS_TRACEABILITY.md), and [95_RISKS_AND_OPEN_QUESTIONS](95_RISKS_AND_OPEN_QUESTIONS.md). Where a reference doc disagrees with 00–80 on terminology, entity identity, states, roles, or permissions, **this consolidated set wins** — those disagreements are exactly the contradictions it resolves (see [30_CONSISTENCY_AUDIT](30_CONSISTENCY_AUDIT.md)).
+
+---
+
+## 1. What this is
+
+Rahhal is a **Persian-first, RTL open-innovation platform**: organizations turn a real operational problem into a controlled *case*, discover or invite qualified solvers, evaluate versioned proposals through conflict-controlled review, contract and run a pilot, accept deliverables, release payment, and preserve evidence of decisions and impact.
+
+The repository today is an **unusually broad, well-tested frontend prototype** — not a production system. It implements the *entire* lifecycle in the browser with typed domain rules, role-aware workspaces, versioned local persistence, idempotent mock mutations, and safe negative states. It has **no** server authority: no backend, database, server-side authorization, identity provider, object storage, payment rails, immutable audit, or CI/CD.
+
+> The central product promise is **continuity and trust across one continuous case** — every sensitive action has an owner, prerequisites, version, reason, receipt, next action, and audit record. Not a challenge directory.
+
+## 2. The problem this blueprint solves
+
+The prototype proves *breadth*. It does not — and cannot — prove *depth*: identity, authorization, confidentiality, immutability, transactionality, financial correctness, or recovery. Worse, the same concept is modeled **three different ways** in three files. Before any backend is built, the team needs **one** vocabulary, **one** lifecycle, **one** role model, **one** permission model, and a concrete production design. That is what this set delivers.
+
+### The headline finding (validated in source)
+
+The same challenge/case lifecycle is encoded with three incompatible vocabularies:
+
+| Source | Type | States |
+| --- | --- | --- |
+| `domain/state-machines.ts:52` | `ChallengeState` | draft → triage → **approvals** → published → **evaluating** → **decided** → contracting → pilot → closed |
+| `domain/product.ts:15` | `CaseState` | draft → triage → **formulation** → **quality-review** → published → **evaluation** → contracting → pilot → **impact** → closed |
+| `domain/challenge.ts:1` | `ChallengeStatus` | draft / **ready** / **under_review** / **needs_changes** / published / closed |
+
+Plus: two `canTransition` functions with different signatures, three role taxonomies (`Actor`×12, `InternalRole`×4, `TeamRole`×5), a `TeamType` name defined twice with opposite meanings, and four divergent solver-type enums. Full register in [30_CONSISTENCY_AUDIT](30_CONSISTENCY_AUDIT.md).
+
+## 3. Document map
+
+| Doc | Purpose | Audience |
+| --- | --- | --- |
+| **00_OVERVIEW** (this) | Executive summary, canonical decisions, how the set fits together | Everyone |
+| [10_PRODUCT_VISION](10_PRODUCT_VISION.md) | Vision, narrative, product model across all roles × lifecycle | Product, founders, design |
+| [20_CANONICAL_MODEL](20_CANONICAL_MODEL.md) | **The single source of truth**: glossary, actors, entities & identities, one lifecycle, one role & permission model, one taxonomy set | Everyone — bind all work to this |
+| [30_CONSISTENCY_AUDIT](30_CONSISTENCY_AUDIT.md) | Every contradiction found (with `file:line`), its resolution, and the decision log | Architecture, tech leads |
+| [40_BACKEND_ARCHITECTURE](40_BACKEND_ARCHITECTURE.md) | Production backend: modular monolith + workers, module boundaries, tech choices, deployment | Backend, platform |
+| [42_FOUNDATION_HARDENING](42_FOUNDATION_HARDENING.md) | Robustness review: cross-tenant access model, consistency, concurrency, resilience, scaling, fitness functions | Backend, platform, tech leads |
+| [45_AI_AND_MATCHING](45_AI_AND_MATCHING.md) | *(deferred feature)* AI & matching design, AI-ready stack additions, embeddings, guardrails | Backend, ML, product |
+| [50_DATA_MODEL](50_DATA_MODEL.md) | PostgreSQL schema (DDL), tenancy, public projections, migration from browser stores | Backend, data |
+| [60_API_CONTRACT](60_API_CONTRACT.md) | API conventions, command envelope, idempotency, errors, MVP endpoints | Backend, frontend |
+| [70_SECURITY_AND_AUTHZ](70_SECURITY_AND_AUTHZ.md) | Authorization decision model, permission matrix, data classification, threat model | Security, backend |
+| [80_DELIVERY_ROADMAP](80_DELIVERY_ROADMAP.md) | Phased roadmap, vertical slices, CI gates, definition of done | Delivery, eng management |
+
+**Retained v1 reference docs** (same folder, supporting detail — superseded by 00–80 on any conflict): [15_PRODUCT_REQUIREMENTS](15_PRODUCT_REQUIREMENTS.md) · [85_DEVELOPMENT_GUIDE](85_DEVELOPMENT_GUIDE.md) · [90_REQUIREMENTS_TRACEABILITY](90_REQUIREMENTS_TRACEABILITY.md) · [95_RISKS_AND_OPEN_QUESTIONS](95_RISKS_AND_OPEN_QUESTIONS.md).
+
+## 4. Canonical decisions (locked for this blueprint)
+
+These are the reconciliations every artifact in this set uses. Business-owned decisions are marked ⚠ and carry a *planning default* that can be overridden by the named owner — they are locked only so the blueprint is internally consistent, not to pre-empt governance.
+
+| # | Decision | Canonical resolution |
+| --- | --- | --- |
+| D1 | **Lifecycle spine** | One **Challenge/Case lifecycle** of 11 stages: `draft → triage → formulation → approvals → published → evaluating → decided → contracting → pilot → impact → closed`. The three code vocabularies are mapped onto it (see 20 §4). |
+| D2 | **Case vs Challenge** | A **Challenge** is the org's published problem. A **Case** is the continuous record that binds one challenge to its winning proposal, contract, pilot, deliverables, payments, and impact. They share the lifecycle; `evaluating`+ stages are Case stages. |
+| D3 | **Authoring status** | `challenge.ts` `ChallengeStatus` (draft/ready/under_review/needs_changes/published/closed) is **not** a competing lifecycle — it is the **intake-editor sub-status** of the `draft → triage → approvals` span. Mapping table in 20 §4. |
+| D4 | **Role model** | Authorization subject = `(user, tenant, workspace, membership → roles)`. Three **orthogonal** role namespaces: `platform:*` (ops, finance, legal, reviewer, admin), `org:*` (owner, member, approver-technical/legal/finance, publisher), `team:*` (owner, admin, proposal-manager, contributor, viewer). The flat `Actor` union is retired; it conflated party-type with team-role. |
+| D5 | **Permission engine** | One server-side, deny-by-default decision function over `(subject, tenant, workspace, membership, role, action, target, target-state, assignment, coi, step-up, classification)`. The two client engines (`product.ts canPerform`, `solver/permissions.ts decideTeamPermission`) become the *test oracle*, not the authority. |
+| D6 | **Applicant taxonomy** | One `ApplicantType`: `individual | expert-team | company | lab | academic-group`. `challenge.ts` `SolverType` maps `team→expert-team`, `university→{lab, academic-group}`. |
+| D7 | **`TeamType` collision** | Rename: `challenge.ts` `TeamType` (person/team/both) → **`ApplicantScope`**; `solver.ts` `TeamType` (expert-team/lab/…) → **`TeamKind`** (= a subset of `ApplicantType`). |
+| D8 | **COI model** | Review carries an explicit **COI declaration record** `coiStatus ∈ {pending, clear, conflict}` separate from the review lifecycle state. Enforcement is server-side at API/object/export/UI layers; `localStorage` COI is retired. |
+| D9 | **Money & state authority** | The full `state-machines.ts` vocabularies for `Payment` (8 states) and `Pilot`/deliverable are canonical. The simplified states embedded in `CaseRecord` are UI **projections**, not authority. |
+| D10 ⚠ | **Runtime model** | Hybrid Next.js: keep static generation for public content; authenticated workspaces call a **versioned server API**. Full static export is retained only as a demo/read-only artifact. *(Owner: architecture + security.)* |
+| D11 ⚠ | **Brand** | Persian product name **راه‌حل** ("the solution") is canonical for the concept; **Rahhal** is the stylized Latin mark. Note the transliteration mismatch (راه‌حل ≠ رحّال). *(Owner: founder/product + legal.)* |
+| D12 ⚠ | **MVP boundary** | Vertical slice: *organization publishes challenge → eligible solver submits locked proposal version → assigned reviewer declares COI and scores → organization records reasoned decision → durable audit for all parties.* Contract→payment is the second slice. *(Owner: product.)* |
+| D13 ⚠ | **Launch posture** | Invite-only, single region (Iran pilot), organizations + solvers + reviewers + internal ops only. Platform orchestrates invoicing/status; does not custody funds unless separately licensed. *(Owner: product + legal/finance.)* |
+| D14 ⚠ | **AI posture & data egress** | AI is **assistive only** — it ranks and explains, never decides eligibility, review scores, selection, or payment. Stack is made AI-ready now via **pgvector** + a provider-agnostic **model-serving adapter** + a **Persian-capable, residency-safe embedding model**; data classification gates every model call (confidential text stays in-region/self-hosted). Full design in [45_AI_AND_MATCHING](45_AI_AND_MATCHING.md). *(Owner: architecture + security + product.)* |
+| D15 | **Cross-tenant access model** | Open innovation is cross-tenant by design: records are *tenant-owned*, *shared via `access_grant`*, or *public projection*. The authz engine grants a counterpart workspace **scoped, audited, revocable** reach — not pure tenant isolation. See [42_FOUNDATION_HARDENING](42_FOUNDATION_HARDENING.md) §3. *(Engineering correction, not a business choice.)* |
+
+## 5. Current verdict
+
+| Dimension | Status | Meaning |
+| --- | --- | --- |
+| Product breadth | **Advanced prototype** | All roles and lifecycle stages represented; 506 static pages generated. |
+| Frontend quality | **Green** | TypeScript strict, lint, Prettier, and ~192 Vitest assertions pass. |
+| Domain modeling | **Strong but inconsistent** | Excellent typed state machines and a v3 solver aggregate — but three lifecycle vocabularies, three role models, two type collisions. |
+| Server authority | **Absent** | Sessions, permissions, COI, approvals, payments, and audit are browser state — an attacker owns the authority. |
+| Production readiness | **Blocked** | Security and transactional correctness exist only as frontend simulation. |
+
+**Release status: prototype-approved, production-blocked.** The next move is not more screens. It is: lock the canonical model (this set), stand up identity + tenancy + persistence + audit, then productionize **one** vertical slice end-to-end.
+
+## 6. How to use this set
+
+1. Treat [20_CANONICAL_MODEL](20_CANONICAL_MODEL.md) as law. Every schema column, API field, permission rule, and UI label uses its names and states.
+2. Resolve the ⚠ decisions in §4 with named owners before Phase 1 (they are defaulted here only for consistency).
+3. Build against [40](40_BACKEND_ARCHITECTURE.md)/[50](50_DATA_MODEL.md)/[60](60_API_CONTRACT.md)/[70](70_SECURITY_AND_AUTHZ.md); sequence with [80](80_DELIVERY_ROADMAP.md).
+4. Keep the prototype's fixtures and client engines as **contract-test oracles** — never as production authority.
