@@ -20,12 +20,14 @@ The API is the **only** authority. It reuses the command-result contract already
 // success
 {
   "ok": true,
-  "data": { /* resource or command result */ },
+  "data": {
+    /* resource or command result */
+  },
   "meta": {
     "server_time": "2026-08-20T12:00:00Z",
     "correlation_id": "cor_9f…",
-    "entity_version": 7            // for optimistic concurrency on the returned aggregate
-  }
+    "entity_version": 7, // for optimistic concurrency on the returned aggregate
+  },
 }
 ```
 
@@ -53,14 +55,14 @@ Success returns the canonical receipt:
     "receipt_id": "rcp_88…",
     "audit_event_id": "aud_41…",
     "timestamp": "2026-08-20T12:00:00Z",
-    "idempotent": false,           // true when the key replayed a prior result
-    "next_actions": ["evaluating"] // allowed next transitions (from the state machine)
+    "idempotent": false, // true when the key replayed a prior result
+    "next_actions": ["evaluating"], // allowed next transitions (from the state machine)
   },
-  "meta": { "entity_version": 7, "correlation_id": "cor_9f…" }
+  "meta": { "entity_version": 7, "correlation_id": "cor_9f…" },
 }
 ```
 
-- **Idempotency**: `Idempotency-Key` is stored per `(tenant, command, key)` (50 §8) with the cached response; a retry within TTL returns the *same* receipt with `idempotent:true`. Prevents duplicate submissions, decisions, invitations, signatures, payments (NFR-REL-001).
+- **Idempotency**: `Idempotency-Key` is stored per `(tenant, command, key)` (50 §8) with the cached response; a retry within TTL returns the _same_ receipt with `idempotent:true`. Prevents duplicate submissions, decisions, invitations, signatures, payments (NFR-REL-001).
 - **Optimistic concurrency**: `expected_version` must equal the aggregate's current `version`, else `409 CONFLICT` (see §4). Retry never silently overwrites.
 - **Step-up**: sensitive commands (`sensitiveActions`, `product.ts:42`: decide, accept-deliverable, approve-payment, manage-access, resolve-dispute) require a fresh `step_up_token`; absence → `403` with `code:"STEP_UP_REQUIRED"`.
 - **Reason**: `manual-review` transitions and all ops interventions require a structured `reason`.
@@ -70,17 +72,25 @@ Success returns the canonical receipt:
 Maps the six `MutationFailure` codes (`solver.ts:508`) to HTTP + a stable envelope. Errors are **non-enumerating** for protected records (a hidden record and a denied record both return `404` to non-members).
 
 ```jsonc
-{ "ok": false, "error": { "code": "CONFLICT", "message": "…", "current_version": 7, "recovery": "refetch_and_retry" } }
+{
+  "ok": false,
+  "error": {
+    "code": "CONFLICT",
+    "message": "…",
+    "current_version": 7,
+    "recovery": "refetch_and_retry",
+  },
+}
 ```
 
-| `code` | HTTP | When | Recovery hint |
-| --- | --- | --- | --- |
-| `VALIDATION` | 422 | Field/schema/readiness failure | Field-level errors in `error.fields` |
-| `NO_ACCESS` | 403 (or 404 for protected) | AuthZ deny; step-up missing | Non-enumerating for protected records |
-| `NOT_FOUND` | 404 | Unknown/removed/cross-tenant ID | Never falls back to a sample (invariant 20 §7.5) |
-| `INVALID_STATE` | 409 | Transition not allowed from current state | Show current state + allowed transitions |
-| `CONFLICT` | 409 | Stale `expected_version` / duplicate unique | Return `current_version`; refetch & merge |
-| `STORAGE` | 503 | Transient persistence/provider failure | Safe to retry with same idempotency key |
+| `code`          | HTTP                       | When                                        | Recovery hint                                    |
+| --------------- | -------------------------- | ------------------------------------------- | ------------------------------------------------ |
+| `VALIDATION`    | 422                        | Field/schema/readiness failure              | Field-level errors in `error.fields`             |
+| `NO_ACCESS`     | 403 (or 404 for protected) | AuthZ deny; step-up missing                 | Non-enumerating for protected records            |
+| `NOT_FOUND`     | 404                        | Unknown/removed/cross-tenant ID             | Never falls back to a sample (invariant 20 §7.5) |
+| `INVALID_STATE` | 409                        | Transition not allowed from current state   | Show current state + allowed transitions         |
+| `CONFLICT`      | 409                        | Stale `expected_version` / duplicate unique | Return `current_version`; refetch & merge        |
+| `STORAGE`       | 503                        | Transient persistence/provider failure      | Safe to retry with same idempotency key          |
 
 Rate-limited requests return `429` with `Retry-After`. All errors carry `correlation_id`.
 
@@ -149,7 +159,7 @@ POST /challenges/{id}/decision:record          # evaluating → decided (authori
 
 ## 6. Read projections & anonymity
 
-- Organization review views honor reviewer anonymity and policy timing (FR-REV-007): reviewer identity and other reviewers' scores are withheld until policy allows; enforced in the *projection query*, not the client.
+- Organization review views honor reviewer anonymity and policy timing (FR-REV-007): reviewer identity and other reviewers' scores are withheld until policy allows; enforced in the _projection query_, not the client.
 - Public projections are separate resources (`/public/*`) served from `challenge_public_projection`; the private aggregate is never used to render public pages (prevents confidential-field leakage — Phase-2 exit gate).
 - Field-level access (e.g. confidential proposal fields to a reviewer) is evaluated independently from page access (70 §3).
 
@@ -157,13 +167,13 @@ POST /challenges/{id}/decision:record          # evaluating → decided (authori
 
 Event names reuse the state machines' `audit` codes verbatim, so audit and integration share one vocabulary:
 
-| Command | Event(s) | Consumers |
-| --- | --- | --- |
-| `challenges:publish` | `challenge.published` | search index, notification (eligible solvers), projection builder |
-| `proposals:submit` | `proposal.submitted` | notification (org), audit |
-| `assignments/review:submit` | `review.submitted` | notification (org), decision-readiness check |
-| `challenges/decision:record` | `challenge.decision.recorded`, `direct-offer.selected`/case-created | notification (all parties), case module |
-| `payment` transitions | `payment.processing`…`payment.reconciled` | ledger, reconciliation, notification |
+| Command                      | Event(s)                                                            | Consumers                                                         |
+| ---------------------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `challenges:publish`         | `challenge.published`                                               | search index, notification (eligible solvers), projection builder |
+| `proposals:submit`           | `proposal.submitted`                                                | notification (org), audit                                         |
+| `assignments/review:submit`  | `review.submitted`                                                  | notification (org), decision-readiness check                      |
+| `challenges/decision:record` | `challenge.decision.recorded`, `direct-offer.selected`/case-created | notification (all parties), case module                           |
+| `payment` transitions        | `payment.processing`…`payment.reconciled`                           | ledger, reconciliation, notification                              |
 
 Consumers are idempotent; delivery is at-least-once. A delivery failure never changes business state (FR-OPS-006).
 

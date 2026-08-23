@@ -1,21 +1,21 @@
 # Security & Authorization
 
-The prototype's biggest lie is that it *looks* secure: deny-by-default helpers, publication gates, COI gates, payment prerequisites — all enforced in the browser, all bypassable (M-01). This document defines the server-side authority that replaces them. It unifies the three client permission engines (X-05) into one decision model and keeps them as the **test oracle**.
+The prototype's biggest lie is that it _looks_ secure: deny-by-default helpers, publication gates, COI gates, payment prerequisites — all enforced in the browser, all bypassable (M-01). This document defines the server-side authority that replaces them. It unifies the three client permission engines (X-05) into one decision model and keeps them as the **test oracle**.
 
 ---
 
 ## 1. Threat model (top risks → controls)
 
-| Threat | Prototype exposure | Control |
-| --- | --- | --- |
-| **Horizontal access** (read/write another workspace's records by swapping IDs) | Browser is authority; any ID works | Scope every query by `(tenant, workspace)` *before* record permissions; RLS backstop; non-enumerating `404` (§3) |
-| **Vertical escalation** (viewer/contributor performs owner/admin action) | Client role checks only | Server deny-by-default engine (§2); exhaustive role tests |
-| **Confidential leakage** (reviewer/guest sees protected fields/files) | Public pages render private data; COI in localStorage | Separate public projection; field/file classification; COI server-gated (§4) |
-| **Stale authority** (removed member/expired session still acts) | 8-hour local TTL, no revocation | Short-lived tokens + revocation; membership state checked per request |
-| **Duplicate/replay** (double submit, double pay, callback replay) | Mock idempotency in mutable storage | Server idempotency keys; authenticated, replay-safe provider callbacks; reconciliation |
-| **Separation-of-duty bypass** (one actor approves all gates / pays their own acceptance) | Single-actor gates | Distinct-actor constraints on approvals & payment (§6) |
-| **File-borne malware / unscanned evidence** | Client type check only | Quarantine + scan before availability; signed reads (§4, 60 §8) |
-| **Audit tampering** (edit history to hide an action) | Mutable `auditEvents` array | Append-only sink, no UPDATE/DELETE grants, WORM export (§7) |
+| Threat                                                                                   | Prototype exposure                                    | Control                                                                                                          |
+| ---------------------------------------------------------------------------------------- | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| **Horizontal access** (read/write another workspace's records by swapping IDs)           | Browser is authority; any ID works                    | Scope every query by `(tenant, workspace)` _before_ record permissions; RLS backstop; non-enumerating `404` (§3) |
+| **Vertical escalation** (viewer/contributor performs owner/admin action)                 | Client role checks only                               | Server deny-by-default engine (§2); exhaustive role tests                                                        |
+| **Confidential leakage** (reviewer/guest sees protected fields/files)                    | Public pages render private data; COI in localStorage | Separate public projection; field/file classification; COI server-gated (§4)                                     |
+| **Stale authority** (removed member/expired session still acts)                          | 8-hour local TTL, no revocation                       | Short-lived tokens + revocation; membership state checked per request                                            |
+| **Duplicate/replay** (double submit, double pay, callback replay)                        | Mock idempotency in mutable storage                   | Server idempotency keys; authenticated, replay-safe provider callbacks; reconciliation                           |
+| **Separation-of-duty bypass** (one actor approves all gates / pays their own acceptance) | Single-actor gates                                    | Distinct-actor constraints on approvals & payment (§6)                                                           |
+| **File-borne malware / unscanned evidence**                                              | Client type check only                                | Quarantine + scan before availability; signed reads (§4, 60 §8)                                                  |
+| **Audit tampering** (edit history to hide an action)                                     | Mutable `auditEvents` array                           | Append-only sink, no UPDATE/DELETE grants, WORM export (§7)                                                      |
 
 ## 2. The one authorization decision (D5)
 
@@ -39,9 +39,10 @@ request = {
 ```
 
 **Evaluation order (fail closed at each step):**
+
 1. **Authn** — valid, unexpired token → else `NO_ACCESS`.
-2. **Reach** — the subject reaches the record via *(a)* the same active tenant, *(b)* an active `access_grant` linking their active workspace to the record's collaboration (cross-tenant open-innovation sharing — [42 §3](42_FOUNDATION_HARDENING.md)), or *(c)* a public projection → else `NOT_FOUND` (non-enumerating). Pure `tenant_id ==` isolation would deny the core org↔solver flow.
-3. **Membership** — an *active* membership exists → else `NO_ACCESS`.
+2. **Reach** — the subject reaches the record via _(a)_ the same active tenant, _(b)_ an active `access_grant` linking their active workspace to the record's collaboration (cross-tenant open-innovation sharing — [42 §3](42_FOUNDATION_HARDENING.md)), or _(c)_ a public projection → else `NOT_FOUND` (non-enumerating). Pure `tenant_id ==` isolation would deny the core org↔solver flow.
+3. **Membership** — an _active_ membership exists → else `NO_ACCESS`.
 4. **Role capability** — some held role grants `action` → else `NO_ACCESS`.
 5. **State** — `action` is legal from `target.state` (state machine) → else `INVALID_STATE`.
 6. **Assignment/COI** — reviewer material/scoring actions require an active assignment and `coi_status == clear` → else `NO_ACCESS`.
@@ -49,7 +50,7 @@ request = {
 8. **Step-up** — sensitive actions require `step_up_fresh` → else `STEP_UP_REQUIRED (403)`.
 9. **Classification** — field/document access checked independently from page access.
 
-Every decision (allow *and* deny) emits an `audit_event` with `outcome ∈ {success, denied}` and `correlation_id` — no sensitive content logged.
+Every decision (allow _and_ deny) emits an `audit_event` with `outcome ∈ {success, denied}` and `correlation_id` — no sensitive content logged.
 
 ## 3. Query scoping rules (defense in depth)
 
@@ -62,30 +63,31 @@ Every decision (allow *and* deny) emits an `audit_event` with `outcome ∈ {succ
 
 ## 4. Permission matrix (MVP slice)
 
-Canonical roles (20 §3). ✔ = allowed; ✔* = allowed with step-up + reason; — = denied. `team:*` rows follow `decideTeamPermission` (`solver/permissions.ts`) exactly.
+Canonical roles (20 §3). ✔ = allowed; ✔* = allowed with step-up + reason; — = denied. `team:*`rows follow`decideTeamPermission` (`solver/permissions.ts`) exactly.
 
-| Action (command) | org:owner/member | org:approver_* | org:publisher | team:owner/admin | team:proposal-manager | team:contributor | team:viewer | platform:reviewer | platform:ops | platform:finance | platform:legal |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `challenge:create/edit` | ✔ | — | — | — | — | — | — | — | — | — | — |
-| `challenge/approvals:record` | — | ✔ (own gate) | — | — | — | — | — | — | ✔ (quality) | ✔ (finance) | ✔ (legal) |
-| `challenge:publish` | — | — | ✔* | — | — | — | — | — | ✔* | — | — |
-| `proposal:create/edit` | — | — | — | ✔ | ✔ | ✔ (if assigned) | — | — | — | — | — |
-| `proposal:submit` | — | — | — | ✔ (owner; admin if policy) | ✔ (if policy) | — | — | — | — | — | — |
-| `proposal:view-payments` | — | — | — | ✔ (if policy) | ✔ (if policy) | — | — | — | — | — | — |
-| `assignment/coi:declare` | — | — | — | — | — | — | — | ✔ | — | — | — |
-| `assignment/materials:view` | — | — | — | — | — | — | — | ✔ (coi clear) | ✔ (no proposal content) | — | — |
-| `review:submit` | — | — | — | — | — | — | — | ✔ (coi clear) | — | — | — |
-| `review:invalidate` | — | — | — | — | — | — | — | — | ✔* | — | — |
-| `decision:record` | ✔* | — | — | — | — | — | — | — | — | — | — |
-| `payment:approve` | — | — | — | — | — | — | — | — | ✔* (hold) | ✔* | — |
-| `contract:approve` | ✔ | — | — | ✔ (admin) | — | — | — | — | — | — | ✔ |
-| `access:manage` | ✔* | — | — | ✔ (roles) | — | — | — | — | ✔* | — | — |
+| Action (command)             | org:owner/member | org:approver\_\* | org:publisher | team:owner/admin            | team:proposal-manager | team:contributor | team:viewer | platform:reviewer | platform:ops             | platform:finance | platform:legal |
+| ---------------------------- | ---------------- | ---------------- | ------------- | --------------------------- | --------------------- | ---------------- | ----------- | ----------------- | ------------------------ | ---------------- | -------------- |
+| `challenge:create/edit`      | ✔               | —                | —             | —                           | —                     | —                | —           | —                 | —                        | —                | —              |
+| `challenge/approvals:record` | —                | ✔ (own gate)    | —             | —                           | —                     | —                | —           | —                 | ✔ (quality)             | ✔ (finance)     | ✔ (legal)     |
+| `challenge:publish`          | —                | —                | ✔\*          | —                           | —                     | —                | —           | —                 | ✔\*                     | —                | —              |
+| `proposal:create/edit`       | —                | —                | —             | ✔                          | ✔                    | ✔ (if assigned) | —           | —                 | —                        | —                | —              |
+| `proposal:submit`            | —                | —                | —             | ✔ (owner; admin if policy) | ✔ (if policy)        | —                | —           | —                 | —                        | —                | —              |
+| `proposal:view-payments`     | —                | —                | —             | ✔ (if policy)              | ✔ (if policy)        | —                | —           | —                 | —                        | —                | —              |
+| `assignment/coi:declare`     | —                | —                | —             | —                           | —                     | —                | —           | ✔                | —                        | —                | —              |
+| `assignment/materials:view`  | —                | —                | —             | —                           | —                     | —                | —           | ✔ (coi clear)    | ✔ (no proposal content) | —                | —              |
+| `review:submit`              | —                | —                | —             | —                           | —                     | —                | —           | ✔ (coi clear)    | —                        | —                | —              |
+| `review:invalidate`          | —                | —                | —             | —                           | —                     | —                | —           | —                 | ✔\*                     | —                | —              |
+| `decision:record`            | ✔\*             | —                | —             | —                           | —                     | —                | —           | —                 | —                        | —                | —              |
+| `payment:approve`            | —                | —                | —             | —                           | —                     | —                | —           | —                 | ✔\* (hold)              | ✔\*             | —              |
+| `contract:approve`           | ✔               | —                | —             | ✔ (admin)                  | —                     | —                | —           | —                 | —                        | —                | ✔             |
+| `access:manage`              | ✔\*             | —                | —             | ✔ (roles)                  | —                     | —                | —           | —                 | ✔\*                     | —                | —              |
 
 Team-role nuance (kept verbatim from `decideTeamPermission`): `viewer` cannot create proposals; `contributor` edits only assigned proposals; `proposal-manager`/`admin` submit only if `policy.*CanSubmit`; owner/last-manager cannot be removed without transfer (`canRemoveMembership`).
 
 ## 5. Client engines as the authz oracle
 
 Do **not** discard the prototype's permission code — promote it:
+
 - `decideTeamPermission` (`solver/permissions.ts:31`) → generate `team:*` matrix rows and their negative tests. Its human-readable Persian denial reasons become the API's `NO_ACCESS` messages.
 - `canPerform` (`product.ts:50`) → seed `org:*`/`platform:*` capability tests (extended with the new sub-roles).
 - `evaluateEligibility` (`eligibility.ts:117`) → the reference implementation for the server eligibility endpoint; port it, version the rules, add overrides + audit.
@@ -114,7 +116,7 @@ Input validation + output encoding (server-side, not only `lib/validation/*`); C
 
 ## 9. Security exit gates (per phase — see [80_DELIVERY_ROADMAP](80_DELIVERY_ROADMAP.md))
 
-- **Phase 1**: cross-tenant/wrong-role denied at API *and* UI; session expiry/revocation and membership removal immediately deny; duplicate/stale commands safe; uploaded content inaccessible until scanned; DB restore + audit-correlation exercise passes.
+- **Phase 1**: cross-tenant/wrong-role denied at API _and_ UI; session expiry/revocation and membership removal immediately deny; duplicate/stale commands safe; uploaded content inaccessible until scanned; DB restore + audit-correlation exercise passes.
 - **Phase 4 (MVP)**: COI-positive/pending reviewers get nothing at API/object/export/cache/UI layers; reviews immutable except via audited invalidation; decisions cite exact versions + authorized actor + reason.
 - **Phase 5**: no payment without effective contract + technical acceptance + finance approval; provider callbacks/retries create no duplicate financial effect; reconciliation automated with owned exception queues.
 - **Phase 6**: no unresolved critical/high security, privacy, legal finding; recovery objectives tested, not just documented.

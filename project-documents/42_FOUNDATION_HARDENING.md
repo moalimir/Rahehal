@@ -1,37 +1,37 @@
 # Foundation Hardening & Robustness Review
 
-A senior-review pass over the **foundation** (identity, tenancy, authorization, data, API, eventing, delivery) — stress-tested against *this* use case before a line of it is built. It found one real correctness defect (cross-tenant access) and several places where implicit assumptions needed to become explicit contracts. Everything here is folded back into [40](40_BACKEND_ARCHITECTURE.md)/[50](50_DATA_MODEL.md)/[60](60_API_CONTRACT.md)/[70](70_SECURITY_AND_AUTHZ.md). AI/matching is out of scope here — foundation first ([45](45_AI_AND_MATCHING.md) is deferred).
+A senior-review pass over the **foundation** (identity, tenancy, authorization, data, API, eventing, delivery) — stress-tested against _this_ use case before a line of it is built. It found one real correctness defect (cross-tenant access) and several places where implicit assumptions needed to become explicit contracts. Everything here is folded back into [40](40_BACKEND_ARCHITECTURE.md)/[50](50_DATA_MODEL.md)/[60](60_API_CONTRACT.md)/[70](70_SECURITY_AND_AUTHZ.md). AI/matching is out of scope here — foundation first ([45](45_AI_AND_MATCHING.md) is deferred).
 
 ---
 
-## 1. What the foundation must be robust *for*
+## 1. What the foundation must be robust _for_
 
 Right-sizing starts with an honest read of the workload — over-building is as much a failure as under-building.
 
-| Property | This product | Design consequence |
-| --- | --- | --- |
-| **Cross-tenant collaboration** | An org (tenant A) and a solver (tenant B) work on the *same* proposal/case. This is the defining trait, not an edge case. | Pure tenant isolation is **wrong**. Need explicit, auditable, revocable relationship-scoped sharing (§3). |
-| **Correctness ≫ throughput** | Money, decisions, COI, immutability, audit. A wrong write is catastrophic; a slow read is not. | Optimize for transactional integrity + concurrency safety, not raw QPS (§4–5). |
-| **Governed workflow** | Long-lived aggregates moving through explicit state machines with separation of duty. | Strong consistency at the aggregate boundary; async only for side effects (§4). |
-| **Bursty, human-paced load** | Deadlines cause spikes (many submissions near a close); otherwise low write rate. | Handle spikes with idempotency + queues + server-time arbitration, not fleet-scale infra (§7). |
-| **Invite-only pilot → moderate scale** | 10²–10³ users, 10³–10⁴ challenges/proposals at pilot; grows linearly, not virally. | Single-primary Postgres + modular monolith is correctly sized for years; scale by known moves (§7). |
-| **Persian/RTL, in-region** | Data residency; Persian normalization at every text boundary. | Region-pinned storage; `normalizePersian` at search/validation edges. |
+| Property                               | This product                                                                                                              | Design consequence                                                                                        |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| **Cross-tenant collaboration**         | An org (tenant A) and a solver (tenant B) work on the _same_ proposal/case. This is the defining trait, not an edge case. | Pure tenant isolation is **wrong**. Need explicit, auditable, revocable relationship-scoped sharing (§3). |
+| **Correctness ≫ throughput**           | Money, decisions, COI, immutability, audit. A wrong write is catastrophic; a slow read is not.                            | Optimize for transactional integrity + concurrency safety, not raw QPS (§4–5).                            |
+| **Governed workflow**                  | Long-lived aggregates moving through explicit state machines with separation of duty.                                     | Strong consistency at the aggregate boundary; async only for side effects (§4).                           |
+| **Bursty, human-paced load**           | Deadlines cause spikes (many submissions near a close); otherwise low write rate.                                         | Handle spikes with idempotency + queues + server-time arbitration, not fleet-scale infra (§7).            |
+| **Invite-only pilot → moderate scale** | 10²–10³ users, 10³–10⁴ challenges/proposals at pilot; grows linearly, not virally.                                        | Single-primary Postgres + modular monolith is correctly sized for years; scale by known moves (§7).       |
+| **Persian/RTL, in-region**             | Data residency; Persian normalization at every text boundary.                                                             | Region-pinned storage; `normalizePersian` at search/validation edges.                                     |
 
-**Verdict up front:** the foundation is **solid and correctly sized** once the cross-tenant access model (§3) is adopted. It is deliberately *not* micro-serviced, sharded, or multi-region — those would be premature and are ordered explicitly in §7.
+**Verdict up front:** the foundation is **solid and correctly sized** once the cross-tenant access model (§3) is adopted. It is deliberately _not_ micro-serviced, sharded, or multi-region — those would be premature and are ordered explicitly in §7.
 
 ## 2. Robustness scorecard
 
-| Dimension | Status | The one thing that matters |
-| --- | --- | --- |
-| Identity & session | **Solid** | Delegated OIDC; revocation + membership checks deny immediately (Phase-1 gate). |
-| Tenancy & access | **Hardened here (§3)** | Was pure isolation → now tenant-owned **+** relationship-grant sharing. |
-| Authorization | **Hardened here (§3)** | `decide()` step 2 rewritten to allow grant-based cross-tenant reach. |
-| Consistency | **Made explicit (§4)** | Aggregate + audit + outbox in one tx; everything else eventual. |
-| Concurrency | **Made explicit (§5)** | Right mechanism per invariant (version / unique / advisory lock / idempotency). |
-| Resilience | **Catalogued (§6)** | Every provider can fail without corrupting business state. |
-| Scalability | **Grounded (§7)** | Bottleneck-ordered plan; no premature infra. |
-| Evolvability | **Made explicit (§9)** | Expand/contract migrations; versioned API; module extraction on evidence. |
-| Guardrails over time | **Fitness functions (§10)** | CI enforces the invariants so they don't rot. |
+| Dimension            | Status                      | The one thing that matters                                                      |
+| -------------------- | --------------------------- | ------------------------------------------------------------------------------- |
+| Identity & session   | **Solid**                   | Delegated OIDC; revocation + membership checks deny immediately (Phase-1 gate). |
+| Tenancy & access     | **Hardened here (§3)**      | Was pure isolation → now tenant-owned **+** relationship-grant sharing.         |
+| Authorization        | **Hardened here (§3)**      | `decide()` step 2 rewritten to allow grant-based cross-tenant reach.            |
+| Consistency          | **Made explicit (§4)**      | Aggregate + audit + outbox in one tx; everything else eventual.                 |
+| Concurrency          | **Made explicit (§5)**      | Right mechanism per invariant (version / unique / advisory lock / idempotency). |
+| Resilience           | **Catalogued (§6)**         | Every provider can fail without corrupting business state.                      |
+| Scalability          | **Grounded (§7)**           | Bottleneck-ordered plan; no premature infra.                                    |
+| Evolvability         | **Made explicit (§9)**      | Expand/contract migrations; versioned API; module extraction on evidence.       |
+| Guardrails over time | **Fitness functions (§10)** | CI enforces the invariants so they don't rot.                                   |
 
 ## 3. The correction — cross-tenant collaboration access
 
@@ -39,11 +39,11 @@ Right-sizing starts with an honest read of the workload — over-building is as 
 
 **Fix — three access classes + an explicit grant.** Every protected record is exactly one of:
 
-| Class | Records | Access rule |
-| --- | --- | --- |
-| **Tenant-owned** (unilateral) | draft challenge + versions + approvals, org-internal, solver personal/team **private** profile, verification | same-tenant active membership (RLS `tenant_id = app.tenant_id`) |
-| **Shared** (bilateral collaboration) | proposal (+versions, clarifications), direct_offer (+response), review_assignment (+coi, review — *narrow*), case, contract, pilot, deliverable, payment, case messages | owning tenant **OR** an active **`access_grant`** linking the subject's workspace to that collaboration |
-| **Public projection** | published challenge/organization projection | unauthenticated, served from separate projection tables (already designed, [60 §6](60_API_CONTRACT.md)) |
+| Class                                | Records                                                                                                                                                                  | Access rule                                                                                             |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| **Tenant-owned** (unilateral)        | draft challenge + versions + approvals, org-internal, solver personal/team **private** profile, verification                                                             | same-tenant active membership (RLS `tenant_id = app.tenant_id`)                                         |
+| **Shared** (bilateral collaboration) | proposal (+versions, clarifications), direct*offer (+response), review_assignment (+coi, review — \_narrow*), case, contract, pilot, deliverable, payment, case messages | owning tenant **OR** an active **`access_grant`** linking the subject's workspace to that collaboration |
+| **Public projection**                | published challenge/organization projection                                                                                                                              | unauthenticated, served from separate projection tables (already designed, [60 §6](60_API_CONTRACT.md)) |
 
 ### 3.1 `access_grant` — the relationship of record
 
@@ -84,56 +84,56 @@ CREATE POLICY proposal_access ON proposal USING (
 
 ### 3.2 Grant lifecycle (who gets what, when)
 
-| Command | Grant created | Grant revoked |
-| --- | --- | --- |
-| `proposal:submit` | org (challenge tenant) gets **read** on *that proposal* + its versions/clarifications | on `proposal:withdraw` (per policy); on decision close per retention |
-| `directoffer:send` | target workspace gets **collaborate** on the offer + shareable challenge detail | on expire/decline/cancel |
-| `assignment:create` + COI clear | reviewer gets **review-scoped** access to *one proposal version's evaluated materials only* (never the solver's workspace) | on `review:invalidate`, reassignment, or COI=conflict |
-| `decision:record` (selected) → `case:create` | **both** parties (org + winning workspace) get **collaborate** on the case + contract/pilot/deliverable/payment/messages | on case close per retention |
+| Command                                      | Grant created                                                                                                              | Grant revoked                                                        |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `proposal:submit`                            | org (challenge tenant) gets **read** on _that proposal_ + its versions/clarifications                                      | on `proposal:withdraw` (per policy); on decision close per retention |
+| `directoffer:send`                           | target workspace gets **collaborate** on the offer + shareable challenge detail                                            | on expire/decline/cancel                                             |
+| `assignment:create` + COI clear              | reviewer gets **review-scoped** access to _one proposal version's evaluated materials only_ (never the solver's workspace) | on `review:invalidate`, reassignment, or COI=conflict                |
+| `decision:record` (selected) → `case:create` | **both** parties (org + winning workspace) get **collaborate** on the case + contract/pilot/deliverable/payment/messages   | on case close per retention                                          |
 
-Key properties: grants are **narrow** (a reviewer never reaches beyond one version; an org never reaches beyond one proposal), **auditable** (every grant/revoke is an `audit_event`), **revocable** (withdrawal, invalidation, membership removal), and **membership-gated** (a grant is to a *workspace*; the user still needs an active membership + role — so removing a member instantly cuts their reach even while the workspace grant stands).
+Key properties: grants are **narrow** (a reviewer never reaches beyond one version; an org never reaches beyond one proposal), **auditable** (every grant/revoke is an `audit_event`), **revocable** (withdrawal, invalidation, membership removal), and **membership-gated** (a grant is to a _workspace_; the user still needs an active membership + role — so removing a member instantly cuts their reach even while the workspace grant stands).
 
 ### 3.3 Authz decision, corrected
 
-[70 §2](70_SECURITY_AND_AUTHZ.md) step 2 becomes **Reach** (not pure tenancy): a subject reaches a record iff *(a)* it is in their active tenant, **or** *(b)* an active `access_grant` links their active workspace to the record's collaboration, **or** *(c)* it is a public projection. Otherwise `NOT_FOUND` (non-enumerating). Steps 3–9 (membership, role, state, assignment/COI, separation-of-duty, step-up, classification) then apply unchanged. This keeps deny-by-default while making the product's cross-tenant collaboration a *modeled, audited* capability rather than a hole.
+[70 §2](70_SECURITY_AND_AUTHZ.md) step 2 becomes **Reach** (not pure tenancy): a subject reaches a record iff _(a)_ it is in their active tenant, **or** _(b)_ an active `access_grant` links their active workspace to the record's collaboration, **or** _(c)_ it is a public projection. Otherwise `NOT_FOUND` (non-enumerating). Steps 3–9 (membership, role, state, assignment/COI, separation-of-duty, step-up, classification) then apply unchanged. This keeps deny-by-default while making the product's cross-tenant collaboration a _modeled, audited_ capability rather than a hole.
 
 ## 4. Consistency model (explicit boundaries)
 
-| Must be strongly consistent (one Postgres tx) | May be eventually consistent (async via outbox) |
-| --- | --- |
-| Aggregate mutation + version bump | Notifications / email / SMS / push |
-| Submission/version lock, approvals, decision | Public projection rebuild (search catalog) |
-| Payment three-gate check, money state moves | Search index updates |
-| Membership/role/grant changes | Embeddings (deferred, [45](45_AI_AND_MATCHING.md)) |
-| **`audit_event` + `outbox_event` (same tx as the change)** | Analytics / reporting rollups |
+| Must be strongly consistent (one Postgres tx)              | May be eventually consistent (async via outbox)    |
+| ---------------------------------------------------------- | -------------------------------------------------- |
+| Aggregate mutation + version bump                          | Notifications / email / SMS / push                 |
+| Submission/version lock, approvals, decision               | Public projection rebuild (search catalog)         |
+| Payment three-gate check, money state moves                | Search index updates                               |
+| Membership/role/grant changes                              | Embeddings (deferred, [45](45_AI_AND_MATCHING.md)) |
+| **`audit_event` + `outbox_event` (same tx as the change)** | Analytics / reporting rollups                      |
 
-Rules: (1) the outbox row is written in the *same transaction* as the aggregate — never a second connection. (2) The command response returns the new `entity_version` so the client has **read-your-writes**; downstream projections may lag, surfaced with an explicit state (e.g. a just-published challenge shows "publishing…" until the projection catches up). (3) Provider callbacks (payment/signature) are **reconciled**, never trusted as the source of truth.
+Rules: (1) the outbox row is written in the _same transaction_ as the aggregate — never a second connection. (2) The command response returns the new `entity_version` so the client has **read-your-writes**; downstream projections may lag, surfaced with an explicit state (e.g. a just-published challenge shows "publishing…" until the projection catches up). (3) Provider callbacks (payment/signature) are **reconciled**, never trusted as the source of truth.
 
 ## 5. Concurrency control (right mechanism per invariant)
 
-| Invariant | Mechanism |
-| --- | --- |
-| Aggregate mutation races | **Optimistic** `expected_version`; stale → `409 CONFLICT` with `current_version` |
-| One active proposal per (challenge, workspace); one COI per assignment; one approval per (version, gate) | **DB unique constraint** (already in [50](50_DATA_MODEL.md)) |
-| Last-active-manager / owner cannot be removed; publication gate aggregation; decision creation | **Advisory lock on the aggregate + `SERIALIZABLE`** for the short critical section |
-| Duplicate submit / decide / pay / invite / sign (incl. deadline-spike double-clicks) | **Idempotency key** ([60 §3](60_API_CONTRACT.md)); exactly-once replay |
-| Deadline / submission-window races | **Server time inside the tx** decides; outcome audited — never client clocks |
-| Cross-row financial safety | Payment reaches `processing` only when all three gates hold, checked in one tx under lock |
+| Invariant                                                                                                | Mechanism                                                                                 |
+| -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Aggregate mutation races                                                                                 | **Optimistic** `expected_version`; stale → `409 CONFLICT` with `current_version`          |
+| One active proposal per (challenge, workspace); one COI per assignment; one approval per (version, gate) | **DB unique constraint** (already in [50](50_DATA_MODEL.md))                              |
+| Last-active-manager / owner cannot be removed; publication gate aggregation; decision creation           | **Advisory lock on the aggregate + `SERIALIZABLE`** for the short critical section        |
+| Duplicate submit / decide / pay / invite / sign (incl. deadline-spike double-clicks)                     | **Idempotency key** ([60 §3](60_API_CONTRACT.md)); exactly-once replay                    |
+| Deadline / submission-window races                                                                       | **Server time inside the tx** decides; outcome audited — never client clocks              |
+| Cross-row financial safety                                                                               | Payment reaches `processing` only when all three gates hold, checked in one tx under lock |
 
 ## 6. Resilience & failure modes
 
 The rule: **no dependency failure may corrupt or silently advance business state.**
 
-| Failure | Behaviour | Control |
-| --- | --- | --- |
-| IdP down | Existing sessions valid to expiry; new logins fail cleanly | Short-token + refresh; graceful login error |
-| Payment / signature provider down | State parks in `processing`/`signature`; no double effect | Idempotent calls; reconciliation; `manual-review` queue |
-| Email / SMS / push down | Business state unaffected | Outbox retry → dead-letter; delivery ≠ state change (FR-OPS-006) |
-| Outbox relay down | Events durably accumulate; replayed on recovery | Consumers idempotent; unpublished-index drains |
-| Poison message | Isolated, alerted, replayable | Dead-letter + ops replay + `retry: manual-review` |
-| DB primary failover | Reads continue on replica; writes pause briefly | Single primary for writes; measured RTO/RPO; restore drills |
-| Object storage down | Uploads fail cleanly; reads retry | Quarantine-before-available; signed-URL retry |
-| Partial deploy / migration | No broken intermediate state | Expand/contract migrations + feature flags (§9) |
+| Failure                           | Behaviour                                                  | Control                                                          |
+| --------------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------- |
+| IdP down                          | Existing sessions valid to expiry; new logins fail cleanly | Short-token + refresh; graceful login error                      |
+| Payment / signature provider down | State parks in `processing`/`signature`; no double effect  | Idempotent calls; reconciliation; `manual-review` queue          |
+| Email / SMS / push down           | Business state unaffected                                  | Outbox retry → dead-letter; delivery ≠ state change (FR-OPS-006) |
+| Outbox relay down                 | Events durably accumulate; replayed on recovery            | Consumers idempotent; unpublished-index drains                   |
+| Poison message                    | Isolated, alerted, replayable                              | Dead-letter + ops replay + `retry: manual-review`                |
+| DB primary failover               | Reads continue on replica; writes pause briefly            | Single primary for writes; measured RTO/RPO; restore drills      |
+| Object storage down               | Uploads fail cleanly; reads retry                          | Quarantine-before-available; signed-URL retry                    |
+| Partial deploy / migration        | No broken intermediate state                               | Expand/contract migrations + feature flags (§9)                  |
 
 ## 7. Scalability — grounded and bottleneck-ordered
 
@@ -142,7 +142,7 @@ The rule: **no dependency failure may corrupt or silently advance business state
 **Scale in this order, each only on evidence:**
 
 1. **Vertical + stateless horizontal** — bigger Postgres; add API/worker instances behind the load balancer (both are stateless). Covers the pilot and well beyond.
-2. **Read replicas** — serve the public catalog and heavy read projections from replicas + CDN. The projection tables are *already separated* from private aggregates, so this needs no redesign.
+2. **Read replicas** — serve the public catalog and heavy read projections from replicas + CDN. The projection tables are _already separated_ from private aggregates, so this needs no redesign.
 3. **Partition the hot append-only tables** — `audit_event`, `outbox_event`, `notification_delivery` by time (monthly), with archival of old partitions. This is the **first real bottleneck** (table growth), and it is a config change, not a redesign.
 4. **Queue backend swap** — Postgres-backed queue → Redis/SQS if worker throughput demands (the outbox interface hides this).
 5. **Module extraction** — pull a module into its own service **only** when scaling, security isolation, or team ownership gives evidence. Finance/Payment is the likely first extraction (isolation); the module boundaries + contracts already make this a lift, not a rewrite.

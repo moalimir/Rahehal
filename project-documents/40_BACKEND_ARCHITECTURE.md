@@ -29,30 +29,30 @@ flowchart TB
     Q --> OBS2
 ```
 
-**Golden rule:** the browser is *never* the authority. Every mutation is a server command that is authorized, validated, idempotent, transactional, and audited.
+**Golden rule:** the browser is _never_ the authority. Every mutation is a server command that is authorized, validated, idempotent, transactional, and audited.
 
-> **Foundation robustness:** [42_FOUNDATION_HARDENING](42_FOUNDATION_HARDENING.md) is the review that stress-tests this design for *this* use case — the cross-tenant collaboration access model, explicit consistency/concurrency/resilience contracts, the evidence-gated scaling path, and the CI fitness functions that keep it solid. Read it alongside this document.
+> **Foundation robustness:** [42_FOUNDATION_HARDENING](42_FOUNDATION_HARDENING.md) is the review that stress-tests this design for _this_ use case — the cross-tenant collaboration access model, explicit consistency/concurrency/resilience contracts, the evidence-gated scaling path, and the CI fitness functions that keep it solid. Read it alongside this document.
 
 ## 2. Module boundaries (the modular monolith)
 
 One deployable API process; internally, strict module boundaries with dependency direction enforced by tests (the codebase already has zero import cycles — preserve that discipline).
 
-| Module | Owns (aggregates) | Key invariants |
-| --- | --- | --- |
-| **Identity** | user↔IdP link, verified contacts, session claims, MFA/step-up status | no password/secret storage in app; step-up freshness |
-| **Tenancy & Access** | tenant, organization, workspace, membership, role, invitation, **authz policy** | deny-by-default; scope-before-permission |
-| **Challenge** | challenge, challenge_version, eligibility_rule, approval, **public_projection**, deadline | no draft→published; publication is atomic + versioned |
-| **Solver & Team** | personal/team profile, team, membership lifecycle, verification, NDA acceptance | last-manager/owner protection; workspace isolation |
-| **Opportunity & Matching** | saved opportunity, eligibility evaluation, match evidence, direct_offer | eligibility explains itself; offer is a two-party aggregate |
-| **Proposal** | proposal, proposal_version, clarification, revision | submitted version immutable; one receipt per submit |
-| **Review** | rubric/rubric_version, review_assignment, **coi_declaration**, review | COI clear before protected content; submitted review immutable |
-| **Decision & Case** | decision, case | decision cites exact versions; creates case atomically |
-| **Contract & IP** | contract_version, IP schedule, signature | effective only from approved current version |
-| **Pilot & Deliverable** | pilot, milestone, task, deliverable, evidence | acceptance protocol; change control |
-| **Finance & Payment** | payment, finance approval, ledger entry, reconciliation, refund | three gates; idempotent provider callbacks |
-| **Operations & Dispute** | work queue, verification review, publication gate, dispute, violation, support consent | separation of duties; privileged access is time-bound |
-| **Notification** | preference, template_version, delivery, retry/dead-letter | delivery failure never changes business state |
-| **Audit & Compliance** | audit_event, correlation, export, retention, privileged_access_grant | append-only; independent of app admins |
+| Module                     | Owns (aggregates)                                                                         | Key invariants                                                 |
+| -------------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| **Identity**               | user↔IdP link, verified contacts, session claims, MFA/step-up status                     | no password/secret storage in app; step-up freshness           |
+| **Tenancy & Access**       | tenant, organization, workspace, membership, role, invitation, **authz policy**           | deny-by-default; scope-before-permission                       |
+| **Challenge**              | challenge, challenge_version, eligibility_rule, approval, **public_projection**, deadline | no draft→published; publication is atomic + versioned          |
+| **Solver & Team**          | personal/team profile, team, membership lifecycle, verification, NDA acceptance           | last-manager/owner protection; workspace isolation             |
+| **Opportunity & Matching** | saved opportunity, eligibility evaluation, match evidence, direct_offer                   | eligibility explains itself; offer is a two-party aggregate    |
+| **Proposal**               | proposal, proposal_version, clarification, revision                                       | submitted version immutable; one receipt per submit            |
+| **Review**                 | rubric/rubric_version, review_assignment, **coi_declaration**, review                     | COI clear before protected content; submitted review immutable |
+| **Decision & Case**        | decision, case                                                                            | decision cites exact versions; creates case atomically         |
+| **Contract & IP**          | contract_version, IP schedule, signature                                                  | effective only from approved current version                   |
+| **Pilot & Deliverable**    | pilot, milestone, task, deliverable, evidence                                             | acceptance protocol; change control                            |
+| **Finance & Payment**      | payment, finance approval, ledger entry, reconciliation, refund                           | three gates; idempotent provider callbacks                     |
+| **Operations & Dispute**   | work queue, verification review, publication gate, dispute, violation, support consent    | separation of duties; privileged access is time-bound          |
+| **Notification**           | preference, template_version, delivery, retry/dead-letter                                 | delivery failure never changes business state                  |
+| **Audit & Compliance**     | audit_event, correlation, export, retention, privileged_access_grant                      | append-only; independent of app admins                         |
 
 Cross-cutting platform services (not domain modules): **Idempotency**, **Outbox/Eventing**, **File**, **Search**, **AuthZ**, **Observability**, and **AI/Inference** (embeddings + provider-agnostic model-serving adapter — see [45_AI_AND_MATCHING](45_AI_AND_MATCHING.md)).
 
@@ -73,16 +73,16 @@ Cross-cutting platform services (not domain modules): **Idempotency**, **Outbox/
 
 ### Technology recommendation (adjust to team skills — ADR-010/006)
 
-| Concern | Recommendation | Rationale |
-| --- | --- | --- |
-| API language | **TypeScript/Node** (NestJS or Fastify) | Reuse `domain/*` types & state machines verbatim; one language across web/api/worker; strong type-sharing. |
-| DB | **PostgreSQL** | Transactions, constraints, RLS option, JSONB for versioned content, `tsvector` + Persian normalization for search. |
-| Queue | **Postgres-backed (pgmq/SKIP LOCKED)** at pilot scale → **Redis/SQS** if throughput demands | Fewer moving parts; the outbox lives in the same DB tx. |
-| Object storage | **S3-compatible in-region**, private buckets, pre-signed uploads | Residency (D-07); signed reads; scanning pipeline. |
-| Search | **Postgres FTS** first; **OpenSearch** if ranking/faceting outgrows it | Persian analyzer + permission filtering. |
-| Identity | **Managed OIDC IdP** (self-hostable, in-region) + separate KYB/verification workflow | Don't build auth; do own verification. |
-| Audit sink | Append-only Postgres table with periodic export to WORM storage | Independence from app admins (40 §5). |
-| Vector / AI | **pgvector** on the same PostgreSQL + a provider-agnostic model-serving adapter (Persian-capable, residency-safe embeddings; Claude for reasoning) | AI-ready without a new datastore; full design + graduation path in [45_AI_AND_MATCHING](45_AI_AND_MATCHING.md). |
+| Concern        | Recommendation                                                                                                                                     | Rationale                                                                                                          |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| API language   | **TypeScript/Node** (NestJS or Fastify)                                                                                                            | Reuse `domain/*` types & state machines verbatim; one language across web/api/worker; strong type-sharing.         |
+| DB             | **PostgreSQL**                                                                                                                                     | Transactions, constraints, RLS option, JSONB for versioned content, `tsvector` + Persian normalization for search. |
+| Queue          | **Postgres-backed (pgmq/SKIP LOCKED)** at pilot scale → **Redis/SQS** if throughput demands                                                        | Fewer moving parts; the outbox lives in the same DB tx.                                                            |
+| Object storage | **S3-compatible in-region**, private buckets, pre-signed uploads                                                                                   | Residency (D-07); signed reads; scanning pipeline.                                                                 |
+| Search         | **Postgres FTS** first; **OpenSearch** if ranking/faceting outgrows it                                                                             | Persian analyzer + permission filtering.                                                                           |
+| Identity       | **Managed OIDC IdP** (self-hostable, in-region) + separate KYB/verification workflow                                                               | Don't build auth; do own verification.                                                                             |
+| Audit sink     | Append-only Postgres table with periodic export to WORM storage                                                                                    | Independence from app admins (40 §5).                                                                              |
+| Vector / AI    | **pgvector** on the same PostgreSQL + a provider-agnostic model-serving adapter (Persian-capable, residency-safe embeddings; Claude for reasoning) | AI-ready without a new datastore; full design + graduation path in [45_AI_AND_MATCHING](45_AI_AND_MATCHING.md).    |
 
 ## 4. Identity, session & tenancy
 
@@ -93,13 +93,13 @@ Cross-cutting platform services (not domain modules): **Idempotency**, **Outbox/
 
 ## 5. Audit & correlation (ADR-008)
 
-- Every business mutation writes an **audit_event** in the *same transaction* as the aggregate change (via the outbox pattern for downstream fan-out): `{id, tenant_id, actor_user_id, workspace_id, entity_type, entity_id, entity_version, action, audit_code, outcome, reason, correlation_id, occurred_at}`. The `audit` codes already exist on every transition in `state-machines.ts` (e.g. `challenge.published`, `payment.reconciled`) — use them verbatim.
+- Every business mutation writes an **audit_event** in the _same transaction_ as the aggregate change (via the outbox pattern for downstream fan-out): `{id, tenant_id, actor_user_id, workspace_id, entity_type, entity_id, entity_version, action, audit_code, outcome, reason, correlation_id, occurred_at}`. The `audit` codes already exist on every transition in `state-machines.ts` (e.g. `challenge.published`, `payment.reconciled`) — use them verbatim.
 - **Correlation**: one `correlation_id` threads challenge_version → proposal_version → assignment/review → decision → case → contract → payment. This is a Phase-4 exit gate ("full correlation").
-- **Immutability & independence**: audit table is append-only (no UPDATE/DELETE grants to app role); periodic signed export to WORM storage; queryable by entity/correlation/actor; exportable under policy. Business-data *corrections* are new events, never history edits (Ops question, doc 70 §7).
+- **Immutability & independence**: audit table is append-only (no UPDATE/DELETE grants to app role); periodic signed export to WORM storage; queryable by entity/correlation/actor; exportable under policy. Business-data _corrections_ are new events, never history edits (Ops question, doc 70 §7).
 
 ## 6. Files & evidence (ADR-007)
 
-Upload pipeline (retires the client `lib/validation/upload.ts` as the *only* gate; keep it as first-line UX validation):
+Upload pipeline (retires the client `lib/validation/upload.ts` as the _only_ gate; keep it as first-line UX validation):
 
 ```
 client → request pre-signed PUT (server validates type/size, mints object key)

@@ -8,10 +8,10 @@ How Rahhal adds AI features — starting with **resume/profile → best-matched 
 
 ## 1. Posture (non-negotiable principles)
 
-Consistent with the existing non-goal *"not an autonomous AI decision-maker; matching may assist, humans own eligibility exceptions, review, and selection"* ([10_PRODUCT_VISION](10_PRODUCT_VISION.md) §6).
+Consistent with the existing non-goal _"not an autonomous AI decision-maker; matching may assist, humans own eligibility exceptions, review, and selection"_ ([10_PRODUCT_VISION](10_PRODUCT_VISION.md) §6).
 
 1. **Assistive, never authoritative.** AI ranks and explains; it never grants eligibility, selects a winner, scores a review, or moves money. Hard rules stay deterministic and server-enforced.
-2. **Eligibility gates AI, not the reverse.** The deterministic `evaluateEligibility` (canonical, `lib/solver/eligibility.ts` → server) runs *first*. AI only ranks within the already-eligible set. An AI suggestion can never surface an ineligible match.
+2. **Eligibility gates AI, not the reverse.** The deterministic `evaluateEligibility` (canonical, `lib/solver/eligibility.ts` → server) runs _first_. AI only ranks within the already-eligible set. An AI suggestion can never surface an ineligible match.
 3. **Explainable by construction.** Every ranked result carries structured evidence (which skills/requirements matched, similarity, features) + the `model_version` and `rule_version` that produced it. No opaque scores.
 4. **Classification-gated.** What may be embedded or sent to any model is decided by data classification (`public/internal/confidential/highly_sensitive`, [70_SECURITY_AND_AUTHZ](70_SECURITY_AND_AUTHZ.md) §7). Confidential text never leaves the region or reaches a non-approved provider.
 5. **Provider-agnostic.** Models sit behind an adapter interface. Swapping an embedding model or LLM (managed ↔ self-hosted) is a config + backfill, not a rewrite.
@@ -20,14 +20,14 @@ Consistent with the existing non-goal *"not an autonomous AI decision-maker; mat
 
 ## 2. Use-case roadmap (switch on in this order)
 
-| Wave | Feature | Technique | Human-in-the-loop |
-| --- | --- | --- | --- |
-| **A** | **Resume/profile → ranked eligible challenges**; challenge → ranked eligible solvers | Hybrid retrieval (filter → vector → re-rank) + explanations | Solver still applies; org still invites |
-| **A** | "Why this match" evidence + skill-gap hints | Feature extraction + LLM rationale | Advisory only |
-| **B** | Challenge-brief quality assistant (readiness, ambiguity, measurable criteria) | LLM critique against readiness rubric | Author edits; approvals unchanged |
-| **B** | Proposal readiness / completeness hints; near-duplicate detection | Embeddings + LLM | Advisory; submission rules unchanged |
-| **C** | Review assist: rubric-aligned summarization, consistency flags | LLM summarize/compare | **Never** auto-scores; reviewer owns scores |
-| **D** | Ops signals: plagiarism/collusion/spam/fraud hints; impact summarization | Embeddings + classifiers + LLM | Ops investigates; audit-logged |
+| Wave  | Feature                                                                              | Technique                                                   | Human-in-the-loop                           |
+| ----- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------- | ------------------------------------------- |
+| **A** | **Resume/profile → ranked eligible challenges**; challenge → ranked eligible solvers | Hybrid retrieval (filter → vector → re-rank) + explanations | Solver still applies; org still invites     |
+| **A** | "Why this match" evidence + skill-gap hints                                          | Feature extraction + LLM rationale                          | Advisory only                               |
+| **B** | Challenge-brief quality assistant (readiness, ambiguity, measurable criteria)        | LLM critique against readiness rubric                       | Author edits; approvals unchanged           |
+| **B** | Proposal readiness / completeness hints; near-duplicate detection                    | Embeddings + LLM                                            | Advisory; submission rules unchanged        |
+| **C** | Review assist: rubric-aligned summarization, consistency flags                       | LLM summarize/compare                                       | **Never** auto-scores; reviewer owns scores |
+| **D** | Ops signals: plagiarism/collusion/spam/fraud hints; impact summarization             | Embeddings + classifiers + LLM                              | Ops investigates; audit-logged              |
 
 Ship Wave A behind the MVP once the proposal/eligibility data is real (Phase 3–4, [80_DELIVERY_ROADMAP](80_DELIVERY_ROADMAP.md)); it needs no new infra beyond §5.
 
@@ -67,19 +67,19 @@ OUTPUT: ranked, eligible, explained suggestions  (org invites / solver applies)
 
 These **extend** the [40 §3](40_BACKEND_ARCHITECTURE.md) table; they do not replace anything.
 
-| Concern | Recommendation | Rationale / graduation |
-| --- | --- | --- |
-| **Vector store** | **pgvector** on the existing PostgreSQL, **HNSW** index, cosine | One datastore, transactional consistency with source rows, tenant-scoped in the same query. **Graduate** to a dedicated ANN store (Qdrant / Weaviate / OpenSearch kNN) only past ~10M vectors or when QPS/recall needs it — the adapter makes this a swap. |
-| **Embedding model** | **Multilingual, Persian-strong** model behind an adapter. Residency-safe default: **self-hosted `bge-m3` or `multilingual-e5-large`** (in-region GPU/CPU worker). Managed embedding APIs allowed **only** for `public`/`internal` data. | Persian is first-class; residency (D-07) forbids sending `confidential` text off-region. Self-hostable models keep confidential embeddings in-region. |
-| **LLM (re-rank, authoring/review assist, summarize)** | **Claude** (Haiku for cheap/bulk, Sonnet for hard reasoning) via the Anthropic SDK, behind the same adapter. Self-hosted **Qwen/Llama** option for residency-sensitive prompts. | Strong Persian + instruction-following + tool use; zero-retention/no-training API settings; swap-in local model for confidential tasks. |
-| **Model-serving boundary** | An **AI/Inference adapter** (new cross-cutting platform service) with one interface: `embed()`, `rerank()`, `complete()`, `classify()`. Batch use runs in `apps/worker`; interactive assist behind `apps/api`. | Provider-agnostic; testable with fakes; central place for cost/limits/guardrails/audit. |
-| **Self-hosted inference** | Optional **Python inference worker** consuming the same queue (polyglot via queue, not a new sync dependency). | Keeps TS app simple; adds ML runtime only where a self-hosted model is required. |
-| **Persian NLP** | Reuse `normalizePersian` (`domain/product.ts`) at every text boundary; ZWNJ/ی/ک normalization before embedding & FTS. | Consistent tokenization; better recall; already in the codebase. |
-| **Feature store** | Start with plain Postgres tables of precomputed features; **graduate** to a dedicated store only with evidence. | Avoid premature infra. |
-| **Hybrid search** | Combine pgvector similarity **with** Postgres FTS (`tsvector`) and structured filters in one query (weighted). | Semantic + lexical + structured beats any one alone; both already in Postgres. |
-| **Eval & observability** | Offline eval harness (labeled match sets, precision@k / MRR), online logging of model/version/latency/cost, drift & fairness dashboards. | Prove match quality before trusting it; catch regressions on model upgrades. |
+| Concern                                               | Recommendation                                                                                                                                                                                                                          | Rationale / graduation                                                                                                                                                                                                                                     |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Vector store**                                      | **pgvector** on the existing PostgreSQL, **HNSW** index, cosine                                                                                                                                                                         | One datastore, transactional consistency with source rows, tenant-scoped in the same query. **Graduate** to a dedicated ANN store (Qdrant / Weaviate / OpenSearch kNN) only past ~10M vectors or when QPS/recall needs it — the adapter makes this a swap. |
+| **Embedding model**                                   | **Multilingual, Persian-strong** model behind an adapter. Residency-safe default: **self-hosted `bge-m3` or `multilingual-e5-large`** (in-region GPU/CPU worker). Managed embedding APIs allowed **only** for `public`/`internal` data. | Persian is first-class; residency (D-07) forbids sending `confidential` text off-region. Self-hostable models keep confidential embeddings in-region.                                                                                                      |
+| **LLM (re-rank, authoring/review assist, summarize)** | **Claude** (Haiku for cheap/bulk, Sonnet for hard reasoning) via the Anthropic SDK, behind the same adapter. Self-hosted **Qwen/Llama** option for residency-sensitive prompts.                                                         | Strong Persian + instruction-following + tool use; zero-retention/no-training API settings; swap-in local model for confidential tasks.                                                                                                                    |
+| **Model-serving boundary**                            | An **AI/Inference adapter** (new cross-cutting platform service) with one interface: `embed()`, `rerank()`, `complete()`, `classify()`. Batch use runs in `apps/worker`; interactive assist behind `apps/api`.                          | Provider-agnostic; testable with fakes; central place for cost/limits/guardrails/audit.                                                                                                                                                                    |
+| **Self-hosted inference**                             | Optional **Python inference worker** consuming the same queue (polyglot via queue, not a new sync dependency).                                                                                                                          | Keeps TS app simple; adds ML runtime only where a self-hosted model is required.                                                                                                                                                                           |
+| **Persian NLP**                                       | Reuse `normalizePersian` (`domain/product.ts`) at every text boundary; ZWNJ/ی/ک normalization before embedding & FTS.                                                                                                                   | Consistent tokenization; better recall; already in the codebase.                                                                                                                                                                                           |
+| **Feature store**                                     | Start with plain Postgres tables of precomputed features; **graduate** to a dedicated store only with evidence.                                                                                                                         | Avoid premature infra.                                                                                                                                                                                                                                     |
+| **Hybrid search**                                     | Combine pgvector similarity **with** Postgres FTS (`tsvector`) and structured filters in one query (weighted).                                                                                                                          | Semantic + lexical + structured beats any one alone; both already in Postgres.                                                                                                                                                                             |
+| **Eval & observability**                              | Offline eval harness (labeled match sets, precision@k / MRR), online logging of model/version/latency/cost, drift & fairness dashboards.                                                                                                | Prove match quality before trusting it; catch regressions on model upgrades.                                                                                                                                                                               |
 
-**Why not switch languages/DBs for AI?** Managed/self-hosted models are consumed over HTTP behind an adapter, so the TS/Node app stays. Postgres+pgvector removes the need for a separate vector DB at this scale. If heavy custom-model serving arrives, it's an *additional* Python worker behind the existing queue — additive, not a migration.
+**Why not switch languages/DBs for AI?** Managed/self-hosted models are consumed over HTTP behind an adapter, so the TS/Node app stays. Postgres+pgvector removes the need for a separate vector DB at this scale. If heavy custom-model serving arrives, it's an _additional_ Python worker behind the existing queue — additive, not a migration.
 
 ## 5. Embeddings pipeline (scalable, async)
 
@@ -184,13 +184,13 @@ POST /assist/proposals/{id}:readiness      # Wave B: completeness hints (advisor
 
 ## 9. Scalability path (triggers, not guesses)
 
-| Signal | Action |
-| --- | --- |
+| Signal                                    | Action                                                                                    |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------- |
 | Vectors > ~10M or ANN recall/QPS pressure | Move embeddings to a dedicated ANN store behind the adapter; keep source rows in Postgres |
-| Embedding backlog grows | Scale embedding workers horizontally; batch; add a priority lane for interactive requests |
-| LLM cost/latency pressure | Haiku-first, cache rationales, re-rank only top-N, precompute popular match runs |
-| Self-hosted model needed for residency | Add a Python inference worker on the existing queue (GPU node); no app changes |
-| Match quality regressions | Gate model upgrades on the offline eval harness; dual-read embeddings during backfill |
+| Embedding backlog grows                   | Scale embedding workers horizontally; batch; add a priority lane for interactive requests |
+| LLM cost/latency pressure                 | Haiku-first, cache rationales, re-rank only top-N, precompute popular match runs          |
+| Self-hosted model needed for residency    | Add a Python inference worker on the existing queue (GPU node); no app changes            |
+| Match quality regressions                 | Gate model upgrades on the offline eval harness; dual-read embeddings during backfill     |
 
 ## 10. What to do now (so AI is cheap to add later)
 

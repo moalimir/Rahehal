@@ -20,19 +20,21 @@ Do not parallelize competing definitions of identity, tenancy, entity states, or
 
 ## 2. Phases
 
-| Phase | Outcome | Exit class | Indicative effort |
-| --- | --- | --- | --- |
-| **0. Baseline & decisions** | Reproducible green frontend; canonical model + ⚠ decisions signed; ADRs; CI | Ready to build | 1–2 wks |
-| **1. Platform foundation** | Real identity, tenancy, authz, Postgres, audit, files, API + observability skeleton | Safe foundation | 4–6 wks |
-| **2. Authoritative challenge** (Slice 1a) | Versioned draft → approvals → atomic publish → public projection | Published challenge is real | 3–5 wks |
-| **3. Authoritative proposal** (Slice 1b) | Real solver/team context, server eligibility, immutable submission/version | Locked proposal is real | 3–5 wks |
-| **4. Review & decision** (Slice 1c) | Assignment, server COI, rubric/scoring, reasoned decision, full correlation | **MVP slice complete** | 3–5 wks |
-| **5. Execution & payment** (Slice 2) | Contract, pilot, deliverables, gated payment + reconciliation, disputes, ops | Full case lifecycle | 5–8 wks |
-| **6. Controlled pilot** (Slice 3) | Security/legal/privacy/a11y/perf/DR sign-off; limited real users | Production pilot | 3–5 wks |
+| Phase                                     | Outcome                                                                             | Exit class                  | Indicative effort |
+| ----------------------------------------- | ----------------------------------------------------------------------------------- | --------------------------- | ----------------- |
+| **0. Baseline & decisions**               | Reproducible green frontend; canonical model + ⚠ decisions signed; ADRs; CI        | Ready to build              | 1–2 wks           |
+| **1. Platform foundation**                | Real identity, tenancy, authz, Postgres, audit, files, API + observability skeleton | Safe foundation             | 4–6 wks           |
+| **2. Authoritative challenge** (Slice 1a) | Versioned draft → approvals → atomic publish → public projection                    | Published challenge is real | 3–5 wks           |
+| **3. Authoritative proposal** (Slice 1b)  | Real solver/team context, server eligibility, immutable submission/version          | Locked proposal is real     | 3–5 wks           |
+| **4. Review & decision** (Slice 1c)       | Assignment, server COI, rubric/scoring, reasoned decision, full correlation         | **MVP slice complete**      | 3–5 wks           |
+| **5. Execution & payment** (Slice 2)      | Contract, pilot, deliverables, gated payment + reconciliation, disputes, ops        | Full case lifecycle         | 5–8 wks           |
+| **6. Controlled pilot** (Slice 3)         | Security/legal/privacy/a11y/perf/DR sign-off; limited real users                    | Production pilot            | 3–5 wks           |
 
 Ranges assume a small cross-functional team; provider procurement, legal review, and the ⚠ decisions can dominate the schedule.
 
 ## 3. Phase 0 — baseline & decisions
+
+> **Status (2026-08-23):** the **decisions** half and the **repository baseline** are done — canonical model adopted, 13 ADRs + 8 P0 decisions recorded ([25_DECISIONS](25_DECISIONS.md)), runtime pinned, env/security/license/ownership/contribution files and the CI pipeline in place. **Build/browser verification** (offline bundle, perf budgets, Chromium + Golden Master), first-green-CI, and **owner sign-offs** remain — all tracked with owners and acceptance criteria in [82_PHASE0_COMPLETION](82_PHASE0_COMPLETION.md). Phase 1 design may begin now.
 
 **Deliverables:** resolve the ⚠ P0 decisions (00 §4: brand, MVP boundary, launch posture, tenancy, identity/KYB, residency, offline scope, payment custody) with named owners; adopt [20_CANONICAL_MODEL](20_CANONICAL_MODEL.md); pin Node/npm (`.nvmrc`) and make `npm ci` install Sharp/libvips reproducibly (T-04); regenerate `index.html` and pass the standalone login→workspace smoke (M-05); restore the 5 failing byte budgets or rebaseline with user-centric targets (T-01); install pinned Playwright Chromium, run the 70 behavior cases, commit a reviewed visual Golden Master; add CI running every release gate; add `.env.example`, `SECURITY.md`, license, ownership; open ADR-001…010 (30 §F).
 
@@ -90,4 +92,4 @@ Per phase report: approved decisions + remaining blockers; vertical-slice scenar
 
 ## 11. Definition of Done (per requirement)
 
-A requirement is **production-complete** only when *all four* exist: (1) implementation with server authority, (2) automated evidence (unit/contract/E2E/a11y/security as relevant, green in CI), (3) documented operational procedure, (4) sign-off from the required owner (product/security/legal/privacy/finance/ops as relevant). "Prototype" and "partial" ([90_REQUIREMENTS_TRACEABILITY](90_REQUIREMENTS_TRACEABILITY.md)) never count as done.
+A requirement is **production-complete** only when _all four_ exist: (1) implementation with server authority, (2) automated evidence (unit/contract/E2E/a11y/security as relevant, green in CI), (3) documented operational procedure, (4) sign-off from the required owner (product/security/legal/privacy/finance/ops as relevant). "Prototype" and "partial" ([90_REQUIREMENTS_TRACEABILITY](90_REQUIREMENTS_TRACEABILITY.md)) never count as done.

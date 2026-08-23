@@ -9,7 +9,7 @@ Implementation-ready schema for the MVP vertical slice (challenge → proposal �
 - **IDs**: `text` primary keys, server-minted, prefixed (`chl_`, `chv_`, `prp_`, `prv_`, `rva_`, `rev_`, `dec_`, `case_`), globally unique, no embedded authorization (20 §7).
 - **Tenancy columns**: every protected table has `tenant_id` (and `workspace_id` where a workspace owns the row). Queries scope by tenant/workspace **before** record permissions.
 - **Timestamps**: `timestamptz`, UTC; display converts to Asia/Tehran. `created_at`/`updated_at` on every table.
-- **Money**: never floats. `amount_minor bigint` + `currency char(3)` (ISO-4217). IRR is stored in minor units; Toman is a *display* conversion (÷10), resolving X-11.
+- **Money**: never floats. `amount_minor bigint` + `currency char(3)` (ISO-4217). IRR is stored in minor units; Toman is a _display_ conversion (÷10), resolving X-11.
 - **Versioned content**: immutable version rows + a pointer to `current_version_id` on the aggregate.
 - **Enums**: Postgres `CHECK` constraints or `enum` types mirroring the canonical state machines exactly (values verbatim from `state-machines.ts`).
 - **Optimistic concurrency**: aggregates carry `version integer` bumped on every write; commands pass `expected_version` (60 §4).
@@ -19,7 +19,7 @@ Implementation-ready schema for the MVP vertical slice (challenge → proposal �
 **Default: application-scoped tenancy + PostgreSQL Row-Level Security as defense-in-depth.**
 
 - Every request runs in a transaction that sets `SET LOCAL app.tenant_id = $1; SET LOCAL app.workspace_id = $2; SET LOCAL app.user_id = $3;` (workspace is needed for grant-based access, below).
-- **Records fall into three access classes** (full model in [42 §3](42_FOUNDATION_HARDENING.md)) — because open innovation is **cross-tenant by design** (an org must evaluate a proposal owned by the solver's tenant): *tenant-owned* (pure isolation, RLS `tenant_id = app.tenant_id`), *shared/collaboration* (owner tenant **OR** an active `access_grant` to the subject's workspace), and *public projection* (separate unauthenticated tables). The app *also* scopes every query — RLS is the backstop for a missed `WHERE`, not the only control.
+- **Records fall into three access classes** (full model in [42 §3](42_FOUNDATION_HARDENING.md)) — because open innovation is **cross-tenant by design** (an org must evaluate a proposal owned by the solver's tenant): _tenant-owned_ (pure isolation, RLS `tenant_id = app.tenant_id`), _shared/collaboration_ (owner tenant **OR** an active `access_grant` to the subject's workspace), and _public projection_ (separate unauthenticated tables). The app _also_ scopes every query — RLS is the backstop for a missed `WHERE`, not the only control.
 - The **platform operator** is its own tenant; operations reads across tenants go through explicit, audited, purpose-scoped views (never a blanket bypass), satisfying least-privilege and support-consent rules.
 - Rejected simpler options: schema-per-tenant (operational drag at pilot scale), DB-per-tenant (premature). Revisit only with scale/isolation evidence.
 
@@ -358,15 +358,15 @@ Also: `policy_version` (versioned trust/legal/privacy content), `consent`, `disp
 
 ## 9. Migration mapping (browser stores → tables)
 
-| Browser store (evidence) | → Table(s) |
-| --- | --- |
-| `rahhal.session.v1` (`lib/auth/session.ts`) | IdP + `app_user` + server session (not a table — token/refresh store) |
-| `rahhal.organization-challenges.v7` | `challenge`, `challenge_version`, `challenge_approval`, `challenge_public_projection` |
-| `rahhal.solver.v3.user.*` (`SolverState`) | `workspace`, `membership`, `proposal`, `proposal_version`, `direct_offer`, `verification_record`, `nda_acceptance`, `contract_version`, `case`, `audit_event`, `idempotency_key` |
-| `rahhal.demo-command-store.v1` | `idempotency_key`, `outbox_event`, `audit_event` |
-| Direct-offer store (`lib/offers/store.ts`) | `direct_offer` + `offer_response` |
-| Reviewer COI keys (`lib/reviews/access.ts`) | `review_assignment` + `coi_declaration` |
-| Payment store (`lib/payments/store.ts`) | `payment` + `ledger_entry` + reconciliation |
+| Browser store (evidence)                    | → Table(s)                                                                                                                                                                       |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rahhal.session.v1` (`lib/auth/session.ts`) | IdP + `app_user` + server session (not a table — token/refresh store)                                                                                                            |
+| `rahhal.organization-challenges.v7`         | `challenge`, `challenge_version`, `challenge_approval`, `challenge_public_projection`                                                                                            |
+| `rahhal.solver.v3.user.*` (`SolverState`)   | `workspace`, `membership`, `proposal`, `proposal_version`, `direct_offer`, `verification_record`, `nda_acceptance`, `contract_version`, `case`, `audit_event`, `idempotency_key` |
+| `rahhal.demo-command-store.v1`              | `idempotency_key`, `outbox_event`, `audit_event`                                                                                                                                 |
+| Direct-offer store (`lib/offers/store.ts`)  | `direct_offer` + `offer_response`                                                                                                                                                |
+| Reviewer COI keys (`lib/reviews/access.ts`) | `review_assignment` + `coi_declaration`                                                                                                                                          |
+| Payment store (`lib/payments/store.ts`)     | `payment` + `ledger_entry` + reconciliation                                                                                                                                      |
 
 The `SolverState.idempotency` map and `MutationReceipt`/`MutationFailure` types (`solver.ts:494–512`) are already the exact runtime contract for `idempotency_key` and the API result envelope — the migration is a persistence swap, not a redesign.
 
