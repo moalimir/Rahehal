@@ -1,19 +1,14 @@
 import { describe, expect, it } from "vitest";
-import {
-  canPerform,
-  canTransition,
-  formatToman,
-  normalizePersian,
-  publicationGates,
-} from "@/domain/product";
+import { canPerform, formatToman, normalizePersian, publicationGates } from "@/domain/product";
+import { canTransition, challengeTransitions } from "@/domain/state-machines";
 
 describe("مجوزهای deny-by-default", () => {
   const base = {
-    role: "org" as const,
+    role: "org:owner" as const,
     membershipActive: true,
     caseMember: true,
     twoFactorVerified: true,
-    conflictDeclared: true,
+    coiClear: true,
   };
 
   it("اقدام حساس را بدون 2FA رد می‌کند", () => {
@@ -23,14 +18,14 @@ describe("مجوزهای deny-by-default", () => {
 
   it("نقش و عضویت پرونده‌ای را مستقل کنترل می‌کند", () => {
     expect(canPerform({ ...base, caseMember: false }, "view")).toBe(false);
-    expect(canPerform({ ...base, role: "solver" }, "approve-payment")).toBe(false);
+    expect(canPerform({ ...base, role: "individual" }, "approve-payment")).toBe(false);
   });
 
   it("داور پیش از اظهار تعارض نمی‌تواند داوری کند", () => {
-    expect(canPerform({ ...base, role: "reviewer", conflictDeclared: false }, "review")).toBe(
+    expect(canPerform({ ...base, role: "platform:reviewer", coiClear: false }, "review")).toBe(
       false,
     );
-    expect(canPerform({ ...base, role: "reviewer" }, "review")).toBe(true);
+    expect(canPerform({ ...base, role: "platform:reviewer" }, "review")).toBe(true);
   });
 });
 
@@ -49,9 +44,33 @@ describe("Gate و ماشین وضعیت", () => {
   });
 
   it("پرش نامعتبر در چرخه پرونده را رد می‌کند", () => {
-    expect(canTransition("draft", "triage")).toBe(true);
-    expect(canTransition("draft", "published")).toBe(false);
-    expect(canTransition("closed", "pilot")).toBe(false);
+    expect(challengeTransitions.map(({ from, to }) => `${from}->${to}`)).toEqual([
+      "draft->triage",
+      "triage->formulation",
+      "formulation->approvals",
+      "approvals->published",
+      "published->evaluating",
+      "evaluating->decided",
+      "decided->contracting",
+      "contracting->pilot",
+      "pilot->impact",
+      "impact->closed",
+    ]);
+    expect(
+      canTransition(challengeTransitions, "draft", "triage", "org:member", ["brief-valid"]),
+    ).toBe(true);
+    expect(canTransition(challengeTransitions, "draft", "published", "org:publisher")).toBe(false);
+    expect(canTransition(challengeTransitions, "pilot", "closed", "individual", [])).toBe(false);
+    expect(
+      canTransition(challengeTransitions, "pilot", "impact", "org:member", [
+        "deliverables-resolved",
+      ]),
+    ).toBe(true);
+    expect(
+      canTransition(challengeTransitions, "impact", "closed", "org:member", [
+        "payments-reconciled",
+      ]),
+    ).toBe(true);
   });
 });
 

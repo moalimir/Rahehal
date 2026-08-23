@@ -13,13 +13,7 @@ import {
 } from "@/domain/state-machines";
 import { createDemoSession, readDemoSession, canAccessInternalRole } from "@/lib/auth/session";
 import { safeReturnTo } from "@/lib/auth/return-to";
-import {
-  getChallenge,
-  publishChallenge,
-  saveChallenge,
-  submitChallenge,
-} from "@/lib/challenges/storage";
-import { listCatalogChallenges } from "@/lib/challenges/public-catalog";
+import { demoChallengeGateway, demoOpportunityGateway } from "@/lib/challenges/runtime";
 import { createDirectOffer, listDirectOffers, transitionDirectOffer } from "@/lib/offers/store";
 import { getLegacyResolution } from "@/data/legacy-redirects";
 import {
@@ -39,37 +33,45 @@ describe("قرارداد انتشار: مسیر، مجوز، Transition و Mutat
   beforeEach(() => localStorage.clear());
 
   it("هشت ماشین وضعیت Transition نامعتبر یا actor نامجاز را رد می‌کنند", () => {
-    expect(canTransition(challengeTransitions, "draft", "published", "org", ["brief-valid"])).toBe(
-      false,
-    );
     expect(
-      canTransition(proposalTransitions, "draft", "submitted", "solver", [
+      canTransition(challengeTransitions, "draft", "published", "org:publisher", ["brief-valid"]),
+    ).toBe(false);
+    expect(
+      canTransition(proposalTransitions, "draft", "submitted", "individual", [
         "form-valid",
         "sender-authorized",
         "terms-accepted",
       ]),
     ).toBe(true);
     expect(
-      canTransition(invitationTransitions, "pending", "cancelled", "solver", ["reason-recorded"]),
-    ).toBe(false);
-    expect(
-      canTransition(membershipTransitions, "active", "removed", "team-manager", [
-        "not-last-manager",
+      canTransition(invitationTransitions, "pending", "cancelled", "individual", [
+        "reason-recorded",
       ]),
     ).toBe(false);
     expect(
-      canTransition(reviewTransitions, "coi-gate", "accepted", "reviewer", ["coi-clear"]),
-    ).toBe(true);
-    expect(
-      canTransition(contractTransitions, "approval", "signature", "legal", ["legal-approved"]),
+      canTransition(membershipTransitions, "active", "removed", "team:admin", ["not-last-manager"]),
     ).toBe(false);
     expect(
-      canTransition(pilotTransitions, "deliverable-submitted", "accepted", "org", [
-        "technical-evidence-approved",
-      ]),
+      canTransition(reviewTransitions, "coi-gate", "accepted", "platform:reviewer", ["coi-clear"]),
     ).toBe(true);
     expect(
-      canTransition(paymentTransitions, "triggered", "approval", "finance", ["technical-accepted"]),
+      canTransition(contractTransitions, "approval", "signature", "platform:legal", [
+        "legal-approved",
+      ]),
+    ).toBe(false);
+    expect(
+      canTransition(
+        pilotTransitions,
+        "deliverable-submitted",
+        "accepted",
+        "org:approver_technical",
+        ["technical-evidence-approved"],
+      ),
+    ).toBe(true);
+    expect(
+      canTransition(paymentTransitions, "triggered", "approval", "platform:finance", [
+        "technical-accepted",
+      ]),
     ).toBe(false);
   });
 
@@ -126,16 +128,26 @@ describe("قرارداد انتشار: مسیر، مجوز، Transition و Mutat
     );
   });
 
-  it("انتشار سازمان همان Entity را در کاتالوگ عمومی و حل‌کننده قابل مشاهده می‌کند", () => {
-    const ready = getChallenge("CH-1405-052");
-    expect(ready).toBeDefined();
-    const submitted = submitChallenge(
-      saveChallenge({ ...ready!, visibility: "public", sourcingModel: "public" }),
-    );
-    expect(submitted.status).toBe("under_review");
-    expect(publishChallenge(submitted.id)?.status).toBe("published");
-    expect(listCatalogChallenges().find((item) => item.id === submitted.id)?.title).toBe(
-      submitted.title,
+  it("انتشار سازمان همان Entity را در کاتالوگ عمومی و حل‌کننده قابل مشاهده می‌کند", async () => {
+    const ready = await demoChallengeGateway.queries.get("CH-1405-052");
+    expect(ready.ok).toBe(true);
+    if (!ready.ok) throw new Error(ready.error.message);
+    const saved = await demoChallengeGateway.commands.save({
+      ...ready.data,
+      visibility: "public",
+      sourcingModel: "public",
+    });
+    expect(saved.ok).toBe(true);
+    if (!saved.ok) throw new Error(saved.error.message);
+    const submitted = await demoChallengeGateway.commands.submit(saved.data);
+    expect(submitted).toMatchObject({ ok: true, data: { status: "under_review" } });
+    if (!submitted.ok) throw new Error(submitted.error.message);
+    const published = await demoChallengeGateway.commands.publish(submitted.data.id);
+    expect(published).toMatchObject({ ok: true, data: { status: "published" } });
+    const opportunities = await demoOpportunityGateway.queries.list();
+    if (!opportunities.ok) throw new Error(opportunities.error.message);
+    expect(opportunities.data.find((item) => item.id === submitted.data.id)?.title).toBe(
+      submitted.data.title,
     );
   });
 

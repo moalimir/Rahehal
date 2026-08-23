@@ -8,6 +8,7 @@ import { PersonAvatar } from "@/components/person-avatar";
 import { useSolverContext } from "@/components/solver-shell";
 import { TeamResumeDialog, type TeamResumeSummary } from "@/components/team-resume-dialog";
 import type { SolverState, TeamRole } from "@/domain/solver";
+import { teamRole } from "@rahhal/domain";
 import { buildSolverHref, workspaceContextForTeam } from "@/lib/solver/context";
 import { TEAM_ROLE_LABELS } from "@/lib/solver/permissions";
 import {
@@ -215,10 +216,10 @@ export function SolverTeamManagement({ initialTab = "overview" }: { initialTab?:
       | "request-reject";
     id?: string;
     label: string;
-    role?: Exclude<TeamRole, "owner">;
+    role?: Exclude<TeamRole, "team:owner">;
   }>();
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<Exclude<TeamRole, "owner">>("contributor");
+  const [role, setRole] = useState<Exclude<TeamRole, "team:owner">>(teamRole.contributor);
   const [scope, setScope] = useState("");
   const [message, setMessage] = useState("");
   if (context.type !== "team") return null;
@@ -300,7 +301,8 @@ export function SolverTeamManagement({ initialTab = "overview" }: { initialTab?:
           داشبورد تیم
         </Link>
       </header>
-      {currentMembership.role === "contributor" || currentMembership.role === "viewer" ? (
+      {currentMembership.role === teamRole.contributor ||
+      currentMembership.role === teamRole.viewer ? (
         <aside className="rh-team-authority-note" role="status">
           <Icon name="lock" />
           <div>
@@ -398,7 +400,7 @@ export function SolverTeamManagement({ initialTab = "overview" }: { initialTab?:
                   </small>
                 </div>
               </div>
-              {membership.state === "active" && membership.role !== "viewer" && (
+              {membership.state === "active" && membership.role !== teamRole.viewer && (
                 <MemberAssignmentControl
                   memberName={userName(state, membership.userId)}
                   disabled={!canChangeRole.allowed}
@@ -424,27 +426,27 @@ export function SolverTeamManagement({ initialTab = "overview" }: { initialTab?:
                       <select
                         aria-label={`نقش ${userName(state, membership.userId)}`}
                         value={membership.role}
-                        disabled={!canChangeRole.allowed || membership.role === "owner"}
+                        disabled={!canChangeRole.allowed || membership.role === teamRole.owner}
                         title={canChangeRole.allowed ? undefined : canChangeRole.reason}
                         onChange={(event) =>
                           setConfirm({
                             kind: "role",
                             id: membership.id,
                             label: userName(state, membership.userId),
-                            role: event.target.value as Exclude<TeamRole, "owner">,
+                            role: event.target.value as Exclude<TeamRole, "team:owner">,
                           })
                         }
                       >
-                        <option value="owner" disabled>
+                        <option value={teamRole.owner} disabled>
                           مالک تیم
                         </option>
-                        <option value="admin">مدیر</option>
-                        <option value="proposal-manager">مدیر پیشنهاد</option>
-                        <option value="contributor">همکار</option>
-                        <option value="viewer">مشاهده‌گر</option>
+                        <option value={teamRole.admin}>مدیر</option>
+                        <option value={teamRole.proposalManager}>مدیر پیشنهاد</option>
+                        <option value={teamRole.contributor}>همکار</option>
+                        <option value={teamRole.viewer}>مشاهده‌گر</option>
                       </select>
                     </label>
-                    {currentMembership.role === "owner" &&
+                    {currentMembership.role === teamRole.owner &&
                       membership.id !== currentMembership.id && (
                         <button
                           type="button"
@@ -463,7 +465,7 @@ export function SolverTeamManagement({ initialTab = "overview" }: { initialTab?:
                       type="button"
                       disabled={
                         !canChangeRole.allowed ||
-                        membership.role === "owner" ||
+                        membership.role === teamRole.owner ||
                         membership.id === currentMembership.id
                       }
                       onClick={() =>
@@ -479,7 +481,7 @@ export function SolverTeamManagement({ initialTab = "overview" }: { initialTab?:
                     <button
                       type="button"
                       className="is-danger"
-                      disabled={!canChangeRole.allowed || membership.role === "owner"}
+                      disabled={!canChangeRole.allowed || membership.role === teamRole.owner}
                       title={canChangeRole.allowed ? undefined : canChangeRole.reason}
                       onClick={() =>
                         setConfirm({
@@ -573,10 +575,10 @@ export function SolverTeamManagement({ initialTab = "overview" }: { initialTab?:
             <label>
               نقش
               <select value={role} onChange={(event) => setRole(event.target.value as typeof role)}>
-                <option value="admin">مدیر</option>
-                <option value="proposal-manager">مدیر پیشنهاد</option>
-                <option value="contributor">همکار</option>
-                <option value="viewer">مشاهده‌گر</option>
+                <option value={teamRole.admin}>مدیر</option>
+                <option value={teamRole.proposalManager}>مدیر پیشنهاد</option>
+                <option value={teamRole.contributor}>همکار</option>
+                <option value={teamRole.viewer}>مشاهده‌گر</option>
               </select>
             </label>
             <label>
@@ -740,16 +742,16 @@ export function SolverTeamManagement({ initialTab = "overview" }: { initialTab?:
       <section className="rh-card rh-team-authority-note">
         <Icon name="shield" />
         <div>
-          <h2>{currentMembership.role === "owner" ? "اقدام‌های مالک" : "عضویت شما"}</h2>
+          <h2>{currentMembership.role === teamRole.owner ? "اقدام‌های مالک" : "عضویت شما"}</h2>
           <p>
-            {currentMembership.role === "owner"
+            {currentMembership.role === teamRole.owner
               ? canArchive.allowed
                 ? "بایگانی تیم با تأیید و رسید انجام می‌شود."
                 : canArchive.reason
               : "خروج، دسترسی شما را از همین تیم لغو می‌کند و روی تیم‌های دیگر اثری ندارد."}
           </p>
         </div>
-        {currentMembership.role === "owner" ? (
+        {currentMembership.role === teamRole.owner ? (
           <button
             type="button"
             className="is-danger"
@@ -990,7 +992,7 @@ export function SolverInvitationsExperience() {
           onClick={() => {
             if (!selectedTeam) return;
             const result = requestTeamMembership(selectedTeam, {
-              requestedRole: "contributor",
+              requestedRole: teamRole.contributor,
               introduction,
               resumeFileName: state.personalProfiles[0]?.resumeFileName ?? "solver-resume.pdf",
               availability,

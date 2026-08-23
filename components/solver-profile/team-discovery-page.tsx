@@ -7,6 +7,7 @@ import { PersonAvatar } from "@/components/person-avatar";
 import { PageHeading, Toast, useCanonicalSolverState } from "@/components/solver-profile/shared";
 import { teamCandidateSeed, type TeamCandidate } from "@/components/solver-profile/team-candidates";
 import { useSolverContext } from "@/components/solver-shell";
+import { teamRole } from "@rahhal/domain";
 import { buildSolverHref } from "@/lib/solver/context";
 import { sendTeamInvitation, teamPermission } from "@/lib/solver/repository";
 
@@ -65,7 +66,7 @@ export function TeamMemberDiscoveryPage() {
     if (context.type !== "team") return;
     const result = sendTeamInvitation(context, {
       recipientEmail: `${candidate.id.toLowerCase()}@example.test`,
-      proposedRole: "contributor",
+      proposedRole: teamRole.contributor,
       scope: `همکاری تخصصی در ${candidate.expertise}`,
       message: `دعوت ${activeTeam?.name ?? "تیم"} بر اساس شواهد مهارت و ظرفیت اعلام‌شده`,
       commitment: candidate.availability,

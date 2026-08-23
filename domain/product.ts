@@ -1,4 +1,4 @@
-export type InternalRole = "org" | "solver" | "reviewer" | "ops";
+import type { WorkspaceRole } from "@rahhal/domain";
 
 export type ActionName =
   | "view"
@@ -9,49 +9,65 @@ export type ActionName =
   | "decide"
   | "accept-deliverable"
   | "approve-payment"
+  | "publish"
+  | "contract-sign"
   | "manage-access"
   | "resolve-dispute";
 
-export type CaseState =
-  | "draft"
-  | "triage"
-  | "formulation"
-  | "quality-review"
-  | "published"
-  | "evaluation"
-  | "contracting"
-  | "pilot"
-  | "impact"
-  | "closed";
-
 export type PermissionContext = {
-  role: InternalRole;
+  role: WorkspaceRole;
   membershipActive: boolean;
   caseMember: boolean;
   twoFactorVerified: boolean;
-  conflictDeclared: boolean;
+  coiClear: boolean;
 };
 
-const roleActions: Record<InternalRole, readonly ActionName[]> = {
-  org: ["view", "edit", "invite", "submit", "decide", "accept-deliverable", "manage-access"],
-  solver: ["view", "edit", "submit"],
-  reviewer: ["view", "review"],
-  ops: ["view", "review", "manage-access", "approve-payment", "resolve-dispute"],
+const roleActions: Partial<Record<WorkspaceRole, readonly ActionName[]>> = {
+  "platform:admin": ["view", "manage-access"],
+  "platform:ops": ["view", "review", "manage-access", "resolve-dispute"],
+  "platform:finance": ["view", "approve-payment"],
+  "platform:legal": ["view", "contract-sign"],
+  "platform:reviewer": ["view", "review"],
+  "org:owner": [
+    "view",
+    "edit",
+    "invite",
+    "submit",
+    "decide",
+    "accept-deliverable",
+    "publish",
+    "contract-sign",
+    "manage-access",
+  ],
+  "org:member": ["view", "edit", "invite", "submit"],
+  "org:approver_technical": ["view", "accept-deliverable"],
+  "org:approver_legal": ["view", "contract-sign"],
+  "org:approver_finance": ["view", "approve-payment"],
+  "org:publisher": ["view", "publish"],
+  "team:owner": ["view", "edit", "invite", "submit", "contract-sign", "manage-access"],
+  "team:admin": ["view", "edit", "invite", "submit", "contract-sign"],
+  "team:proposal-manager": ["view", "edit", "submit"],
+  "team:contributor": ["view", "edit"],
+  "team:viewer": ["view"],
+  individual: ["view", "edit", "submit", "contract-sign"],
 };
 
 const sensitiveActions = new Set<ActionName>([
   "decide",
   "accept-deliverable",
   "approve-payment",
+  "publish",
+  "contract-sign",
   "manage-access",
   "resolve-dispute",
 ]);
 
 export function canPerform(context: PermissionContext, action: ActionName): boolean {
   if (!context.membershipActive || !context.caseMember) return false;
-  if (!roleActions[context.role].includes(action)) return false;
+  if (!roleActions[context.role]?.includes(action)) return false;
   if (sensitiveActions.has(action) && !context.twoFactorVerified) return false;
-  if (context.role === "reviewer" && action === "review" && !context.conflictDeclared) return false;
+  if (context.role === "platform:reviewer" && action === "review" && !context.coiClear)
+    return false;
   return true;
 }
 
@@ -101,23 +117,6 @@ export function publicationGates(input: {
       evidence: "در انتظار عملیات",
     },
   ];
-}
-
-export const caseTransitions: Record<CaseState, readonly CaseState[]> = {
-  draft: ["triage"],
-  triage: ["draft", "formulation"],
-  formulation: ["triage", "quality-review"],
-  "quality-review": ["formulation", "published"],
-  published: ["evaluation"],
-  evaluation: ["contracting"],
-  contracting: ["pilot"],
-  pilot: ["impact"],
-  impact: ["closed"],
-  closed: [],
-};
-
-export function canTransition(from: CaseState, to: CaseState): boolean {
-  return caseTransitions[from].includes(to);
 }
 
 export function formatToman(amount: number): string {

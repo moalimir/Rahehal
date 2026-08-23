@@ -16,6 +16,7 @@ import { getChallengePublisher } from "@/data/challenge-publishers";
 import { challenges } from "@/data/mock";
 import { isOpportunitySaved, setOpportunitySaved } from "@/lib/solver/saved-opportunities";
 import type { ActiveWorkspace, SolverState } from "@/domain/solver";
+import { teamRole } from "@rahhal/domain";
 import { buildSolverHref } from "@/lib/solver/context";
 import { profileReadiness } from "@/lib/solver/eligibility";
 import {
@@ -340,7 +341,7 @@ function TeamManagement({
                       context,
                       request.id,
                       "accepted",
-                      "contributor",
+                      teamRole.contributor,
                     );
                     onFeedback(
                       result.ok ? "درخواست پذیرفته و عضویت فعال در roster ثبت شد." : result.message,

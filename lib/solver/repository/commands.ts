@@ -14,6 +14,7 @@ import type {
   TeamSettings,
 } from "@/domain/solver";
 import type { TeamKind } from "@/domain/taxonomy";
+import { teamRole } from "@rahhal/domain";
 import { canRemoveMembership, permissionForMembership } from "@/lib/solver/permissions";
 import { clone, fail, id, now } from "@/lib/solver/repository/primitives";
 import { receipt, updateState } from "@/lib/solver/repository/receipts";
@@ -247,7 +248,7 @@ export function createTeam(input: {
       id: `MEM-${teamId}-${state.currentUser.id}`,
       teamId,
       userId: state.currentUser.id,
-      role: "owner",
+      role: teamRole.owner,
       state: "active",
       assignedProposalIds: [],
       assignedCaseIds: [],
@@ -279,7 +280,7 @@ export function createTeam(input: {
       publicContact: input.publicContact,
       visibility: "members",
       membershipPolicy: "invite-only",
-      defaultInviteRole: "contributor",
+      defaultInviteRole: teamRole.contributor,
       notificationPolicy: "owner",
       policy,
     });
@@ -312,7 +313,7 @@ export function createTeam(input: {
         teamId,
         inviterUserId: state.currentUser.id,
         recipientEmail: input.initialInviteEmail,
-        proposedRole: "contributor",
+        proposedRole: teamRole.contributor,
         scope: "همکاری اولیه برای تکمیل تیم",
         message: `دعوت اولیه برای پیوستن به ${name}`,
         commitment: "پس از پذیرش هماهنگ می‌شود",
@@ -518,7 +519,7 @@ export function reviewMembershipRequest(
   context: ActiveWorkspace,
   requestId: string,
   decision: "accepted" | "rejected",
-  role?: Exclude<TeamRole, "owner">,
+  role?: Exclude<TeamRole, "team:owner">,
 ): MutationResult {
   return updateState((state) => {
     if (context.type !== "team") return fail("NO_ACCESS", "بررسی درخواست فقط در فضای تیم است.");
@@ -563,7 +564,7 @@ export function reviewMembershipRequest(
 export function changeMembershipRole(
   context: ActiveWorkspace,
   membershipId: string,
-  role: Exclude<TeamRole, "owner">,
+  role: Exclude<TeamRole, "team:owner">,
 ): MutationResult {
   return updateState((state) => {
     if (context.type !== "team") return fail("NO_ACCESS", "تغییر نقش فقط در فضای تیم است.");
@@ -573,9 +574,9 @@ export function changeMembershipRole(
       (membership) => membership.id === membershipId && membership.teamId === context.teamId,
     );
     if (!target) return fail("NOT_FOUND", "عضو تیم پیدا نشد.");
-    if (target.role === "owner")
+    if (target.role === teamRole.owner)
       return fail("INVALID_STATE", "نقش مالک فقط با انتقال مالکیت تغییر می‌کند.");
-    if (target.role === "admin" && role !== "admin") {
+    if (target.role === teamRole.admin && role !== teamRole.admin) {
       const guard = canRemoveMembership(state.memberships, target);
       if (!guard.allowed) return fail("INVALID_STATE", guard.reason);
     }
@@ -664,7 +665,7 @@ export function assignTeamMember(
         candidate.state === "active",
     );
     if (!membership) return fail("NOT_FOUND", "عضو فعال تیم پیدا نشد.");
-    if (membership.role === "viewer")
+    if (membership.role === teamRole.viewer)
       return fail("NO_ACCESS", "مشاهده‌گر را نمی‌توان به اجرای پیشنهاد یا پرونده تخصیص داد.");
     const exists =
       target.type === "proposal"
@@ -690,7 +691,7 @@ export function leaveTeam(context: ActiveWorkspace): MutationResult {
     if (context.type !== "team") return fail("NO_ACCESS", "خروج فقط از فضای تیمی ممکن است.");
     const membership = state.memberships.find((candidate) => candidate.id === context.membershipId);
     if (!membership) return fail("NOT_FOUND", "عضویت فعال پیدا نشد.");
-    if (membership.role === "owner")
+    if (membership.role === teamRole.owner)
       return fail("INVALID_STATE", "مالک پیش از خروج باید مالکیت را انتقال دهد.");
     membership.state = "removed";
     membership.updatedAt = now();
@@ -725,8 +726,8 @@ export function transferOwnership(context: ActiveWorkspace, membershipId: string
     const team = state.teams.find((candidate) => candidate.id === context.teamId);
     if (!current || !next || !team) return fail("NOT_FOUND", "عضو مقصد پیدا نشد.");
     if (next.id === current.id) return fail("VALIDATION", "مالک فعلی نمی‌تواند مقصد انتقال باشد.");
-    current.role = "admin";
-    next.role = "owner";
+    current.role = teamRole.admin;
+    next.role = teamRole.owner;
     current.updatedAt = now();
     next.updatedAt = now();
     team.ownerUserId = next.userId;
@@ -989,7 +990,7 @@ export function submitVerification(
           candidate.userId === state.currentUser.id &&
           candidate.state === "active",
       );
-      if (!membership || !["owner", "admin"].includes(membership.role))
+      if (!membership || (membership.role !== teamRole.owner && membership.role !== teamRole.admin))
         return fail("NO_ACCESS", "فقط مالک یا مدیر می‌تواند مدارک احراز تیم را ارسال کند.");
     }
     const verification = state.verifications.find(
@@ -1029,7 +1030,12 @@ export function acceptNda(
           candidate.userId === state.currentUser.id &&
           candidate.state === "active",
       );
-      if (!membership || !["owner", "admin", "proposal-manager"].includes(membership.role))
+      if (
+        !membership ||
+        (membership.role !== teamRole.owner &&
+          membership.role !== teamRole.admin &&
+          membership.role !== teamRole.proposalManager)
+      )
         return fail("NO_ACCESS", "پذیرش NDA تیم به مالک، مدیر یا مدیر پیشنهاد محدود است.");
     } else if (context.workspaceId !== state.personalWorkspace.id)
       return fail("NO_ACCESS", "فضای فردی درخواست‌شده متعلق به کاربر جاری نیست.");
@@ -1205,7 +1211,7 @@ export function sendCaseMessage(
       );
       const assigned = membership?.assignedCaseIds.includes(caseId) ?? false;
       const permission = teamPermission(context, "view-case-messages", { assigned }, state);
-      if (!permission.allowed || membership?.role === "viewer")
+      if (!permission.allowed || membership?.role === teamRole.viewer)
         return fail(
           "NO_ACCESS",
           permission.allowed ? "مشاهده‌گر اجازه ارسال پیام ندارد." : permission.reason,
@@ -1241,8 +1247,8 @@ export function updatePilotTask(
       );
       const allowed =
         membership &&
-        membership.role !== "viewer" &&
-        (membership.role !== "contributor" || membership.assignedCaseIds.includes(caseId));
+        membership.role !== teamRole.viewer &&
+        (membership.role !== teamRole.contributor || membership.assignedCaseIds.includes(caseId));
       if (!allowed) return fail("NO_ACCESS", "این نقش اجازه تغییر وظیفه پایلوت را ندارد.");
     }
     const task = caseRecord.pilot.tasks.find((candidate) => candidate.id === taskId);
@@ -1271,8 +1277,8 @@ export function submitDeliverable(
       );
       if (
         !membership ||
-        membership.role === "viewer" ||
-        (membership.role === "contributor" && !membership.assignedCaseIds.includes(caseId))
+        membership.role === teamRole.viewer ||
+        (membership.role === teamRole.contributor && !membership.assignedCaseIds.includes(caseId))
       )
         return fail("NO_ACCESS", "نقش فعلی اجازه ارسال تحویل‌دادنی را ندارد.");
     }

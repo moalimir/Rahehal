@@ -1,4 +1,5 @@
 import type { ProposalContent, SolverState, TeamPolicy } from "@/domain/solver";
+import { teamRole } from "@rahhal/domain";
 
 export const CURRENT_SOLVER_USER_ID = "USR-SOLVER-001";
 export const PERSONAL_WORKSPACE_ID = "WS-PERSONAL-001";
@@ -85,7 +86,7 @@ const submittedContent: ProposalContent = {
 
 export function createCanonicalSolverState(now = "2026-08-17T09:00:00.000Z"): SolverState {
   return {
-    version: 4,
+    version: 5,
     seededAt: now,
     updatedAt: now,
     currentUser: {
@@ -205,7 +206,7 @@ export function createCanonicalSolverState(now = "2026-08-17T09:00:00.000Z"): So
         id: "MEM-21-001",
         teamId: PRIMARY_TEAM_ID,
         userId: CURRENT_SOLVER_USER_ID,
-        role: "owner",
+        role: teamRole.owner,
         state: "active",
         assignedProposalIds: ["PR-104", "PR-127"],
         assignedCaseIds: ["CASE-127"],
@@ -216,7 +217,7 @@ export function createCanonicalSolverState(now = "2026-08-17T09:00:00.000Z"): So
         id: "MEM-34-001",
         teamId: SECONDARY_TEAM_ID,
         userId: CURRENT_SOLVER_USER_ID,
-        role: "contributor",
+        role: teamRole.contributor,
         state: "active",
         assignedProposalIds: ["PR-134"],
         assignedCaseIds: [],
@@ -227,7 +228,7 @@ export function createCanonicalSolverState(now = "2026-08-17T09:00:00.000Z"): So
         id: "MEM-21-002",
         teamId: PRIMARY_TEAM_ID,
         userId: "USR-021",
-        role: "admin",
+        role: teamRole.admin,
         state: "active",
         assignedProposalIds: ["PR-104"],
         assignedCaseIds: ["CASE-127"],
@@ -238,7 +239,7 @@ export function createCanonicalSolverState(now = "2026-08-17T09:00:00.000Z"): So
         id: "MEM-21-003",
         teamId: PRIMARY_TEAM_ID,
         userId: "USR-022",
-        role: "proposal-manager",
+        role: teamRole.proposalManager,
         state: "active",
         assignedProposalIds: ["PR-104"],
         assignedCaseIds: ["CASE-127"],
@@ -249,7 +250,7 @@ export function createCanonicalSolverState(now = "2026-08-17T09:00:00.000Z"): So
         id: "MEM-21-004",
         teamId: PRIMARY_TEAM_ID,
         userId: "USR-023",
-        role: "viewer",
+        role: teamRole.viewer,
         state: "active",
         assignedProposalIds: [],
         assignedCaseIds: [],
@@ -264,7 +265,7 @@ export function createCanonicalSolverState(now = "2026-08-17T09:00:00.000Z"): So
         inviterUserId: "USR-055",
         recipientUserId: CURRENT_SOLVER_USER_ID,
         recipientEmail: "sara.ahmadi@example.test",
-        proposedRole: "proposal-manager",
+        proposedRole: teamRole.proposalManager,
         scope: "پیشنهادها و پرونده‌های مرتبط با پایش آب",
         message: "برای تکمیل بخش مکانیک و طراحی پایلوت به همکاری شما نیاز داریم.",
         commitment: "هفته‌ای ۸ ساعت تا پایان پایلوت",
@@ -280,7 +281,7 @@ export function createCanonicalSolverState(now = "2026-08-17T09:00:00.000Z"): So
         teamId: PRIMARY_TEAM_ID,
         inviterUserId: CURRENT_SOLVER_USER_ID,
         recipientEmail: "candidate@example.test",
-        proposedRole: "contributor",
+        proposedRole: teamRole.contributor,
         scope: "پیشنهاد PR-104",
         message: "برای تحلیل داده‌های پایلوت دعوت شده‌اید.",
         commitment: "هفته‌ای ۶ ساعت",
@@ -297,7 +298,7 @@ export function createCanonicalSolverState(now = "2026-08-17T09:00:00.000Z"): So
         id: "REQ-21-01",
         teamId: PRIMARY_TEAM_ID,
         requesterUserId: "USR-041",
-        requestedRole: "contributor",
+        requestedRole: teamRole.contributor,
         introduction: "پژوهشگر یادگیری ماشین با تجربه پایش صنعتی.",
         resumeFileName: "Sara-Mohammadi-Resume.pdf",
         availability: "هفته‌ای ۱۰ ساعت، دورکار",
@@ -309,7 +310,7 @@ export function createCanonicalSolverState(now = "2026-08-17T09:00:00.000Z"): So
         id: "REQ-34-01",
         teamId: SECONDARY_TEAM_ID,
         requesterUserId: "USR-042",
-        requestedRole: "viewer",
+        requestedRole: teamRole.viewer,
         introduction: "دانشجوی پژوهشگر پایش کیفیت آب.",
         resumeFileName: "Research-CV.pdf",
         availability: "هفته‌ای ۴ ساعت",
@@ -935,7 +936,7 @@ export function createCanonicalSolverState(now = "2026-08-17T09:00:00.000Z"): So
         publicContact: "team21@example.test",
         visibility: "public",
         membershipPolicy: "request",
-        defaultInviteRole: "contributor",
+        defaultInviteRole: teamRole.contributor,
         notificationPolicy: "all-admins",
         policy: { ...DEFAULT_TEAM_POLICY },
       },
@@ -944,7 +945,7 @@ export function createCanonicalSolverState(now = "2026-08-17T09:00:00.000Z"): So
         publicContact: "lab34@example.test",
         visibility: "members",
         membershipPolicy: "invite-only",
-        defaultInviteRole: "viewer",
+        defaultInviteRole: teamRole.viewer,
         notificationPolicy: "owner",
         policy: {
           ...DEFAULT_TEAM_POLICY,
@@ -958,7 +959,7 @@ export function createCanonicalSolverState(now = "2026-08-17T09:00:00.000Z"): So
         publicContact: "team55@example.test",
         visibility: "members",
         membershipPolicy: "invite-only",
-        defaultInviteRole: "contributor",
+        defaultInviteRole: teamRole.contributor,
         notificationPolicy: "all-admins",
         policy: { ...DEFAULT_TEAM_POLICY },
       },

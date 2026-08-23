@@ -7,6 +7,7 @@ import { Icon } from "@/components/icons";
 import { useSolverContext } from "@/components/solver-shell";
 import type { InternalRoute } from "@/data/internal-routes";
 import type { CaseRecord, MutationResult, ProposalContent, SolverState } from "@/domain/solver";
+import { teamRole } from "@rahhal/domain";
 import { buildSolverHref } from "@/lib/solver/context";
 import { challengeEligibilityRules } from "@/lib/solver/eligibility";
 import {
@@ -236,7 +237,9 @@ export function SolverVerification() {
     context.type === "individual" ||
     (() => {
       const membership = state.memberships.find((item) => item.id === context.membershipId);
-      return Boolean(membership && ["owner", "admin"].includes(membership.role));
+      return Boolean(
+        membership && (membership.role === teamRole.owner || membership.role === teamRole.admin),
+      );
     })();
   return (
     <>
@@ -743,7 +746,7 @@ function CaseMessages({ record }: { record: CaseRecord }) {
         </section>
       </>
     );
-  const readOnly = membership?.role === "viewer";
+  const readOnly = membership?.role === teamRole.viewer;
   return (
     <>
       <Heading
@@ -1336,21 +1339,6 @@ export function SolverProposalVersions({ route }: { route: InternalRoute }) {
         </section>
       </div>
     </div>
-  );
-}
-
-export function shouldUseCanonicalContinuity(route: InternalRoute) {
-  return (
-    route.experience === "notifications" ||
-    route.experience === "case-hub" ||
-    route.experience === "verification" ||
-    route.experience === "data-room" ||
-    route.experience === "contract" ||
-    route.experience === "pilot" ||
-    route.experience === "finance" ||
-    route.experience === "conversations" ||
-    route.experience === "audit" ||
-    route.experience === "reputation"
   );
 }
 

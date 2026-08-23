@@ -114,7 +114,7 @@ describe("محصول canonical فرد و تیم نسخه ۲۸", () => {
     expect(
       activeWorkspaces(state).some((item) => item.type === "team" && item.teamId === team.id),
     ).toBe(true);
-    expect(state.memberships.find((item) => item.teamId === team.id)?.role).toBe("owner");
+    expect(state.memberships.find((item) => item.teamId === team.id)?.role).toBe("team:owner");
     expect(state.teamProfiles.some((item) => item.teamId === team.id)).toBe(true);
     expect(
       state.teamSettings.find((item) => item.teamId === team.id)?.policy.approvalBeforeSubmit,
@@ -193,7 +193,9 @@ describe("محصول canonical فرد و تیم نسخه ۲۸", () => {
     const memberCount = before.memberships.filter(
       (item) => item.teamId === PRIMARY_TEAM_ID && item.state === "active",
     ).length;
-    expect(reviewMembershipRequest(context, request.id, "accepted", "contributor").ok).toBe(true);
+    expect(reviewMembershipRequest(context, request.id, "accepted", "team:contributor").ok).toBe(
+      true,
+    );
     const after = readSolverState();
     expect(
       after.memberships.filter(

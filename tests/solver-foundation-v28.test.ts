@@ -64,12 +64,17 @@ const personal: ActiveWorkspace = {
   workspaceId: PERSONAL_WORKSPACE_ID,
 };
 
+const PREVIOUS_SOLVER_STORE_KEY = `rahhal.solver.v4.user.${CURRENT_SOLVER_USER_ID}`;
+const PREVIOUS_SOLVER_STORE_FRESH_KEY = `rahhal.solver.v4.mirror-fresh.user.${CURRENT_SOLVER_USER_ID}`;
 const LEGACY_SOLVER_STORE_KEY = `rahhal.solver.v3.user.${CURRENT_SOLVER_USER_ID}`;
-const LEGACY_SOLVER_STORE_FRESH_KEY = `rahhal.solver.v3.mirror-fresh.user.${CURRENT_SOLVER_USER_ID}`;
 
 type RawSolverState = Record<string, unknown> & {
   version: number;
   teams: Array<Record<string, unknown>>;
+  memberships: Array<Record<string, unknown>>;
+  invitations: Array<Record<string, unknown>>;
+  membershipRequests: Array<Record<string, unknown>>;
+  teamSettings: Array<Record<string, unknown>>;
   savedByWorkspace: Record<string, string[]>;
 };
 
@@ -77,8 +82,32 @@ function rawCanonicalSolverState(): RawSolverState {
   return JSON.parse(JSON.stringify(createCanonicalSolverState())) as RawSolverState;
 }
 
-function legacyV3SolverState(): RawSolverState {
+function previousV4SolverState(): RawSolverState {
   const state = rawCanonicalSolverState();
+  state.version = 4;
+  const legacyRole = (value: unknown) =>
+    typeof value === "string" && value.startsWith("team:") ? value.slice(5) : value;
+  state.memberships = state.memberships.map((membership) => ({
+    ...membership,
+    role: legacyRole(membership.role),
+  }));
+  state.invitations = state.invitations.map((invitation) => ({
+    ...invitation,
+    proposedRole: legacyRole(invitation.proposedRole),
+  }));
+  state.membershipRequests = state.membershipRequests.map((request) => ({
+    ...request,
+    requestedRole: legacyRole(request.requestedRole),
+  }));
+  state.teamSettings = state.teamSettings.map((settings) => ({
+    ...settings,
+    defaultInviteRole: legacyRole(settings.defaultInviteRole),
+  }));
+  return state;
+}
+
+function legacyV3SolverState(): RawSolverState {
+  const state = previousV4SolverState();
   state.version = 3;
   state.teams = state.teams.map((team) => {
     const { teamKind, teamType, ...legacyTeam } = team;
@@ -97,29 +126,52 @@ function contextForTeam(teamId: string) {
   return resolution.context;
 }
 
-describe("Solver store v3 → v4 taxonomy migration", () => {
+describe("Solver store v3/v4 → v5 canonical migration", () => {
   beforeEach(() => localStorage.clear());
 
-  it("داده کاربر را حفظ، TeamKind را canonical و مهاجرت را idempotent می‌کند", () => {
-    const legacy = legacyV3SolverState();
+  it("داده v4 را حفظ، نقش‌های تیم را canonical و مهاجرت را idempotent می‌کند", () => {
+    const legacy = previousV4SolverState();
     legacy.savedByWorkspace[PERSONAL_WORKSPACE_ID] = ["CH-USER-PRESERVED"];
     legacy.teams[0] = { ...legacy.teams[0], name: "تیم حفظ‌شده کاربر" };
-    localStorage.setItem(LEGACY_SOLVER_STORE_KEY, JSON.stringify(legacy));
+    localStorage.setItem(PREVIOUS_SOLVER_STORE_KEY, JSON.stringify(legacy));
 
     const first = rawState(readSolverState());
-    expect(SOLVER_STORE_KEY).toBe(`rahhal.solver.v4.user.${CURRENT_SOLVER_USER_ID}`);
-    expect(first.version).toBe(4);
+    expect(SOLVER_STORE_KEY).toBe(`rahhal.solver.v5.user.${CURRENT_SOLVER_USER_ID}`);
+    expect(first.version).toBe(5);
     expect(first.savedByWorkspace[PERSONAL_WORKSPACE_ID]).toEqual(["CH-USER-PRESERVED"]);
     expect(first.teams.find((team) => team.name === "تیم حفظ‌شده کاربر")).toMatchObject({
       teamKind: "expert-team",
     });
     expect(first.teams.every((team) => !("teamType" in team))).toBe(true);
+    expect(
+      first.memberships.every((membership) => String(membership.role).startsWith("team:")),
+    ).toBe(true);
     const initialRollbackMirror = rawState(
-      JSON.parse(localStorage.getItem(LEGACY_SOLVER_STORE_KEY) ?? "null"),
+      JSON.parse(localStorage.getItem(PREVIOUS_SOLVER_STORE_KEY) ?? "null"),
     );
-    expect(initialRollbackMirror.version).toBe(3);
-    expect(initialRollbackMirror.teams[0]).toMatchObject({ teamType: "expert-team" });
-    expect(initialRollbackMirror.teams.every((team) => !("teamKind" in team))).toBe(true);
+    expect(initialRollbackMirror.version).toBe(4);
+    expect(initialRollbackMirror.teams[0]).toMatchObject({ teamKind: "expert-team" });
+    expect(initialRollbackMirror.memberships[0]).toMatchObject({ role: "owner" });
+    expect(
+      initialRollbackMirror.memberships.every(
+        (membership) => !String(membership.role).startsWith("team:"),
+      ),
+    ).toBe(true);
+    expect(
+      initialRollbackMirror.invitations.every(
+        (invitation) => !String(invitation.proposedRole).startsWith("team:"),
+      ),
+    ).toBe(true);
+    expect(
+      initialRollbackMirror.membershipRequests.every(
+        (request) => !String(request.requestedRole).startsWith("team:"),
+      ),
+    ).toBe(true);
+    expect(
+      initialRollbackMirror.teamSettings.every(
+        (settings) => !String(settings.defaultInviteRole).startsWith("team:"),
+      ),
+    ).toBe(true);
 
     const persistedAfterFirstRead = localStorage.getItem(SOLVER_STORE_KEY);
     const second = rawState(readSolverState());
@@ -137,56 +189,56 @@ describe("Solver store v3 → v4 taxonomy migration", () => {
     });
     expect(createdTeam.ok).toBe(true);
     const rollbackMirror = rawState(
-      JSON.parse(localStorage.getItem(LEGACY_SOLVER_STORE_KEY) ?? "null"),
+      JSON.parse(localStorage.getItem(PREVIOUS_SOLVER_STORE_KEY) ?? "null"),
     );
     expect(rollbackMirror.savedByWorkspace[PERSONAL_WORKSPACE_ID]).toContain("CH-AFTER-MIGRATION");
-    expect(rollbackMirror.teams.every((team) => !("teamKind" in team))).toBe(true);
+    expect(rollbackMirror.teams.every((team) => !("teamType" in team))).toBe(true);
     expect(
       rollbackMirror.teams.find((team) => team.name === "شرکت تازه پس از مهاجرت"),
-    ).toMatchObject({ teamType: "company" });
+    ).toMatchObject({ teamKind: "company" });
   });
 
-  it("store معتبر v4 را بر snapshot قدیمی v3 مقدم می‌داند", () => {
-    const legacy = legacyV3SolverState();
-    legacy.savedByWorkspace[PERSONAL_WORKSPACE_ID] = ["CH-STALE-V3"];
+  it("store معتبر v5 را بر snapshot قدیمی v4 مقدم می‌داند", () => {
+    const legacy = previousV4SolverState();
+    legacy.savedByWorkspace[PERSONAL_WORKSPACE_ID] = ["CH-STALE-V4"];
     const current = rawCanonicalSolverState();
-    current.savedByWorkspace[PERSONAL_WORKSPACE_ID] = ["CH-CURRENT-V4"];
-    localStorage.setItem(LEGACY_SOLVER_STORE_KEY, JSON.stringify(legacy));
+    current.savedByWorkspace[PERSONAL_WORKSPACE_ID] = ["CH-CURRENT-V5"];
+    localStorage.setItem(PREVIOUS_SOLVER_STORE_KEY, JSON.stringify(legacy));
     localStorage.setItem(SOLVER_STORE_KEY, JSON.stringify(current));
 
     const result = rawState(readSolverState());
-    expect(result.savedByWorkspace[PERSONAL_WORKSPACE_ID]).toEqual(["CH-CURRENT-V4"]);
-    expect(result.savedByWorkspace[PERSONAL_WORKSPACE_ID]).not.toContain("CH-STALE-V3");
+    expect(result.savedByWorkspace[PERSONAL_WORKSPACE_ID]).toEqual(["CH-CURRENT-V5"]);
+    expect(result.savedByWorkspace[PERSONAL_WORKSPACE_ID]).not.toContain("CH-STALE-V4");
     const refreshedMirror = rawState(
-      JSON.parse(localStorage.getItem(LEGACY_SOLVER_STORE_KEY) ?? "null"),
+      JSON.parse(localStorage.getItem(PREVIOUS_SOLVER_STORE_KEY) ?? "null"),
     );
-    expect(refreshedMirror.savedByWorkspace[PERSONAL_WORKSPACE_ID]).toEqual(["CH-CURRENT-V4"]);
+    expect(refreshedMirror.savedByWorkspace[PERSONAL_WORKSPACE_ID]).toEqual(["CH-CURRENT-V5"]);
   });
 
-  it("در خرابی store جاری، snapshot معتبر v3 را بازیابی و به v4 می‌برد", () => {
-    const legacy = legacyV3SolverState();
-    legacy.savedByWorkspace[PERSONAL_WORKSPACE_ID] = ["CH-RECOVERED-FROM-V3"];
-    localStorage.setItem(LEGACY_SOLVER_STORE_KEY, JSON.stringify(legacy));
+  it("در خرابی store جاری، snapshot تازه v4 را بازیابی و به v5 می‌برد", () => {
+    const legacy = previousV4SolverState();
+    legacy.savedByWorkspace[PERSONAL_WORKSPACE_ID] = ["CH-RECOVERED-FROM-V4"];
+    localStorage.setItem(PREVIOUS_SOLVER_STORE_KEY, JSON.stringify(legacy));
     expect(readSolverState().savedByWorkspace[PERSONAL_WORKSPACE_ID]).toContain(
-      "CH-RECOVERED-FROM-V3",
+      "CH-RECOVERED-FROM-V4",
     );
     localStorage.setItem(SOLVER_STORE_KEY, "{broken");
 
     const recovered = rawState(readSolverState());
-    expect(recovered.version).toBe(4);
-    expect(recovered.savedByWorkspace[PERSONAL_WORKSPACE_ID]).toContain("CH-RECOVERED-FROM-V3");
+    expect(recovered.version).toBe(5);
+    expect(recovered.savedByWorkspace[PERSONAL_WORKSPACE_ID]).toContain("CH-RECOVERED-FROM-V4");
     expect(localStorage.getItem(SOLVER_STORAGE_RECOVERY_KEY)).toContain(
       "invalid-or-corrupt-envelope",
     );
     expect(JSON.parse(localStorage.getItem(SOLVER_STORE_KEY) ?? "null")).toMatchObject({
-      version: 4,
+      version: 5,
     });
   });
 
   it.each([
-    ["mirror", LEGACY_SOLVER_STORE_KEY],
-    ["freshness marker", LEGACY_SOLVER_STORE_FRESH_KEY],
-  ])("خرابی %s کمکی، mutation موفق v4 را به شکست مبهم تبدیل نمی‌کند", (_label, failedKey) => {
+    ["mirror", PREVIOUS_SOLVER_STORE_KEY],
+    ["freshness marker", PREVIOUS_SOLVER_STORE_FRESH_KEY],
+  ])("خرابی %s کمکی، mutation موفق v5 را به شکست مبهم تبدیل نمی‌کند", (_label, failedKey) => {
     resetSolverDemoData();
     const originalSetItem = Storage.prototype.setItem;
     const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (
@@ -212,8 +264,8 @@ describe("Solver store v3 → v4 taxonomy migration", () => {
       expect(
         persisted.teams.filter((team) => team.name === `تیم با ${_label} ناموجود`),
       ).toHaveLength(1);
-      expect(localStorage.getItem(LEGACY_SOLVER_STORE_KEY)).toBeNull();
-      expect(localStorage.getItem(LEGACY_SOLVER_STORE_FRESH_KEY)).toBeNull();
+      expect(localStorage.getItem(PREVIOUS_SOLVER_STORE_KEY)).toBeNull();
+      expect(localStorage.getItem(PREVIOUS_SOLVER_STORE_FRESH_KEY)).toBeNull();
     } finally {
       setItem.mockRestore();
     }
@@ -221,6 +273,44 @@ describe("Solver store v3 → v4 taxonomy migration", () => {
     expect(
       readSolverState().teams.filter((team) => team.name === `تیم با ${_label} ناموجود`),
     ).toHaveLength(1);
+  });
+
+  it("snapshot معتبر v3 را مستقیم به TeamKind و نقش‌های v5 مهاجرت می‌دهد", () => {
+    const legacy = legacyV3SolverState();
+    legacy.savedByWorkspace[PERSONAL_WORKSPACE_ID] = ["CH-DIRECT-V3"];
+    localStorage.setItem(LEGACY_SOLVER_STORE_KEY, JSON.stringify(legacy));
+
+    const migrated = rawState(readSolverState());
+    expect(migrated.version).toBe(5);
+    expect(migrated.teams[0]).toMatchObject({ teamKind: "expert-team" });
+    expect(migrated.memberships[0]).toMatchObject({ role: "team:owner" });
+    expect(migrated.savedByWorkspace[PERSONAL_WORKSPACE_ID]).toContain("CH-DIRECT-V3");
+    expect(localStorage.getItem(LEGACY_SOLVER_STORE_KEY)).toBeNull();
+    const rollbackMirror = rawState(
+      JSON.parse(localStorage.getItem(PREVIOUS_SOLVER_STORE_KEY) ?? "null"),
+    );
+    expect(rollbackMirror.version).toBe(4);
+    expect(rollbackMirror.memberships[0]).toMatchObject({ role: "owner" });
+  });
+
+  it.each([
+    ["ناشناخته", "super-admin"],
+    ["مفقود", undefined],
+  ] as const)("نقش تیم v4 %s را به نقش گسترده‌تر تبدیل نمی‌کند", (_label, legacyRole) => {
+    const legacy = previousV4SolverState();
+    const corruptMembership = { ...legacy.memberships[0], role: legacyRole };
+    if (legacyRole === undefined) delete corruptMembership.role;
+    legacy.memberships[0] = corruptMembership;
+    localStorage.setItem(PREVIOUS_SOLVER_STORE_KEY, JSON.stringify(legacy));
+
+    const recovered = rawState(readSolverState());
+    expect(recovered.memberships).toEqual(rawCanonicalSolverState().memberships);
+    expect(recovered.memberships.some((membership) => membership.role === "team:super-admin")).toBe(
+      false,
+    );
+    expect(localStorage.getItem(SOLVER_STORAGE_RECOVERY_KEY)).toContain(
+      "invalid-or-corrupt-envelope",
+    );
   });
 
   it.each([
@@ -276,19 +366,19 @@ describe("Solver store v3 → v4 taxonomy migration", () => {
     expect(migrated.teams.every((team) => !("teamType" in team))).toBe(true);
   });
 
-  it("reset، mirror قدیمی را تازه می‌کند و داده کاربر را دوباره زنده نمی‌کند", () => {
-    const legacy = legacyV3SolverState();
+  it("reset، mirror v4 را تازه می‌کند و داده کاربر را دوباره زنده نمی‌کند", () => {
+    const legacy = previousV4SolverState();
     legacy.teams[0] = { ...legacy.teams[0], name: "تیم قدیمی حذف‌شده" };
-    localStorage.setItem(LEGACY_SOLVER_STORE_KEY, JSON.stringify(legacy));
+    localStorage.setItem(PREVIOUS_SOLVER_STORE_KEY, JSON.stringify(legacy));
     expect(readSolverState().teams.some((team) => team.name === "تیم قدیمی حذف‌شده")).toBe(true);
 
     resetSolverDemoData();
     const resetCurrent = rawState(JSON.parse(localStorage.getItem(SOLVER_STORE_KEY) ?? "null"));
     const resetMirror = rawState(
-      JSON.parse(localStorage.getItem(LEGACY_SOLVER_STORE_KEY) ?? "null"),
+      JSON.parse(localStorage.getItem(PREVIOUS_SOLVER_STORE_KEY) ?? "null"),
     );
-    expect(resetCurrent.version).toBe(4);
-    expect(resetMirror.version).toBe(3);
+    expect(resetCurrent.version).toBe(5);
+    expect(resetMirror.version).toBe(4);
     expect(resetCurrent.teams.some((team) => team.name === "تیم قدیمی حذف‌شده")).toBe(false);
     expect(resetMirror.teams.some((team) => team.name === "تیم قدیمی حذف‌شده")).toBe(false);
     localStorage.removeItem(SOLVER_STORE_KEY);
@@ -296,6 +386,24 @@ describe("Solver store v3 → v4 taxonomy migration", () => {
     const recoveredAfterReset = readSolverState();
     expect(recoveredAfterReset.teams.some((team) => team.name === "تیم قدیمی حذف‌شده")).toBe(false);
     expect(recoveredAfterReset.teams).toHaveLength(createCanonicalSolverState().teams.length);
+  });
+
+  it("پس از مشاهده v5، snapshot کهنه v3 را حتی با حذف دو store جدید زنده نمی‌کند", () => {
+    const previous = previousV4SolverState();
+    previous.teams[0] = { ...previous.teams[0], name: "تیم معتبر v4" };
+    const stale = legacyV3SolverState();
+    stale.teams[0] = { ...stale.teams[0], name: "تیم کهنه v3" };
+    localStorage.setItem(PREVIOUS_SOLVER_STORE_KEY, JSON.stringify(previous));
+    localStorage.setItem(LEGACY_SOLVER_STORE_KEY, JSON.stringify(stale));
+
+    expect(readSolverState().teams.some((team) => team.name === "تیم معتبر v4")).toBe(true);
+    localStorage.setItem(LEGACY_SOLVER_STORE_KEY, JSON.stringify(stale));
+    localStorage.removeItem(SOLVER_STORE_KEY);
+    localStorage.removeItem(PREVIOUS_SOLVER_STORE_KEY);
+
+    const recovered = readSolverState();
+    expect(recovered.teams.some((team) => team.name === "تیم کهنه v3")).toBe(false);
+    expect(recovered.teams).toHaveLength(createCanonicalSolverState().teams.length);
   });
 });
 
@@ -338,7 +446,13 @@ describe("Solver v28 foundation contracts", () => {
   });
 
   it("RBAC تمام نقش‌ها را برای ساخت و ارسال proposal enforce می‌کند", () => {
-    const roles: TeamRole[] = ["owner", "admin", "proposal-manager", "contributor", "viewer"];
+    const roles: TeamRole[] = [
+      "team:owner",
+      "team:admin",
+      "team:proposal-manager",
+      "team:contributor",
+      "team:viewer",
+    ];
     const create = Object.fromEntries(
       roles.map((role) => [
         role,
@@ -352,18 +466,18 @@ describe("Solver v28 foundation contracts", () => {
       ]),
     );
     expect(create).toEqual({
-      owner: true,
-      admin: true,
-      "proposal-manager": true,
-      contributor: true,
-      viewer: false,
+      "team:owner": true,
+      "team:admin": true,
+      "team:proposal-manager": true,
+      "team:contributor": true,
+      "team:viewer": false,
     });
     expect(submit).toEqual({
-      owner: true,
-      admin: true,
-      "proposal-manager": true,
-      contributor: false,
-      viewer: false,
+      "team:owner": true,
+      "team:admin": true,
+      "team:proposal-manager": true,
+      "team:contributor": false,
+      "team:viewer": false,
     });
   });
 
@@ -372,7 +486,7 @@ describe("Solver v28 foundation contracts", () => {
     localStorage.setItem("rahhal:saved:CH-LEGACY", "1");
     localStorage.setItem(SOLVER_STORE_KEY, "{broken");
     const recovered = readSolverState();
-    expect(recovered.version).toBe(4);
+    expect(recovered.version).toBe(5);
     expect(recovered.savedByWorkspace[PERSONAL_WORKSPACE_ID]).toContain("CH-LEGACY");
     expect(localStorage.getItem(SOLVER_STORAGE_RECOVERY_KEY)).toContain(
       "invalid-or-corrupt-envelope",
@@ -575,41 +689,43 @@ describe("Solver v28 foundation contracts", () => {
 
   it("state machine مشاهده offer را از پذیرش نهایی جدا نگه می‌دارد", () => {
     expect(
-      canTransition(directOfferTransitions, "received", "viewed", "solver", [
+      canTransition(directOfferTransitions, "received", "viewed", "individual", [
         "recipient-authorized",
       ]),
     ).toBe(true);
-    expect(canTransition(directOfferTransitions, "viewed", "selected", "solver", [])).toBe(false);
+    expect(canTransition(directOfferTransitions, "viewed", "selected", "individual", [])).toBe(
+      false,
+    );
     expect(
-      canTransition(proposalTransitions, "revision_requested", "revision_draft", "solver", [
+      canTransition(proposalTransitions, "revision_requested", "revision_draft", "individual", [
         "editor-authorized",
       ]),
     ).toBe(true);
     expect(
-      canTransition(teamInvitationTransitions, "viewed", "accepted", "solver", [
+      canTransition(teamInvitationTransitions, "viewed", "accepted", "individual", [
         "recipient-authorized",
         "not-expired",
       ]),
     ).toBe(true);
     expect(
-      canTransition(membershipRequestTransitions, "requested", "accepted", "admin", [
+      canTransition(membershipRequestTransitions, "requested", "accepted", "team:admin", [
         "scope-approved",
       ]),
     ).toBe(true);
     expect(
-      canTransition(membershipTransitions, "active", "suspended", "admin", [
+      canTransition(membershipTransitions, "active", "suspended", "team:admin", [
         "not-owner",
         "not-self",
       ]),
     ).toBe(true);
     expect(
-      canTransition(verificationTransitions, "needs_revision", "submitted", "owner", [
+      canTransition(verificationTransitions, "needs_revision", "submitted", "team:owner", [
         "documents-valid",
         "revision-addressed",
       ]),
     ).toBe(true);
     expect(
-      canTransition(contractTransitions, "signature", "effective", "owner", [
+      canTransition(contractTransitions, "signature", "effective", "team:owner", [
         "approved-current-version",
       ]),
     ).toBe(true);

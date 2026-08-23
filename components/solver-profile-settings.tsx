@@ -15,6 +15,7 @@ import type {
   TeamRole,
   TeamSettings,
 } from "@/domain/solver";
+import { teamRole } from "@rahhal/domain";
 import { buildSolverHref } from "@/lib/solver/context";
 import { profileReadiness } from "@/lib/solver/eligibility";
 import {
@@ -966,13 +967,13 @@ function SettingsForm({
                 value={(draft as TeamSettings).defaultInviteRole}
                 disabled={!editable}
                 onChange={(event) =>
-                  set("defaultInviteRole", event.target.value as Exclude<TeamRole, "owner">)
+                  set("defaultInviteRole", event.target.value as Exclude<TeamRole, "team:owner">)
                 }
               >
-                <option value="admin">مدیر</option>
-                <option value="proposal-manager">مدیر پیشنهاد</option>
-                <option value="contributor">همکار</option>
-                <option value="viewer">مشاهده‌گر</option>
+                <option value={teamRole.admin}>مدیر</option>
+                <option value={teamRole.proposalManager}>مدیر پیشنهاد</option>
+                <option value={teamRole.contributor}>همکار</option>
+                <option value={teamRole.viewer}>مشاهده‌گر</option>
               </select>
             </label>
             <label className="rh-toggle">

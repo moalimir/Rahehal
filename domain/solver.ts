@@ -1,4 +1,5 @@
 import type { TeamKind } from "@/domain/taxonomy";
+import type { TeamRole as CanonicalTeamRole } from "@rahhal/domain";
 
 export type SolverSpace = "individual" | "team";
 
@@ -18,7 +19,7 @@ export type PersonalWorkspace = {
   name: string;
 };
 
-export type TeamRole = "owner" | "admin" | "proposal-manager" | "contributor" | "viewer";
+export type TeamRole = CanonicalTeamRole;
 
 export type TeamPolicy = {
   proposalManagersCanEditProfile: boolean;
@@ -114,7 +115,7 @@ export type MembershipRequest = {
   id: string;
   teamId: string;
   requesterUserId: string;
-  requestedRole: Exclude<TeamRole, "owner">;
+  requestedRole: Exclude<TeamRole, "team:owner">;
   introduction: string;
   resumeFileName: string;
   availability: string;
@@ -450,7 +451,7 @@ export type TeamSettings = {
   publicContact: string;
   visibility: ProfileVisibility;
   membershipPolicy: "open" | "request" | "invite-only";
-  defaultInviteRole: Exclude<TeamRole, "owner">;
+  defaultInviteRole: Exclude<TeamRole, "team:owner">;
   notificationPolicy: "all-admins" | "owner" | "assigned";
   policy: TeamPolicy;
 };
@@ -466,7 +467,7 @@ export type SolverAuditEvent = {
 };
 
 export type SolverState = {
-  version: 4;
+  version: 5;
   seededAt: string;
   updatedAt: string;
   currentUser: SolverUser;

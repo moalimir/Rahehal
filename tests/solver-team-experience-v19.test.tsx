@@ -28,24 +28,24 @@ describe("اصلاحات تیم در نسخه ۱۹", () => {
     expect(ownerRole).toBeDisabled();
     expect(memberRole).not.toBeDisabled();
 
-    fireEvent.change(memberRole, { target: { value: "contributor" } });
+    fireEvent.change(memberRole, { target: { value: "team:contributor" } });
     expect(screen.getByRole("heading", { name: "تغییر نقش علی رضایی" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "تأیید اقدام" }));
-    expect(memberRole).toHaveValue("contributor");
+    expect(memberRole).toHaveValue("team:contributor");
     expect(memberRole).not.toBeDisabled();
 
     firstRender.unmount();
     render(<SolverProfileExperience section="teams" embedded space="team" />);
     fireEvent.click(screen.getByRole("tab", { name: "اعضا" }));
     const persistedManagerRole = screen.getByRole("combobox", { name: "نقش علی رضایی" });
-    expect(persistedManagerRole).toHaveValue("contributor");
+    expect(persistedManagerRole).toHaveValue("team:contributor");
     expect(persistedManagerRole).not.toBeDisabled();
 
-    fireEvent.change(persistedManagerRole, { target: { value: "viewer" } });
+    fireEvent.change(persistedManagerRole, { target: { value: "team:viewer" } });
     fireEvent.click(screen.getByRole("button", { name: "تأیید اقدام" }));
-    expect(persistedManagerRole).toHaveValue("viewer");
+    expect(persistedManagerRole).toHaveValue("team:viewer");
     expect(readSolverState().memberships.find((item) => item.id === "MEM-21-002")?.role).toBe(
-      "viewer",
+      "team:viewer",
     );
   });
 

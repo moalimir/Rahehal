@@ -4,9 +4,11 @@ import {
   EMPTY_PROPOSAL_CONTENT,
   PERSONAL_WORKSPACE_ID,
 } from "@/data/solver-fixtures";
-import type { ProposalContent, SolverState, SolverTeam } from "@/domain/solver";
+import type { ProposalContent, SolverState, SolverTeam, TeamRole } from "@/domain/solver";
 import { isTeamKind } from "@/domain/taxonomy";
+import { isTeamRole, teamRole } from "@rahhal/domain";
 import {
+  SOLVER_LEGACY_STORE_VERSION,
   SOLVER_PREVIOUS_STORE_VERSION,
   SOLVER_STORE_VERSION,
 } from "@/lib/solver/repository/constants";
@@ -31,32 +33,110 @@ function hasStateShape(value: unknown, version: number): value is Record<string,
   );
 }
 
-function normalizeTeam(value: unknown): SolverTeam | null {
+function normalizeTeamRole(value: unknown, allowLegacy: boolean): TeamRole | null {
+  if (isTeamRole(value) && value.startsWith("team:")) return value;
+  if (allowLegacy && typeof value === "string") {
+    const candidate = `team:${value}`;
+    if (isTeamRole(candidate)) return candidate;
+  }
+  return null;
+}
+
+function normalizeTeam(value: unknown, allowLegacyTeamType: boolean): SolverTeam | null {
   if (!isRecord(value)) return null;
-  const candidate = value.teamKind ?? value.teamType;
+  const candidate = value.teamKind ?? (allowLegacyTeamType ? value.teamType : undefined);
   if (!isTeamKind(candidate)) return null;
   const normalized: Record<string, unknown> = { ...value, teamKind: candidate };
   delete normalized.teamType;
   return normalized as SolverTeam;
 }
 
-function normalizeState(value: unknown, version: number): SolverState | null {
+function normalizeRoleRecord(
+  value: unknown,
+  field: "role" | "proposedRole" | "requestedRole" | "defaultInviteRole",
+  allowLegacy: boolean,
+  allowOwner: boolean,
+): Record<string, unknown> | null {
+  if (!isRecord(value)) return null;
+  const role = normalizeTeamRole(value[field], allowLegacy);
+  if (!role || (!allowOwner && role === teamRole.owner)) return null;
+  return { ...value, [field]: role };
+}
+
+function normalizeRoleRecords(
+  values: unknown,
+  field: "role" | "proposedRole" | "requestedRole" | "defaultInviteRole",
+  allowLegacy: boolean,
+  allowOwner = true,
+): Record<string, unknown>[] | null {
+  if (!Array.isArray(values)) return null;
+  const normalized = values.map((value) =>
+    normalizeRoleRecord(value, field, allowLegacy, allowOwner),
+  );
+  return normalized.some((value) => value === null)
+    ? null
+    : (normalized as Record<string, unknown>[]);
+}
+
+function normalizeState(
+  value: unknown,
+  version: number,
+  options: { allowLegacyTeamType: boolean; allowLegacyRoles: boolean },
+): SolverState | null {
   if (!hasStateShape(value, version)) return null;
-  const teams = (value.teams as unknown[]).map(normalizeTeam);
+  const teams = (value.teams as unknown[]).map((team) =>
+    normalizeTeam(team, options.allowLegacyTeamType),
+  );
   if (teams.some((team) => team === null)) return null;
+  const memberships = normalizeRoleRecords(value.memberships, "role", options.allowLegacyRoles);
+  const invitations = normalizeRoleRecords(
+    value.invitations,
+    "proposedRole",
+    options.allowLegacyRoles,
+  );
+  const membershipRequests = normalizeRoleRecords(
+    value.membershipRequests,
+    "requestedRole",
+    options.allowLegacyRoles,
+    false,
+  );
+  const teamSettings = normalizeRoleRecords(
+    value.teamSettings,
+    "defaultInviteRole",
+    options.allowLegacyRoles,
+    false,
+  );
+  if (!memberships || !invitations || !membershipRequests || !teamSettings) return null;
   return {
     ...value,
     version: SOLVER_STORE_VERSION,
     teams: teams as SolverTeam[],
+    memberships,
+    invitations,
+    membershipRequests,
+    teamSettings,
   } as SolverState;
 }
 
 export function normalizeCurrentSolverState(value: unknown): SolverState | null {
-  return normalizeState(value, SOLVER_STORE_VERSION);
+  return normalizeState(value, SOLVER_STORE_VERSION, {
+    allowLegacyTeamType: false,
+    allowLegacyRoles: false,
+  });
+}
+
+export function migrateSolverStateV4(value: unknown): SolverState | null {
+  return normalizeState(value, SOLVER_PREVIOUS_STORE_VERSION, {
+    allowLegacyTeamType: false,
+    allowLegacyRoles: true,
+  });
 }
 
 export function migrateSolverStateV3(value: unknown): SolverState | null {
-  return normalizeState(value, SOLVER_PREVIOUS_STORE_VERSION);
+  return normalizeState(value, SOLVER_LEGACY_STORE_VERSION, {
+    allowLegacyTeamType: true,
+    allowLegacyRoles: true,
+  });
 }
 
 function legacySavedIds() {

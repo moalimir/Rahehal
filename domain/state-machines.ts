@@ -5,149 +5,48 @@ import type {
   TeamInvitationState as CanonicalTeamInvitationState,
   VerificationState as CanonicalVerificationState,
 } from "@/domain/solver";
+import {
+  canTransition,
+  challengeTransitions,
+  teamRole,
+  type ChallengeStage,
+  type Transition,
+} from "@rahhal/domain";
+
+export { canTransition, challengeTransitions };
+export type ChallengeState = ChallengeStage;
 
 export type ProposalState = CanonicalProposalState;
 export type DirectOfferState = CanonicalDirectOfferState;
 
-export type Actor =
-  | "solver"
-  | "team-manager"
-  | "owner"
-  | "admin"
-  | "proposal-manager"
-  | "contributor"
-  | "viewer"
-  | "org"
-  | "reviewer"
-  | "ops"
-  | "finance"
-  | "legal";
-
-export type Transition<State extends string> = {
-  from: State;
-  to: State;
-  actors: readonly Actor[];
-  preconditions: readonly string[];
-  sideEffects: readonly string[];
-  notification: string;
-  audit: string;
-  retry: "idempotent" | "manual-review" | "not-applicable";
-};
-
-export function canTransition<State extends string>(
-  table: readonly Transition<State>[],
-  from: State,
-  to: State,
-  actor: Actor,
-  satisfied: readonly string[] = [],
-) {
-  const rule = table.find((item) => item.from === from && item.to === to);
-  return Boolean(
-    rule &&
-      rule.actors.includes(actor) &&
-      rule.preconditions.every((condition) => satisfied.includes(condition)),
-  );
-}
-
-export type ChallengeState =
-  | "draft"
-  | "triage"
-  | "approvals"
-  | "published"
-  | "evaluating"
-  | "decided"
-  | "contracting"
-  | "pilot"
-  | "closed";
-
-export const challengeTransitions: readonly Transition<ChallengeState>[] = [
-  {
-    from: "draft",
-    to: "triage",
-    actors: ["org"],
-    preconditions: ["brief-valid"],
-    sideEffects: ["lock-intake-version"],
-    notification: "مسئول غربالگری",
-    audit: "challenge.triage.requested",
-    retry: "idempotent",
-  },
-  {
-    from: "triage",
-    to: "approvals",
-    actors: ["org", "ops"],
-    preconditions: ["triage-passed"],
-    sideEffects: ["create-approval-tasks"],
-    notification: "تأییدکنندگان",
-    audit: "challenge.approvals.requested",
-    retry: "idempotent",
-  },
-  {
-    from: "approvals",
-    to: "published",
-    actors: ["org", "ops"],
-    preconditions: ["technical-approved", "legal-approved", "finance-approved"],
-    sideEffects: ["publish-catalog-version", "create-receipt"],
-    notification: "حل‌کنندگان مرتبط",
-    audit: "challenge.published",
-    retry: "idempotent",
-  },
-  {
-    from: "published",
-    to: "evaluating",
-    actors: ["org"],
-    preconditions: ["submission-window-closed"],
-    sideEffects: ["freeze-submissions"],
-    notification: "داوران",
-    audit: "challenge.evaluation.started",
-    retry: "idempotent",
-  },
-  {
-    from: "evaluating",
-    to: "decided",
-    actors: ["org"],
-    preconditions: ["reviews-complete", "decision-rationale"],
-    sideEffects: ["lock-decision", "notify-solvers"],
-    notification: "ارسال‌کنندگان پیشنهاد",
-    audit: "challenge.decision.recorded",
-    retry: "manual-review",
-  },
-  {
-    from: "decided",
-    to: "contracting",
-    actors: ["org", "legal"],
-    preconditions: ["winner-selected"],
-    sideEffects: ["create-contract"],
-    notification: "حل‌کننده منتخب",
-    audit: "contract.created",
-    retry: "idempotent",
-  },
-  {
-    from: "contracting",
-    to: "pilot",
-    actors: ["org", "legal"],
-    preconditions: ["contract-effective"],
-    sideEffects: ["create-pilot-plan"],
-    notification: "تیم پایلوت",
-    audit: "pilot.started",
-    retry: "idempotent",
-  },
-  {
-    from: "pilot",
-    to: "closed",
-    actors: ["org"],
-    preconditions: ["deliverables-resolved", "payments-reconciled"],
-    sideEffects: ["publish-outcome"],
-    notification: "ذی‌نفعان پرونده",
-    audit: "challenge.closed",
-    retry: "manual-review",
-  },
-];
+const individualActors = ["individual"] as const;
+const organizationMembers = ["org:member"] as const;
+const organizationOrOperations = ["org:member", "platform:ops"] as const;
+const platformOperations = ["platform:ops"] as const;
+const platformReviewers = ["platform:reviewer"] as const;
+const technicalApprovers = ["org:approver_technical"] as const;
+const financeActors = ["platform:finance"] as const;
+const financeOrOperations = ["platform:finance", "platform:ops"] as const;
+const teamManagers = [teamRole.owner, teamRole.admin] as const;
+const solverManagers = ["individual", ...teamManagers] as const;
+const solverProposalManagers = [...solverManagers, teamRole.proposalManager] as const;
+const solverContributors = [...solverProposalManagers, teamRole.contributor] as const;
+const solverViewers = [...solverContributors, teamRole.viewer] as const;
+const reasonRecorded = ["reason-recorded"] as const;
+const deadlinePassed = ["deadline-passed"] as const;
+const recipientAuthorizedAndActive = ["recipient-authorized", "not-expired"] as const;
+const recipientAuthorizedWithReason = ["recipient-authorized", "reason-recorded"] as const;
+const closeInvitation = ["close-invitation"] as const;
+const closeRequest = ["close-request"] as const;
+const closeOffer = ["close-offer"] as const;
+const lockOutcome = ["lock-outcome"] as const;
+const openReview = ["open-review"] as const;
 
 export const proposalTransitions: readonly Transition<ProposalState>[] = [
   {
     from: "draft",
     to: "submitted",
-    actors: ["solver", "team-manager"],
+    roles: solverManagers,
     preconditions: ["form-valid", "sender-authorized", "terms-accepted"],
     sideEffects: ["create-version", "lock-version", "create-receipt"],
     notification: "سازمان مسئله‌گذار",
@@ -157,7 +56,7 @@ export const proposalTransitions: readonly Transition<ProposalState>[] = [
   {
     from: "submitted",
     to: "eligibility_review",
-    actors: ["org", "ops"],
+    roles: organizationOrOperations,
     preconditions: ["submission-locked"],
     sideEffects: ["open-eligibility-review"],
     notification: "مالک پیشنهاد",
@@ -167,7 +66,7 @@ export const proposalTransitions: readonly Transition<ProposalState>[] = [
   {
     from: "eligibility_review",
     to: "eligible",
-    actors: ["org", "ops"],
+    roles: organizationOrOperations,
     preconditions: ["eligibility-passed"],
     sideEffects: ["mark-eligible"],
     notification: "مالک پیشنهاد",
@@ -177,9 +76,9 @@ export const proposalTransitions: readonly Transition<ProposalState>[] = [
   {
     from: "eligibility_review",
     to: "ineligible",
-    actors: ["org", "ops"],
+    roles: organizationOrOperations,
     preconditions: ["eligibility-failed", "reason-recorded"],
-    sideEffects: ["lock-outcome"],
+    sideEffects: lockOutcome,
     notification: "مالک پیشنهاد",
     audit: "proposal.ineligible",
     retry: "manual-review",
@@ -187,7 +86,7 @@ export const proposalTransitions: readonly Transition<ProposalState>[] = [
   {
     from: "eligible",
     to: "clarification_requested",
-    actors: ["org"],
+    roles: organizationMembers,
     preconditions: ["question-recorded"],
     sideEffects: ["open-controlled-thread"],
     notification: "مالک پیشنهاد",
@@ -197,7 +96,7 @@ export const proposalTransitions: readonly Transition<ProposalState>[] = [
   {
     from: "clarification_requested",
     to: "clarification_submitted",
-    actors: ["solver", "owner", "admin", "proposal-manager"],
+    roles: solverProposalManagers,
     preconditions: ["response-valid", "sender-authorized"],
     sideEffects: ["lock-clarification-response"],
     notification: "سازمان مسئله‌گذار",
@@ -207,9 +106,9 @@ export const proposalTransitions: readonly Transition<ProposalState>[] = [
   {
     from: "clarification_submitted",
     to: "reviewing",
-    actors: ["org"],
+    roles: organizationMembers,
     preconditions: ["clarification-resolved"],
-    sideEffects: ["open-review"],
+    sideEffects: openReview,
     notification: "داوران",
     audit: "proposal.review.started",
     retry: "idempotent",
@@ -217,7 +116,7 @@ export const proposalTransitions: readonly Transition<ProposalState>[] = [
   {
     from: "reviewing",
     to: "revision_requested",
-    actors: ["org"],
+    roles: organizationMembers,
     preconditions: ["revision-scope", "revision-deadline"],
     sideEffects: ["create-revision-draft"],
     notification: "مالک پیشنهاد",
@@ -227,7 +126,7 @@ export const proposalTransitions: readonly Transition<ProposalState>[] = [
   {
     from: "revision_requested",
     to: "revision_draft",
-    actors: ["solver", "owner", "admin", "proposal-manager", "contributor"],
+    roles: solverContributors,
     preconditions: ["editor-authorized"],
     sideEffects: ["open-versioned-draft"],
     notification: "",
@@ -237,7 +136,7 @@ export const proposalTransitions: readonly Transition<ProposalState>[] = [
   {
     from: "revision_draft",
     to: "resubmitted",
-    actors: ["solver", "owner", "admin", "proposal-manager"],
+    roles: solverProposalManagers,
     preconditions: ["form-valid", "sender-authorized", "terms-accepted"],
     sideEffects: ["create-version", "lock-version", "create-receipt"],
     notification: "سازمان مسئله‌گذار",
@@ -247,9 +146,9 @@ export const proposalTransitions: readonly Transition<ProposalState>[] = [
   {
     from: "resubmitted",
     to: "reviewing",
-    actors: ["org", "ops"],
+    roles: organizationOrOperations,
     preconditions: ["eligibility-passed"],
-    sideEffects: ["open-review"],
+    sideEffects: openReview,
     notification: "مالک پیشنهاد",
     audit: "proposal.review.resumed",
     retry: "idempotent",
@@ -257,9 +156,9 @@ export const proposalTransitions: readonly Transition<ProposalState>[] = [
   {
     from: "reviewing",
     to: "selected",
-    actors: ["org"],
+    roles: organizationMembers,
     preconditions: ["reviews-complete", "decision-approved"],
-    sideEffects: ["lock-outcome"],
+    sideEffects: lockOutcome,
     notification: "مالک پیشنهاد",
     audit: "proposal.selected",
     retry: "manual-review",
@@ -267,9 +166,9 @@ export const proposalTransitions: readonly Transition<ProposalState>[] = [
   {
     from: "reviewing",
     to: "rejected",
-    actors: ["org"],
+    roles: organizationMembers,
     preconditions: ["reviews-complete", "decision-rationale"],
-    sideEffects: ["lock-outcome"],
+    sideEffects: lockOutcome,
     notification: "مالک پیشنهاد",
     audit: "proposal.rejected",
     retry: "manual-review",
@@ -281,7 +180,7 @@ export const invitationTransitions: readonly Transition<InvitationState>[] = [
   {
     from: "pending",
     to: "accepted",
-    actors: ["solver", "team-manager"],
+    roles: solverManagers,
     preconditions: ["not-expired"],
     sideEffects: ["open-response-draft"],
     notification: "سازمان دعوت‌کننده",
@@ -291,9 +190,9 @@ export const invitationTransitions: readonly Transition<InvitationState>[] = [
   {
     from: "pending",
     to: "declined",
-    actors: ["solver", "team-manager"],
-    preconditions: ["reason-recorded"],
-    sideEffects: ["close-invitation"],
+    roles: solverManagers,
+    preconditions: reasonRecorded,
+    sideEffects: closeInvitation,
     notification: "سازمان دعوت‌کننده",
     audit: "invitation.declined",
     retry: "idempotent",
@@ -301,9 +200,9 @@ export const invitationTransitions: readonly Transition<InvitationState>[] = [
   {
     from: "pending",
     to: "expired",
-    actors: ["ops"],
-    preconditions: ["deadline-passed"],
-    sideEffects: ["close-invitation"],
+    roles: platformOperations,
+    preconditions: deadlinePassed,
+    sideEffects: closeInvitation,
     notification: "دو طرف دعوت",
     audit: "invitation.expired",
     retry: "idempotent",
@@ -311,9 +210,9 @@ export const invitationTransitions: readonly Transition<InvitationState>[] = [
   {
     from: "pending",
     to: "cancelled",
-    actors: ["org"],
-    preconditions: ["reason-recorded"],
-    sideEffects: ["close-invitation"],
+    roles: organizationMembers,
+    preconditions: reasonRecorded,
+    sideEffects: closeInvitation,
     notification: "دعوت‌شونده",
     audit: "invitation.cancelled",
     retry: "idempotent",
@@ -325,8 +224,8 @@ export const teamInvitationTransitions: readonly Transition<TeamInvitationState>
   {
     from: "sent",
     to: "viewed",
-    actors: ["solver"],
-    preconditions: ["recipient-authorized", "not-expired"],
+    roles: individualActors,
+    preconditions: recipientAuthorizedAndActive,
     sideEffects: ["record-viewed-at"],
     notification: "",
     audit: "team-invitation.viewed",
@@ -335,8 +234,8 @@ export const teamInvitationTransitions: readonly Transition<TeamInvitationState>
   {
     from: "sent",
     to: "accepted",
-    actors: ["solver"],
-    preconditions: ["recipient-authorized", "not-expired"],
+    roles: individualActors,
+    preconditions: recipientAuthorizedAndActive,
     sideEffects: ["create-membership", "add-workspace"],
     notification: "مدیران تیم",
     audit: "team-invitation.accepted",
@@ -345,8 +244,8 @@ export const teamInvitationTransitions: readonly Transition<TeamInvitationState>
   {
     from: "viewed",
     to: "accepted",
-    actors: ["solver"],
-    preconditions: ["recipient-authorized", "not-expired"],
+    roles: individualActors,
+    preconditions: recipientAuthorizedAndActive,
     sideEffects: ["create-membership", "add-workspace"],
     notification: "مدیران تیم",
     audit: "team-invitation.accepted",
@@ -355,9 +254,9 @@ export const teamInvitationTransitions: readonly Transition<TeamInvitationState>
   {
     from: "sent",
     to: "declined",
-    actors: ["solver"],
-    preconditions: ["recipient-authorized", "reason-recorded"],
-    sideEffects: ["close-invitation"],
+    roles: individualActors,
+    preconditions: recipientAuthorizedWithReason,
+    sideEffects: closeInvitation,
     notification: "مدیران تیم",
     audit: "team-invitation.declined",
     retry: "idempotent",
@@ -365,9 +264,9 @@ export const teamInvitationTransitions: readonly Transition<TeamInvitationState>
   {
     from: "viewed",
     to: "declined",
-    actors: ["solver"],
-    preconditions: ["recipient-authorized", "reason-recorded"],
-    sideEffects: ["close-invitation"],
+    roles: individualActors,
+    preconditions: recipientAuthorizedWithReason,
+    sideEffects: closeInvitation,
     notification: "مدیران تیم",
     audit: "team-invitation.declined",
     retry: "idempotent",
@@ -375,7 +274,7 @@ export const teamInvitationTransitions: readonly Transition<TeamInvitationState>
   {
     from: "sent",
     to: "revoked",
-    actors: ["owner", "admin", "team-manager"],
+    roles: teamManagers,
     preconditions: ["sender-authorized"],
     sideEffects: ["revoke-access-token"],
     notification: "دعوت‌شونده",
@@ -385,7 +284,7 @@ export const teamInvitationTransitions: readonly Transition<TeamInvitationState>
   {
     from: "viewed",
     to: "revoked",
-    actors: ["owner", "admin", "team-manager"],
+    roles: teamManagers,
     preconditions: ["sender-authorized"],
     sideEffects: ["revoke-access-token"],
     notification: "دعوت‌شونده",
@@ -395,9 +294,9 @@ export const teamInvitationTransitions: readonly Transition<TeamInvitationState>
   {
     from: "sent",
     to: "expired",
-    actors: ["ops"],
-    preconditions: ["deadline-passed"],
-    sideEffects: ["close-invitation"],
+    roles: platformOperations,
+    preconditions: deadlinePassed,
+    sideEffects: closeInvitation,
     notification: "دو طرف دعوت",
     audit: "team-invitation.expired",
     retry: "idempotent",
@@ -405,9 +304,9 @@ export const teamInvitationTransitions: readonly Transition<TeamInvitationState>
   {
     from: "viewed",
     to: "expired",
-    actors: ["ops"],
-    preconditions: ["deadline-passed"],
-    sideEffects: ["close-invitation"],
+    roles: platformOperations,
+    preconditions: deadlinePassed,
+    sideEffects: closeInvitation,
     notification: "دو طرف دعوت",
     audit: "team-invitation.expired",
     retry: "idempotent",
@@ -419,7 +318,7 @@ export const membershipRequestTransitions: readonly Transition<MembershipRequest
   {
     from: "requested",
     to: "accepted",
-    actors: ["owner", "admin", "team-manager"],
+    roles: teamManagers,
     preconditions: ["scope-approved"],
     sideEffects: ["create-membership", "update-roster"],
     notification: "متقاضی عضویت",
@@ -429,9 +328,9 @@ export const membershipRequestTransitions: readonly Transition<MembershipRequest
   {
     from: "requested",
     to: "rejected",
-    actors: ["owner", "admin", "team-manager"],
+    roles: teamManagers,
     preconditions: ["decision-confirmed"],
-    sideEffects: ["close-request"],
+    sideEffects: closeRequest,
     notification: "متقاضی عضویت",
     audit: "membership-request.rejected",
     retry: "idempotent",
@@ -439,9 +338,9 @@ export const membershipRequestTransitions: readonly Transition<MembershipRequest
   {
     from: "requested",
     to: "withdrawn",
-    actors: ["solver"],
+    roles: individualActors,
     preconditions: ["requester-authorized"],
-    sideEffects: ["close-request"],
+    sideEffects: closeRequest,
     notification: "مدیران تیم",
     audit: "membership-request.withdrawn",
     retry: "idempotent",
@@ -449,9 +348,9 @@ export const membershipRequestTransitions: readonly Transition<MembershipRequest
   {
     from: "requested",
     to: "expired",
-    actors: ["ops"],
-    preconditions: ["deadline-passed"],
-    sideEffects: ["close-request"],
+    roles: platformOperations,
+    preconditions: deadlinePassed,
+    sideEffects: closeRequest,
     notification: "دو طرف درخواست",
     audit: "membership-request.expired",
     retry: "idempotent",
@@ -462,7 +361,7 @@ export const directOfferTransitions: readonly Transition<DirectOfferState>[] = [
   {
     from: "received",
     to: "viewed",
-    actors: ["solver", "owner", "admin", "proposal-manager", "contributor", "viewer"],
+    roles: solverViewers,
     preconditions: ["recipient-authorized"],
     sideEffects: ["record-viewed-at"],
     notification: "",
@@ -472,8 +371,8 @@ export const directOfferTransitions: readonly Transition<DirectOfferState>[] = [
   {
     from: "viewed",
     to: "response_draft",
-    actors: ["solver", "owner", "admin", "proposal-manager", "contributor"],
-    preconditions: ["recipient-authorized", "not-expired"],
+    roles: solverContributors,
+    preconditions: recipientAuthorizedAndActive,
     sideEffects: ["create-response-draft"],
     notification: "",
     audit: "direct-offer.response.draft.created",
@@ -482,7 +381,7 @@ export const directOfferTransitions: readonly Transition<DirectOfferState>[] = [
   {
     from: "response_draft",
     to: "response_submitted",
-    actors: ["solver", "owner", "admin", "proposal-manager"],
+    roles: solverProposalManagers,
     preconditions: ["response-valid", "sender-authorized", "not-expired"],
     sideEffects: ["lock-response-version", "create-receipt"],
     notification: "سازمان دعوت‌کننده",
@@ -492,7 +391,7 @@ export const directOfferTransitions: readonly Transition<DirectOfferState>[] = [
   {
     from: "response_submitted",
     to: "negotiating",
-    actors: ["org"],
+    roles: organizationMembers,
     preconditions: ["negotiation-opened"],
     sideEffects: ["open-controlled-thread"],
     notification: "فضای دریافت‌کننده",
@@ -502,7 +401,7 @@ export const directOfferTransitions: readonly Transition<DirectOfferState>[] = [
   {
     from: "negotiating",
     to: "selected",
-    actors: ["org"],
+    roles: organizationMembers,
     preconditions: ["selection-approved"],
     sideEffects: ["create-case"],
     notification: "فضای دریافت‌کننده",
@@ -512,9 +411,9 @@ export const directOfferTransitions: readonly Transition<DirectOfferState>[] = [
   {
     from: "received",
     to: "declined",
-    actors: ["solver", "owner", "admin", "proposal-manager"],
-    preconditions: ["recipient-authorized", "reason-recorded"],
-    sideEffects: ["close-offer"],
+    roles: solverProposalManagers,
+    preconditions: recipientAuthorizedWithReason,
+    sideEffects: closeOffer,
     notification: "سازمان دعوت‌کننده",
     audit: "direct-offer.declined",
     retry: "idempotent",
@@ -522,9 +421,9 @@ export const directOfferTransitions: readonly Transition<DirectOfferState>[] = [
   {
     from: "viewed",
     to: "declined",
-    actors: ["solver", "owner", "admin", "proposal-manager"],
-    preconditions: ["recipient-authorized", "reason-recorded"],
-    sideEffects: ["close-offer"],
+    roles: solverProposalManagers,
+    preconditions: recipientAuthorizedWithReason,
+    sideEffects: closeOffer,
     notification: "سازمان دعوت‌کننده",
     audit: "direct-offer.declined",
     retry: "idempotent",
@@ -532,9 +431,9 @@ export const directOfferTransitions: readonly Transition<DirectOfferState>[] = [
   {
     from: "received",
     to: "expired",
-    actors: ["ops"],
-    preconditions: ["deadline-passed"],
-    sideEffects: ["close-offer"],
+    roles: platformOperations,
+    preconditions: deadlinePassed,
+    sideEffects: closeOffer,
     notification: "طرفین دعوت",
     audit: "direct-offer.expired",
     retry: "idempotent",
@@ -553,7 +452,7 @@ export const membershipTransitions: readonly Transition<MembershipState>[] = [
   {
     from: "requested",
     to: "active",
-    actors: ["team-manager"],
+    roles: teamManagers,
     preconditions: ["scope-approved"],
     sideEffects: ["grant-role"],
     notification: "متقاضی عضویت",
@@ -563,9 +462,9 @@ export const membershipTransitions: readonly Transition<MembershipState>[] = [
   {
     from: "requested",
     to: "rejected",
-    actors: ["team-manager"],
-    preconditions: ["reason-recorded"],
-    sideEffects: ["close-request"],
+    roles: teamManagers,
+    preconditions: reasonRecorded,
+    sideEffects: closeRequest,
     notification: "متقاضی عضویت",
     audit: "membership.rejected",
     retry: "idempotent",
@@ -573,7 +472,7 @@ export const membershipTransitions: readonly Transition<MembershipState>[] = [
   {
     from: "invited",
     to: "active",
-    actors: ["solver"],
+    roles: individualActors,
     preconditions: ["invite-valid"],
     sideEffects: ["grant-role"],
     notification: "مدیر تیم",
@@ -583,8 +482,8 @@ export const membershipTransitions: readonly Transition<MembershipState>[] = [
   {
     from: "invited",
     to: "expired",
-    actors: ["ops"],
-    preconditions: ["deadline-passed"],
+    roles: platformOperations,
+    preconditions: deadlinePassed,
     sideEffects: ["revoke-invite-token"],
     notification: "دعوت‌شونده و مدیر تیم",
     audit: "membership.invite.expired",
@@ -593,7 +492,7 @@ export const membershipTransitions: readonly Transition<MembershipState>[] = [
   {
     from: "active",
     to: "suspended",
-    actors: ["owner", "admin", "team-manager"],
+    roles: teamManagers,
     preconditions: ["not-owner", "not-self"],
     sideEffects: ["revoke-active-access"],
     notification: "عضو تیم",
@@ -603,7 +502,7 @@ export const membershipTransitions: readonly Transition<MembershipState>[] = [
   {
     from: "suspended",
     to: "active",
-    actors: ["owner", "admin", "team-manager"],
+    roles: teamManagers,
     preconditions: ["restore-confirmed"],
     sideEffects: ["restore-role-access"],
     notification: "عضو تیم",
@@ -613,7 +512,7 @@ export const membershipTransitions: readonly Transition<MembershipState>[] = [
   {
     from: "active",
     to: "removed",
-    actors: ["team-manager"],
+    roles: teamManagers,
     preconditions: ["not-last-manager", "active-work-transferred"],
     sideEffects: ["revoke-access"],
     notification: "عضو تیم",
@@ -633,7 +532,7 @@ export const reviewTransitions: readonly Transition<ReviewState>[] = [
   {
     from: "coi-gate",
     to: "accepted",
-    actors: ["reviewer"],
+    roles: platformReviewers,
     preconditions: ["coi-clear"],
     sideEffects: ["grant-material-access"],
     notification: "سازمان",
@@ -643,7 +542,7 @@ export const reviewTransitions: readonly Transition<ReviewState>[] = [
   {
     from: "accepted",
     to: "draft",
-    actors: ["reviewer"],
+    roles: platformReviewers,
     preconditions: ["materials-authorized"],
     sideEffects: ["create-score-draft"],
     notification: "",
@@ -653,7 +552,7 @@ export const reviewTransitions: readonly Transition<ReviewState>[] = [
   {
     from: "draft",
     to: "submitted",
-    actors: ["reviewer"],
+    roles: platformReviewers,
     preconditions: ["scores-valid", "rationale-valid"],
     sideEffects: ["freeze-score", "create-receipt"],
     notification: "سازمان",
@@ -663,7 +562,7 @@ export const reviewTransitions: readonly Transition<ReviewState>[] = [
   {
     from: "submitted",
     to: "locked",
-    actors: ["ops"],
+    roles: platformOperations,
     preconditions: ["receipt-valid"],
     sideEffects: ["lock-score"],
     notification: "داور",
@@ -673,8 +572,8 @@ export const reviewTransitions: readonly Transition<ReviewState>[] = [
   {
     from: "locked",
     to: "invalidated",
-    actors: ["ops"],
-    preconditions: ["reason-recorded"],
+    roles: platformOperations,
+    preconditions: reasonRecorded,
     sideEffects: ["exclude-score", "reopen-assignment"],
     notification: "داور و سازمان",
     audit: "review.invalidated",
@@ -694,7 +593,14 @@ export const contractTransitions: readonly Transition<ContractState>[] = [
   {
     from: "draft",
     to: "negotiation",
-    actors: ["org", "legal", "solver", "owner", "admin"],
+    roles: [
+      "org:owner",
+      "org:approver_legal",
+      "platform:legal",
+      "individual",
+      "team:owner",
+      "team:admin",
+    ],
     preconditions: ["scope-defined"],
     sideEffects: ["create-version"],
     notification: "طرفین قرارداد",
@@ -704,7 +610,14 @@ export const contractTransitions: readonly Transition<ContractState>[] = [
   {
     from: "negotiation",
     to: "approval",
-    actors: ["org", "legal", "solver", "owner", "admin"],
+    roles: [
+      "org:owner",
+      "org:approver_legal",
+      "platform:legal",
+      "individual",
+      "team:owner",
+      "team:admin",
+    ],
     preconditions: ["terms-agreed", "ip-agreed"],
     sideEffects: ["freeze-version"],
     notification: "تأییدکنندگان",
@@ -714,7 +627,16 @@ export const contractTransitions: readonly Transition<ContractState>[] = [
   {
     from: "approval",
     to: "signature",
-    actors: ["legal", "finance", "solver", "owner", "admin"],
+    roles: [
+      "org:owner",
+      "org:approver_legal",
+      "org:approver_finance",
+      "platform:legal",
+      "platform:finance",
+      "individual",
+      "team:owner",
+      "team:admin",
+    ],
     preconditions: ["legal-approved", "finance-approved"],
     sideEffects: ["open-signature"],
     notification: "امضاکنندگان",
@@ -724,7 +646,7 @@ export const contractTransitions: readonly Transition<ContractState>[] = [
   {
     from: "signature",
     to: "effective",
-    actors: ["legal", "solver", "owner", "admin"],
+    roles: ["platform:legal", "individual", "team:owner", "team:admin"],
     preconditions: ["approved-current-version"],
     sideEffects: ["activate-contract"],
     notification: "طرفین قرارداد",
@@ -738,7 +660,7 @@ export const verificationTransitions: readonly Transition<VerificationState>[] =
   {
     from: "not_started",
     to: "draft",
-    actors: ["solver", "owner", "admin"],
+    roles: solverManagers,
     preconditions: [],
     sideEffects: ["create-document-checklist"],
     notification: "",
@@ -748,7 +670,7 @@ export const verificationTransitions: readonly Transition<VerificationState>[] =
   {
     from: "draft",
     to: "submitted",
-    actors: ["solver", "owner", "admin"],
+    roles: solverManagers,
     preconditions: ["documents-valid"],
     sideEffects: ["lock-submission", "create-receipt"],
     notification: "عملیات",
@@ -758,7 +680,7 @@ export const verificationTransitions: readonly Transition<VerificationState>[] =
   {
     from: "needs_revision",
     to: "submitted",
-    actors: ["solver", "owner", "admin"],
+    roles: solverManagers,
     preconditions: ["documents-valid", "revision-addressed"],
     sideEffects: ["create-revision", "create-receipt"],
     notification: "عملیات",
@@ -768,9 +690,9 @@ export const verificationTransitions: readonly Transition<VerificationState>[] =
   {
     from: "submitted",
     to: "under_review",
-    actors: ["ops"],
+    roles: platformOperations,
     preconditions: ["submission-locked"],
-    sideEffects: ["open-review"],
+    sideEffects: openReview,
     notification: "فضای متقاضی",
     audit: "verification.review.started",
     retry: "idempotent",
@@ -778,7 +700,7 @@ export const verificationTransitions: readonly Transition<VerificationState>[] =
   {
     from: "under_review",
     to: "verified",
-    actors: ["ops"],
+    roles: platformOperations,
     preconditions: ["evidence-approved"],
     sideEffects: ["issue-verification-evidence"],
     notification: "فضای متقاضی",
@@ -788,8 +710,8 @@ export const verificationTransitions: readonly Transition<VerificationState>[] =
   {
     from: "under_review",
     to: "needs_revision",
-    actors: ["ops"],
-    preconditions: ["reason-recorded"],
+    roles: platformOperations,
+    preconditions: reasonRecorded,
     sideEffects: ["open-revision"],
     notification: "فضای متقاضی",
     audit: "verification.revision.requested",
@@ -798,9 +720,9 @@ export const verificationTransitions: readonly Transition<VerificationState>[] =
   {
     from: "under_review",
     to: "rejected",
-    actors: ["ops"],
-    preconditions: ["reason-recorded"],
-    sideEffects: ["lock-outcome"],
+    roles: platformOperations,
+    preconditions: reasonRecorded,
+    sideEffects: lockOutcome,
     notification: "فضای متقاضی",
     audit: "verification.rejected",
     retry: "manual-review",
@@ -818,7 +740,7 @@ export const pilotTransitions: readonly Transition<PilotState>[] = [
   {
     from: "planned",
     to: "running",
-    actors: ["org", "team-manager"],
+    roles: ["org:member", "team:owner", "team:admin"],
     preconditions: ["contract-effective", "plan-approved"],
     sideEffects: ["start-milestones"],
     notification: "تیم پایلوت",
@@ -828,7 +750,7 @@ export const pilotTransitions: readonly Transition<PilotState>[] = [
   {
     from: "running",
     to: "deliverable-submitted",
-    actors: ["solver", "team-manager"],
+    roles: solverManagers,
     preconditions: ["deliverable-valid"],
     sideEffects: ["create-deliverable-version"],
     notification: "پذیرنده فنی",
@@ -838,7 +760,7 @@ export const pilotTransitions: readonly Transition<PilotState>[] = [
   {
     from: "deliverable-submitted",
     to: "accepted",
-    actors: ["org"],
+    roles: technicalApprovers,
     preconditions: ["technical-evidence-approved"],
     sideEffects: ["mark-technical-acceptance"],
     notification: "حل‌کننده و مالی",
@@ -848,7 +770,7 @@ export const pilotTransitions: readonly Transition<PilotState>[] = [
   {
     from: "deliverable-submitted",
     to: "revision",
-    actors: ["org"],
+    roles: technicalApprovers,
     preconditions: ["reason-recorded", "revision-deadline"],
     sideEffects: ["open-deliverable-revision"],
     notification: "حل‌کننده",
@@ -858,8 +780,8 @@ export const pilotTransitions: readonly Transition<PilotState>[] = [
   {
     from: "deliverable-submitted",
     to: "rejected",
-    actors: ["org"],
-    preconditions: ["reason-recorded"],
+    roles: technicalApprovers,
+    preconditions: reasonRecorded,
     sideEffects: ["close-deliverable"],
     notification: "حل‌کننده و مالی",
     audit: "deliverable.rejected",
@@ -880,7 +802,7 @@ export const paymentTransitions: readonly Transition<PaymentState>[] = [
   {
     from: "triggered",
     to: "approval",
-    actors: ["org"],
+    roles: technicalApprovers,
     preconditions: ["technical-accepted"],
     sideEffects: ["create-finance-task"],
     notification: "مالی",
@@ -890,7 +812,7 @@ export const paymentTransitions: readonly Transition<PaymentState>[] = [
   {
     from: "approval",
     to: "processing",
-    actors: ["finance"],
+    roles: ["org:approver_finance", "platform:finance"],
     preconditions: ["finance-approved", "contract-effective"],
     sideEffects: ["create-payment-attempt"],
     notification: "حل‌کننده",
@@ -900,7 +822,7 @@ export const paymentTransitions: readonly Transition<PaymentState>[] = [
   {
     from: "processing",
     to: "paid",
-    actors: ["finance"],
+    roles: financeActors,
     preconditions: ["provider-confirmed"],
     sideEffects: ["create-payment-receipt"],
     notification: "طرفین قرارداد",
@@ -910,7 +832,7 @@ export const paymentTransitions: readonly Transition<PaymentState>[] = [
   {
     from: "paid",
     to: "reconciled",
-    actors: ["finance"],
+    roles: financeActors,
     preconditions: ["ledger-matched"],
     sideEffects: ["close-financial-gate"],
     notification: "سازمان",
@@ -920,8 +842,8 @@ export const paymentTransitions: readonly Transition<PaymentState>[] = [
   {
     from: "approval",
     to: "hold",
-    actors: ["finance", "ops"],
-    preconditions: ["reason-recorded"],
+    roles: financeOrOperations,
+    preconditions: reasonRecorded,
     sideEffects: ["freeze-payment"],
     notification: "طرفین قرارداد",
     audit: "payment.held",
@@ -930,7 +852,7 @@ export const paymentTransitions: readonly Transition<PaymentState>[] = [
   {
     from: "processing",
     to: "failed",
-    actors: ["finance", "ops"],
+    roles: financeOrOperations,
     preconditions: ["provider-failed"],
     sideEffects: ["record-failure-code"],
     notification: "مالی",
@@ -940,7 +862,7 @@ export const paymentTransitions: readonly Transition<PaymentState>[] = [
   {
     from: "paid",
     to: "refunded",
-    actors: ["finance", "ops"],
+    roles: financeOrOperations,
     preconditions: ["refund-approved"],
     sideEffects: ["create-refund-receipt"],
     notification: "طرفین قرارداد",
