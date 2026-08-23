@@ -5,14 +5,19 @@ import { challengeFlowStaticPaths, getChallengeFlowRoute } from "@/data/challeng
 import {
   createChallenge,
   deleteChallenge,
-  emptyChallenge,
   getChallenge,
   listChallenges,
   resetChallengeDemoData,
   saveChallenge,
   submitChallenge,
 } from "@/lib/challenges/storage";
-import { isRecordReady, validateRecord, validateStep } from "@/lib/challenges/validation";
+import { emptyChallenge } from "@/lib/challenges/model";
+import {
+  isRecordReady,
+  normalizedEditableRecord,
+  validateRecord,
+  validateStep,
+} from "@/lib/challenges/validation";
 
 function createBase() {
   return createChallenge({
@@ -46,8 +51,8 @@ function completeRecord(base: ChallengeRecord): ChallengeRecord {
     organizationSupport: "داده تاریخی و دسترسی کنترل‌شده به تجهیز",
     outputType: "poc",
     sourcingModel: "public",
-    solverTypes: ["team", "company"],
-    applicantScope: "both",
+    allowedApplicantTypes: ["expert-team", "company"],
+    applicantScope: "team",
     workMode: "hybrid",
     proposalDeadline: "2026-10-01",
     preferredStartDate: "2026-10-20",
@@ -82,12 +87,106 @@ describe("Repository و Persistence ماژول مسئله‌ها", () => {
     expect(getChallenge(record.id)?.category).toBe("انرژی و بهره‌وری");
   });
 
-  it("رکورد v7 را به ApplicantScope مهاجرت و mirror قابل بازگشت می‌نویسد", () => {
+  it("رکورد v8 را به ApplicantType مهاجرت و mirror قابل بازگشت می‌نویسد", () => {
+    const legacyRecord = {
+      ...emptyChallenge("CH-DRAFT-001", "2026-08-20T10:00:00.000Z"),
+      applicantScope: "team",
+      solverTypes: ["individual", "team", "company", "university"],
+    } as Record<string, unknown>;
+    delete legacyRecord.allowedApplicantTypes;
+    window.localStorage.setItem(
+      "rahhal.organization-challenges.v8",
+      JSON.stringify({
+        version: 8,
+        updatedAt: new Date().toISOString(),
+        records: [legacyRecord],
+      }),
+    );
+
+    expect(listChallenges()[0]).toMatchObject({
+      id: "CH-DRAFT-001",
+      applicantScope: "both",
+      allowedApplicantTypes: ["individual", "expert-team", "company", "academic-group"],
+    });
+    expect(listChallenges()[0]).not.toHaveProperty("solverTypes");
+
+    const current = JSON.parse(
+      window.localStorage.getItem("rahhal.organization-challenges.v9") ?? "null",
+    );
+    expect(current).toMatchObject({
+      version: 9,
+      records: [
+        expect.objectContaining({
+          applicantScope: "both",
+          allowedApplicantTypes: ["individual", "expert-team", "company", "academic-group"],
+        }),
+      ],
+    });
+    const rollbackMirror = JSON.parse(
+      window.localStorage.getItem("rahhal.organization-challenges.v8") ?? "null",
+    );
+    expect(rollbackMirror).toMatchObject({
+      version: 8,
+      records: [
+        expect.objectContaining({
+          applicantScope: "both",
+          solverTypes: ["individual", "team", "company", "university"],
+        }),
+      ],
+    });
+    expect(rollbackMirror.records[0]).not.toHaveProperty("allowedApplicantTypes");
+  });
+
+  it("دامنه متناقض v9 را از مجموعه مجاز مشتق و همان‌جا بازنویسی می‌کند", () => {
+    const contradictory = {
+      ...emptyChallenge("CH-DRAFT-001", "2026-08-20T10:00:00.000Z"),
+      allowedApplicantTypes: ["expert-team", "company"],
+      applicantScope: "both",
+    };
+    window.localStorage.setItem(
+      "rahhal.organization-challenges.v9",
+      JSON.stringify({
+        version: 9,
+        updatedAt: new Date().toISOString(),
+        records: [contradictory],
+      }),
+    );
+
+    expect(listChallenges()[0]).toMatchObject({ applicantScope: "team" });
+    const persisted = JSON.parse(
+      window.localStorage.getItem("rahhal.organization-challenges.v9") ?? "null",
+    );
+    expect(persisted.records[0]).toMatchObject({ applicantScope: "team" });
+  });
+
+  it("در رکورد mixed، فیلد canonical بر legacy مقدم است", () => {
+    const mixedRecord = {
+      ...emptyChallenge("CH-DRAFT-001", "2026-08-20T10:00:00.000Z"),
+      allowedApplicantTypes: ["lab"],
+      solverTypes: ["individual", "team", "company", "university"],
+    };
+    window.localStorage.setItem(
+      "rahhal.organization-challenges.v9",
+      JSON.stringify({
+        version: 9,
+        updatedAt: new Date().toISOString(),
+        records: [mixedRecord],
+      }),
+    );
+
+    const migrated = listChallenges()[0];
+    expect(migrated.allowedApplicantTypes).toEqual(["lab"]);
+    expect(migrated).not.toHaveProperty("solverTypes");
+  });
+
+  it("v7 را فقط در مهاجرت اولیه با نگاشت قطعی taxonomy می‌خواند", () => {
     const legacyRecord = {
       ...emptyChallenge("CH-DRAFT-001", "2026-08-20T10:00:00.000Z"),
       teamType: "team",
+      solverTypes: ["team", "university"],
     } as Record<string, unknown>;
     delete legacyRecord.applicantScope;
+    delete legacyRecord.allowedApplicantTypes;
     window.localStorage.setItem(
       "rahhal.organization-challenges.v7",
       JSON.stringify({
@@ -100,29 +199,70 @@ describe("Repository و Persistence ماژول مسئله‌ها", () => {
     expect(listChallenges()[0]).toMatchObject({
       id: "CH-DRAFT-001",
       applicantScope: "team",
+      allowedApplicantTypes: ["expert-team", "academic-group"],
     });
-    expect(listChallenges()[0]).not.toHaveProperty("teamType");
-
-    const current = JSON.parse(
-      window.localStorage.getItem("rahhal.organization-challenges.v8") ?? "null",
-    );
-    expect(current).toMatchObject({
-      version: 8,
-      records: [expect.objectContaining({ applicantScope: "team" })],
-    });
-    const rollbackMirror = JSON.parse(
-      window.localStorage.getItem("rahhal.organization-challenges.v7") ?? "null",
-    );
-    expect(rollbackMirror[0]).toMatchObject({ teamType: "team" });
-    expect(rollbackMirror[0]).not.toHaveProperty("applicantScope");
   });
 
-  it("مقدار legacy ناشناخته را مجاز تلقی نمی‌کند", () => {
+  it("وجود lab کل mirror v8 را نامعتبر می‌کند و بازیابی ناقص انجام نمی‌شود", () => {
+    const record = createBase();
+    saveChallenge({
+      ...record,
+      allowedApplicantTypes: ["lab", "academic-group"],
+    });
+
+    expect(window.localStorage.getItem("rahhal.organization-challenges.v8")).toBeNull();
+    expect(
+      window.localStorage.getItem("rahhal.organization-challenges.v8.mirror-fresh"),
+    ).toBeNull();
+    expect(window.localStorage.getItem("rahhal.organization-challenges.seeded.v9")).toBe("true");
+
+    window.localStorage.setItem("rahhal.organization-challenges.v9", "{corrupt-current");
+    expect(getChallenge(record.id)).toBeUndefined();
+  });
+
+  it("پس از مشاهده v9 گم‌شده، v7/v6 باقی‌مانده را منبع مهاجرت تازه نمی‌داند", () => {
+    const legacyRecord = {
+      ...emptyChallenge("CH-DRAFT-001", "2026-08-20T10:00:00.000Z"),
+      title: "نسخه قدیمی",
+      solverTypes: ["team"],
+    } as Record<string, unknown>;
+    delete legacyRecord.allowedApplicantTypes;
+    window.localStorage.setItem(
+      "rahhal.organization-challenges.v7",
+      JSON.stringify({
+        version: 7,
+        updatedAt: new Date().toISOString(),
+        records: [legacyRecord],
+      }),
+    );
+    const migrated = getChallenge("CH-DRAFT-001");
+    if (!migrated) throw new Error("legacy challenge missing");
+    saveChallenge({ ...migrated, title: "نسخه جدید", allowedApplicantTypes: ["lab"] });
+    expect(window.localStorage.getItem("rahhal.organization-challenges.v7")).toBeNull();
+    expect(window.localStorage.getItem("rahhal.organization-challenges.seeded.v9")).toBe("true");
+
+    window.localStorage.setItem(
+      "rahhal.organization-challenges.v7",
+      JSON.stringify([legacyRecord]),
+    );
+    window.localStorage.setItem(
+      "rahhal.organization-challenges.v6",
+      JSON.stringify([legacyRecord]),
+    );
+    window.localStorage.removeItem("rahhal.organization-challenges.v9");
+
+    expect(getChallenge("CH-DRAFT-001")).toBeUndefined();
+    expect(listChallenges().some(({ title }) => title === "نسخه قدیمی")).toBe(false);
+  });
+
+  it("مقدار ApplicantType legacy ناشناخته را مجاز تلقی نمی‌کند", () => {
     const legacyRecord = {
       ...emptyChallenge("CH-DRAFT-001", "2026-08-20T10:00:00.000Z"),
       teamType: "organization",
+      solverTypes: ["laboratory", "toString"],
     } as Record<string, unknown>;
     delete legacyRecord.applicantScope;
+    delete legacyRecord.allowedApplicantTypes;
     window.localStorage.setItem(
       "rahhal.organization-challenges.v6",
       JSON.stringify([legacyRecord]),
@@ -130,12 +270,15 @@ describe("Repository و Persistence ماژول مسئله‌ها", () => {
 
     const migrated = listChallenges()[0];
     expect(migrated.applicantScope).toBe("");
+    expect(migrated.allowedApplicantTypes).toEqual([]);
     expect(validateStep(migrated, 3)).toEqual(
-      expect.arrayContaining([expect.objectContaining({ field: "applicantScope", step: 3 })]),
+      expect.arrayContaining([
+        expect.objectContaining({ field: "allowedApplicantTypes", step: 3 }),
+      ]),
     );
   });
 
-  it("بازنشانی زنجیره v8 تا v6 را پاک می‌کند و داده قدیمی را برنمی‌گرداند", () => {
+  it("بازنشانی زنجیره v9 تا v6 را پاک می‌کند و داده قدیمی را برنمی‌گرداند", () => {
     const legacyRecord = {
       ...emptyChallenge("CH-DRAFT-001", "2026-08-20T10:00:00.000Z"),
       title: "رکورد قدیمی کاربر",
@@ -147,11 +290,19 @@ describe("Repository و Persistence ماژول مسئله‌ها", () => {
       JSON.stringify([legacyRecord]),
     );
     expect(listChallenges()[0].title).toBe("رکورد قدیمی کاربر");
+    window.localStorage.setItem("rahhal.organization-challenges.v7.mirror-fresh", "stale");
+    window.localStorage.setItem("rahhal.organization-challenges.seeded.v7", "true");
 
     resetChallengeDemoData();
 
     expect(listChallenges()).toHaveLength(4);
     expect(listChallenges().some((record) => record.title === "رکورد قدیمی کاربر")).toBe(false);
+    expect(window.localStorage.getItem("rahhal.organization-challenges.v7")).toBeNull();
+    expect(
+      window.localStorage.getItem("rahhal.organization-challenges.v7.mirror-fresh"),
+    ).toBeNull();
+    expect(window.localStorage.getItem("rahhal.organization-challenges.v6")).toBeNull();
+    expect(window.localStorage.getItem("rahhal.organization-challenges.seeded.v7")).toBeNull();
   });
 
   it("فقط پیش‌نویس را حذف می‌کند و وضعیت ارسال را تغییر می‌دهد", () => {
@@ -238,5 +389,18 @@ describe("Validation چهارمرحله‌ای و Progressive Disclosure", () =>
     expect(isRecordReady(incomplete)).toBe(false);
     expect(validateRecord(incomplete).length).toBeGreaterThan(5);
     expect(isRecordReady(completeRecord(incomplete))).toBe(true);
+  });
+
+  it("دامنه همکاری متناقض با مجموعه مجاز را رد و در ویرایش نرمال می‌کند", () => {
+    const record = completeRecord(createBase());
+    const contradictory: ChallengeRecord = { ...record, applicantScope: "both" };
+
+    expect(validateStep(contradictory, 3)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ field: "applicantScope", step: 3 })]),
+    );
+    expect(normalizedEditableRecord(contradictory)).toMatchObject({
+      applicantScope: "team",
+      status: "ready",
+    });
   });
 });

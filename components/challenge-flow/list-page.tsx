@@ -11,7 +11,8 @@ import {
   type ChallengeStatus,
 } from "@/domain/challenge";
 import { useChallengeList } from "@/components/challenge-flow/hooks";
-import { deleteChallenge, formatDateTime } from "@/lib/challenges/storage";
+import { formatDateTime } from "@/lib/challenges/model";
+import { demoChallengeGateway } from "@/lib/challenges/runtime";
 
 type TabId = "all" | "draft" | "under_review" | "published";
 
@@ -35,7 +36,7 @@ function primaryAction(record: ChallengeRecord) {
 }
 
 export function ChallengeListPage() {
-  const { records, refresh } = useChallengeList();
+  const { records, refresh, loadError } = useChallengeList();
   const [tab, setTab] = useState<TabId>("all");
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | ChallengeStatus>("all");
@@ -137,15 +138,44 @@ export function ChallengeListPage() {
         )}
       </div>
 
+      {loadError && filtered.length > 0 && (
+        <div className="challenge-inline-error" role="alert">
+          {loadError}
+          <button
+            type="button"
+            className="challenge-button challenge-button--secondary challenge-button--small"
+            onClick={() => void refresh()}
+          >
+            تلاش دوباره
+          </button>
+        </div>
+      )}
+
       {filtered.length === 0 ? (
         <section className="challenge-empty-state">
-          <h2>{records.length ? "نتیجه‌ای پیدا نشد" : "هنوز مسئله‌ای ثبت نشده است"}</h2>
+          <h2>
+            {loadError
+              ? "خواندن فهرست انجام نشد"
+              : records.length
+                ? "نتیجه‌ای پیدا نشد"
+                : "هنوز مسئله‌ای ثبت نشده است"}
+          </h2>
           <p>
-            {records.length
-              ? "عبارت جست‌وجو یا فیلترها را تغییر دهید."
-              : "با ثبت مسئله جدید، یک پیش‌نویس قابل ادامه ساخته می‌شود."}
+            {loadError
+              ? loadError
+              : records.length
+                ? "عبارت جست‌وجو یا فیلترها را تغییر دهید."
+                : "با ثبت مسئله جدید، یک پیش‌نویس قابل ادامه ساخته می‌شود."}
           </p>
-          {records.length ? (
+          {loadError ? (
+            <button
+              type="button"
+              className="challenge-button challenge-button--secondary"
+              onClick={() => void refresh()}
+            >
+              تلاش دوباره
+            </button>
+          ) : records.length ? (
             <button
               type="button"
               className="challenge-button challenge-button--secondary"
@@ -221,13 +251,19 @@ export function ChallengeListPage() {
         confirmLabel="حذف پیش‌نویس"
         danger
         onCancel={() => setDeleteTarget(null)}
-        onConfirm={() => {
-          if (deleteTarget && deleteChallenge(deleteTarget.id)) {
-            refresh();
+        onConfirm={async () => {
+          if (deleteTarget) {
+            const id = deleteTarget.id;
+            setDeleteTarget(null);
+            const result = await demoChallengeGateway.commands.delete(id);
+            if (!result.ok) {
+              setToast(result.error.message);
+              return;
+            }
+            await refresh();
             setToast("پیش‌نویس حذف شد.");
             window.setTimeout(() => setToast(""), 2200);
           }
-          setDeleteTarget(null);
         }}
       />
       <Toast message={toast} />

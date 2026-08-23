@@ -67,10 +67,13 @@ describe("صفحه استاندارد کشف چالش‌ها", () => {
     );
   });
 
-  it("جزئیات چالش بسته را بدون CTA ارسال نمایش می‌دهد", () => {
+  it("جزئیات چالش بسته را بدون CTA ارسال نمایش می‌دهد", async () => {
     render(<ChallengeDiscoveryApp challengeKey="boiler-emission" />);
     expect(
-      screen.getByRole("heading", { level: 1, name: "کاهش آلایندگی بویلر بدون افت راندمان" }),
+      await screen.findByRole("heading", {
+        level: 1,
+        name: "کاهش آلایندگی بویلر بدون افت راندمان",
+      }),
     ).toBeInTheDocument();
     expect(
       screen.getByText("این چالش بسته شده و دریافت راه‌حل جدید فعال نیست."),

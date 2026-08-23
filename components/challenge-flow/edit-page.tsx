@@ -9,7 +9,11 @@ import {
   DefinitionStep,
   OutcomeStep,
 } from "@/components/challenge-flow/edit-steps";
-import { ChallengeShell, NotFoundState } from "@/components/challenge-flow/shell";
+import {
+  ChallengeLoadErrorState,
+  ChallengeShell,
+  NotFoundState,
+} from "@/components/challenge-flow/shell";
 import { SaveIndicator, WizardStepper } from "@/components/challenge-flow/wizard";
 import { useChallengeRecord } from "@/components/challenge-flow/hooks";
 import { isDraftStatus } from "@/domain/challenge";
@@ -24,7 +28,8 @@ function stepFromLocation(fallback: WizardStep): WizardStep {
 }
 
 export function ChallengeEditPage({ id }: { id: string }) {
-  const { record, updateRecord, saveNow, saveStatus, lastSavedLabel } = useChallengeRecord(id);
+  const { record, updateRecord, saveNow, saveStatus, lastSavedLabel, loadError } =
+    useChallengeRecord(id);
   const [step, setStep] = useState<WizardStep>(1);
   const [showErrors, setShowErrors] = useState(false);
   const [toast, setToast] = useState("");
@@ -71,6 +76,7 @@ export function ChallengeEditPage({ id }: { id: string }) {
         <div className="challenge-loading-state">در حال بارگذاری پرونده…</div>
       </ChallengeShell>
     );
+  if (loadError) return <ChallengeLoadErrorState message={loadError} />;
   if (!record) return <NotFoundState />;
   if (!isDraftStatus(record.status)) {
     return (
@@ -95,7 +101,7 @@ export function ChallengeEditPage({ id }: { id: string }) {
   }
 
   const activeStep = wizardSteps.find((item) => item.id === step)!;
-  const continueFlow = () => {
+  const continueFlow = async () => {
     const nextIssues = validateStep(record, step);
     if (step < 4 && nextIssues.length) {
       setShowErrors(true);
@@ -106,7 +112,11 @@ export function ChallengeEditPage({ id }: { id: string }) {
       );
       return;
     }
-    saveNow();
+    const saved = await saveNow();
+    if (!saved) {
+      setToast("ذخیره پیش‌نویس انجام نشد؛ دوباره تلاش کنید.");
+      return;
+    }
     if (step < 4) goToStep((step + 1) as WizardStep);
     else navigateChallenge(`/app/org/challenges/${record.id}/preview`);
   };
@@ -134,8 +144,13 @@ export function ChallengeEditPage({ id }: { id: string }) {
           type="button"
           className="challenge-button challenge-button--quiet"
           onClick={() => {
-            saveNow();
-            navigateChallenge("/app/org/challenges");
+            void saveNow().then((saved) => {
+              if (!saved) {
+                setToast("ذخیره پیش‌نویس انجام نشد؛ دوباره تلاش کنید.");
+                return;
+              }
+              navigateChallenge("/app/org/challenges");
+            });
           }}
         >
           ذخیره و خروج
@@ -168,9 +183,12 @@ export function ChallengeEditPage({ id }: { id: string }) {
               type="button"
               className="challenge-button challenge-button--secondary"
               onClick={() => {
-                saveNow();
-                setToast("پیش‌نویس ذخیره شد.");
-                window.setTimeout(() => setToast(""), 2000);
+                void saveNow().then((saved) => {
+                  setToast(
+                    saved ? "پیش‌نویس ذخیره شد." : "ذخیره پیش‌نویس انجام نشد؛ دوباره تلاش کنید.",
+                  );
+                  window.setTimeout(() => setToast(""), 2000);
+                });
               }}
             >
               ذخیره پیش‌نویس
@@ -179,7 +197,7 @@ export function ChallengeEditPage({ id }: { id: string }) {
           <button
             type="button"
             className="challenge-button challenge-button--primary"
-            onClick={continueFlow}
+            onClick={() => void continueFlow()}
           >
             {step === 4 ? "مشاهده پیش‌نمایش" : "ذخیره و ادامه"}
           </button>

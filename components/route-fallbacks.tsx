@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Brand } from "@/components/brand";
 import type { LegacyUnavailableResolution } from "@/data/legacy-redirects";
-import type { InternalRole } from "@/domain/product";
+import type { AppPersona } from "@/domain/persona";
 
 export function ProductNotFound({ requestedPath }: { requestedPath?: string }) {
   return (
@@ -66,7 +66,7 @@ export function RouteResolving() {
   );
 }
 
-export function SessionRequired({ role, returnTo }: { role: InternalRole; returnTo: string }) {
+export function SessionRequired({ role, returnTo }: { role: AppPersona; returnTo: string }) {
   const loginPath = role === "org" ? "/auth/organization/login" : "/auth/login";
   const roleQuery = role === "solver" || role === "org" ? "" : `&role=${role}`;
   return (

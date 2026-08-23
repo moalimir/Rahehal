@@ -1,4 +1,4 @@
-import type { ApplicantScope } from "@/domain/taxonomy";
+import type { ApplicantScope, ApplicantType } from "@/domain/taxonomy";
 
 export type ChallengeStatus =
   | "draft"
@@ -43,7 +43,6 @@ export type SuccessCriterion = {
 
 export type OutputType = "idea" | "solution" | "poc" | "pilot" | "project" | "technology" | "";
 export type SourcingModel = "public" | "private" | "hybrid" | "";
-export type SolverType = "individual" | "team" | "company" | "university";
 export type WorkMode = "onsite" | "remote" | "hybrid" | "";
 export type BudgetStatus = "fixed" | "quote" | "undecided" | "non_cash" | "";
 export type Visibility = "public" | "registered" | "invite_only" | "nda" | "";
@@ -70,7 +69,7 @@ export type ChallengeRecord = {
   previousAttempts: string;
   outputType: OutputType;
   sourcingModel: SourcingModel;
-  solverTypes: SolverType[];
+  allowedApplicantTypes: ApplicantType[];
   applicantScope: ApplicantScope | "";
   workMode: WorkMode;
   proposalDeadline: string;
@@ -132,11 +131,12 @@ export const sourcingModelLabels: Record<Exclude<SourcingModel, "">, string> = {
   hybrid: "ترکیبی",
 };
 
-export const solverTypeLabels: Record<SolverType, string> = {
+export const applicantTypeLabels: Record<ApplicantType, string> = {
   individual: "متخصص مستقل",
-  team: "تیم تخصصی",
+  "expert-team": "تیم تخصصی",
   company: "استارتاپ یا شرکت",
-  university: "دانشگاه یا پژوهشگاه",
+  lab: "آزمایشگاه یا مرکز پژوهشی",
+  "academic-group": "دانشگاه یا گروه پژوهشی",
 };
 
 export const workModeLabels: Record<Exclude<WorkMode, "">, string> = {

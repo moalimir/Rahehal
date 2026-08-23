@@ -1,7 +1,7 @@
-import type { InternalRole } from "@/domain/product";
+import type { AppPersona } from "@/domain/persona";
 import { challenges } from "@/data/mock";
 import { DIRECT_OFFER_ID_POOL } from "@/lib/offers/store";
-import { CHALLENGE_ROUTE_IDS } from "@/lib/challenges/storage";
+import { CHALLENGE_ROUTE_IDS } from "@/lib/challenges/ids";
 import { createCanonicalSolverState } from "@/data/solver-fixtures";
 
 export type InternalExperience =
@@ -56,7 +56,7 @@ export type InternalExperience =
 export type InternalRoute = {
   prdId: string;
   path: string;
-  role: InternalRole;
+  role: AppPersona;
   title: string;
   eyebrow: string;
   summary: string;
@@ -68,7 +68,7 @@ export type InternalRoute = {
 const route = (
   prdId: string,
   path: string,
-  role: InternalRole,
+  role: AppPersona,
   title: string,
   experience: InternalExperience,
   primaryAction: string,

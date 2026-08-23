@@ -1,5 +1,6 @@
 import { getOrganization } from "@/data/organization-registry";
 import { challenges } from "@/data/mock";
+import type { OpportunityView } from "@/lib/challenges/public-catalog";
 import { challengeEligibilityRules } from "@/lib/solver/eligibility";
 import { proposalsForWorkspace, readSolverState } from "@/lib/solver/repository";
 
@@ -80,7 +81,10 @@ function scenarioFor(challengeId: string, deadline: string, workspaceId?: string
   return "new";
 }
 
-export function buildChallengeItems(catalog = challenges, workspaceId?: string) {
+export function buildChallengeItems(
+  catalog: readonly OpportunityView[] = challenges,
+  workspaceId?: string,
+) {
   return catalog.map((challenge, index) => {
     const publisher = getOrganization(challenge.organizationId);
     const rule = challengeEligibilityRules[challenge.id];

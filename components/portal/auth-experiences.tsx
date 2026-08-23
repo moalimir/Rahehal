@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { Brand } from "@/components/brand";
 import { Icon } from "@/components/icons";
 import { SiteHeader } from "@/components/site-header";
-import { signInAsAuthorizedOrganization } from "@/lib/challenges/storage";
+import { signInAsAuthorizedOrganization } from "@/lib/auth/demo-organization-session";
 import { createDemoSession } from "@/lib/auth/session";
 import { safeReturnTo } from "@/lib/auth/return-to";
 import { buildSolverHref } from "@/lib/solver/context";

@@ -1,18 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import { ChallengeShell, NotFoundState, StatusBadge } from "@/components/challenge-flow/shell";
+import {
+  ChallengeLoadErrorState,
+  ChallengeShell,
+  NotFoundState,
+  StatusBadge,
+} from "@/components/challenge-flow/shell";
 import { useChallengeRecord } from "@/components/challenge-flow/hooks";
-import { formatDateTime } from "@/lib/challenges/storage";
+import { formatDateTime } from "@/lib/challenges/model";
 
 export function ChallengeSubmittedPage({ id }: { id: string }) {
-  const { record } = useChallengeRecord(id);
+  const { record, loadError } = useChallengeRecord(id);
   if (record === undefined)
     return (
       <ChallengeShell title="رسید ارسال">
         <div className="challenge-loading-state">در حال خواندن رسید…</div>
       </ChallengeShell>
     );
+  if (loadError) return <ChallengeLoadErrorState message={loadError} />;
   if (!record) return <NotFoundState />;
   if (!record.submittedAt) {
     return (

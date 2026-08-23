@@ -1,4 +1,4 @@
-import type { InternalRole } from "@/domain/product";
+import type { AppPersona } from "@/domain/persona";
 import { CURRENT_SOLVER_USER_ID, PERSONAL_WORKSPACE_ID } from "@/data/solver-fixtures";
 import type { ActiveWorkspace } from "@/domain/solver";
 
@@ -8,7 +8,7 @@ const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 export type DemoSession = {
   version: 1 | 2;
   userId: string;
-  role: InternalRole;
+  role: AppPersona;
   workspaceId: string;
   activeWorkspace?: ActiveWorkspace;
   twoFactorVerified: boolean;
@@ -16,7 +16,7 @@ export type DemoSession = {
 };
 
 export function createDemoSession(
-  role: InternalRole,
+  role: AppPersona,
   workspaceId: string,
   twoFactorVerified = true,
 ): DemoSession {
@@ -79,6 +79,6 @@ export function clearDemoSession() {
   if (typeof window !== "undefined") localStorage.removeItem(SESSION_KEY);
 }
 
-export function canAccessInternalRole(session: DemoSession | null, role: InternalRole): boolean {
+export function canAccessInternalRole(session: DemoSession | null, role: AppPersona): boolean {
   return Boolean(session && session.role === role);
 }

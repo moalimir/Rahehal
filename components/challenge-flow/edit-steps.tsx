@@ -14,7 +14,7 @@ import {
   categoryOptions,
   ipTermLabels,
   outputTypeLabels,
-  solverTypeLabels,
+  applicantTypeLabels,
   sourcingModelLabels,
   visibilityLabels,
   workModeLabels,
@@ -22,13 +22,12 @@ import {
   type ChallengeRecord,
   type IpTerms,
   type OutputType,
-  type SolverType,
   type SourcingModel,
   type Visibility,
   type WorkMode,
 } from "@/domain/challenge";
-import type { ApplicantScope } from "@/domain/taxonomy";
-import { createAttachment } from "@/lib/challenges/storage";
+import { applicantScopeForTypes, type ApplicantType } from "@/domain/taxonomy";
+import { createAttachment } from "@/lib/challenges/model";
 import { issueFor, type ValidationIssue } from "@/lib/challenges/validation";
 import { CHALLENGE_UPLOAD_ACCEPT, challengeUploadError } from "@/lib/validation/upload";
 
@@ -337,28 +336,34 @@ export function CollaborationStep({ record, issues, update }: StepProps) {
           hint="نام مجموعه‌ها را با ویرگول از هم جدا کنید."
         />
       )}
-      <CheckboxGroup<SolverType>
+      <CheckboxGroup<ApplicantType>
         legend="مشارکت‌کنندگان مجاز"
         required
-        values={record.solverTypes}
-        options={Object.entries(solverTypeLabels) as Array<[SolverType, string]>}
-        onChange={(value) => setField(update, "solverTypes", value)}
-        error={issueFor(issues, "solverTypes")}
+        values={record.allowedApplicantTypes}
+        options={Object.entries(applicantTypeLabels) as Array<[ApplicantType, string]>}
+        onChange={(value) =>
+          update((current) => ({
+            ...current,
+            allowedApplicantTypes: value,
+            applicantScope: applicantScopeForTypes(value) ?? "",
+          }))
+        }
+        error={issueFor(issues, "allowedApplicantTypes")}
       />
       <div className="challenge-form-grid">
-        <RadioGroup<ApplicantScope | "">
-          legend="نوع همکاری"
-          required
-          value={record.applicantScope}
-          compact
-          options={[
-            ["person", "شخص"],
-            ["team", "تیم"],
-            ["both", "هر دو"],
-          ]}
-          onChange={(value) => setField(update, "applicantScope", value)}
-          error={issueFor(issues, "applicantScope")}
-        />
+        <div className="challenge-field">
+          <span>دامنه همکاری</span>
+          <strong>
+            {record.applicantScope === "person"
+              ? "فرد"
+              : record.applicantScope === "team"
+                ? "تیم"
+                : record.applicantScope === "both"
+                  ? "فرد و تیم"
+                  : "پس از انتخاب مشارکت‌کنندگان تعیین می‌شود"}
+          </strong>
+          <small>این مقدار از مشارکت‌کنندگان مجاز محاسبه می‌شود و ورودی مستقلی نیست.</small>
+        </div>
         <RadioGroup<WorkMode>
           legend="شیوه انجام"
           required

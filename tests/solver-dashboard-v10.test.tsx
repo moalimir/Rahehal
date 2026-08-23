@@ -67,7 +67,7 @@ describe("سناریوهای چالش و جزئیات", () => {
       expect(screen.getAllByText(label).length).toBeGreaterThan(0);
   });
 
-  it("جزئیات هر چالش مسیر ارسال، ذخیره و الزامات کامل را نشان می‌دهد", () => {
+  it("جزئیات هر چالش مسیر ارسال، ذخیره و الزامات کامل را نشان می‌دهد", async () => {
     window.history.replaceState(
       {},
       "",
@@ -75,13 +75,16 @@ describe("سناریوهای چالش و جزئیات", () => {
     );
     render(<ChallengeDiscoveryApp challengeKey="smart-water-recovery" />);
     expect(
-      screen.getByRole("heading", { level: 1, name: "بازیابی هوشمند آب در خط شست‌وشوی صنعتی" }),
+      await screen.findByRole("heading", {
+        level: 1,
+        name: "بازیابی هوشمند آب در خط شست‌وشوی صنعتی",
+      }),
     ).toBeInTheDocument();
     expect(screen.getByText("معیارهای ارزیابی")).toBeInTheDocument();
     expect(screen.getByText("فرایند همکاری")).toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: "اعمال اصلاحات در راه‌حل" }).length).toBeGreaterThan(
-      0,
-    );
+    expect(
+      (await screen.findAllByRole("link", { name: "اعمال اصلاحات در راه‌حل" })).length,
+    ).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "ذخیره فرصت" })).toBeInTheDocument();
   });
 });

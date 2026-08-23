@@ -11,13 +11,10 @@ import {
 } from "@/components/challenge-flow/fields";
 import { WizardStepper } from "@/components/challenge-flow/wizard";
 import { categoryOptions, currentUser, type ChallengeRecord } from "@/domain/challenge";
-import {
-  createAttachment,
-  createChallenge,
-  emptyChallenge,
-  type InitialChallengeInput,
-} from "@/lib/challenges/storage";
+import type { InitialChallengeInput } from "@/lib/challenges/gateway";
+import { createAttachment, emptyChallenge } from "@/lib/challenges/model";
 import { navigateChallenge } from "@/lib/challenges/navigation";
+import { demoChallengeGateway } from "@/lib/challenges/runtime";
 import { issueFor, validateStep } from "@/lib/challenges/validation";
 import { CHALLENGE_UPLOAD_ACCEPT, challengeUploadError } from "@/lib/validation/upload";
 
@@ -37,6 +34,7 @@ export function ChallengeIntakePage() {
   const [submitted, setSubmitted] = useState(false);
   const [fatalError, setFatalError] = useState("");
   const [fileError, setFileError] = useState("");
+  const [busy, setBusy] = useState(false);
   const record = { ...emptyChallenge("NEW"), ...form } as ChallengeRecord;
   const issues = submitted ? validateStep(record, 1) : [];
   const update = <K extends keyof InitialChallengeInput>(
@@ -44,19 +42,22 @@ export function ChallengeIntakePage() {
     value: InitialChallengeInput[K],
   ) => setForm((current) => ({ ...current, [field]: value }));
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     setSubmitted(true);
+    setFatalError("");
     const nextIssues = validateStep(record, 1);
     if (nextIssues.length) {
       document.querySelector(".challenge-error-summary")?.scrollIntoView({ block: "center" });
       return;
     }
-    try {
-      const draft = createChallenge(form);
-      navigateChallenge(`/app/org/challenges/${draft.id}/edit?step=2`);
-    } catch (error) {
-      setFatalError(error instanceof Error ? error.message : "پیش‌نویس ساخته نشد.");
+    setBusy(true);
+    const result = await demoChallengeGateway.commands.create(form);
+    setBusy(false);
+    if (!result.ok) {
+      setFatalError(result.error.message);
+      return;
     }
+    navigateChallenge(`/app/org/challenges/${result.data.id}/edit?step=2`);
   };
 
   return (
@@ -185,9 +186,10 @@ export function ChallengeIntakePage() {
           <button
             type="button"
             className="challenge-button challenge-button--primary"
-            onClick={handleSubmit}
+            disabled={busy}
+            onClick={() => void handleSubmit()}
           >
-            ذخیره و ادامه
+            {busy ? "در حال ذخیره…" : "ذخیره و ادامه"}
           </button>
         </footer>
       </section>

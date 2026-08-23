@@ -1,4 +1,4 @@
-import type { InternalRole } from "@/domain/product";
+import type { AppPersona } from "@/domain/persona";
 
 export type ServiceMode = "success" | "offline" | "conflict" | "error";
 
@@ -15,7 +15,7 @@ export type ActionReceipt = {
 export type ProductCommand = {
   action: string;
   entityRef: string;
-  actorRole: InternalRole;
+  actorRole: AppPersona;
   idempotencyKey: string;
 };
 

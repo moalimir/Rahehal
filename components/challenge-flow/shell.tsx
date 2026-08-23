@@ -75,3 +75,20 @@ export function NotFoundState() {
     </ChallengeShell>
   );
 }
+
+export function ChallengeLoadErrorState({ message }: { message: string }) {
+  return (
+    <ChallengeShell
+      title="خواندن پرونده انجام نشد"
+      description="ذخیره‌سازی نسخه نمایشی موقتاً در دسترس نیست."
+    >
+      <section className="challenge-empty-state" role="alert">
+        <h2>دسترسی به داده‌های پرونده برقرار نشد</h2>
+        <p>{message}</p>
+        <Link className="challenge-button challenge-button--primary" href="/app/org/challenges">
+          بازگشت به مسئله‌ها
+        </Link>
+      </section>
+    </ChallengeShell>
+  );
+}

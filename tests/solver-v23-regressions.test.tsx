@@ -16,12 +16,12 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("رگرسیون‌های رابط کاربری نسخه ۲۳", () => {
-  it("فایل‌های نمونه جزئیات چالش هیچ لینک یا تغییر مسیری ندارند", () => {
+  it("فایل‌های نمونه جزئیات چالش هیچ لینک یا تغییر مسیری ندارند", async () => {
     render(<ChallengeDiscoveryApp challengeKey="smart-water-recovery" />);
 
+    expect(await screen.findByText("دسترسی پس از پذیرش NDA")).toBeInTheDocument();
     expect(screen.queryByText("شرح فنی و داده‌های خط پایه")).not.toBeInTheDocument();
     expect(screen.queryByText("نقشه جانمایی تجهیزات")).not.toBeInTheDocument();
-    expect(screen.getByText("دسترسی پس از پذیرش NDA")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "بررسی شرایط دسترسی" })).toHaveAttribute(
       "href",
       expect.stringContaining("entity=CH-1405-021"),

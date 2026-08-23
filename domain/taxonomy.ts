@@ -1,27 +1,14 @@
-export const applicantScopes = ["person", "team", "both"] as const;
-
-export type ApplicantScope = (typeof applicantScopes)[number];
-
-export function isApplicantScope(value: unknown): value is ApplicantScope {
-  return applicantScopes.includes(value as ApplicantScope);
-}
-
-export const applicantTypes = [
-  "individual",
-  "expert-team",
-  "company",
-  "lab",
-  "academic-group",
-] as const;
-
-export type ApplicantType = (typeof applicantTypes)[number];
-
-export type TeamKind = Exclude<ApplicantType, "individual">;
-
-export const teamKinds = applicantTypes.filter(
-  (applicantType): applicantType is TeamKind => applicantType !== "individual",
-);
-
-export function isTeamKind(value: unknown): value is TeamKind {
-  return teamKinds.includes(value as TeamKind);
-}
+// Transitional web compatibility surface. The browser code keeps its stable
+// import path while the canonical, browser-free taxonomy lives in the shared
+// domain workspace used by web, API, contracts, and worker.
+export {
+  applicantScopes,
+  applicantScopeForTypes,
+  applicantScopeMatchesTypes,
+  applicantTypes,
+  isApplicantScope,
+  isApplicantType,
+  isTeamKind,
+  teamKinds,
+} from "@rahhal/domain/taxonomy";
+export type { ApplicantScope, ApplicantType, TeamKind } from "@rahhal/domain/taxonomy";

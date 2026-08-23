@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Icon } from "@/components/icons";
-import { signInAsAuthorizedOrganization } from "@/lib/challenges/storage";
+import { signInAsAuthorizedOrganization } from "@/lib/auth/demo-organization-session";
 import { safeReturnTo } from "@/lib/auth/return-to";
 import { readSolverAuthParams } from "@/components/portal/auth-experiences";
 import type { RouteDefinition } from "@/types";

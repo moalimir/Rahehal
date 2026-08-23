@@ -1,19 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import { ChallengeShell, NotFoundState } from "@/components/challenge-flow/shell";
+import {
+  ChallengeLoadErrorState,
+  ChallengeShell,
+  NotFoundState,
+} from "@/components/challenge-flow/shell";
 import { useChallengeRecord } from "@/components/challenge-flow/hooks";
 import { isDraftStatus, outputTypeLabels, sourcingModelLabels } from "@/domain/challenge";
-import { formatDateTime } from "@/lib/challenges/storage";
+import { formatDateTime } from "@/lib/challenges/model";
 
 export function ChallengeDetailPage({ id }: { id: string }) {
-  const { record } = useChallengeRecord(id);
+  const { record, loadError } = useChallengeRecord(id);
   if (record === undefined)
     return (
       <ChallengeShell title="نمای پرونده">
         <div className="challenge-loading-state">در حال خواندن پرونده…</div>
       </ChallengeShell>
     );
+  if (loadError) return <ChallengeLoadErrorState message={loadError} />;
   if (!record) return <NotFoundState />;
   const editable = isDraftStatus(record.status);
   const actionLabel = record.status === "needs_changes" ? "ویرایش" : "ادامه تکمیل";

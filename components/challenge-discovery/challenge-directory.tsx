@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { OrganizationLogo } from "@/components/challenge-organization-logo";
 import { Icon } from "@/components/icons";
 import { ChallengeCard } from "@/components/challenge-discovery/challenge-card";
@@ -10,7 +10,6 @@ import {
   buildChallengeItems,
   budgetLabel,
   categoryLabels,
-  challengeItems,
   normalizeFa,
   readParams,
   scenarioLabels,
@@ -19,7 +18,7 @@ import {
   type Scenario,
   type AllowedApplicant,
 } from "@/components/challenge-discovery/catalog";
-import { listCatalogChallenges } from "@/lib/challenges/public-catalog";
+import { demoOpportunityGateway } from "@/lib/challenges/runtime";
 import { isOpportunitySaved, SAVED_OPPORTUNITIES_EVENT } from "@/lib/solver/saved-opportunities";
 import { readChallengeLayout, writeChallengeLayout } from "@/lib/solver/ui-preferences";
 
@@ -49,8 +48,27 @@ export function ChallengeDirectory({
     (initial.get("compare") ?? "").split(",").filter(Boolean),
   );
   const [savedIds, setSavedIds] = useState<string[]>([]);
-  const [items, setItems] = useState(challengeItems);
+  const [items, setItems] = useState<ReturnType<typeof buildChallengeItems>>([]);
+  const [catalogError, setCatalogError] = useState("");
+  const [catalogLoading, setCatalogLoading] = useState(true);
   const [compareNotice, setCompareNotice] = useState("");
+  const requestGenerationRef = useRef(0);
+
+  const refreshCatalog = useCallback(async () => {
+    const generation = ++requestGenerationRef.current;
+    setCatalogLoading(true);
+    setCatalogError("");
+    const result = await demoOpportunityGateway.queries.list();
+    if (generation !== requestGenerationRef.current) return false;
+    setCatalogLoading(false);
+    if (result.ok) {
+      setItems(buildChallengeItems(result.data, workspaceId));
+      return true;
+    }
+    setItems([]);
+    setCatalogError(result.error.message);
+    return false;
+  }, [workspaceId]);
 
   useEffect(() => {
     const syncFromLocation = () => {
@@ -73,16 +91,17 @@ export function ChallengeDirectory({
   }, []);
 
   useEffect(() => {
-    const refreshCatalog = () =>
-      setItems(buildChallengeItems(listCatalogChallenges(), workspaceId));
-    refreshCatalog();
-    window.addEventListener("storage", refreshCatalog);
-    window.addEventListener("rahhal:challenges", refreshCatalog);
+    setItems([]);
+    const sync = () => void refreshCatalog();
+    void refreshCatalog();
+    window.addEventListener("storage", sync);
+    window.addEventListener("rahhal:challenges", sync);
     return () => {
-      window.removeEventListener("storage", refreshCatalog);
-      window.removeEventListener("rahhal:challenges", refreshCatalog);
+      requestGenerationRef.current += 1;
+      window.removeEventListener("storage", sync);
+      window.removeEventListener("rahhal:challenges", sync);
     };
-  }, [workspaceId]);
+  }, [refreshCatalog]);
 
   useEffect(() => {
     const sync = () =>
@@ -188,6 +207,15 @@ export function ChallengeDirectory({
           {teamSpace ? "فضای تیمی" : "فضای شخصی"} <Icon name="people" />
         </Link>
       </section>
+
+      {catalogError && (
+        <div className="challenge-inline-error" role="alert">
+          {catalogError}
+          <button type="button" onClick={() => void refreshCatalog()}>
+            تلاش دوباره
+          </button>
+        </div>
+      )}
 
       <section className="rh-filter-card" aria-label="جست‌وجو و فیلتر چالش‌ها">
         <div className="rh-filter-card__main">
@@ -308,7 +336,17 @@ export function ChallengeDirectory({
         </div>
       </div>
 
-      {filtered.length ? (
+      {catalogLoading ? (
+        <section className="rh-empty" role="status">
+          <h2>در حال خواندن فرصت‌ها…</h2>
+          <p>فهرست منتشرشده در حال به‌روزرسانی است.</p>
+        </section>
+      ) : catalogError ? (
+        <section className="rh-empty">
+          <h2>فرصت‌ها در دسترس نیستند</h2>
+          <p>تا برقراری دوباره دسترسی، هیچ داده جایگزینی نمایش داده نمی‌شود.</p>
+        </section>
+      ) : filtered.length ? (
         <div className={`rh-challenge-grid rh-challenge-grid--${layout}`} data-layout={layout}>
           {filtered.map((challenge) => (
             <ChallengeCard

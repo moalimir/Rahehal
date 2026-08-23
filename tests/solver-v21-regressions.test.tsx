@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { readFileSync } from "node:fs";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ChallengeDiscoveryApp } from "@/components/challenge-discovery";
 import { InternalApp } from "@/components/internal/internal-app";
@@ -24,9 +24,11 @@ afterEach(() => {
 });
 
 describe("رگرسیون‌های رابط کاربری نسخه ۲۱", () => {
-  it("نمایش فهرستی چالش‌ها را فعال و برای بازدید بعدی ذخیره می‌کند", () => {
+  it("نمایش فهرستی چالش‌ها را فعال و برای بازدید بعدی ذخیره می‌کند", async () => {
     render(<ChallengeDiscoveryApp embedded space="team" />);
-    expect(document.querySelector(".rh-challenge-grid")).toHaveAttribute("data-layout", "grid");
+    await waitFor(() =>
+      expect(document.querySelector(".rh-challenge-grid")).toHaveAttribute("data-layout", "grid"),
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "نمایش فهرستی" }));
 

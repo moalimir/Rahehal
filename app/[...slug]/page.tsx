@@ -15,7 +15,7 @@ import { getInternalRoute, internalRoutes } from "@/data/internal-routes";
 import { getPublicProductRoute, publicProductRoutes } from "@/data/public-product-routes";
 import { routeDefinitions } from "@/data/routes";
 import { challenges } from "@/data/mock";
-import { CHALLENGE_ROUTE_IDS } from "@/lib/challenges/storage";
+import { CHALLENGE_ROUTE_IDS } from "@/lib/challenges/ids";
 import { getLegacyResolution, legacyRouteEntries } from "@/data/legacy-redirects";
 
 export const dynamicParams = false;

@@ -1,22 +1,38 @@
 import {
-  currentUser,
-  type Attachment,
+  budgetStatusLabels,
+  challengeStatuses,
+  ipTermLabels,
+  outputTypeLabels,
+  sourcingModelLabels,
+  visibilityLabels,
+  workModeLabels,
   type ChallengeRecord,
   type ChallengeStatus,
 } from "@/domain/challenge";
-import { isApplicantScope } from "@/domain/taxonomy";
-import { createDemoSession } from "@/lib/auth/session";
+import { applicantScopeForTypes, isApplicantType, type ApplicantType } from "@/domain/taxonomy";
+import type { InitialChallengeInput } from "@/lib/challenges/gateway";
+import { DRAFT_ID_POOL } from "@/lib/challenges/ids";
+import { emptyChallenge } from "@/lib/challenges/model";
 import { isRecordReady } from "@/lib/challenges/validation";
-import { safeUploadName } from "@/lib/validation/upload";
 
-const STORAGE_KEY = "rahhal.organization-challenges.v8";
-const PREVIOUS_STORAGE_KEY = "rahhal.organization-challenges.v7";
-const LEGACY_STORAGE_KEY = "rahhal.organization-challenges.v6";
-const SEEDED_KEY = "rahhal.organization-challenges.seeded.v8";
-const PREVIOUS_SEEDED_KEY = "rahhal.organization-challenges.seeded.v7";
-const STORE_VERSION = 8;
-const PREVIOUS_STORE_VERSION = 7;
+const STORAGE_KEY = "rahhal.organization-challenges.v9";
+const PREVIOUS_STORAGE_KEY = "rahhal.organization-challenges.v8";
+const PREVIOUS_STORAGE_FRESH_KEY = "rahhal.organization-challenges.v8.mirror-fresh";
+const LEGACY_STORAGE_KEY = "rahhal.organization-challenges.v7";
+const LEGACY_STORAGE_FRESH_KEY = "rahhal.organization-challenges.v7.mirror-fresh";
+const OLDEST_STORAGE_KEY = "rahhal.organization-challenges.v6";
+const SEEDED_KEY = "rahhal.organization-challenges.seeded.v9";
+const PREVIOUS_SEEDED_KEY = "rahhal.organization-challenges.seeded.v8";
+const LEGACY_SEEDED_KEY = "rahhal.organization-challenges.seeded.v7";
+const STORE_VERSION = 9;
+const PREVIOUS_STORE_VERSION = 8;
+const LEGACY_STORE_VERSION = 7;
 const STORE_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+
+export const challengeDemoMessages = {
+  draftCapacity: "ظرفیت پیش‌نویس‌های نسخه نمایشی تکمیل است؛ یک پیش‌نویس را حذف کنید.",
+  incomplete: "اطلاعات مسئله کامل نیست؛ خطاهای پیش‌نمایش را رفع و دوباره ارسال کنید.",
+} as const;
 
 type ChallengeStoreEnvelope = {
   version: typeof STORE_VERSION;
@@ -25,31 +41,247 @@ type ChallengeStoreEnvelope = {
 };
 
 type StoredChallengeEnvelope = {
-  version: typeof STORE_VERSION | typeof PREVIOUS_STORE_VERSION;
+  version: typeof STORE_VERSION | typeof PREVIOUS_STORE_VERSION | typeof LEGACY_STORE_VERSION;
   updatedAt: string;
   records: unknown[];
 };
 
-export const DRAFT_ID_POOL = Array.from(
-  { length: 8 },
-  (_, index) => `CH-DRAFT-${String(index + 1).padStart(3, "0")}`,
-);
+export class ChallengeDemoStorageError extends Error {
+  constructor(
+    public readonly operation: "read" | "write" | "remove",
+    options?: ErrorOptions,
+  ) {
+    super("Challenge demo storage operation failed.", options);
+    this.name = "ChallengeDemoStorageError";
+  }
+}
 
-export const SEEDED_CHALLENGE_IDS = ["CH-1405-021", "CH-1405-034", "CH-1405-041", "CH-1405-052"];
-export const CHALLENGE_ROUTE_IDS = [...SEEDED_CHALLENGE_IDS, ...DRAFT_ID_POOL];
+export function isChallengeDemoStorageAvailable() {
+  if (typeof window === "undefined") return false;
+  try {
+    return Boolean(window.localStorage);
+  } catch {
+    return false;
+  }
+}
 
-function canUseStorage() {
-  return typeof window !== "undefined" && Boolean(window.localStorage);
+function readStorageItem(key: string) {
+  try {
+    return window.localStorage.getItem(key);
+  } catch (cause) {
+    throw new ChallengeDemoStorageError("read", { cause });
+  }
+}
+
+function writeStorageItem(key: string, value: string) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch (cause) {
+    throw new ChallengeDemoStorageError("write", { cause });
+  }
+}
+
+function removeStorageItem(key: string) {
+  try {
+    window.localStorage.removeItem(key);
+  } catch (cause) {
+    throw new ChallengeDemoStorageError("remove", { cause });
+  }
+}
+
+function previousStoreFreshness(records: ChallengeRecord[]) {
+  return JSON.stringify(
+    records
+      .map(({ id, updatedAt }) => [id, updatedAt] as const)
+      .sort(([leftId], [rightId]) => leftId.localeCompare(rightId)),
+  );
+}
+
+function clearPreviousStoreSnapshotBestEffort() {
+  for (const key of [PREVIOUS_STORAGE_KEY, PREVIOUS_STORAGE_FRESH_KEY]) {
+    try {
+      removeStorageItem(key);
+    } catch (error) {
+      if (!(error instanceof ChallengeDemoStorageError)) throw error;
+    }
+  }
+}
+
+function clearLegacyMigrationSourcesBestEffort() {
+  for (const key of [
+    LEGACY_STORAGE_KEY,
+    LEGACY_STORAGE_FRESH_KEY,
+    OLDEST_STORAGE_KEY,
+    LEGACY_SEEDED_KEY,
+  ]) {
+    try {
+      removeStorageItem(key);
+    } catch (error) {
+      if (!(error instanceof ChallengeDemoStorageError)) throw error;
+    }
+  }
+}
+
+function refreshPreviousStoreSnapshot(records: ChallengeRecord[], serializedRecords: string) {
+  try {
+    // Invalidate first so an interrupted mirror refresh cannot be treated as complete.
+    removeStorageItem(PREVIOUS_STORAGE_FRESH_KEY);
+    if (readStorageItem(PREVIOUS_STORAGE_KEY) !== serializedRecords) {
+      writeStorageItem(PREVIOUS_STORAGE_KEY, serializedRecords);
+    }
+    writeStorageItem(PREVIOUS_STORAGE_FRESH_KEY, previousStoreFreshness(records));
+  } catch (error) {
+    if (!(error instanceof ChallengeDemoStorageError)) throw error;
+    clearPreviousStoreSnapshotBestEffort();
+  }
+}
+
+function markSeededBestEffort() {
+  try {
+    writeStorageItem(SEEDED_KEY, "true");
+  } catch (error) {
+    if (!(error instanceof ChallengeDemoStorageError)) throw error;
+  }
+}
+
+const legacyApplicantTypeMap = {
+  individual: "individual",
+  team: "expert-team",
+  company: "company",
+  university: "academic-group",
+} as const satisfies Record<string, ApplicantType>;
+
+type LegacyApplicantType = keyof typeof legacyApplicantTypeMap;
+
+type ApplicantTypeMigration = {
+  valid: boolean;
+  values: ApplicantType[];
+};
+
+function canonicalApplicantTypes(stored: Record<string, unknown>): ApplicantTypeMigration {
+  const hasCanonicalField = Object.prototype.hasOwnProperty.call(stored, "allowedApplicantTypes");
+  const source = hasCanonicalField ? stored.allowedApplicantTypes : stored.solverTypes;
+  if (source === undefined) return { valid: true, values: [] };
+  if (!Array.isArray(source) || source.some((value) => typeof value !== "string")) {
+    return { valid: false, values: [] };
+  }
+  const values = hasCanonicalField
+    ? source.filter(isApplicantType)
+    : source.flatMap((value) => {
+        if (!Object.prototype.hasOwnProperty.call(legacyApplicantTypeMap, value)) return [];
+        return [legacyApplicantTypeMap[value as LegacyApplicantType]];
+      });
+  return { valid: true, values: [...new Set(values)] };
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function isDateTime(value: unknown): value is string {
+  return isNonEmptyString(value) && Number.isFinite(new Date(value).getTime());
+}
+
+function hasOption(options: object, value: unknown) {
+  return typeof value === "string" && Object.prototype.hasOwnProperty.call(options, value);
+}
+
+function isAttachment(value: unknown): value is ChallengeRecord["attachments"][number] {
+  return (
+    isObjectRecord(value) &&
+    isNonEmptyString(value.id) &&
+    typeof value.name === "string" &&
+    typeof value.size === "number" &&
+    Number.isFinite(value.size) &&
+    value.size >= 0 &&
+    typeof value.type === "string" &&
+    isDateTime(value.addedAt)
+  );
+}
+
+function isSuccessCriterion(value: unknown): value is ChallengeRecord["successCriteria"][number] {
+  return (
+    isObjectRecord(value) &&
+    isNonEmptyString(value.id) &&
+    typeof value.title === "string" &&
+    typeof value.target === "string" &&
+    typeof value.method === "string"
+  );
+}
+
+const challengeStringFields = [
+  "title",
+  "summary",
+  "category",
+  "location",
+  "ownerName",
+  "desiredOutcome",
+  "currentState",
+  "consequence",
+  "expectedOutput",
+  "inScope",
+  "constraints",
+  "organizationSupport",
+  "previousAttempts",
+  "proposalDeadline",
+  "preferredStartDate",
+  "budgetAmount",
+  "invitees",
+  "publicSummary",
+  "contactName",
+  "contactEmail",
+  "contactPhone",
+  "legalNotes",
+] as const satisfies readonly (keyof ChallengeRecord)[];
+
+function isChallengeRecord(value: Record<string, unknown>): value is ChallengeRecord {
+  return (
+    isNonEmptyString(value.id) &&
+    hasOption(challengeStatuses, value.status) &&
+    challengeStringFields.every((field) => typeof value[field] === "string") &&
+    ["normal", "important", "urgent"].includes(value.urgency as string) &&
+    Array.isArray(value.attachments) &&
+    value.attachments.every(isAttachment) &&
+    Array.isArray(value.successCriteria) &&
+    value.successCriteria.every(isSuccessCriterion) &&
+    (value.outputType === "" || hasOption(outputTypeLabels, value.outputType)) &&
+    (value.sourcingModel === "" || hasOption(sourcingModelLabels, value.sourcingModel)) &&
+    Array.isArray(value.allowedApplicantTypes) &&
+    value.allowedApplicantTypes.every(isApplicantType) &&
+    value.applicantScope ===
+      (applicantScopeForTypes(value.allowedApplicantTypes as ApplicantType[]) ?? "") &&
+    (value.workMode === "" || hasOption(workModeLabels, value.workMode)) &&
+    (value.budgetStatus === "" || hasOption(budgetStatusLabels, value.budgetStatus)) &&
+    ["IRR", "USD", "EUR"].includes(value.currency as string) &&
+    (value.visibility === "" || hasOption(visibilityLabels, value.visibility)) &&
+    typeof value.ndaRequired === "boolean" &&
+    (value.ipTerms === "" || hasOption(ipTermLabels, value.ipTerms)) &&
+    typeof value.accuracyConfirmed === "boolean" &&
+    [1, 2, 3, 4].includes(value.lastStep as number) &&
+    isDateTime(value.createdAt) &&
+    isDateTime(value.updatedAt) &&
+    (value.submittedAt === undefined || isDateTime(value.submittedAt))
+  );
 }
 
 function migrateRecord(value: unknown): ChallengeRecord | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const stored = value as Record<string, unknown>;
-  const candidate = stored.applicantScope ?? stored.teamType;
-  const applicantScope = candidate === "" || isApplicantScope(candidate) ? candidate : "";
+  if (!isObjectRecord(value)) return null;
+  const stored = value;
+  const applicantTypes = canonicalApplicantTypes(stored);
+  if (!applicantTypes.valid) return null;
   const record = { ...stored };
   delete record.teamType;
-  return { ...record, applicantScope } as ChallengeRecord;
+  delete record.solverTypes;
+  const normalized = {
+    ...record,
+    applicantScope: applicantScopeForTypes(applicantTypes.values) ?? "",
+    allowedApplicantTypes: applicantTypes.values,
+  };
+  return isChallengeRecord(normalized) ? normalized : null;
 }
 
 function parseRecords(value: string | null): ChallengeRecord[] {
@@ -61,7 +293,8 @@ function parseRecords(value: string | null): ChallengeRecord[] {
       : parsed &&
           typeof parsed === "object" &&
           ((parsed as StoredChallengeEnvelope).version === STORE_VERSION ||
-            (parsed as StoredChallengeEnvelope).version === PREVIOUS_STORE_VERSION) &&
+            (parsed as StoredChallengeEnvelope).version === PREVIOUS_STORE_VERSION ||
+            (parsed as StoredChallengeEnvelope).version === LEGACY_STORE_VERSION) &&
           Array.isArray((parsed as StoredChallengeEnvelope).records) &&
           Date.now() - new Date((parsed as StoredChallengeEnvelope).updatedAt).getTime() <=
             STORE_TTL_MS
@@ -72,6 +305,20 @@ function parseRecords(value: string | null): ChallengeRecord[] {
       .filter((record): record is ChallengeRecord => record !== null);
   } catch {
     return [];
+  }
+}
+
+function storedRecordsDiffer(raw: string, records: readonly ChallengeRecord[]): boolean {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return (
+      !parsed ||
+      typeof parsed !== "object" ||
+      !Array.isArray((parsed as StoredChallengeEnvelope).records) ||
+      JSON.stringify((parsed as StoredChallengeEnvelope).records) !== JSON.stringify(records)
+    );
+  } catch {
+    return true;
   }
 }
 
@@ -172,8 +419,8 @@ function seedRecords(): ChallengeRecord[] {
       ],
       outputType: "pilot",
       sourcingModel: "hybrid",
-      solverTypes: ["team", "company", "university"],
-      applicantScope: "both",
+      allowedApplicantTypes: ["expert-team", "company", "academic-group"],
+      applicantScope: "team",
       workMode: "hybrid",
       proposalDeadline: "2026-09-20",
       budgetStatus: "quote",
@@ -194,8 +441,8 @@ function completeSeed(id: string, createdAt: string): ChallengeRecord {
     organizationSupport: "داده‌های پایه و دسترسی کنترل‌شده به تجهیزات فراهم می‌شود.",
     outputType: "poc",
     sourcingModel: "public",
-    solverTypes: ["team", "company", "university"],
-    applicantScope: "both",
+    allowedApplicantTypes: ["expert-team", "company", "academic-group"],
+    applicantScope: "team",
     workMode: "hybrid",
     proposalDeadline: "2026-10-01",
     preferredStartDate: "2026-10-20",
@@ -209,88 +456,102 @@ function completeSeed(id: string, createdAt: string): ChallengeRecord {
   };
 }
 
-export function emptyChallenge(id: string, now = new Date().toISOString()): ChallengeRecord {
+const previousApplicantTypeMap: Partial<Record<ApplicantType, LegacyApplicantType>> = {
+  individual: "individual",
+  "expert-team": "team",
+  company: "company",
+  "academic-group": "university",
+};
+
+function previousStoreRecord(record: ChallengeRecord) {
+  const { allowedApplicantTypes, ...previousRecord } = record;
   return {
-    id,
-    status: "draft",
-    title: "",
-    summary: "",
-    category: "",
-    location: "",
-    ownerName: currentUser.name,
-    desiredOutcome: "",
-    urgency: "normal",
-    attachments: [],
-    currentState: "",
-    consequence: "",
-    expectedOutput: "",
-    successCriteria: [],
-    inScope: "",
-    constraints: "",
-    organizationSupport: "",
-    previousAttempts: "",
-    outputType: "",
-    sourcingModel: "",
-    solverTypes: [],
-    applicantScope: "",
-    workMode: "",
-    proposalDeadline: "",
-    preferredStartDate: "",
-    budgetStatus: "",
-    budgetAmount: "",
-    currency: "IRR",
-    invitees: "",
-    visibility: "",
-    publicSummary: "",
-    ndaRequired: false,
-    ipTerms: "",
-    contactName: currentUser.name,
-    contactEmail: currentUser.email,
-    contactPhone: currentUser.phone,
-    accuracyConfirmed: false,
-    legalNotes: "",
-    createdAt: now,
-    updatedAt: now,
-    lastStep: 1,
+    ...previousRecord,
+    solverTypes: allowedApplicantTypes.flatMap((applicantType) => {
+      const previousApplicantType = previousApplicantTypeMap[applicantType];
+      return previousApplicantType ? [previousApplicantType] : [];
+    }),
   };
 }
 
 function writeRecords(records: ChallengeRecord[]) {
-  if (!canUseStorage()) return;
+  if (!isChallengeDemoStorageAvailable()) return;
+  const updatedAt = new Date().toISOString();
   const envelope: ChallengeStoreEnvelope = {
     version: STORE_VERSION,
-    updatedAt: new Date().toISOString(),
+    updatedAt,
     records,
   };
-  const legacyRecords = records.map(({ applicantScope, ...record }) => ({
-    ...record,
-    teamType: applicantScope,
-  }));
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(envelope));
-  // Demo-only one-version rollback mirror. Remove after the v8 migration window closes.
-  window.localStorage.setItem(PREVIOUS_STORAGE_KEY, JSON.stringify(legacyRecords));
-  window.localStorage.setItem(SEEDED_KEY, "true");
+  const previousEnvelope: StoredChallengeEnvelope = {
+    version: PREVIOUS_STORE_VERSION,
+    updatedAt,
+    records: records.map(previousStoreRecord),
+  };
+  writeStorageItem(STORAGE_KEY, JSON.stringify(envelope));
+  // The demo-only v8 rollback mirror is all-or-nothing: v8 has no safe representation for `lab`.
+  if (records.some((record) => record.allowedApplicantTypes.includes("lab"))) {
+    clearPreviousStoreSnapshotBestEffort();
+  } else {
+    refreshPreviousStoreSnapshot(records, JSON.stringify(previousEnvelope));
+  }
+  markSeededBestEffort();
+  clearLegacyMigrationSourcesBestEffort();
   window.dispatchEvent(new CustomEvent("rahhal:challenges"));
 }
 
 function ensureSeedData() {
-  if (!canUseStorage()) return;
-  const current = parseRecords(window.localStorage.getItem(STORAGE_KEY));
-  if (current.length) return;
-  const legacy = [PREVIOUS_STORAGE_KEY, LEGACY_STORAGE_KEY]
-    .map((key) => parseRecords(window.localStorage.getItem(key)))
-    .find((records) => records.length);
-  if (legacy?.length) {
+  if (!isChallengeDemoStorageAvailable()) return;
+  const currentRaw = readStorageItem(STORAGE_KEY);
+  const current = parseRecords(currentRaw);
+  if (current.length) {
+    if (currentRaw && storedRecordsDiffer(currentRaw, current)) writeRecords(current);
+    return;
+  }
+  const currentIsMissing = currentRaw === null;
+  const currentWasSeen = readStorageItem(SEEDED_KEY) === "true";
+  const previousRaw = readStorageItem(PREVIOUS_STORAGE_KEY);
+  const previous = parseRecords(previousRaw);
+  const previousIsFresh =
+    previous.length > 0 &&
+    (currentIsMissing && !currentWasSeen
+      ? true
+      : readStorageItem(PREVIOUS_STORAGE_FRESH_KEY) === previousStoreFreshness(previous));
+  if (previousIsFresh) {
+    writeRecords(previous);
+    return;
+  }
+  if (!currentIsMissing || currentWasSeen) {
+    writeRecords(seedRecords());
+    return;
+  }
+
+  const legacyRaw = readStorageItem(LEGACY_STORAGE_KEY);
+  const legacy = parseRecords(legacyRaw);
+  const legacyIsFresh =
+    legacy.length > 0 &&
+    (previousRaw === null ||
+      readStorageItem(LEGACY_STORAGE_FRESH_KEY) === previousStoreFreshness(legacy));
+  if (legacyIsFresh) {
     writeRecords(legacy);
+    return;
+  }
+  if (previousRaw !== null || legacyRaw !== null) {
+    writeRecords(seedRecords());
+    return;
+  }
+
+  const oldest = parseRecords(readStorageItem(OLDEST_STORAGE_KEY));
+  if (oldest.length) {
+    writeRecords(oldest);
     return;
   }
   writeRecords(seedRecords());
 }
 
 export function listChallenges(): ChallengeRecord[] {
-  if (!canUseStorage()) return [];
+  if (!isChallengeDemoStorageAvailable()) return [];
   ensureSeedData();
-  return parseRecords(window.localStorage.getItem(STORAGE_KEY)).sort((a, b) =>
+  return parseRecords(readStorageItem(STORAGE_KEY)).sort((a, b) =>
     b.updatedAt.localeCompare(a.updatedAt),
   );
 }
@@ -300,28 +561,22 @@ export function getChallenge(id: string) {
 }
 
 export function saveChallenge(record: ChallengeRecord) {
-  if (!canUseStorage()) return record;
-  const saved = { ...record, updatedAt: new Date().toISOString() };
+  if (!isChallengeDemoStorageAvailable()) return record;
+  const applicantScope: ChallengeRecord["applicantScope"] =
+    applicantScopeForTypes(record.allowedApplicantTypes) ?? "";
+  const saved: ChallengeRecord = {
+    ...record,
+    applicantScope,
+    updatedAt: new Date().toISOString(),
+  };
   writeRecords([saved, ...listChallenges().filter((item) => item.id !== record.id)]);
   return saved;
 }
 
-export type InitialChallengeInput = Pick<
-  ChallengeRecord,
-  | "title"
-  | "summary"
-  | "category"
-  | "location"
-  | "ownerName"
-  | "desiredOutcome"
-  | "urgency"
-  | "attachments"
->;
-
 export function createChallenge(input: InitialChallengeInput) {
   const usedIds = new Set(listChallenges().map((record) => record.id));
   const id = DRAFT_ID_POOL.find((candidate) => !usedIds.has(candidate));
-  if (!id) throw new Error("ظرفیت پیش‌نویس‌های نسخه نمایشی تکمیل است؛ یک پیش‌نویس را حذف کنید.");
+  if (!id) throw new Error(challengeDemoMessages.draftCapacity);
   return saveChallenge({ ...emptyChallenge(id), ...input, lastStep: 1 });
 }
 
@@ -334,7 +589,7 @@ export function deleteChallenge(id: string) {
 
 export function submitChallenge(record: ChallengeRecord) {
   if (!isRecordReady(record)) {
-    throw new Error("اطلاعات مسئله کامل نیست؛ خطاهای پیش‌نمایش را رفع و دوباره ارسال کنید.");
+    throw new Error(challengeDemoMessages.incomplete);
   }
   const submittedAt = new Date().toISOString();
   return saveChallenge({ ...record, status: "under_review", submittedAt, lastStep: 4 });
@@ -350,40 +605,18 @@ export function updateRecordStatus(record: ChallengeRecord, status: ChallengeSta
   return saveChallenge({ ...record, status });
 }
 
-export function createAttachment(file: File): Attachment {
-  return {
-    id: `AT-${Date.now().toString(36)}`,
-    name: safeUploadName(file.name),
-    size: file.size,
-    type: file.type || "application/octet-stream",
-    addedAt: new Date().toISOString(),
-  };
-}
-
 export function resetChallengeDemoData() {
-  if (!canUseStorage()) return;
-  window.localStorage.removeItem(STORAGE_KEY);
-  window.localStorage.removeItem(PREVIOUS_STORAGE_KEY);
-  window.localStorage.removeItem(LEGACY_STORAGE_KEY);
-  window.localStorage.removeItem(SEEDED_KEY);
-  window.localStorage.removeItem(PREVIOUS_SEEDED_KEY);
+  if (!isChallengeDemoStorageAvailable()) return;
+  removeStorageItem(STORAGE_KEY);
+  removeStorageItem(PREVIOUS_STORAGE_KEY);
+  removeStorageItem(PREVIOUS_STORAGE_FRESH_KEY);
+  removeStorageItem(LEGACY_STORAGE_KEY);
+  removeStorageItem(LEGACY_STORAGE_FRESH_KEY);
+  removeStorageItem(OLDEST_STORAGE_KEY);
+  removeStorageItem(SEEDED_KEY);
+  removeStorageItem(PREVIOUS_SEEDED_KEY);
+  removeStorageItem(LEGACY_SEEDED_KEY);
   ensureSeedData();
-}
-
-// Prototype compatibility: the challenge module already assumes the signed-in
-// organizational demo user, so existing authentication demo routes need no
-// additional session state before returning to the canonical flow.
-export function signInAsAuthorizedOrganization() {
-  ensureSeedData();
-  createDemoSession("org", "org-mapna");
-}
-
-export function formatDateTime(value?: string) {
-  if (!value) return "—";
-  return new Intl.DateTimeFormat("fa-IR", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
 }
 
 declare global {

@@ -1,4 +1,4 @@
-import { CHALLENGE_ROUTE_IDS } from "@/lib/challenges/storage";
+import { CHALLENGE_ROUTE_IDS } from "@/lib/challenges/ids";
 
 export type ChallengeFlowRoute =
   | { kind: "list"; path: string }

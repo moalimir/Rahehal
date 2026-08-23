@@ -3,19 +3,25 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { ConfirmModal } from "@/components/challenge-flow/fields";
-import { ChallengeShell, NotFoundState, StatusBadge } from "@/components/challenge-flow/shell";
+import {
+  ChallengeLoadErrorState,
+  ChallengeShell,
+  NotFoundState,
+  StatusBadge,
+} from "@/components/challenge-flow/shell";
 import { useChallengeRecord } from "@/components/challenge-flow/hooks";
 import {
   budgetStatusLabels,
   ipTermLabels,
   outputTypeLabels,
-  solverTypeLabels,
+  applicantTypeLabels,
   sourcingModelLabels,
   visibilityLabels,
   workModeLabels,
 } from "@/domain/challenge";
-import { formatDateTime, submitChallenge } from "@/lib/challenges/storage";
+import { formatDateTime } from "@/lib/challenges/model";
 import { navigateChallenge } from "@/lib/challenges/navigation";
+import { demoChallengeGateway } from "@/lib/challenges/runtime";
 import { validateRecord } from "@/lib/challenges/validation";
 
 function Value({ children, empty = "ثبت نشده" }: { children?: React.ReactNode; empty?: string }) {
@@ -23,9 +29,10 @@ function Value({ children, empty = "ثبت نشده" }: { children?: React.React
 }
 
 export function ChallengePreviewPage({ id }: { id: string }) {
-  const { record, lastSavedLabel } = useChallengeRecord(id);
+  const { record, lastSavedLabel, loadError } = useChallengeRecord(id);
   const [mode, setMode] = useState<"public" | "full">("full");
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [submitError, setSubmitError] = useState("");
   const issues = useMemo(() => (record ? validateRecord(record) : []), [record]);
   if (record === undefined)
     return (
@@ -33,6 +40,7 @@ export function ChallengePreviewPage({ id }: { id: string }) {
         <div className="challenge-loading-state">در حال آماده‌کردن پیش‌نمایش…</div>
       </ChallengeShell>
     );
+  if (loadError) return <ChallengeLoadErrorState message={loadError} />;
   if (!record) return <NotFoundState />;
 
   const canSubmit =
@@ -166,7 +174,9 @@ export function ChallengePreviewPage({ id }: { id: string }) {
             </div>
             <div>
               <dt>مشارکت‌کنندگان</dt>
-              <Value>{record.solverTypes.map((item) => solverTypeLabels[item]).join("، ")}</Value>
+              <Value>
+                {record.allowedApplicantTypes.map((item) => applicantTypeLabels[item]).join("، ")}
+              </Value>
             </div>
             <div>
               <dt>شیوه انجام</dt>
@@ -267,6 +277,11 @@ export function ChallengePreviewPage({ id }: { id: string }) {
           )}
         </div>
       </div>
+      {submitError && (
+        <div className="challenge-inline-error" role="alert">
+          {submitError}
+        </div>
+      )}
 
       <ConfirmModal
         open={confirmOpen}
@@ -279,10 +294,15 @@ export function ChallengePreviewPage({ id }: { id: string }) {
         }
         confirmLabel="تأیید و ارسال"
         onCancel={() => setConfirmOpen(false)}
-        onConfirm={() => {
-          const submitted = submitChallenge(record);
+        onConfirm={async () => {
           setConfirmOpen(false);
-          navigateChallenge(`/app/org/challenges/${submitted.id}/submitted`);
+          setSubmitError("");
+          const result = await demoChallengeGateway.commands.submit(record);
+          if (!result.ok) {
+            setSubmitError(result.error.message);
+            return;
+          }
+          navigateChallenge(`/app/org/challenges/${result.data.id}/submitted`);
         }}
       />
       <span className="sr-only">پیش‌نمایش در {formatDateTime(record.updatedAt)} ساخته شد.</span>

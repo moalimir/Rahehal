@@ -41,7 +41,7 @@ describe("رگرسیون‌های رابط فرد و تیم در نسخه ۲۷",
     expect(screen.getByRole("dialog", { name: "رد دعوت عضویت" })).toBeInTheDocument();
   });
 
-  it("تاریخچه جدید نسخه‌ها timeline و مقایسه محتوای canonical دارد", () => {
+  it("تاریخچه جدید نسخه‌ها timeline و مقایسه محتوای canonical دارد", async () => {
     const route = getInternalRoute("/app/solver/proposals/PR-104/versions");
     if (!route) throw new Error("proposal versions route missing");
     window.location.hash =
@@ -49,7 +49,7 @@ describe("رگرسیون‌های رابط فرد و تیم در نسخه ۲۷",
     render(<InternalApp route={route} />);
 
     expect(
-      screen.getByRole("heading", { level: 1, name: "تاریخچه نسخه‌های پیشنهاد" }),
+      await screen.findByRole("heading", { level: 1, name: "تاریخچه نسخه‌های پیشنهاد" }),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("فهرست نسخه‌ها")).toHaveTextContent("نسخه ۱");
     expect(screen.getByLabelText("فهرست نسخه‌ها")).toHaveTextContent("نسخه ۲");

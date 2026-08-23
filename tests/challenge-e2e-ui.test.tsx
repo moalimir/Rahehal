@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChallengeFlowApp } from "@/components/challenge-flow/challenge-flow-app";
 import { getChallengeFlowRoute } from "@/data/challenge-flow-routes";
-import { getChallenge, listChallenges } from "@/lib/challenges/storage";
+import { demoChallengeGateway } from "@/lib/challenges/runtime";
 
 function route(path: string) {
   const resolved = getChallengeFlowRoute(path);
@@ -13,6 +13,7 @@ function route(path: string) {
 }
 
 beforeEach(() => {
+  vi.restoreAllMocks();
   window.localStorage.clear();
   document.documentElement.dataset.challengeStandalone = "true";
   window.location.hash = "#/app/org/challenges/new";
@@ -53,7 +54,10 @@ describe("E2E رابط چهارمرحله‌ای مسئله سازمانی", () 
 
     await screen.findByRole("heading", { level: 1, name: "تکمیل مسئله" });
     expect(window.location.hash).toContain("/edit?step=2");
-    const created = listChallenges().find(
+    const listed = await demoChallengeGateway.queries.list();
+    expect(listed.ok).toBe(true);
+    if (!listed.ok) throw new Error(listed.error.message);
+    const created = listed.data.find(
       (record) => record.title === "کاهش مصرف انرژی سامانه هوای فشرده",
     );
     expect(created).toBeDefined();
@@ -88,9 +92,12 @@ describe("E2E رابط چهارمرحله‌ای مسئله سازمانی", () 
     fireEvent.change(await screen.findByLabelText(/دعوت‌شوندگان یا گروه هدف/), {
       target: { value: "شرکت بهینه‌سازان انرژی، دانشگاه صنعتی" },
     });
+    expect(screen.getByLabelText("آزمایشگاه یا مرکز پژوهشی")).toBeInTheDocument();
+    expect(screen.getByLabelText("دانشگاه یا گروه پژوهشی")).toBeInTheDocument();
+    expect(screen.queryByLabelText("دانشگاه یا پژوهشگاه")).not.toBeInTheDocument();
     fireEvent.click(screen.getByLabelText("تیم تخصصی"));
     fireEvent.click(screen.getByLabelText("استارتاپ یا شرکت"));
-    fireEvent.click(screen.getByLabelText("هر دو"));
+    expect(screen.getByText("دامنه همکاری").parentElement).toHaveTextContent("تیم");
     fireEvent.click(
       within(screen.getByRole("group", { name: /شیوه انجام/ })).getByLabelText("ترکیبی"),
     );
@@ -130,8 +137,13 @@ describe("E2E رابط چهارمرحله‌ای مسئله سازمانی", () 
     fireEvent.click(screen.getByRole("button", { name: "تأیید و ارسال" }));
 
     await screen.findByRole("heading", { level: 2, name: "پرونده با موفقیت برای بررسی ارسال شد" });
-    expect(getChallenge(created.id)).toMatchObject({
-      status: "under_review",
+    const submitted = await demoChallengeGateway.queries.get(created.id);
+    expect(submitted).toMatchObject({
+      ok: true,
+      data: {
+        status: "under_review",
+        allowedApplicantTypes: ["expert-team", "company"],
+      },
     });
     fireEvent.click(screen.getByRole("link", { name: "بازگشت به مسئله‌ها" }));
     await screen.findByText("کاهش مصرف انرژی سامانه هوای فشرده");
@@ -160,5 +172,41 @@ describe("E2E رابط چهارمرحله‌ای مسئله سازمانی", () 
     await waitFor(() =>
       expect(screen.queryByText("کاهش ضایعات بسته‌بندی")).not.toBeInTheDocument(),
     );
+  });
+
+  it("شناسه مسیر معتبر ولی ناشناخته را با fixture جایگزین نمی‌کند", async () => {
+    window.location.hash = "#/app/org/challenges/CH-DRAFT-008";
+    render(<ChallengeFlowApp route={route("/app/org/challenges/CH-DRAFT-008")} />);
+
+    await screen.findByRole("heading", { level: 1, name: "پرونده پیدا نشد" });
+    expect(screen.queryByText("بازیابی هوشمند آب در خط شست‌وشوی صنعتی")).not.toBeInTheDocument();
+  });
+
+  it("خطای storage را به‌جای وضعیت پیدا نشد نمایش می‌دهد", async () => {
+    window.location.hash = "#/app/org/challenges/CH-DRAFT-008";
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new DOMException("Storage blocked", "SecurityError");
+    });
+
+    render(<ChallengeFlowApp route={route("/app/org/challenges/CH-DRAFT-008")} />);
+
+    await screen.findByRole("heading", { level: 1, name: "خواندن پرونده انجام نشد" });
+    expect(screen.queryByRole("heading", { level: 1, name: "پرونده پیدا نشد" })).toBeNull();
+  });
+
+  it("شکست ذخیره را نمایش می‌دهد و پیش از خروج درباره تغییر ذخیره‌نشده هشدار می‌دهد", async () => {
+    window.location.hash = "#/app/org/challenges/CH-1405-052/edit?step=4";
+    render(<ChallengeFlowApp route={route("/app/org/challenges/CH-1405-052/edit")} />);
+    await screen.findByRole("heading", { level: 1, name: "تکمیل مسئله" });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("Quota exceeded", "QuotaExceededError");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "ذخیره پیش‌نویس" }));
+
+    await screen.findByText("ذخیره پیش‌نویس انجام نشد؛ دوباره تلاش کنید.");
+    const unload = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(unload);
+    expect(unload.defaultPrevented).toBe(true);
   });
 });

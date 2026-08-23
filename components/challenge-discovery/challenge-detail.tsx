@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { OrganizationLogo } from "@/components/challenge-organization-logo";
 import { Icon } from "@/components/icons";
 import { ScenarioBadge } from "@/components/challenge-discovery/challenge-card";
@@ -10,9 +10,9 @@ import {
   budgetLabel,
   daysRemaining,
 } from "@/components/challenge-discovery/catalog";
-import { challenges } from "@/data/mock";
 import type { ActiveWorkspace } from "@/domain/solver";
-import { listCatalogChallenges } from "@/lib/challenges/public-catalog";
+import type { OpportunityView } from "@/lib/challenges/public-catalog";
+import { demoOpportunityGateway } from "@/lib/challenges/runtime";
 import { buildSolverHref } from "@/lib/solver/context";
 import { challengeEligibilityRules, evaluateEligibility } from "@/lib/solver/eligibility";
 import { isOpportunitySaved, setOpportunitySaved } from "@/lib/solver/saved-opportunities";
@@ -56,22 +56,41 @@ export function ChallengeDetail({
   activeContext: ActiveWorkspace;
   contextQuery: string;
 }) {
-  const [items, setItems] = useState(() =>
-    buildChallengeItems(challenges, activeContext.workspaceId),
-  );
+  const [opportunity, setOpportunity] = useState<OpportunityView | null | undefined>(undefined);
+  const [catalogError, setCatalogError] = useState("");
+  const requestGenerationRef = useRef(0);
+  const refreshCatalog = useCallback(async () => {
+    const generation = ++requestGenerationRef.current;
+    setOpportunity(undefined);
+    setCatalogError("");
+    const result = await demoOpportunityGateway.queries.get(challengeKey);
+    if (generation !== requestGenerationRef.current) return false;
+    if (result.ok) {
+      setOpportunity(result.data);
+      return true;
+    }
+    setOpportunity(null);
+    if (result.error.code !== "NOT_FOUND") setCatalogError(result.error.message);
+    return false;
+  }, [challengeKey]);
+
   useEffect(() => {
-    const refreshCatalog = () =>
-      setItems(buildChallengeItems(listCatalogChallenges(), activeContext.workspaceId));
-    refreshCatalog();
-    window.addEventListener("storage", refreshCatalog);
-    window.addEventListener("rahhal:challenges", refreshCatalog);
+    const sync = () => void refreshCatalog();
+    void refreshCatalog();
+    window.addEventListener("storage", sync);
+    window.addEventListener("rahhal:challenges", sync);
     return () => {
-      window.removeEventListener("storage", refreshCatalog);
-      window.removeEventListener("rahhal:challenges", refreshCatalog);
+      requestGenerationRef.current += 1;
+      window.removeEventListener("storage", sync);
+      window.removeEventListener("rahhal:challenges", sync);
     };
-  }, [activeContext.workspaceId]);
-  const challenge = items.find(
-    (item) => item.slug.toLowerCase() === challengeKey.toLowerCase() || item.id === challengeKey,
+  }, [refreshCatalog]);
+  const challenge = useMemo(
+    () =>
+      opportunity
+        ? (buildChallengeItems([opportunity], activeContext.workspaceId)[0] ?? null)
+        : null,
+    [activeContext.workspaceId, opportunity],
   );
   const [saved, setSaved] = useState(false);
   const [feedback, setFeedback] = useState("");
@@ -81,6 +100,24 @@ export function ChallengeDetail({
       isOpportunitySaved(challenge.id, challenge.scenario === "saved", activeContext.workspaceId),
     );
   }, [activeContext.workspaceId, challenge]);
+  if (opportunity === undefined)
+    return (
+      <section className="rh-empty" role="status">
+        <h1>در حال خواندن چالش…</h1>
+        <p>اطلاعات منتشرشده در حال دریافت است.</p>
+      </section>
+    );
+  if (catalogError)
+    return (
+      <section className="rh-empty" role="alert">
+        <h1>خواندن چالش انجام نشد</h1>
+        <p>{catalogError}</p>
+        <button type="button" onClick={() => void refreshCatalog()}>
+          تلاش دوباره
+        </button>
+        <Link href={`${basePath}${contextQuery}`}>بازگشت به چالش‌ها</Link>
+      </section>
+    );
   if (!challenge)
     return (
       <section className="rh-empty">
@@ -448,11 +485,8 @@ export function ChallengeDetail({
             <strong>{challenge.publisher.name}</strong>
             <small>عضو تأییدشده راه‌حل</small>
             <span>
-              تهران ·{" "}
-              {items
-                .filter((item) => item.publisher.id === challenge.publisher.id)
-                .length.toLocaleString("fa-IR")}{" "}
-              چالش منتشرشده
+              تهران · {(challenge.publisherPublishedCount ?? 1).toLocaleString("fa-IR")} چالش
+              منتشرشده
             </span>
             <Link href={`/organizations/${challenge.publisher.slug}`}>مشاهده پروفایل سازمان</Link>
           </section>

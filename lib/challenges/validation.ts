@@ -1,4 +1,5 @@
 import type { ChallengeRecord } from "@/domain/challenge";
+import { applicantScopeForTypes } from "@/domain/taxonomy";
 
 export type WizardStep = 1 | 2 | 3 | 4;
 export type ValidationIssue = {
@@ -54,10 +55,19 @@ export function validateStep(record: ChallengeRecord, step: WizardStep): Validat
       add("outputType", "outputType", "خروجی مورد انتظار همکاری را انتخاب کنید.");
     if (!record.sourcingModel)
       add("sourcingModel", "sourcingModel", "شیوه جذب حل‌کننده را انتخاب کنید.");
-    if (!record.solverTypes.length)
-      add("solverTypes", "solverTypes", "حداقل یک نوع مشارکت‌کننده مجاز انتخاب کنید.");
-    if (!record.applicantScope)
-      add("applicantScope", "applicantScope", "نوع همکاری را انتخاب کنید.");
+    if (!record.allowedApplicantTypes.length)
+      add(
+        "allowedApplicantTypes",
+        "allowedApplicantTypes",
+        "حداقل یک نوع مشارکت‌کننده مجاز انتخاب کنید.",
+      );
+    const derivedApplicantScope = applicantScopeForTypes(record.allowedApplicantTypes) ?? "";
+    if (record.applicantScope !== derivedApplicantScope)
+      add(
+        "applicantScope",
+        "applicantScope",
+        "دامنه همکاری باید با مشارکت‌کنندگان مجاز سازگار باشد.",
+      );
     if (!record.workMode) add("workMode", "workMode", "شیوه انجام همکاری را انتخاب کنید.");
     if (!record.proposalDeadline)
       add("proposalDeadline", "proposalDeadline", "مهلت دریافت پیشنهاد را وارد کنید.");
@@ -96,7 +106,13 @@ export function isRecordReady(record: ChallengeRecord) {
 
 export function normalizedEditableRecord(record: ChallengeRecord): ChallengeRecord {
   if (!["draft", "ready", "needs_changes"].includes(record.status)) return record;
-  return { ...record, status: isRecordReady(record) ? "ready" : "draft" };
+  const applicantScope: ChallengeRecord["applicantScope"] =
+    applicantScopeForTypes(record.allowedApplicantTypes) ?? "";
+  const normalized: ChallengeRecord = {
+    ...record,
+    applicantScope,
+  };
+  return { ...normalized, status: isRecordReady(normalized) ? "ready" : "draft" };
 }
 
 export function issueFor(issues: ValidationIssue[], field: ValidationIssue["field"]) {

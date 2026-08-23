@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChallengeDiscoveryApp } from "@/components/challenge-discovery";
 import { Icon } from "@/components/icons";
@@ -27,10 +28,6 @@ import {
 import { SolverShell, useSolverContextResolution } from "@/components/solver-shell";
 import type { SolverSpace } from "@/components/solver-shell";
 import { SolverWorkflowExperience } from "@/components/solver-workflow-experience";
-import {
-  SolverCanonicalContinuity,
-  shouldUseCanonicalContinuity,
-} from "@/components/solver-case-continuity";
 import type { InternalRoute } from "@/data/internal-routes";
 import { getLegacyResolution } from "@/data/legacy-redirects";
 import {
@@ -41,9 +38,34 @@ import {
 } from "@/lib/services/internal-service";
 import { isQaHarnessEnabled } from "@/lib/qa-harness";
 import { canAccessInternalRole, readDemoSession, type DemoSession } from "@/lib/auth/session";
-import { getChallenge, publishChallenge } from "@/lib/challenges/storage";
+import { demoChallengeGateway } from "@/lib/challenges/runtime";
 import { isRecordReady } from "@/lib/challenges/validation";
 import { directOfferById, proposalById, readSolverState } from "@/lib/solver/repository";
+
+const SolverCanonicalContinuity = dynamic(
+  () =>
+    import("@/components/solver-case-continuity").then(
+      (module) => module.SolverCanonicalContinuity,
+    ),
+  { loading: RouteResolving },
+);
+
+const canonicalContinuityExperiences = new Set<InternalRoute["experience"]>([
+  "notifications",
+  "case-hub",
+  "verification",
+  "data-room",
+  "contract",
+  "pilot",
+  "finance",
+  "conversations",
+  "audit",
+  "reputation",
+]);
+
+function shouldUseCanonicalContinuity(route: InternalRoute) {
+  return canonicalContinuityExperiences.has(route.experience);
+}
 
 type DemoUiState =
   | "default"
@@ -231,7 +253,17 @@ function InternalExperience({
               : "success";
       try {
         const publicationId = route.path.match(/^\/app\/ops\/publication\/(CH-[^/]+)$/)?.[1];
-        const publicationRecord = publicationId ? getChallenge(publicationId) : undefined;
+        const publicationResult = publicationId
+          ? await demoChallengeGateway.queries.get(publicationId)
+          : null;
+        if (publicationResult && !publicationResult.ok) {
+          throw new InternalServiceError(
+            publicationResult.error.message,
+            "BLOCKED",
+            publicationResult.meta.correlation_id,
+          );
+        }
+        const publicationRecord = publicationResult?.ok ? publicationResult.data : undefined;
         if (
           publicationId &&
           label.includes("انتشار") &&
@@ -254,8 +286,16 @@ function InternalExperience({
           },
           mode,
         );
-        if (publicationId && publicationRecord?.status === "under_review")
-          publishChallenge(publicationId);
+        if (publicationId && publicationRecord?.status === "under_review") {
+          const publication = await demoChallengeGateway.commands.publish(publicationId);
+          if (!publication.ok) {
+            throw new InternalServiceError(
+              publication.error.message,
+              "BLOCKED",
+              publication.meta.correlation_id,
+            );
+          }
+        }
         setReceipt(nextReceipt);
         setReceiptVisible(true);
         setToast(`${label} با موفقیت انجام شد.`);

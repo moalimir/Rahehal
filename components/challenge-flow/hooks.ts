@@ -2,63 +2,144 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChallengeRecord } from "@/domain/challenge";
-import {
-  formatDateTime,
-  getChallenge,
-  listChallenges,
-  saveChallenge,
-} from "@/lib/challenges/storage";
+import { formatDateTime } from "@/lib/challenges/model";
+import { demoChallengeGateway } from "@/lib/challenges/runtime";
 import { normalizedEditableRecord } from "@/lib/challenges/validation";
 
 export type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error";
 
 export function useChallengeList() {
   const [records, setRecords] = useState<ChallengeRecord[]>([]);
-  const refresh = useCallback(() => setRecords(listChallenges()), []);
+  const [loadError, setLoadError] = useState("");
+  const mountedRef = useRef(false);
+  const requestGenerationRef = useRef(0);
+  const refresh = useCallback(async () => {
+    const generation = ++requestGenerationRef.current;
+    const result = await demoChallengeGateway.queries.list();
+    if (mountedRef.current && generation === requestGenerationRef.current) {
+      if (result.ok) {
+        setRecords(result.data);
+        setLoadError("");
+      } else {
+        setLoadError(result.error.message);
+      }
+    }
+    return result.ok;
+  }, []);
+
   useEffect(() => {
-    refresh();
-    window.addEventListener("storage", refresh);
-    window.addEventListener("rahhal:challenges", refresh);
+    mountedRef.current = true;
+    const sync = () => void refresh();
+    void refresh();
+    window.addEventListener("storage", sync);
+    window.addEventListener("rahhal:challenges", sync);
     return () => {
-      window.removeEventListener("storage", refresh);
-      window.removeEventListener("rahhal:challenges", refresh);
+      mountedRef.current = false;
+      requestGenerationRef.current += 1;
+      window.removeEventListener("storage", sync);
+      window.removeEventListener("rahhal:challenges", sync);
     };
   }, [refresh]);
-  return { records, refresh };
+  return { records, refresh, loadError };
 }
 
 export function useChallengeRecord(id: string) {
   const [record, setRecord] = useState<ChallengeRecord | null | undefined>(undefined);
+  const [loadedId, setLoadedId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState("");
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const recordRef = useRef<ChallengeRecord | null>(null);
   const statusRef = useRef<SaveStatus>("idle");
   const timerRef = useRef<number | null>(null);
+  const mountedRef = useRef(false);
+  const activeIdRef = useRef(id);
+  const loadGenerationRef = useRef(0);
+  const saveGenerationRef = useRef(0);
 
   useEffect(() => {
-    const stored = getChallenge(id) ?? null;
-    recordRef.current = stored;
-    setRecord(stored);
-    setSaveStatus(stored ? "saved" : "idle");
-    statusRef.current = stored ? "saved" : "idle";
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    activeIdRef.current = id;
+    setLoadedId(null);
+    saveGenerationRef.current += 1;
+    const loadGeneration = ++loadGenerationRef.current;
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    recordRef.current = null;
+    statusRef.current = "idle";
+    setRecord(undefined);
+    setLoadError("");
+    setSaveStatus("idle");
+    void demoChallengeGateway.queries.get(id).then((result) => {
+      if (!active || activeIdRef.current !== id || loadGeneration !== loadGenerationRef.current)
+        return;
+      const stored = result.ok ? result.data : null;
+      setLoadError(!result.ok && result.error.code !== "NOT_FOUND" ? result.error.message : "");
+      recordRef.current = stored;
+      setLoadedId(id);
+      setRecord(stored);
+      setSaveStatus(stored ? "saved" : "idle");
+      statusRef.current = stored ? "saved" : "idle";
+    });
+    return () => {
+      active = false;
+      loadGenerationRef.current += 1;
+      if (timerRef.current !== null) {
+        window.clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      if (recordRef.current?.id === id && ["dirty", "error"].includes(statusRef.current)) {
+        saveGenerationRef.current += 1;
+        void demoChallengeGateway.commands.save(normalizedEditableRecord(recordRef.current));
+      }
+    };
   }, [id]);
 
-  const saveNow = useCallback(() => {
-    if (timerRef.current) window.clearTimeout(timerRef.current);
+  const saveNow = useCallback(async () => {
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
     if (!recordRef.current) return null;
-    setSaveStatus("saving");
+    const current = recordRef.current;
+    if (current.id !== activeIdRef.current) return null;
+    const currentId = current.id;
+    const saveGeneration = ++saveGenerationRef.current;
+    if (mountedRef.current) setSaveStatus("saving");
     statusRef.current = "saving";
-    try {
-      const saved = saveChallenge(normalizedEditableRecord(recordRef.current));
-      recordRef.current = saved;
-      setRecord(saved);
-      setSaveStatus("saved");
-      statusRef.current = "saved";
-      return saved;
-    } catch {
-      setSaveStatus("error");
-      statusRef.current = "error";
+    const result = await demoChallengeGateway.commands.save(normalizedEditableRecord(current));
+    if (
+      !mountedRef.current ||
+      activeIdRef.current !== currentId ||
+      saveGeneration !== saveGenerationRef.current
+    )
+      return null;
+    const snapshotUnchanged = recordRef.current === current;
+    if (!result.ok) {
+      const nextStatus = snapshotUnchanged ? "error" : "dirty";
+      setSaveStatus(nextStatus);
+      statusRef.current = nextStatus;
       return null;
     }
+    if (snapshotUnchanged) {
+      recordRef.current = result.data;
+      setRecord(result.data);
+      setSaveStatus("saved");
+      statusRef.current = "saved";
+    } else {
+      setSaveStatus("dirty");
+      statusRef.current = "dirty";
+      return null;
+    }
+    return result.data;
   }, []);
 
   const updateRecord = useCallback(
@@ -71,15 +152,15 @@ export function useChallengeRecord(id: string) {
       });
       setSaveStatus("dirty");
       statusRef.current = "dirty";
-      if (timerRef.current) window.clearTimeout(timerRef.current);
-      timerRef.current = window.setTimeout(saveNow, 650);
+      if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+      timerRef.current = window.setTimeout(() => void saveNow(), 650);
     },
     [saveNow],
   );
 
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => {
-      if (!["dirty", "saving"].includes(statusRef.current)) return;
+      if (!["dirty", "saving", "error"].includes(statusRef.current)) return;
       event.preventDefault();
       event.returnValue = "";
     };
@@ -87,22 +168,14 @@ export function useChallengeRecord(id: string) {
     return () => window.removeEventListener("beforeunload", warn);
   }, []);
 
-  useEffect(
-    () => () => {
-      if (timerRef.current) window.clearTimeout(timerRef.current);
-      if (recordRef.current && statusRef.current === "dirty") {
-        saveChallenge(normalizedEditableRecord(recordRef.current));
-      }
-    },
-    [],
-  );
+  const visibleRecord = loadedId === id ? record : undefined;
 
   return {
-    record,
-    setRecord,
+    record: visibleRecord,
     updateRecord,
     saveNow,
     saveStatus,
-    lastSavedLabel: record ? formatDateTime(record.updatedAt) : "—",
+    lastSavedLabel: visibleRecord ? formatDateTime(visibleRecord.updatedAt) : "—",
+    loadError: loadedId === id ? loadError : "",
   };
 }
