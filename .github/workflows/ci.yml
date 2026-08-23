@@ -1,0 +1,105 @@
+name: CI
+
+# Release pipeline (85_DEVELOPMENT_GUIDE.md §8). Runs every release gate on the pinned
+# runtime. Only the `visual` job is non-blocking, until a reviewed Golden Master lands
+# (T-E in project-documents/82_PHASE0_COMPLETION.md); everything else is required.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    name: Source checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --include=optional
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm test
+      - run: npm run analyze:source:check
+
+  build:
+    name: Build & static verification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --include=optional
+      - run: npm run build
+      - run: npm run verify:routes
+      - run: npm run verify:links
+      - run: npm run test:smoke
+      - run: npm run verify:offline
+      - run: npm run test:standalone-interactive
+      - run: npm run check:budgets
+      - name: Upload build output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: static-export
+          path: out/
+          retention-days: 7
+
+  browser:
+    name: Browser behavior (Playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --include=optional
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      - run: npm run test:browser
+
+  # ── Visual regression needs a committed Golden Master (T-E) ────────────────────
+  # Budgets + standalone smoke are now green and enforced in `build`.
+  # Remove continue-on-error once playwright/golden/ has a reviewed baseline.
+  visual:
+    name: Visual regression (needs Golden Master)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --include=optional
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      - run: npm run test:visual
+
+  security:
+    name: Dependency & security scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --include=optional
+      - name: npm audit (high+)
+        run: npm audit --audit-level=high
