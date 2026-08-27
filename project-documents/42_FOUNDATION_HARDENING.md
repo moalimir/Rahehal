@@ -21,17 +21,17 @@ Right-sizing starts with an honest read of the workload — over-building is as 
 
 ## 2. Robustness scorecard
 
-| Dimension            | Status                      | The one thing that matters                                                      |
-| -------------------- | --------------------------- | ------------------------------------------------------------------------------- |
-| Identity & session   | **Solid**                   | Delegated OIDC; revocation + membership checks deny immediately (Phase-1 gate). |
-| Tenancy & access     | **Hardened here (§3)**      | Was pure isolation → now tenant-owned **+** relationship-grant sharing.         |
-| Authorization        | **Hardened here (§3)**      | `decide()` step 2 rewritten to allow grant-based cross-tenant reach.            |
-| Consistency          | **Made explicit (§4)**      | Aggregate + audit + outbox in one tx; everything else eventual.                 |
-| Concurrency          | **Made explicit (§5)**      | Right mechanism per invariant (version / unique / advisory lock / idempotency). |
-| Resilience           | **Catalogued (§6)**         | Every provider can fail without corrupting business state.                      |
-| Scalability          | **Grounded (§7)**           | Bottleneck-ordered plan; no premature infra.                                    |
-| Evolvability         | **Made explicit (§9)**      | Expand/contract migrations; versioned API; module extraction on evidence.       |
-| Guardrails over time | **Fitness functions (§10)** | CI enforces the invariants so they don't rot.                                   |
+| Dimension            | Status                      | The one thing that matters                                                        |
+| -------------------- | --------------------------- | --------------------------------------------------------------------------------- |
+| Identity & session   | **Solid**                   | Delegated OIDC; revocation + membership checks deny immediately (hardening gate). |
+| Tenancy & access     | **Hardened here (§3)**      | Was pure isolation → now tenant-owned **+** relationship-grant sharing.           |
+| Authorization        | **Hardened here (§3)**      | `decide()` step 2 rewritten to allow grant-based cross-tenant reach.              |
+| Consistency          | **Made explicit (§4)**      | Aggregate + audit + outbox in one tx; everything else eventual.                   |
+| Concurrency          | **Made explicit (§5)**      | Right mechanism per invariant (version / unique / advisory lock / idempotency).   |
+| Resilience           | **Catalogued (§6)**         | Every provider can fail without corrupting business state.                        |
+| Scalability          | **Grounded (§7)**           | Bottleneck-ordered plan; no premature infra.                                      |
+| Evolvability         | **Made explicit (§9)**      | Expand/contract migrations; versioned API; module extraction on evidence.         |
+| Guardrails over time | **Fitness functions (§10)** | CI enforces the invariants so they don't rot.                                     |
 
 ## 3. The correction — cross-tenant collaboration access
 
@@ -181,7 +181,7 @@ The foundation stays solid only if the invariants are **enforced automatically**
 
 To keep the foundation lean (AI and later stages parked):
 
-**Build in Phase 1 (the load-bearing foundation):** OIDC identity + session revocation · tenant/workspace/membership/role model · the `access_grant` collaboration model (§3) · the unified `decide()` authz engine · PostgreSQL schema for identity/tenancy/challenge/proposal/review + the cross-cutting tables (idempotency, outbox, audit, file_object, notification_delivery) · idempotency + optimistic concurrency + receipts + correlation · transactional outbox + append-only audit · private object storage + scan pipeline · observability skeleton + edge hardening · CI with the §10 fitness functions.
+**Build in the load-bearing foundation** (roadmap Phase 1; the file-scan pipeline, observability, and edge hardening below move to the §9 pre-pilot hardening gate)**:** OIDC identity + session revocation · tenant/workspace/membership/role model · the `access_grant` collaboration model (§3) · the unified `decide()` authz engine · PostgreSQL schema for identity/tenancy/challenge/proposal/review + the cross-cutting tables (idempotency, outbox, audit, file_object, notification_delivery) · idempotency + optimistic concurrency + receipts + correlation · transactional outbox + append-only audit · private object storage + scan pipeline · observability skeleton + edge hardening · CI with the §10 fitness functions.
 
 **Defer (not foundational — later slices/features):** payment provider + ledger + reconciliation (Slice 2) · e-signature (Slice 2) · dispute workflow (Slice 2) · search beyond Postgres FTS · **all AI/vector work** ([45](45_AI_AND_MATCHING.md)) · dedicated queue/vector/search clusters · multi-region.
 

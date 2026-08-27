@@ -91,6 +91,8 @@ describe("canonical domain primitives", () => {
   });
 
   it("keeps workspace role namespaces explicit", () => {
+    expect(isRoleCompatibleWithWorkspace("platform:ops", "platform")).toBe(true);
+    expect(isRoleCompatibleWithWorkspace("org:member", "platform")).toBe(false);
     expect(isRoleCompatibleWithWorkspace("org:member", "org")).toBe(true);
     expect(isRoleCompatibleWithWorkspace("team:admin", "org")).toBe(false);
     expect(isRoleCompatibleWithWorkspace("individual", "individual")).toBe(true);

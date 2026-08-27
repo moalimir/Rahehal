@@ -29,6 +29,10 @@ export type OrganizationWorkspaceResource = WorkspaceResourceBase & {
   readonly kind: "org";
 };
 
+export type PlatformWorkspaceResource = WorkspaceResourceBase & {
+  readonly kind: "platform";
+};
+
 export type IndividualWorkspaceResource = WorkspaceResourceBase & {
   readonly kind: "individual";
   readonly owner_user_id: UserId;
@@ -41,6 +45,7 @@ export type TeamWorkspaceResource = WorkspaceResourceBase & {
 };
 
 export type WorkspaceResource =
+  | PlatformWorkspaceResource
   | OrganizationWorkspaceResource
   | IndividualWorkspaceResource
   | TeamWorkspaceResource;

@@ -15,6 +15,17 @@ this is the short contract for humans and agents. Full handbook:
 
   `.npmrc` already sets `include=optional`; if a build fails importing Sharp/WebP, re-run that.
 
+- For the Linux-container integration path, start Docker Desktop and run:
+
+  ```bash
+  npm run docker:build
+  npm run docker:up
+  npm run docker:smoke
+  ```
+
+  Use native `npm run dev` for fast hot reload. Docker is the portable build/runtime check; it is
+  deliberately demo-only until the production adapters land.
+
 ## Source of truth (respect this order)
 
 1. Decisions — [25_DECISIONS.md](project-documents/25_DECISIONS.md)
@@ -26,12 +37,17 @@ Never infer business state from labels, CSS classes, route names, or sample IDs.
 ## Before you push
 
 ```bash
-npm run typecheck && npm run lint && npm run format:check && npm test && npm run verify:boundaries
+npm run typecheck && npm run lint && npm run format:check && npm test && npm run verify:boundaries && npm run verify:vocabulary
 ```
 
 Touching API/contracts? also run `npm run test:contracts`, `npm run test:api`, and
 `npm run test:worker`. Touching UI? also `npm run build`, and for visuals
 `npx playwright install chromium && npm run test:browser`.
+Touching PostgreSQL schema, seeds, or database tooling? start the local database with
+`npm run db:up`, run `npm run test:postgres`, and finish with `npm run db:down`.
+Touching Docker/runtime configuration? also run `npm run docker:config`,
+`npm run docker:build`, `npm run docker:up`, and `npm run docker:smoke`, then stop it with
+`npm run docker:down`.
 Don't update visual snapshots just to make CI green. Conventional Commit messages; branch from `main`.
 
 ## Security

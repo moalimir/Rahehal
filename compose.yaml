@@ -1,0 +1,117 @@
+name: rahhal-local
+
+services:
+  postgres:
+    image: postgres:16.15-alpine3.24
+    environment:
+      POSTGRES_DB: rahhal
+      POSTGRES_USER: rahhal
+      POSTGRES_PASSWORD: ${RAHHAL_POSTGRES_PASSWORD:-rahhal-local-only}
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    ports:
+      - name: postgres
+        target: 5432
+        published: ${RAHHAL_POSTGRES_PORT:-5433}
+        host_ip: 127.0.0.1
+        protocol: tcp
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rahhal -d rahhal"]
+      interval: 5s
+      timeout: 3s
+      start_period: 10s
+      retries: 10
+    stop_grace_period: 30s
+
+  web:
+    image: rahhal/web:local
+    build:
+      context: .
+      target: web
+      args:
+        RAHHAL_REVISION: ${RAHHAL_REVISION:-local}
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - name: web
+        target: 8080
+        published: ${RAHHAL_WEB_PORT:-3000}
+        host_ip: 127.0.0.1
+        protocol: tcp
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 5
+    stop_grace_period: 10s
+
+  api:
+    image: rahhal/api:local
+    build:
+      context: .
+      target: api
+      args:
+        RAHHAL_REVISION: ${RAHHAL_REVISION:-local}
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      NODE_ENV: development
+      RAHHAL_API_MODE: demo
+      RAHHAL_API_HOST: 0.0.0.0
+      RAHHAL_API_PORT: 3001
+    ports:
+      - name: api
+        target: 3001
+        published: ${RAHHAL_API_PORT:-3001}
+        host_ip: 127.0.0.1
+        protocol: tcp
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3001/api/v1/openapi.json').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 5
+    stop_grace_period: 15s
+
+  worker:
+    image: rahhal/worker:local
+    build:
+      context: .
+      target: worker
+      args:
+        RAHHAL_REVISION: ${RAHHAL_REVISION:-local}
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      NODE_ENV: development
+      RAHHAL_WORKER_MODE: demo
+    stop_grace_period: 15s
+
+volumes:
+  postgres-data:
