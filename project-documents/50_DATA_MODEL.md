@@ -199,11 +199,11 @@ CREATE TABLE payment (
 
 A1a lands three cross-cutting records:
 
-| Table             | Landed invariant                                                                                                                                                                                                     |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Table             | Landed invariant                                                                                                                                                                                                                                                                       |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `idempotency_key` | Tenant scope and pre-tenant credential-fingerprint scope are mutually exclusive; the scope/key tuple is unique with nulls treated as equal; request hash, state, credential-free cached object response, and expiry must be coherent; recursive guards reject raw session-token fields |
-| `outbox_event`    | The durable envelope carries stable event ID, tenant/correlation, event and aggregate identity, positive schema version, object payload, dedupe key, and occurrence time; event content is immutable                 |
-| `audit_event`     | Actor kind is explicit (`user/system/provider/anonymous`), user actors require a user ID, scope/target pairs are coherent, metadata is an object, and all updates/deletes are rejected                               |
+| `outbox_event`    | The durable envelope carries stable event ID, tenant/correlation, event and aggregate identity, positive schema version, object payload, dedupe key, and occurrence time; event content is immutable                                                                                   |
+| `audit_event`     | Actor kind is explicit (`user/system/provider/anonymous`), user actors require a user ID, scope/target pairs are coherent, metadata is an object, and all updates/deletes are rejected                                                                                                 |
 
 Outbox delivery bookkeeping (`available_at`, attempts, lock, publication, redacted error code) remains mutable so A1b/worker adapters can claim and complete rows. The worker must validate the reconstructed envelope and pass `event_id` unchanged downstream. A1a does not yet provide leases, an operated dead-letter queue, or WORM audit export.
 
