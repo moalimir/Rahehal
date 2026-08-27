@@ -1,6 +1,6 @@
 # Data Model — PostgreSQL schema, tenancy, and projections
 
-Implementation-ready schema for the MVP vertical slice (challenge → proposal → review → decision) plus the cross-cutting platform tables every slice needs. Names and states come from [20_CANONICAL_MODEL](20_CANONICAL_MODEL.md); executable command/result envelopes come from `packages/contracts` and [60_API_CONTRACT](60_API_CONTRACT.md). The browser solver aggregate remains migration evidence, not the API contract. DDL is PostgreSQL 15+.
+Target schema for the MVP vertical slice (challenge → proposal → review → decision) plus the cross-cutting platform tables every slice needs. Names and states come from [20_CANONICAL_MODEL](20_CANONICAL_MODEL.md); executable command/result envelopes come from `packages/contracts` and [60_API_CONTRACT](60_API_CONTRACT.md). For tables that have landed, `apps/api/migrations/*.up.sql` is the executable source of truth and its paired `.down.sql` is the rollback. Later SQL sketches in this document are plans, not runnable migrations. The browser solver aggregate remains migration evidence, not the API contract. The local baseline is PostgreSQL 16.
 
 ---
 
@@ -8,11 +8,11 @@ Implementation-ready schema for the MVP vertical slice (challenge → proposal �
 
 - **IDs**: `text` primary keys, server-minted, prefixed (`chl_`, `chv_`, `prp_`, `prv_`, `rva_`, `rev_`, `dec_`, `case_`), globally unique, no embedded authorization (20 §7).
 - **Tenancy columns**: every protected table has `tenant_id` (and `workspace_id` where a workspace owns the row). Queries scope by tenant/workspace **before** record permissions.
-- **Timestamps**: `timestamptz`, UTC; display converts to Asia/Tehran. `created_at`/`updated_at` on every table.
+- **Timestamps**: `timestamptz`, UTC; display converts to Asia/Tehran. Mutable aggregates carry `created_at`/`updated_at`; append-only evidence carries `occurred_at`/`created_at` and is never rewritten merely to update a timestamp.
 - **Money**: never floats. `amount_minor bigint` + `currency char(3)` (ISO-4217). IRR is stored in minor units; Toman is a _display_ conversion (÷10), resolving X-11.
 - **Versioned content**: immutable version rows + a pointer to `current_version_id` on the aggregate.
 - **Enums**: Postgres `CHECK` constraints or `enum` types mirroring the canonical state machines exactly (values verbatim from `state-machines.ts`).
-- **Optimistic concurrency**: aggregates carry `version integer` bumped on every write; commands pass `expected_version` (60 §4).
+- **Optimistic concurrency**: aggregates carry a non-negative lock version bumped on every write; commands pass `expected_version` (60 §4). The A1a `challenge` column is `lock_version`; API naming remains `entity_version`/`expected_version`.
 
 ## 2. Tenancy strategy (ADR-006)
 
@@ -44,135 +44,33 @@ CREATE POLICY proposal_access ON proposal USING (
 
 ## 3. Identity, tenancy & access
 
-```sql
-CREATE TABLE tenant (
-  id          text PRIMARY KEY,              -- ten_*
-  kind        text NOT NULL CHECK (kind IN ('organization','solver','platform')),
-  display_name text NOT NULL,
-  region      text NOT NULL,                 -- data residency (D-07)
-  created_at  timestamptz NOT NULL DEFAULT now()
-);
+The A1a executable baseline is `apps/api/migrations/0001_a1a_foundation.up.sql`:
 
-CREATE TABLE app_user (
-  id            text PRIMARY KEY,            -- usr_*
-  idp_subject   text UNIQUE NOT NULL,        -- link to OIDC IdP; no secrets stored here
-  display_name  text NOT NULL,
-  primary_email citext UNIQUE NOT NULL,
-  email_verified_at timestamptz,
-  mobile        text,
-  mobile_verified_at timestamptz,
-  created_at    timestamptz NOT NULL DEFAULT now()
-);
+| Table                       | Landed invariant                                                                                                                                                |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `tenant`                    | Exact kinds `organization`, `solver`, `platform`; `(id, kind)` supports declarative compatibility references                                                    |
+| `app_user`, `identity_link` | Contacts and verification flags are separate from provider identity; an external identity is unique by `(issuer, subject)`; no IdP secret or password is stored |
+| `workspace`                 | `platform→platform`, `org→organization`, `individual                                                                                                            | team→solver`; only individual/team spaces have an owner and only teams have `TeamKind` |
+| `membership`                | Workspace/tenant linkage is one composite foreign key; `platform:*`, `org:*`, `team:*`, and `individual` roles must match the workspace kind                    |
+| `access_grant`              | Cross-tenant only, workspace-bound, resource- and capability-specific, time-bounded, explicitly revocable, and auditable by actor ID                            |
+| `app_session`               | Stores only unique SHA-256-shaped access/refresh digests, expiry, version, active context, and revocation metadata; raw tokens are structurally absent          |
 
-CREATE TABLE workspace (
-  id          text PRIMARY KEY,              -- wsp_*
-  tenant_id   text NOT NULL REFERENCES tenant(id),
-  kind        text NOT NULL CHECK (kind IN ('org','individual','team')),
-  team_kind   text CHECK (team_kind IS NULL OR team_kind IN
-                 ('expert-team','lab','academic-group','company')), -- canonical TeamKind (20 §5)
-  owner_user_id text REFERENCES app_user(id),  -- individual/team owner
-  name        text NOT NULL,
-  created_at  timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT workspace_team_kind_matches_kind CHECK (
-    (kind = 'team') = (team_kind IS NOT NULL)
-  )
-);
-
--- roles are namespaced text: 'org:owner','org:approver_technical','team:proposal-manager','platform:reviewer'... (20 §3)
-CREATE TABLE membership (
-  id          text PRIMARY KEY,              -- mem_*
-  tenant_id   text NOT NULL REFERENCES tenant(id),
-  workspace_id text NOT NULL REFERENCES workspace(id),
-  user_id     text NOT NULL REFERENCES app_user(id),
-  role        text NOT NULL,
-  state       text NOT NULL CHECK (state IN
-                ('invited','requested','active','rejected','expired','suspended','removed')),
-  assigned_proposal_ids text[] NOT NULL DEFAULT '{}',
-  assigned_case_ids     text[] NOT NULL DEFAULT '{}',
-  created_at  timestamptz NOT NULL DEFAULT now(),
-  updated_at  timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (workspace_id, user_id, role)
-);
-CREATE INDEX ON membership (user_id) WHERE state = 'active';
-CREATE INDEX ON membership (workspace_id, state);
-```
-
-The `solver` tenant kind and workspace-ownership rules are the engineering default in DEC-2026-011 and remain blocked on product+security owner sign-off. Every protected row has one owning tenant; multi-tenant user reach comes from active memberships and explicit `access_grant` rows, never from a shared platform-tenant bucket.
+DEC-2026-011 and its owner record in [27](27_PHASE1_OWNER_APPROVALS.md) accept these tenant/workspace semantics. A1a encodes structural compatibility; A1b still must scope every query, revalidate active memberships/grants, and transact application writes. RLS remains the pre-pilot defense-in-depth gate.
 
 ## 4. Challenge aggregate + public projection
 
-```sql
-CREATE TABLE challenge (
-  id            text PRIMARY KEY,            -- chl_*
-  tenant_id     text NOT NULL REFERENCES tenant(id),
-  workspace_id  text NOT NULL REFERENCES workspace(id),   -- owning org workspace
-  stage         text NOT NULL CHECK (stage IN            -- canonical 11-stage lifecycle (20 §4)
-                  ('draft','triage','formulation','approvals','published',
-                   'evaluating','decided','contracting','pilot','impact','closed')),
-  authoring_status text CHECK (authoring_status IN        -- intake-editor sub-status of draft (D3)
-                  ('draft','ready','under_review','needs_changes','published','closed')),
-  current_version_id text,                   -- FK set after first version
-  published_version_id text,                 -- locked at publication
-  version       integer NOT NULL DEFAULT 0,  -- optimistic concurrency
-  created_at    timestamptz NOT NULL DEFAULT now(),
-  updated_at    timestamptz NOT NULL DEFAULT now()
-);
+A1a lands only `challenge` and `challenge_version`, sufficient for A1b draft create/read/save:
 
-CREATE TABLE challenge_version (
-  id            text PRIMARY KEY,            -- chv_*
-  challenge_id  text NOT NULL REFERENCES challenge(id),
-  number        integer NOT NULL,
-  actor_user_id text NOT NULL REFERENCES app_user(id),
-  content       jsonb NOT NULL,             -- canonical ChallengeDraftContent; transport projection is ChallengeDraftContentResource
-  locked        boolean NOT NULL DEFAULT false,   -- true once submitted/published
-  created_at    timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (challenge_id, number)
-);
+- A challenge belongs to a composite organization-tenant/`org`-workspace scope and accepts exactly the 11 canonical lifecycle stages.
+- `current_version_id` is required; `published_version_id` is required from `published` onward. Deferred composite foreign keys prove each pointer references a version of that same challenge.
+- Version numbers are positive and unique per challenge. Content must be a JSON object. Once `locked_at` is set with a reason, a trigger rejects both update and delete.
+- `lock_version` is the aggregate optimistic-concurrency value. The editor's `ready`/`needs_changes` values remain draft authoring sub-statuses inside versioned content, never lifecycle stages.
 
--- Independent, version-specific approvals (publicationGates, product.ts:65) — separation of duty
-CREATE TABLE challenge_approval (
-  id            text PRIMARY KEY,
-  challenge_id  text NOT NULL REFERENCES challenge(id),
-  challenge_version_id text NOT NULL REFERENCES challenge_version(id),
-  gate          text NOT NULL CHECK (gate IN ('business','technical','finance','legal','quality')),
-  passed        boolean NOT NULL,
-  actor_user_id text NOT NULL REFERENCES app_user(id),   -- must differ per separation rules (70 §6)
-  evidence      text,
-  decided_at    timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (challenge_version_id, gate)
-);
-
-CREATE TABLE eligibility_rule (
-  id            text PRIMARY KEY,
-  challenge_id  text NOT NULL REFERENCES challenge(id),
-  version       integer NOT NULL,
-  allowed_applicant_types text[] NOT NULL,   -- canonical ApplicantType (20 §5)
-  verification_required boolean NOT NULL DEFAULT false,
-  minimum_readiness integer NOT NULL DEFAULT 0,
-  required_expertise text[] NOT NULL DEFAULT '{}',
-  geography     text[],
-  nda_required  boolean NOT NULL DEFAULT false,
-  document_gate boolean NOT NULL DEFAULT false,
-  deadline      timestamptz NOT NULL,
-  state         text NOT NULL CHECK (state IN ('open','closed','paused')),
-  UNIQUE (challenge_id, version)
-);
-
--- Read-only publishable subset; ONLY explicitly publishable fields (FR-PUB-002, exit gate Phase 2)
-CREATE TABLE challenge_public_projection (
-  challenge_id  text PRIMARY KEY REFERENCES challenge(id),
-  published_version_id text NOT NULL REFERENCES challenge_version(id),
-  public_payload jsonb NOT NULL,             -- safe fields only; confidential fields never here
-  search_vector tsvector,                    -- Persian-normalized FTS
-  published_at  timestamptz NOT NULL,
-  updated_at    timestamptz NOT NULL DEFAULT now()
-);
-CREATE INDEX challenge_projection_fts ON challenge_public_projection USING gin (search_vector);
-```
-
-`allowed_applicant_types` is authoritative. `applicant_scope` remains a compatibility field in the versioned transport/content document and is derived by DEC-2026-010; it is not an independently writable aggregate column. Commands validate any supplied compatibility value and persist only the derived projection.
+Phase 2 adds `challenge_approval`, `eligibility_rule`, and the structurally separate `challenge_public_projection` in its own reversible migration. Approvals remain version-specific and independently attributable. `allowed_applicant_types` is authoritative; `applicant_scope` is its DEC-2026-010 derived compatibility projection and is never an independently writable aggregate column.
 
 ## 5. Proposal aggregate (immutable versions)
+
+The remaining schema sections describe later migrations and must not be treated as already present after A1a.
 
 ```sql
 CREATE TABLE proposal (
@@ -299,80 +197,19 @@ CREATE TABLE payment (
 
 ## 8. Cross-cutting platform tables
 
-```sql
-CREATE TABLE idempotency_key (
-  scope_kind text NOT NULL CHECK (scope_kind IN ('tenant','credential')),
-  scope_id   text NOT NULL,                  -- tenant ID or one-way credential-scope digest; never a raw token/code
-  tenant_id  text,                           -- null only before tenant context exists
-  key        text NOT NULL,                  -- client-supplied
-  command    text NOT NULL,                  -- stable command name
-  request_fingerprint text NOT NULL,          -- actor/workspace/target/normalized-body binding
-  actor_user_id text,
-  workspace_id text,
-  entity_id  text,
-  receipt_id text,
-  response   jsonb NOT NULL,                 -- cached exact response for replay
-  created_at timestamptz NOT NULL DEFAULT now(),
-  expires_at timestamptz NOT NULL,
-  PRIMARY KEY (scope_kind, scope_id, command, key),
-  CHECK ((scope_kind = 'tenant' AND tenant_id = scope_id) OR
-         (scope_kind = 'credential' AND tenant_id IS NULL))
-);
+A1a lands three cross-cutting records:
 
-CREATE TABLE outbox_event (
-  event_id    text PRIMARY KEY,              -- evt_*; stable downstream idempotency key
-  event_type  text NOT NULL,
-  schema_version integer NOT NULL CHECK (schema_version > 0),
-  aggregate_type text NOT NULL, aggregate_id text NOT NULL,
-  tenant_id   text NOT NULL,
-  correlation_id text NOT NULL,
-  occurred_at timestamptz NOT NULL,
-  payload     jsonb NOT NULL,
-  published_at timestamptz                    -- null = unrelayed
-);
-CREATE INDEX ON outbox_event (published_at) WHERE published_at IS NULL;
+| Table             | Landed invariant                                                                                                                                                                                                     |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `idempotency_key` | Tenant scope and pre-tenant credential-fingerprint scope are mutually exclusive; the scope/key tuple is unique with nulls treated as equal; request hash, state, credential-free cached object response, and expiry must be coherent; recursive guards reject raw session-token fields |
+| `outbox_event`    | The durable envelope carries stable event ID, tenant/correlation, event and aggregate identity, positive schema version, object payload, dedupe key, and occurrence time; event content is immutable                 |
+| `audit_event`     | Actor kind is explicit (`user/system/provider/anonymous`), user actors require a user ID, scope/target pairs are coherent, metadata is an object, and all updates/deletes are rejected                               |
 
-CREATE TABLE audit_event (                    -- append-only; app role has INSERT+SELECT only
-  id          text PRIMARY KEY,
-  tenant_id   text NOT NULL,
-  actor_user_id text NOT NULL,
-  workspace_id text,
-  entity_type text NOT NULL, entity_id text NOT NULL, entity_version integer,
-  action      text NOT NULL,                  -- audit code from state machine (e.g. 'review.submitted')
-  outcome     text NOT NULL CHECK (outcome IN ('success','denied','failed')),
-  reason      text,
-  correlation_id text NOT NULL,
-  occurred_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE INDEX ON audit_event (entity_type, entity_id);
-CREATE INDEX ON audit_event (correlation_id);
+Outbox delivery bookkeeping (`available_at`, attempts, lock, publication, redacted error code) remains mutable so A1b/worker adapters can claim and complete rows. The worker must validate the reconstructed envelope and pass `event_id` unchanged downstream. A1a does not yet provide leases, an operated dead-letter queue, or WORM audit export.
 
-CREATE TABLE file_object (
-  id text PRIMARY KEY, tenant_id text NOT NULL, workspace_id text NOT NULL,
-  entity_type text, entity_id text,
-  object_key text NOT NULL, mime_type text NOT NULL, size_bytes bigint NOT NULL,
-  classification text NOT NULL CHECK (classification IN
-    ('public','internal','confidential','highly_sensitive')),
-  scan_state text NOT NULL CHECK (scan_state IN ('quarantined','clean','infected','error')) DEFAULT 'quarantined',
-  available boolean NOT NULL DEFAULT false,   -- true only after clean scan
-  created_at timestamptz NOT NULL DEFAULT now()
-);
+`file_object`, `notification_delivery`, `policy_version`, `consent`, `dispute`, `privileged_access_grant`, `nda_acceptance`, and `verification_record` remain later migration work. File rows must eventually enforce the quarantine/scan/classification rules in [70](70_SECURITY_AND_AUTHZ.md); no placeholder table is created early.
 
-CREATE TABLE notification_delivery (
-  id text PRIMARY KEY, recipient_user_id text NOT NULL, workspace_id text,
-  type text NOT NULL, template_version text NOT NULL,
-  channel text NOT NULL CHECK (channel IN ('email','sms','push','in_app')),
-  entity_id text, deep_link text,
-  state text NOT NULL CHECK (state IN ('queued','sent','delivered','failed','dead_letter')),
-  attempts integer NOT NULL DEFAULT 0, created_at timestamptz NOT NULL DEFAULT now()
-);
-```
-
-The relay/queue adapter, not the business event envelope, owns stable claim IDs, delivery attempts, visibility/lease time, published/dead-letter state, retry scheduling, and the operated dead-letter queue. Every consumer validates the envelope plus supported schema version/event allowlist and passes `event_id` unchanged as the downstream provider idempotency key. The checked-in worker proves those semantics in memory only; the production queue mapping remains a later adapter and migration.
-
-Also: `policy_version` (versioned trust/legal/privacy content), `consent`, `dispute`, `privileged_access_grant`, `nda_acceptance` (from `solver.ts:349`), `verification_record` (from `solver.ts:332`) — same patterns.
-
-**AI/matching is deferred** under ADR-0012. Phase 1 adds only the provider-neutral `embedding.requested` outbox event contract. The future `embedding`, `match_run`, `match_result`, `ai_interaction`, pgvector extension, model adapter, and any data egress land only in the later authorized AI phase described by [45_AI_AND_MATCHING](45_AI_AND_MATCHING.md).
+**AI/matching is deferred** under ADR-0012. Phase 1 adds no embedding event, vector schema, model adapter, or data egress. The future `embedding`, `match_run`, `match_result`, `ai_interaction`, pgvector extension, and related events land only in the later authorized AI phase described by [45_AI_AND_MATCHING](45_AI_AND_MATCHING.md).
 
 ## 9. Migration mapping (browser stores → tables)
 

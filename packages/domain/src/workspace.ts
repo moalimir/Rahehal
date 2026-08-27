@@ -1,7 +1,7 @@
 import type { MembershipId, TenantId, UserId, WorkspaceId } from "./id.js";
 import type { TeamKind } from "./taxonomy.js";
 
-export const workspaceKinds = ["org", "individual", "team"] as const;
+export const workspaceKinds = ["platform", "org", "individual", "team"] as const;
 export type WorkspaceKind = (typeof workspaceKinds)[number];
 
 export const platformRoles = [
@@ -63,6 +63,10 @@ export type OrganizationWorkspace = WorkspaceBase & {
   readonly kind: "org";
 };
 
+export type PlatformWorkspace = WorkspaceBase & {
+  readonly kind: "platform";
+};
+
 export type IndividualWorkspace = WorkspaceBase & {
   readonly kind: "individual";
   readonly ownerUserId: UserId;
@@ -74,7 +78,11 @@ export type TeamWorkspace = WorkspaceBase & {
   readonly ownerUserId: UserId;
 };
 
-export type Workspace = OrganizationWorkspace | IndividualWorkspace | TeamWorkspace;
+export type Workspace =
+  | PlatformWorkspace
+  | OrganizationWorkspace
+  | IndividualWorkspace
+  | TeamWorkspace;
 
 export type Membership = {
   readonly id: MembershipId;
@@ -120,6 +128,7 @@ export function isRoleCompatibleWithWorkspace(
   role: WorkspaceRole,
   workspaceKind: WorkspaceKind,
 ): boolean {
+  if (workspaceKind === "platform") return role.startsWith("platform:");
   if (workspaceKind === "org") return role.startsWith("org:");
   if (workspaceKind === "team") return role.startsWith("team:");
   return role === "individual";

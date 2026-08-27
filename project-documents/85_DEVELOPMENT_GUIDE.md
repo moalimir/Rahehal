@@ -25,6 +25,7 @@ Use native `npm run dev` for the fastest hot-reload loop. Use Docker whenever a 
 
 ```bash
 npm run docker:config
+npm run docker:build
 npm run docker:up
 npm run docker:smoke
 ```
@@ -44,9 +45,35 @@ npm run docker:logs
 npm run docker:down
 ```
 
-`docker:up` rebuilds changed targets and waits for HTTP health. The images run as unprivileged users on read-only root filesystems with all Linux capabilities dropped; writable temporary space is bounded `tmpfs`. Published ports bind to `127.0.0.1`, not the LAN. Do not weaken those defaults to simulate a server.
+`docker:build` refreshes changed targets. `docker:up` starts the current images and waits for HTTP health without forcing another build, which keeps routine local startup fast. The images run as unprivileged users on read-only root filesystems with all Linux capabilities dropped; writable temporary space is bounded `tmpfs`. Published ports bind to `127.0.0.1`, not the LAN. Do not weaken those defaults to simulate a server.
 
-The stack is intentionally incomplete: web/API/worker are packaged, but the API and worker remain separate in-memory demo compositions and the browser remains demo authority. No data survives restart and no event crosses from the API process to the worker. Add PostgreSQL, OIDC, object storage, scanning, or telemetry only in the roadmap increment that supplies the corresponding adapter, migration, negative tests, health behavior, and recovery procedure.
+The stack is intentionally incomplete: A1a supplies pinned PostgreSQL, durable schema, deterministic seeds, and isolated constraint tests, but the API and worker remain separate in-memory demo compositions and the browser remains demo authority. No application event crosses from the API process to the worker yet. Add each PostgreSQL adapter, OIDC, object storage, scanning, or telemetry only in the roadmap increment that supplies its negative tests, health behavior, and recovery procedure.
+
+### Local PostgreSQL workflow
+
+Start only the database, apply the full migration set, and load synthetic data:
+
+```bash
+npm run db:up
+npm run db:migrate:up
+npm run db:seed
+```
+
+The default host endpoint is `127.0.0.1:5433`; `.env.example` documents overrides. The checked-in
+password and every seeded identity are local-only synthetic values. Migration commands accept
+`DATABASE_URL`, never print it, serialize with a PostgreSQL advisory lock, verify SHA-256 checksums,
+and run each change in a transaction.
+
+Prove a clean down/up cycle and constraints in an isolated ephemeral database:
+
+```bash
+npm run test:postgres
+```
+
+The test refuses a non-loopback admin URL. It creates and drops only a generated
+`rahhal_a1a_test_*` database. Stop PostgreSQL without deleting its named volume with
+`npm run db:down`. `npm run db:migrate:down` reverts one migration; run it only against the database
+whose rollback you intend to test.
 
 ### From Mac to the eventual server
 
@@ -77,6 +104,7 @@ npm run test:organization
 npm run test:contracts
 npm run test:api
 npm run test:worker
+npm run test:postgres
 ```
 
 ### Build and static checks
@@ -261,7 +289,7 @@ Avoid calling component tests “E2E” when they do not run a real browser and 
 3. **Build:** production export, route/link crawl, HTTP smoke, offline generation/verification/interaction, payload budgets.
 4. **Browser:** Playwright behavior on representative mobile/tablet/desktop projects; all projects on protected branches.
 5. **Visual/accessibility:** immutable screenshots, axe/browser checks, artifact upload for review.
-6. **Backend foundation:** shared-package builds, API/worker unit and contract tests, workspace-boundary enforcement, and compiled service artifacts. Ephemeral PostgreSQL/object/queue migration and integration gates become mandatory when those production adapters land.
+6. **Backend foundation:** shared-package builds, API/worker unit and contract tests, workspace-boundary enforcement, compiled service artifacts, and the ephemeral PostgreSQL migration/seed/constraint gate. Object/queue adapter integration gates become mandatory when those adapters land.
 7. **Container foundation:** validate Compose, build the web/API/worker Linux images, scan them, and run the container smoke path. Multi-architecture publication becomes required when a registry/server target is selected.
 
 ### Release jobs

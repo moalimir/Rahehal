@@ -18,6 +18,7 @@ this is the short contract for humans and agents. Full handbook:
 - For the Linux-container integration path, start Docker Desktop and run:
 
   ```bash
+  npm run docker:build
   npm run docker:up
   npm run docker:smoke
   ```
@@ -42,6 +43,8 @@ npm run typecheck && npm run lint && npm run format:check && npm test && npm run
 Touching API/contracts? also run `npm run test:contracts`, `npm run test:api`, and
 `npm run test:worker`. Touching UI? also `npm run build`, and for visuals
 `npx playwright install chromium && npm run test:browser`.
+Touching PostgreSQL schema, seeds, or database tooling? start the local database with
+`npm run db:up`, run `npm run test:postgres`, and finish with `npm run db:down`.
 Touching Docker/runtime configuration? also run `npm run docker:config`,
 `npm run docker:build`, `npm run docker:up`, and `npm run docker:smoke`, then stop it with
 `npm run docker:down`.
