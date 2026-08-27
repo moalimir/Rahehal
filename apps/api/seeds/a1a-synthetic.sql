@@ -206,35 +206,6 @@ INSERT INTO membership (
   )
 ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO app_session (
-  id,
-  user_id,
-  token_family_id,
-  access_token_digest,
-  refresh_token_digest,
-  session_version,
-  active_tenant_id,
-  active_workspace_id,
-  issued_at,
-  access_expires_at,
-  refresh_expires_at,
-  last_used_at
-) VALUES (
-  'ses_owner_alpha',
-  'usr_owner_alpha',
-  'family_owner_alpha',
-  repeat('a', 64),
-  repeat('b', 64),
-  0,
-  'ten_org_alpha',
-  'wsp_org_alpha',
-  '2026-01-01T00:00:00Z',
-  '2029-01-01T00:00:00Z',
-  '2030-01-01T00:00:00Z',
-  '2026-01-01T00:00:00Z'
-)
-ON CONFLICT (id) DO NOTHING;
-
 INSERT INTO challenge (
   id,
   tenant_id,
@@ -257,7 +228,7 @@ INSERT INTO challenge (
   'draft',
   'chv_synthetic_alpha_v1',
   NULL,
-  0,
+  1,
   'usr_owner_alpha',
   '2026-01-01T00:00:00Z',
   '2026-01-01T00:00:00Z'
@@ -277,7 +248,38 @@ INSERT INTO challenge_version (
   'chv_synthetic_alpha_v1',
   'chl_synthetic_alpha',
   1,
-  '{"title":"چالش آزمایشی قطعی","summary":"Synthetic local-only seed data."}'::jsonb,
+  '{
+    "title":"چالش آزمایشی قطعی",
+    "summary":"Synthetic local-only seed data.",
+    "category":"",
+    "location":"",
+    "desired_outcome":"",
+    "current_state":"",
+    "consequence":"",
+    "expected_output":"",
+    "success_criteria":[],
+    "in_scope":"",
+    "constraints":"",
+    "organization_support":"",
+    "previous_attempts":"",
+    "output_type":null,
+    "sourcing_model":null,
+    "applicant_scope":null,
+    "allowed_applicant_types":[],
+    "work_mode":null,
+    "proposal_deadline":null,
+    "preferred_start_date":null,
+    "budget":{"status":"undecided","amount_minor":null,"currency":"IRR"},
+    "invitees":[],
+    "visibility":null,
+    "public_summary":"",
+    "nda_required":false,
+    "ip_terms":null,
+    "contact":{"name":"","email":"","phone":""},
+    "accuracy_confirmed":false,
+    "legal_notes":"",
+    "attachment_ids":[]
+  }'::jsonb,
   'usr_owner_alpha',
   '2026-01-01T00:00:00Z',
   NULL,

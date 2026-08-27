@@ -1,6 +1,4 @@
 import type {
-  ChallengeDraftContentResource,
-  ChallengeDraftPatch,
   ChallengeResource,
   CreateChallengeBody,
   MutationReceipt,
@@ -8,10 +6,7 @@ import type {
   PatchChallengeBody,
 } from "@rahhal/contracts";
 import {
-  applicantScopeForTypes,
   isAggregateVersion,
-  isApplicantScope,
-  isMoneyAmountMinor,
   parseAuditEventId,
   parseChallengeId,
   parseChallengeVersionId,
@@ -24,6 +19,7 @@ import {
   type UserId,
   type WorkspaceId,
 } from "@rahhal/domain";
+import { emptyChallengeContent, mergeChallengeDraftPatch } from "./challenge-draft.js";
 import { ApiProblem, idempotencyConflict, notFound, staleVersion } from "./errors.js";
 import { commandFingerprint } from "./primitives.js";
 import type {
@@ -75,39 +71,6 @@ export type ChallengeRepositorySnapshot = {
   readonly idempotencyEntryCount: number;
 };
 
-const emptyChallengeContent = (): ChallengeDraftContentResource => ({
-  title: "",
-  summary: "",
-  category: "",
-  location: "",
-  desired_outcome: "",
-  current_state: "",
-  consequence: "",
-  expected_output: "",
-  success_criteria: [],
-  in_scope: "",
-  constraints: "",
-  organization_support: "",
-  previous_attempts: "",
-  output_type: null,
-  sourcing_model: null,
-  applicant_scope: null,
-  allowed_applicant_types: [],
-  work_mode: null,
-  proposal_deadline: null,
-  preferred_start_date: null,
-  budget: { status: "undecided", amount_minor: null, currency: "IRR" },
-  invitees: [],
-  visibility: null,
-  public_summary: "",
-  nda_required: false,
-  ip_terms: null,
-  contact: { name: "", email: "", phone: "" },
-  accuracy_confirmed: false,
-  legal_notes: "",
-  attachment_ids: [],
-});
-
 function scopeKey(tenantId: TenantId, workspaceId: WorkspaceId, challengeId: string) {
   return `${tenantId}\u0000${workspaceId}\u0000${challengeId}`;
 }
@@ -126,66 +89,6 @@ function copyState(state: RepositoryState): RepositoryState {
     ),
     auditEvents: structuredClone(state.auditEvents),
     outboxEvents: structuredClone(state.outboxEvents),
-  };
-}
-
-function mergePatch(
-  current: ChallengeDraftContentResource,
-  patch: ChallengeDraftPatch,
-): {
-  content: ChallengeDraftContentResource;
-  authoringStatus?: ChallengeResource["authoring_status"];
-} {
-  const { authoring_status: authoringStatus, ...contentPatch } = patch;
-  if (
-    contentPatch.applicant_scope !== undefined &&
-    contentPatch.applicant_scope !== null &&
-    !isApplicantScope(contentPatch.applicant_scope)
-  ) {
-    throw new ApiProblem(422, "VALIDATION", "Applicant scope is invalid", {
-      fields: [
-        {
-          path: "/patch/applicant_scope",
-          code: "enum",
-          message: "Expected person, team, both, or null",
-        },
-      ],
-    });
-  }
-  if (
-    contentPatch.budget?.amount_minor !== undefined &&
-    contentPatch.budget.amount_minor !== null &&
-    !isMoneyAmountMinor(contentPatch.budget.amount_minor)
-  ) {
-    throw new ApiProblem(422, "VALIDATION", "Budget amount must be a safe minor-unit integer", {
-      fields: [
-        {
-          path: "/patch/budget/amount_minor",
-          code: "maximum",
-          message: `Expected at most ${Number.MAX_SAFE_INTEGER}`,
-        },
-      ],
-    });
-  }
-  const mergedContent = { ...current, ...contentPatch };
-  const derivedApplicantScope = applicantScopeForTypes(mergedContent.allowed_applicant_types);
-  if (
-    contentPatch.applicant_scope !== undefined &&
-    contentPatch.applicant_scope !== derivedApplicantScope
-  ) {
-    throw new ApiProblem(422, "VALIDATION", "Applicant scope must match allowed applicant types", {
-      fields: [
-        {
-          path: "/patch/applicant_scope",
-          code: "derived_value",
-          message: "Applicant scope is derived from allowed_applicant_types",
-        },
-      ],
-    });
-  }
-  return {
-    content: { ...mergedContent, applicant_scope: derivedApplicantScope },
-    ...(authoringStatus === undefined ? {} : { authoringStatus }),
   };
 }
 
@@ -296,7 +199,7 @@ export class InMemoryChallengeRepository implements ChallengePort {
 
       const id = parseChallengeId(this.ids.next("chl"));
       const now = this.clock.now().toISOString();
-      const merged = mergePatch(emptyChallengeContent(), body.draft ?? {});
+      const merged = mergeChallengeDraftPatch(emptyChallengeContent(), body.draft ?? {});
       const resource: ChallengeResource = {
         id,
         current_version_id: parseChallengeVersionId(this.ids.next("chv")),
@@ -349,7 +252,7 @@ export class InMemoryChallengeRepository implements ChallengePort {
         throw staleVersion(stored.current.version);
       }
 
-      const merged = mergePatch(stored.current.content, body.patch);
+      const merged = mergeChallengeDraftPatch(stored.current.content, body.patch);
       const updated: ChallengeResource = {
         ...stored.current,
         current_version_id: parseChallengeVersionId(this.ids.next("chv")),

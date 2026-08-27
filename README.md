@@ -4,10 +4,10 @@ Rahhal is a Persian-first, RTL open-innovation product spanning challenge
 discovery, proposal, review, contract, pilot, delivery, payment, and impact.
 
 The repository currently contains the advanced static/offline web prototype,
-the first executable API/worker/domain/contract/testkit workspaces, and the A1a
-PostgreSQL schema foundation. The services still use explicit in-memory
-development adapters: the database is real and tested, but it does not become
-application authority until A1b wires those ports to PostgreSQL.
+the first executable API/worker/domain/contract/testkit workspaces, the A1a
+PostgreSQL schema foundation, A1b's PostgreSQL session/workspace boundary, and
+A1c's authoritative challenge-draft adapter. Local Compose now runs the API in
+explicit PostgreSQL mode; the static web and worker remain demo-only boundaries.
 
 ## Technology
 
@@ -47,7 +47,15 @@ RAHHAL_API_MODE=demo npm run dev:api
 RAHHAL_WORKER_MODE=demo npm run dev:worker
 ```
 
-Neither service falls back to its demo adapter in production mode.
+For the database-backed API, first migrate and seed local PostgreSQL, then run:
+
+```bash
+RAHHAL_API_MODE=postgres npm run dev:api
+```
+
+API mode is mandatory and has no implicit fallback. PostgreSQL mode serves the seeded digest-only
+local session but intentionally rejects OIDC exchange/credential issuance until A2. Both A1c
+PostgreSQL composition and demo mode refuse production until that identity boundary exists.
 
 Build and serve the static export:
 
@@ -94,7 +102,8 @@ npm run docker:down
 
 `RAHHAL_WEB_PORT`, `RAHHAL_API_PORT`, and `RAHHAL_POSTGRES_PORT` override localhost ports.
 `RAHHAL_POSTGRES_PASSWORD` changes the synthetic local-only database credential. `docker:build`
-refreshes application images; `docker:up` starts them and pulls pinned PostgreSQL when absent. The
+refreshes application images; `docker:up` starts them, runs a guarded one-shot migration/seed job,
+and pulls pinned PostgreSQL when absent. The
 application images run without root, use read-only filesystems, drop Linux capabilities, and expose
 health checks where an HTTP boundary exists.
 
@@ -120,12 +129,13 @@ must never be used as real identities, credentials, or production data.
 > Keep TLS verification enabled and do not add an insecure registry. This does not block native
 > development (`npm run dev`) or the non-container release gates.
 
-This is a portable **local integration baseline**, not production deployment. PostgreSQL now has the
-A1a tables, constraints, seeds, and migration tests, but the API and worker remain isolated in-memory
-demo compositions and the web remains non-authoritative. PostgreSQL adapters, local test OIDC,
-durable outbox claiming, RLS, and private object storage remain later roadmap increments. The same
-Dockerfile will later be built for the selected server architecture and promoted through real
-environments.
+This is a portable **local integration baseline**, not production deployment. PostgreSQL has the A1a
+tables and A1b identity transaction boundary. A1c adds scoped challenge create/read/save, immutable
+versions, durable receipts, and atomic audit/outbox/idempotency evidence. The API container selects
+PostgreSQL explicitly and the Docker smoke recreates an API process before reading its newly created
+challenge. The worker and web remain demo-only; real OIDC, durable outbox claiming, RLS, and private object storage
+remain later roadmap increments. The same Dockerfile will later be built for the selected server
+architecture and promoted through real environments.
 
 ## Quality checks
 

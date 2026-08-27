@@ -45,9 +45,9 @@ npm run docker:logs
 npm run docker:down
 ```
 
-`docker:build` refreshes changed targets. `docker:up` starts the current images and waits for HTTP health without forcing another build, which keeps routine local startup fast. The images run as unprivileged users on read-only root filesystems with all Linux capabilities dropped; writable temporary space is bounded `tmpfs`. Published ports bind to `127.0.0.1`, not the LAN. Do not weaken those defaults to simulate a server.
+`docker:build` refreshes changed targets. `docker:up` waits for PostgreSQL, runs the guarded one-shot migration/seed container, then starts the PostgreSQL-composed API and waits for HTTP health. `docker:smoke` creates a challenge with the synthetic session, restarts the API container, and reads the same record back. The images run as unprivileged users on read-only root filesystems with all Linux capabilities dropped; writable temporary space is bounded `tmpfs`. Published ports bind to `127.0.0.1`, not the LAN. Do not weaken those defaults to simulate a server.
 
-The stack is intentionally incomplete: A1a supplies pinned PostgreSQL, durable schema, deterministic seeds, and isolated constraint tests, but the API and worker remain separate in-memory demo compositions and the browser remains demo authority. No application event crosses from the API process to the worker yet. Add each PostgreSQL adapter, OIDC, object storage, scanning, or telemetry only in the roadmap increment that supplies its negative tests, health behavior, and recovery procedure.
+The stack is intentionally incomplete: A1a supplies pinned PostgreSQL and the base schema; A1b supplies PostgreSQL session/workspace authorization and a transaction-scoped unit of work; A1c adds the authoritative challenge adapter and explicit PostgreSQL API composition. The OIDC exchange and credential issuer deliberately return `503` until A2, while the synthetic digest-only session enables local acceptance. The worker and browser remain demo authority, and no application event crosses from the API process to the worker yet. Add OIDC, the web network gateway, object storage, scanning, or telemetry only in the roadmap increment that supplies its negative tests, health behavior, and recovery procedure.
 
 ### Local PostgreSQL workflow
 
@@ -70,8 +70,11 @@ Prove a clean down/up cycle and constraints in an isolated ephemeral database:
 npm run test:postgres
 ```
 
-The test refuses a non-loopback admin URL. It creates and drops only a generated
-`rahhal_a1a_test_*` database. Stop PostgreSQL without deleting its named volume with
+The test refuses a non-loopback admin URL. It creates and drops only generated
+`rahhal_a1a_test_*`, `rahhal_a1b_test_*`, and `rahhal_a1c_test_*` databases. The suite covers migration/seed constraints
+plus session digest storage, rotation/revocation/replay, principal and membership revalidation,
+transaction locks, immutable challenge versions, receipt/audit/outbox/idempotency atomicity,
+concurrent create replay, scope denial, rollback, and API-runtime restart persistence. Stop PostgreSQL without deleting its named volume with
 `npm run db:down`. `npm run db:migrate:down` reverts one migration; run it only against the database
 whose rollback you intend to test.
 

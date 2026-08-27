@@ -1,6 +1,6 @@
 import { Pool } from "pg";
 
-import { databaseUrl } from "./config.js";
+import { databasePoolConfig } from "./config.js";
 import { runMigrations } from "./migrations.js";
 
 const direction = process.argv[2];
@@ -8,7 +8,7 @@ if (direction !== "up" && direction !== "down") {
   throw new Error("Usage: migrate-cli.ts <up|down>");
 }
 
-const pool = new Pool({ connectionString: databaseUrl(), max: 1 });
+const pool = new Pool({ ...databasePoolConfig(), max: 1 });
 
 try {
   const result = await runMigrations(pool, direction);
