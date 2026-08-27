@@ -6,6 +6,7 @@
 - Node 22 LTS is pinned in `.nvmrc` and `.node-version`; CI reads the same pin.
 - npm is the current package manager because `package-lock.json` is authoritative.
 - Install Chromium only when running browser/visual tests.
+- Docker Desktop (macOS) or Docker Engine with Compose v2 is required for the portable Linux integration stack.
 
 ### Clean setup
 
@@ -17,6 +18,43 @@ npm run dev
 Open `http://localhost:3000`.
 
 `.npmrc` already enables optional platform packages, so a clean install includes the pinned Sharp/libvips binary on supported macOS and Linux runners.
+
+### Local Docker integration
+
+Use native `npm run dev` for the fastest hot-reload loop. Use Docker whenever a change affects runtime packaging, environment behavior, service startup, or Linux portability:
+
+```bash
+npm run docker:config
+npm run docker:up
+npm run docker:smoke
+```
+
+The default local endpoints are web `http://localhost:3000` and API OpenAPI
+`http://localhost:3001/api/v1/openapi.json`. Override host ports without editing Compose:
+
+```bash
+RAHHAL_WEB_PORT=3100 RAHHAL_API_PORT=3101 npm run docker:up
+RAHHAL_WEB_PORT=3100 RAHHAL_API_PORT=3101 npm run docker:smoke
+```
+
+Inspect or stop the stack:
+
+```bash
+npm run docker:logs
+npm run docker:down
+```
+
+`docker:up` rebuilds changed targets and waits for HTTP health. The images run as unprivileged users on read-only root filesystems with all Linux capabilities dropped; writable temporary space is bounded `tmpfs`. Published ports bind to `127.0.0.1`, not the LAN. Do not weaken those defaults to simulate a server.
+
+The stack is intentionally incomplete: web/API/worker are packaged, but the API and worker remain separate in-memory demo compositions and the browser remains demo authority. No data survives restart and no event crosses from the API process to the worker. Add PostgreSQL, OIDC, object storage, scanning, or telemetry only in the roadmap increment that supplies the corresponding adapter, migration, negative tests, health behavior, and recovery procedure.
+
+### From Mac to the eventual server
+
+- Docker Desktop executes Linux containers, so macOS is a valid development host; host paths and macOS-only behavior must not enter runtime code.
+- The current Mac proves the native `linux/arm64` images. The deployment pipeline must also build/test the chosen server platform (usually `linux/amd64`) and publish immutable digests.
+- Compose remains the default for a single-host pilot. Choose Kubernetes only from measured multi-host/high-availability requirements.
+- External dev/preview/staging/production resources remain separate and owner-approved. A local Compose profile is never renamed and treated as staging.
+- Build once, attach source revision/SBOM/scan evidence, and promote the exact image digest. The server does not run `npm install` or rebuild source.
 
 ## 2. Common commands
 
@@ -91,6 +129,18 @@ npm run qa:size
 ```
 
 Generated reports under `reports/generated/` are disposable evidence and are ignored.
+
+### Container checks
+
+```bash
+npm run docker:config
+npm run docker:build
+npm run docker:up
+npm run docker:smoke
+npm run docker:down
+```
+
+Container/runtime changes require all five. Configuration validation alone is appropriate only for documentation or unrelated source changes.
 
 ## 3. Source-of-truth hierarchy
 
@@ -212,6 +262,7 @@ Avoid calling component tests “E2E” when they do not run a real browser and 
 4. **Browser:** Playwright behavior on representative mobile/tablet/desktop projects; all projects on protected branches.
 5. **Visual/accessibility:** immutable screenshots, axe/browser checks, artifact upload for review.
 6. **Backend foundation:** shared-package builds, API/worker unit and contract tests, workspace-boundary enforcement, and compiled service artifacts. Ephemeral PostgreSQL/object/queue migration and integration gates become mandatory when those production adapters land.
+7. **Container foundation:** validate Compose, build the web/API/worker Linux images, scan them, and run the container smoke path. Multi-architecture publication becomes required when a registry/server target is selected.
 
 ### Release jobs
 
