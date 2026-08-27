@@ -1,6 +1,6 @@
 # Phase 0 — Baseline & Decisions: completion report
 
-Tracks the Phase-0 deliverables and exit gates from [80 §4](80_DELIVERY_ROADMAP.md). Legend:
+Tracks the Phase-0 deliverables and exit gates from [80 §3](80_DELIVERY_ROADMAP.md). Legend:
 **✅ Done / verified** · **🟡 In progress — needs a fix or a decision** · **⬚ Owner action** (a business/legal sign-off).
 
 Installed and verified locally on 2026-08-23 (macOS arm64, Node 24.16.0 / npm 11.13.0 — within the pinned `engines` floor; CI runs the pinned Node 22 from `.nvmrc`).
@@ -34,9 +34,10 @@ Installed and verified locally on 2026-08-23 (macOS arm64, Node 24.16.0 / npm 11
 | 8   | CI running every release gate                        | ✅ defined / 🟡 first Linux run | `.github/workflows/ci.yml`                                                     |
 | 9   | Contribution / handoff guide                         | ✅                              | `CONTRIBUTING.md`                                                              |
 | 10  | Offline bundle regenerates + standalone smoke passes | ✅ **verified**                 | smoke fixed (T-C); regenerated `index.html` committed and verified             |
-| 11  | Restore/rebaseline perf budgets                      | ✅                              | rebaselined per DEC-2026-009; payload reduction moves to Phase 1               |
+| 11  | Restore/rebaseline perf budgets                      | ✅                              | rebaselined per DEC-2026-009; payload reduction moves to the hardening gate    |
 | 12  | Browser behavior + visual baseline                   | ✅ behavior / 🟡 visual         | behavior green in real Chromium; visual Golden Master needs human review (T-E) |
 | 13  | Reproducible green frontend                          | ✅ **verified**                 | see §1                                                                         |
+| 14  | Local Docker web/API/worker integration              | ✅ **verified**                 | Compose health + smoke; Docker-served browser behavior 66/66 pass              |
 
 ## 3. Remaining tasks
 
@@ -47,14 +48,14 @@ Debugged this session: **T-A, T-B, T-C, T-D, and the behavior half of T-E are do
 | ~~T-A: reproducible install~~      | Platform                | ✅ **Done** (macOS arm64; confirm on CI Linux at first run)                                                                                                                                               |
 | ~~T-B: green baseline~~            | Platform                | ✅ **Done**                                                                                                                                                                                               |
 | ~~T-C: offline standalone smoke~~  | Frontend                | ✅ **Done** — harness race + jsdom-27 parser noise fixed in `scripts/smoke-standalone-interactive.mjs`; app renders correctly                                                                             |
-| ~~T-D: Performance budgets (8/8)~~ | Frontend + Architecture | ✅ **Done** — DEC-2026-009 rebaselines byte ceilings with ~2% headroom, adds p75 web-vital targets, and moves payload reduction to Phase 1                                                                |
+| ~~T-D: Performance budgets (8/8)~~ | Frontend + Architecture | ✅ **Done** — DEC-2026-009 rebaselines byte ceilings with ~2% headroom, adds p75 web-vital targets, and moves payload reduction to the hardening gate                                                     |
 | **T-E: Visual Golden Master**      | Frontend + Design       | Behavior ✅ done. Remaining: review 18 visual scenarios × 7 viewports and commit the Golden Master to `playwright/golden/` (needs human sign-off; `npm run test:visual:update`).                          |
 | **T-F: Owner sign-offs**           | per DEC                 | Complete [27_PHASE1_OWNER_APPROVALS](27_PHASE1_OWNER_APPROVALS.md), including DEC-2026-005/010/011 and the concrete IdP/region/provider evidence; other phase-specific DEC approvals remain tracked in 25 |
 | **T-G: Replace placeholders**      | Owner                   | Real security contact in `SECURITY.md`; legal-confirmed `LICENSE`/brand                                                                                                                                   |
 
 > The visual job is now the only release gate using `continue-on-error`. Remove it when the reviewed Golden Master lands (T-E).
 
-## 4. Exit-gate status ([80 §4](80_DELIVERY_ROADMAP.md))
+## 4. Exit-gate status ([80 §3](80_DELIVERY_ROADMAP.md))
 
 | Exit gate                                                            | Status                                                                 |
 | -------------------------------------------------------------------- | ---------------------------------------------------------------------- |
@@ -65,6 +66,6 @@ Debugged this session: **T-A, T-B, T-C, T-D, and the behavior half of T-E are do
 
 ## 5. Verdict
 
-The **decisions half is complete** and the **repository baseline is verified working on this machine**: install (R-10 fixed), typecheck/lint/format/tests, production build (506 pages), all static gates, the offline standalone smoke (T-C bug fixed), and the **real-browser behavior suite (66 passed, 4 intentional non-mobile skips, 0 failures)** are green.
+The **decisions half is complete** and the **repository baseline is verified working on this machine**: install (R-10 fixed), typecheck/lint/format/tests, production build (506 pages), all static gates, the offline standalone smoke (T-C bug fixed), and the **real-browser behavior suite (66 passed, 4 intentional non-mobile skips, 0 failures)** are green. The localhost-only Docker web/API/worker stack is also healthy: container smoke passes, the API returns typed `NOT_FOUND`, and the same browser suite passes against the Nginx-served export. The first full clean multi-stage container build still needs a network-capable Linux CI run because this Mac's always-on WireGuard path intermittently times out registry TLS.
 
 **The remaining work is human review and external confirmation:** the visual Golden Master (**T-E**), owner sign-offs / placeholder replacements (**T-F/T-G**), and the first Linux CI run. None blocks starting Phase 1.

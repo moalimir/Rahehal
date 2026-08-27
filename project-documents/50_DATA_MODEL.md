@@ -368,7 +368,7 @@ CREATE TABLE notification_delivery (
 );
 ```
 
-The relay/queue adapter, not the business event envelope, owns stable claim IDs, delivery attempts, visibility/lease time, published/dead-letter state, retry scheduling, and the operated dead-letter queue. Every consumer validates the envelope plus supported schema version/event allowlist and passes `event_id` unchanged as the downstream provider idempotency key. The checked-in worker proves those semantics in memory only; the production queue mapping remains a Phase-1 adapter and migration.
+The relay/queue adapter, not the business event envelope, owns stable claim IDs, delivery attempts, visibility/lease time, published/dead-letter state, retry scheduling, and the operated dead-letter queue. Every consumer validates the envelope plus supported schema version/event allowlist and passes `event_id` unchanged as the downstream provider idempotency key. The checked-in worker proves those semantics in memory only; the production queue mapping remains a later adapter and migration.
 
 Also: `policy_version` (versioned trust/legal/privacy content), `consent`, `dispute`, `privileged_access_grant`, `nda_acceptance` (from `solver.ts:349`), `verification_record` (from `solver.ts:332`) — same patterns.
 

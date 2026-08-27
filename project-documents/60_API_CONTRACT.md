@@ -203,7 +203,7 @@ POST /files/{id}:complete       # server enqueues scan; file stays unavailable
 GET  /files/{id}:download-url   # short-lived signed GET; 403 unless authorized + clean + NDA/classification ok
 ```
 
-Uploaded content is inaccessible until all validation/scanning gates pass (Phase-1 exit gate).
+Uploaded content is inaccessible until all validation/scanning gates pass (pre-pilot hardening gate).
 
 ## 9. Contract test obligations
 

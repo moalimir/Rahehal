@@ -150,16 +150,16 @@ Each resolves a P0 item from [95 §2](95_RISKS_AND_OPEN_QUESTIONS.md). Defaults 
 ### DEC-2026-009 — Performance budgets: rebaseline + web-vital targets
 
 - **Status:** accepted (eng) · **Owner:** Frontend + Architecture · **Risks:** R-07
-- **Decision:** rebaseline the byte ceilings in `config/performance-budgets.json` to the 2026-08-23 build actuals + ~2% headroom (an anti-regression gate anchored to today), and record user-centric **p75 web-vital targets** (LCP < 2.5s, INP < 200ms, CLS < 0.1 on Persian-market mobile). This is not "inflating to hide a regression" — the 8 overages were baseline drift, not new payload. **Payload reduction** (role code-split + feature-CSS split off the ~1.3 MB common JS) is a Phase-C perf item ([80](80_DELIVERY_ROADMAP.md) §6), not MVP-blocking; ceilings are **lowered as reduction lands, never raised** without an ADR.
+- **Decision:** rebaseline the byte ceilings in `config/performance-budgets.json` to the 2026-08-23 build actuals + ~2% headroom (an anti-regression gate anchored to today), and record user-centric **p75 web-vital targets** (LCP < 2.5s, INP < 200ms, CLS < 0.1 on Persian-market mobile). This is not "inflating to hide a regression" — the 8 overages were baseline drift, not new payload. **Payload reduction** (role code-split + feature-CSS split off the ~1.3 MB common JS) is a hardening-gate perf item ([80](80_DELIVERY_ROADMAP.md) §9), not MVP-blocking; ceilings are **lowered as reduction lands, never raised** without an ADR.
 
 ### DEC-2026-010 — Applicant scope is a derived projection
 
-- **Status:** accepted 2026-08-27 (owner, doc 27) · **Owner:** Product · **Blocking milestone:** Phase B (challenge authoring)
+- **Status:** accepted 2026-08-27 (owner, doc 27) · **Owner:** Product · **Blocking milestone:** Phase 2 (challenge authoring)
 - **Decision (default):** `allowedApplicantTypes` is authoritative. `ApplicantScope` is derived as: empty set → `null`; individual only → `person`; team kinds only → `team`; individual plus at least one team kind → `both`. It is not independently authored and never expands the detailed allow-set.
 - **Consequences:** browser-store v9 normalizes existing contradictions on read; web authoring computes the scope; the API returns `VALIDATION/derived_value` for contradictory compatibility input. Database writes compute/validate the projection. Reversing this decision requires a migration and eligibility review.
 
 ### DEC-2026-011 — Tenant/workspace identity boundary
 
-- **Status:** accepted 2026-08-27 (owner, doc 27) · **Owner:** Product + Security · **Blocking milestones:** Phase A (first production migration)
+- **Status:** accepted 2026-08-27 (owner, doc 27) · **Owner:** Product + Security · **Blocking milestones:** Phase 1 (first production migration)
 - **Decision (default):** tenant kinds are `organization`, `solver`, and `platform`. Organization workspaces belong to an organization tenant; each individual or team solver workspace belongs to a solver tenant; platform workspaces belong to the platform tenant. One user identity may hold active memberships across multiple tenants/workspaces. A solver company remains a `team` workspace with `TeamKind=company`, not an organization tenant; a company that also publishes challenges receives a separate organization tenant. Cross-tenant collaboration is possible only through the explicit `access_grant` model.
 - **Consequences:** every protected row has one owning tenant; context switching is explicit; membership removal cuts access immediately; team ownership transfer does not change tenant ownership. The first production migration must encode tenant kind and workspace-kind compatibility constraints after owner approval.

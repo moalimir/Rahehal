@@ -65,7 +65,7 @@ These are unresolved _business_ choices without which the schema/authz cannot be
 | T-05 | **M** | **No CI/CD, env contract, or migration/rollback**; snapshot has no `.git`.                                                                  | 95 R-09                           | Phase 0 CI with all release gates.                                      |
 | T-06 | **M** | **Route generation includes fixtures**: static paths per demo entity risk accidental exposure and unbounded builds.                         | 95 R-14                           | Generate only publishable/authorized projections.                       |
 
-**Phase-0 status (2026-08-23):** T-01's payload concern remains, but all 8 rebaselined byte gates pass under DEC-2026-009 and reduction is a Phase-1 task. T-04 is resolved with pinned runtime and deterministic optional dependencies. T-05's CI/env/baseline portion is resolved; production migrations and deployment/CD remain future work.
+**Phase-0 status (2026-08-23):** T-01's payload concern remains, but all 8 rebaselined byte gates pass under DEC-2026-009 and reduction is a hardening-gate task. T-04 is resolved with pinned runtime and deterministic optional dependencies. T-05's CI/env/baseline portion is resolved; production migrations and deployment/CD remain future work.
 
 ## E. What is genuinely strong (keep, don't rebuild)
 
