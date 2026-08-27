@@ -6,7 +6,7 @@ Read in order:
 
 | #   | Document                                                        | Purpose                                                                                                       |
 | --- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| 00  | [00_OVERVIEW](00_OVERVIEW.md)                                   | Executive summary, **canonical decisions (D1–D13)**, verdict                                                  |
+| 00  | [00_OVERVIEW](00_OVERVIEW.md)                                   | Executive summary, **canonical decisions (D1–D15)**, verdict                                                  |
 | 10  | [10_PRODUCT_VISION](10_PRODUCT_VISION.md)                       | Vision, narrative, product model across all roles × stages                                                    |
 | 15  | [15_PRODUCT_REQUIREMENTS](15_PRODUCT_REQUIREMENTS.md)           | _(ref)_ FR/NFR requirement catalog, success measures, MVP acceptance criteria                                 |
 | 20  | [20_CANONICAL_MODEL](20_CANONICAL_MODEL.md)                     | **Single source of truth** — glossary, actors, entities, one lifecycle, one role & permission model           |

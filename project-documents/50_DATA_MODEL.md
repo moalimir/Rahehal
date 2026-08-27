@@ -14,7 +14,7 @@ Target schema for the MVP vertical slice (challenge → proposal → review → 
 - **Enums**: Postgres `CHECK` constraints or `enum` types mirroring the canonical state machines exactly (values verbatim from `state-machines.ts`).
 - **Optimistic concurrency**: aggregates carry a non-negative lock version bumped on every write; commands pass `expected_version` (60 §4). The A1a `challenge` column is `lock_version`; API naming remains `entity_version`/`expected_version`.
 
-## 2. Tenancy strategy (ADR-006)
+## 2. Tenancy strategy (ADR-0004)
 
 **Default: application-scoped tenancy + PostgreSQL Row-Level Security as defense-in-depth.**
 
