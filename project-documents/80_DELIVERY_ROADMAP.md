@@ -171,7 +171,79 @@ Engineering decisions, the repo baseline, canonical convergence, the in-memory A
 
 **Phase gate:** no unresolved critical/high security, privacy, legal, accessibility, data-loss, operational, or financial finding. Product, Engineering, Security, Legal/Privacy, and Finance sign the controlled-pilot go/no-go.
 
-## 11. Non-negotiables even in the MVP
+## 11. Feature readiness — when each capability goes from demo to real
+
+The phase tables above are organized by engineering milestone; this section is the same information organized by **user-facing feature**, for anyone asking "when can I actually use X." **"Real from" ≠ "safe for real data."** Everything through Phase 5 is server-real but built and tested locally with synthetic data — nothing is safe for an actual organization's confidential files or actual money until the **hardening gate (G1–G7, §9)** passes.
+
+### Identity & workspace
+
+| Feature                                       | Real from        | Notes                                       |
+| --------------------------------------------- | ---------------- | ------------------------------------------- |
+| Sign in / sign out, session                   | **A2** (Phase 1) | Simple login only — MFA/KYB is G1           |
+| Active-workspace switching, `/me`             | **A3** (Phase 1) | Web wired to the real API                   |
+| Team creation/invite/roles/ownership transfer | **C2** (Phase 3) | Full permission matrix enforced server-side |
+
+### Organization: challenge
+
+| Feature                                   | Real from           | Notes                                                              |
+| ----------------------------------------- | ------------------- | ------------------------------------------------------------------ |
+| Draft a challenge (create/edit/autosave)  | **A1c** (Phase 1)   | Already built — create/read/save only, no lifecycle yet            |
+| Triage → formulation → approvals workflow | **B1–B2** (Phase 2) | Distinct-actor approvals: business/technical/finance/legal/quality |
+| Publish (locked, immutable version)       | **B4** (Phase 2)    | Atomic publish transaction                                         |
+| Public challenge discovery / search       | **B5** (Phase 2)    | Served only from the public projection, never the private record   |
+| Deadline/pause/close/cancel/amend         | **B6** (Phase 2)    |                                                                    |
+| Send a direct offer to a solver           | **C6** (Phase 3)    | Two-party aggregate                                                |
+
+### Solver
+
+| Feature                            | Real from        | Notes                                             |
+| ---------------------------------- | ---------------- | ------------------------------------------------- |
+| Eligibility check on a challenge   | **C1** (Phase 3) | Versioned against the rule active at publish time |
+| Save an opportunity                | **C6** (Phase 3) |                                                   |
+| Draft a proposal                   | **C3** (Phase 3) |                                                   |
+| Submit a proposal (locked version) | **C4** (Phase 3) | Same atomic/immutable pattern as A1c              |
+| Clarification / revision           | **C5** (Phase 3) |                                                   |
+| Respond to a direct offer          | **C6** (Phase 3) |                                                   |
+
+### Reviewer
+
+| Feature                      | Real from        | Notes                                                                |
+| ---------------------------- | ---------------- | -------------------------------------------------------------------- |
+| Assignment + workload        | **D1** (Phase 4) |                                                                      |
+| COI declaration gate         | **D2** (Phase 4) | Server-gated — replaces the prototype's `localStorage` flag entirely |
+| Rubric scoring               | **D3** (Phase 4) |                                                                      |
+| Locked review / invalidation | **D4** (Phase 4) |                                                                      |
+
+### Organization: decision
+
+| Feature                               | Real from        | Notes |
+| ------------------------------------- | ---------------- | ----- |
+| Blind/timed comparison of proposals   | **D5** (Phase 4) |       |
+| Reasoned decision (select / no-award) | **D6** (Phase 4) |       |
+| Case created on selection             | **D7** (Phase 4) |       |
+
+> **→ This is the MVP.** Draft → publish → discover → eligible → submit → COI → score → decide is real, tested, and demoable at the end of **Phase 4** — with synthetic data, not real customers yet.
+
+### Execution (post-MVP, Slice 2)
+
+| Feature                                 | Real from           | Notes                                                                                                          |
+| --------------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Contract negotiation + signature        | **E1** (Phase 5)    | Real transitions; signature provider is a local stub until DEC-2026-007 picks a real one at the hardening gate |
+| Case messages/documents                 | **E2** (Phase 5)    |                                                                                                                |
+| Pilot plan / milestones                 | **E3** (Phase 5)    |                                                                                                                |
+| Deliverable submit/accept/revise/reject | **E4** (Phase 5)    |                                                                                                                |
+| Payment status (non-custodial)          | **E5–E6** (Phase 5) | Status/ledger only — real provider + real money wait for the hardening gate                                    |
+| Disputes                                | **E7** (Phase 5)    |                                                                                                                |
+| Case closure, feedback, impact          | **E8** (Phase 5)    |                                                                                                                |
+
+### Not features — cross-cutting gates
+
+- **Real file uploads (scanning/quarantine)**, **MFA/step-up**, **rate limiting/WAF**, **backup/DR** are not a product feature — they are the **hardening gate (G1–G7, §9)**, sitting between Phase 5 and Phase 6. Nothing above is safe for a real org's confidential files or real money until this passes.
+- **Real users on a server** — **F1–F7** (Phase 6): a named pilot cohort, onboarded only after G1–G7 evidence is confirmed current.
+
+**The honest one-line answer:** if "ready" means _usable end-to-end by a real customer_, the core challenge→proposal→review→decision loop is ready at **Phase 4**, and contract→pilot→payment at **Phase 5** — but neither is safe with real data or money until the **hardening gate** passes, which gates **Phase 6**.
+
+## 12. Non-negotiables even in the MVP
 
 These are cheap now and a rewrite to retrofit, so they hold from Phase 1:
 
@@ -183,12 +255,12 @@ These are cheap now and a rewrite to retrofit, so they hold from Phase 1:
 
 Everything else may be simple, stubbed, or deferred to the hardening gate without guilt.
 
-## 12. Definition of done — two bars
+## 13. Definition of done — two bars
 
 - **MVP done (end of Phase 4):** the journey works locally on Postgres; roles enforced server-side; submissions immutable + audited; the standard gates below pass. Good enough to demo and validate with synthetic data. **Not** for real confidential data.
 - **Pilot-ready (§9 passed):** the hardening gate passes and the required owners have signed off. Only then does real org/solver data go on a server (Phase 6).
 
-## 13. Standard acceptance gates (unchanged, still mandatory for web/shared changes)
+## 14. Standard acceptance gates (unchanged, still mandatory for web/shared changes)
 
 ```bash
 npm run typecheck
@@ -210,10 +282,10 @@ npm run test:browser
 
 Phases 1–4 add: PostgreSQL migration up (and down where safe) tests, API↔database integration tests, generated-contract drift check, and a real browser→API→Postgres journey test. The hardening gate (§9) adds the RLS/durability/security/recovery gates. New scripts are named only when they land.
 
-## 14. What's explicitly deferred (not deleted — hardening gate §9 or later)
+## 15. What's explicitly deferred (not deleted — hardening gate §9 or later)
 
 MFA/KYB/step-up · RLS · malware scanning · WORM audit / DLQ sophistication · observability stack / WAF / rate limiting · backup/DR drills · pen test / PIA / WCAG audit / legal review · payload reduction (role/CSS split, DEC-2026-009) · AI matching & embeddings ([45](45_AI_AND_MATCHING.md)) · microservices, multi-region, sharding, event sourcing.
 
-## 15. Working method
+## 16. Working method
 
 Each milestone is decomposed with [agent/planner.md](../agent/planner.md) into a bounded task (goal, allowed files, tests, acceptance) before code. High-risk surfaces that _do_ appear in the MVP — authorization, tenancy/`access_grant`, migrations, immutable evidence — still get an [agent/security.md](../agent/security.md) design check, because those are the parts we are _not_ deferring. Everything deferred to the hardening gate is flagged, not silently skipped.
