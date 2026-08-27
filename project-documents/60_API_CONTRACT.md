@@ -72,7 +72,7 @@ Session exchange and refresh are the one response-shape specialization: their su
 - **Optimistic concurrency**: `expected_version` must equal the aggregate's current `version`, else `409 CONFLICT` (see §4). Retry never silently overwrites.
 - **Step-up**: sensitive commands (`sensitiveActions`, `product.ts:42`: decide, accept-deliverable, approve-payment, manage-access, resolve-dispute) require a fresh `step_up_token`; absence → `403` with `code:"STEP_UP_REQUIRED"`.
 - **Reason**: `manual-review` transitions and all ops interventions require a structured `reason`.
-- **Unit of work**: the development API revalidates session/membership inside its shared in-memory critical section and snapshots mutation state so aggregate/version, business audit, outbox, idempotency result, and receipt commit or roll back together. This proves the boundary but is not durable. The production adapter must perform the same write set in one PostgreSQL transaction; access-decision audit remains an independently defined authorization record.
+- **Unit of work**: the demo composition revalidates session/membership inside a shared in-memory critical section. In PostgreSQL mode, nested identity/workspace/challenge work shares one `PostgresUnitOfWork`: session and membership are revalidated under locks, then a challenge aggregate pointer, immutable version, durable receipt, mutation audit, outbox event, and tenant-scoped cached result commit or roll back together. Denial/access-decision audit remains separately recorded when the denied transaction must roll back.
 
 ## 4. Error contract
 
@@ -109,7 +109,7 @@ Rate-limited requests return `429` with `Retry-After`. All errors carry `correla
 
 ## 5. MVP slice endpoints
 
-The first published OpenAPI increment has exactly **8 paths / 9 operations**: `GET /api/v1/openapi.json`; `POST` session exchange/refresh/revoke; `GET /api/v1/me`; `POST /api/v1/me/context:switch`; `POST /api/v1/challenges`; and `GET` + `PATCH /api/v1/challenges/{challengeId}`. It implements §5.1 plus challenge draft create/read/save from §5.2. All three session writes carry `expected_version` (`0` for exchange) and `Idempotency-Key`; protected challenge writes additionally require `X-Workspace-Id`. The remaining endpoint inventory below is the approved MVP target, not a claim that those routes already exist. Its in-memory API composition is for deterministic development/contract evidence only and refuses production mode; it is not a substitute for managed OIDC, PostgreSQL, RLS, or transactional durability.
+The first published OpenAPI increment has exactly **8 paths / 9 operations**: `GET /api/v1/openapi.json`; `POST` session exchange/refresh/revoke; `GET /api/v1/me`; `POST /api/v1/me/context:switch`; `POST /api/v1/challenges`; and `GET` + `PATCH /api/v1/challenges/{challengeId}`. It implements §5.1 plus challenge draft create/read/save from §5.2. All three session writes carry `expected_version` (`0` for exchange) and `Idempotency-Key`; protected challenge writes additionally require `X-Workspace-Id`. The remaining endpoint inventory below is the approved MVP target, not a claim that those routes already exist. A1c provides explicit demo and PostgreSQL API compositions with no fallback; PostgreSQL mode is authoritative for seeded-session challenge calls but intentionally fails OIDC exchange/credential issuance closed until A2. RLS and the web network composition remain later gates.
 
 ### 5.1 Identity & context
 

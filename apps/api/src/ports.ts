@@ -45,6 +45,24 @@ export type SessionCommand = {
   readonly correlationId: CorrelationId;
 };
 
+export type OidcIdentity = {
+  readonly issuer: string;
+  readonly subject: string;
+};
+
+export interface OidcExchangePort {
+  exchange(body: SessionExchangeBody): Promise<OidcIdentity | null>;
+}
+
+export type IssuedSessionCredentials = {
+  readonly accessToken: string;
+  readonly refreshToken: string;
+};
+
+export interface SessionCredentialIssuerPort {
+  issue(sessionId: SessionId, version: number): IssuedSessionCredentials;
+}
+
 export type MutationOutcome<
   TargetId extends string = EntityId,
   NextAction extends string = string,

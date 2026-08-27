@@ -99,7 +99,7 @@ Status values: `accepted` · `accepted (eng) / pending-owner-sign-off` · `propo
 ### ADR-0014 — Fastify 5 transport over injected application ports
 
 **Decision.** Use Fastify 5 for the initial Node API transport. Route modules validate the versioned JSON contract and depend on injected session, workspace, and challenge application ports; Fastify, demo repositories, and provider adapters remain outside `packages/domain` and `packages/contracts`.
-**Consequences.** The API is testable through in-process HTTP injection, starts quickly, and does not couple domain policy to a framework. The initial in-memory composition is explicitly demo-only and refuses production mode; PostgreSQL and managed OIDC adapters remain Phase-1 release requirements.
+**Consequences.** The API is testable through in-process HTTP injection, starts quickly, and does not couple domain policy to a framework. The initial in-memory composition is explicitly demo-only and refuses production mode. A1c adds an explicit PostgreSQL composition with no fallback; managed OIDC and the browser network composition remain Phase-1 release requirements.
 
 ---
 

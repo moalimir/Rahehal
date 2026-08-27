@@ -62,17 +62,19 @@ RUN npm ci --omit=dev --ignore-scripts \
 FROM ${NODE_IMAGE} AS api
 ARG RAHHAL_REVISION=local
 ENV NODE_ENV=development \
-    RAHHAL_API_MODE=demo \
+    RAHHAL_API_MODE=postgres \
     RAHHAL_API_HOST=0.0.0.0 \
     RAHHAL_API_PORT=3001
-LABEL org.opencontainers.image.title="Rahhal local API demo" \
-      org.opencontainers.image.description="Compiled, in-memory Rahhal API boundary proof" \
+LABEL org.opencontainers.image.title="Rahhal local API" \
+      org.opencontainers.image.description="Compiled Rahhal API with explicit PostgreSQL authority" \
       org.opencontainers.image.revision="${RAHHAL_REVISION}"
 WORKDIR /workspace
 
 COPY --from=service-runtime-dependencies --chown=node:node /workspace/node_modules ./node_modules
 COPY --from=service-build --chown=node:node /workspace/apps/api/package.json apps/api/package.json
 COPY --from=service-build --chown=node:node /workspace/apps/api/dist apps/api/dist
+COPY --from=service-build --chown=node:node /workspace/apps/api/migrations apps/api/migrations
+COPY --from=service-build --chown=node:node /workspace/apps/api/seeds apps/api/seeds
 COPY --from=service-build --chown=node:node /workspace/packages/contracts/package.json packages/contracts/package.json
 COPY --from=service-build --chown=node:node /workspace/packages/contracts/dist packages/contracts/dist
 COPY --from=service-build --chown=node:node /workspace/packages/domain/package.json packages/domain/package.json
@@ -82,6 +84,7 @@ USER node
 EXPOSE 3001
 HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=5 \
   CMD node -e "fetch('http://127.0.0.1:3001/api/v1/openapi.json').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))"
+STOPSIGNAL SIGTERM
 CMD ["node", "apps/api/dist/server.js"]
 
 FROM ${NODE_IMAGE} AS worker

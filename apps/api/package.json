@@ -11,12 +11,13 @@
     "build": "tsc -p tsconfig.build.json",
     "db:migrate:up": "tsx src/postgres/migrate-cli.ts up",
     "db:migrate:down": "tsx src/postgres/migrate-cli.ts down",
+    "db:setup:local-compose": "tsx src/postgres/local-setup-cli.ts",
     "db:seed": "tsx src/postgres/seed-cli.ts",
     "dev": "tsx watch src/server.ts",
     "start": "node dist/server.js",
-    "test:postgres": "vitest run test/postgres-foundation.test.ts",
+    "test:postgres": "vitest run test/postgres-*.test.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --exclude test/postgres-foundation.test.ts"
+    "test": "vitest run --exclude test/postgres-*.test.ts"
   },
   "dependencies": {
     "@rahhal/contracts": "0.1.0",

@@ -8,7 +8,7 @@ export default defineConfig({
     globals: true,
     pool: "forks",
     fileParallelism: false,
-    exclude: [...configDefaults.exclude, "apps/api/test/postgres-foundation.test.ts"],
+    exclude: [...configDefaults.exclude, "apps/api/test/postgres-*.test.ts"],
   },
   resolve: { alias: { "@": path.resolve(import.meta.dirname, ".") } },
 });

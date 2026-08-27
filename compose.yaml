@@ -53,6 +53,34 @@ services:
       retries: 5
     stop_grace_period: 10s
 
+  database-setup:
+    image: rahhal/api:local
+    build:
+      context: .
+      target: api
+      args:
+        RAHHAL_REVISION: ${RAHHAL_REVISION:-local}
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      NODE_ENV: development
+      RAHHAL_LOCAL_COMPOSE: "true"
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: rahhal
+      PGUSER: rahhal
+      PGPASSWORD: ${RAHHAL_POSTGRES_PASSWORD:-rahhal-local-only}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["node", "apps/api/dist/postgres/local-setup-cli.js"]
+    restart: "no"
+
   api:
     image: rahhal/api:local
     build:
@@ -70,9 +98,20 @@ services:
       - no-new-privileges:true
     environment:
       NODE_ENV: development
-      RAHHAL_API_MODE: demo
+      RAHHAL_API_MODE: postgres
       RAHHAL_API_HOST: 0.0.0.0
       RAHHAL_API_PORT: 3001
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: rahhal
+      PGUSER: rahhal
+      PGPASSWORD: ${RAHHAL_POSTGRES_PASSWORD:-rahhal-local-only}
+      RAHHAL_DATABASE_POOL_MAX: 10
+    depends_on:
+      postgres:
+        condition: service_healthy
+      database-setup:
+        condition: service_completed_successfully
     ports:
       - name: api
         target: 3001

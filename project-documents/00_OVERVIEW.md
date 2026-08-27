@@ -10,13 +10,13 @@
 
 Rahhal is a **Persian-first, RTL open-innovation platform**: organizations turn a real operational problem into a controlled _case_, discover or invite qualified solvers, evaluate versioned proposals through conflict-controlled review, contract and run a pilot, accept deliverables, release payment, and preserve evidence of decisions and impact.
 
-The repository today is an **unusually broad, well-tested frontend prototype plus an initial backend walking skeleton** — not a production system. The browser still implements the full demo lifecycle with typed rules, role-aware workspaces, versioned local persistence, idempotent mock mutations, and safe negative states. `apps/api`, `apps/worker`, and the shared packages now prove the first transport/contract/authorization boundaries using explicit in-memory development adapters, but there is still **no production authority or deployment**: no PostgreSQL/RLS, managed identity provider, durable audit/outbox, object storage, payment rails, or CD pipeline.
+The repository today is an **unusually broad, well-tested frontend prototype plus an initial backend walking skeleton** — not a production system. The browser still implements the full demo lifecycle with typed rules, role-aware workspaces, versioned local persistence, idempotent mock mutations, and safe negative states. `apps/api`, `apps/worker`, and the shared packages prove the first transport/contract/authorization boundaries. A1a adds the checksummed PostgreSQL foundation; A1b adds session/workspace authorization and a transaction-scoped unit of work; A1c composes a narrow authoritative challenge-draft API with immutable versions and atomic evidence. There is still **no production deployment or authoritative browser journey**: the web and worker remain demo-only, and managed identity, RLS, durable worker delivery, object storage, payment rails, and CD are absent.
 
 > The central product promise is **continuity and trust across one continuous case** — every sensitive action has an owner, prerequisites, version, reason, receipt, next action, and audit record. Not a challenge directory.
 
 ## 2. The problem this blueprint solves
 
-The prototype proves _breadth_; the in-memory server proves only an executable boundary. Neither proves production depth: provider identity, database-enforced authorization, confidentiality, durable immutability/transactions, financial correctness, or recovery. The canonical vocabulary, lifecycle, roles, permission model, and production design in this document set remain the constraints for each authoritative slice.
+The prototype proves _breadth_; A1a–A1c prove a local database and authoritative seeded-session API→PostgreSQL challenge boundary. They do not yet prove a browser→API composition, provider identity, RLS defense-in-depth, confidential-file handling, financial correctness, or operational recovery. The canonical vocabulary, lifecycle, roles, permission model, and production design in this document set remain the constraints for each authoritative slice.
 
 ### The headline finding (validated in source)
 
@@ -75,15 +75,15 @@ These are the reconciliations every artifact in this set uses. Business-owned de
 
 ## 5. Current verdict
 
-| Dimension            | Status                     | Meaning                                                                                                                                                                                                                      |
-| -------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Product breadth      | **Advanced prototype**     | All roles and lifecycle stages represented; 506 static pages generated.                                                                                                                                                      |
-| Repository quality   | **Green**                  | Strict TypeScript, lint, Prettier, **45 Vitest files / 307 tests** across web and workspaces, build/static gates, and browser behavior checks pass.                                                                          |
-| Domain modeling      | **Strong; approval-gated** | Shared lifecycle, applicant derivation, and namespaced roles are executable; solver aggregate v5 migrates flat v4 roles. Product/security owner approvals remain before production schema/provider work.                     |
-| Server authority     | **Development proof only** | Initial session/workspace/challenge routes enforce scoped demo policy, versions, idempotency, audit, and outbox in memory; browser state and demo adapters remain non-authoritative, and no durable production store exists. |
-| Production readiness | **Blocked**                | Security and transactional correctness have browser and in-memory API/worker proofs only; managed identity, durable database transactions, RLS, and operated infrastructure are absent.                                      |
+| Dimension            | Status                     | Meaning                                                                                                                                                                                                   |
+| -------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Product breadth      | **Advanced prototype**     | All roles and lifecycle stages represented; 506 static pages generated.                                                                                                                                   |
+| Repository quality   | **Green**                  | Strict TypeScript, lint, Prettier, broad Vitest coverage across web and workspaces, build/static gates, and browser behavior checks are established.                                                      |
+| Domain modeling      | **Strong; approval-gated** | Shared lifecycle, applicant derivation, and namespaced roles are executable; solver aggregate v5 migrates flat v4 roles. Product/security owner approvals remain before production schema/provider work.  |
+| Server authority     | **Narrow local authority** | A1c explicitly composes PostgreSQL session/workspace/challenge adapters and proves persistence across fresh API runtimes; managed identity, browser composition, RLS, and later aggregates remain absent. |
+| Production readiness | **Blocked**                | Managed identity, composed PostgreSQL authority, RLS, durable delivery/recovery, private storage, and operated infrastructure are absent.                                                                 |
 
-**Release status: prototype-approved, production-blocked.** The next gate is the explicit owner approval packet in [27_PHASE1_OWNER_APPROVALS](27_PHASE1_OWNER_APPROVALS.md); only then can provider-specific infrastructure, managed identity, and the first durable slice be implemented without guessing trust boundaries.
+**Release status: prototype-approved, production-blocked.** Owner planning defaults are recorded in [27_PHASE1_OWNER_APPROVALS](27_PHASE1_OWNER_APPROVALS.md). The next delivery increments are A2 simple OIDC and A3's composed browser→API→PostgreSQL challenge slice; provider/server selection still follows the approval and pre-pilot gates.
 
 ## 6. How to use this set
 
