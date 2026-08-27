@@ -70,6 +70,46 @@ Then open `http://localhost:4173`.
 The build also regenerates `index.html`, a single-file offline bundle. It can be
 opened directly without an HTTP server and uses hash-based navigation.
 
+### Local Docker stack (macOS or Linux)
+
+Docker Desktop packages the current boundaries into Linux containers: an Nginx-served static web
+export, the compiled Fastify API, and the compiled worker. Start Docker Desktop, then run:
+
+```bash
+npm run docker:config
+npm run docker:up
+npm run docker:smoke
+```
+
+Open `http://localhost:3000`; the OpenAPI document is at
+`http://localhost:3001/api/v1/openapi.json`. Follow logs or stop the stack with:
+
+```bash
+npm run docker:logs
+npm run docker:down
+```
+
+`RAHHAL_WEB_PORT` and `RAHHAL_API_PORT` may override the two localhost ports. The first build pulls
+the pinned Linux base images; later builds reuse Docker layers. The images run without root, use
+read-only filesystems, drop Linux capabilities, and expose health checks where an HTTP boundary
+exists.
+
+> **Restricted-network note:** the first build must reach `docker.io`/`registry-1.docker.io` (base
+> images and the BuildKit syntax directive) and, if you retarget the base image, `mcr.microsoft.com`.
+> Some ISPs/regions — including networks where this project's Persian-market pilot developers may sit
+> — block or silently time out these registries at the TCP level even though DNS resolves and other
+> hosts (`github.com`, `ghcr.io`) work fine. If `docker compose build` hangs or times out resolving
+> `docker/dockerfile:1.7` or pulling `node`/`nginx` images, this is a local network condition, not a
+> Dockerfile defect: configure Docker Desktop's proxy (Settings → Resources → Proxies) or a trusted
+> registry mirror (Settings → Docker Engine → `registry-mirrors`) for your network, then retry. This
+> does not block native development (`npm run dev`) or any other release gate.
+
+This is a portable **local integration baseline**, not production deployment. The API and worker
+still use isolated in-memory demo adapters, the web remains non-authoritative, and the stack does
+not yet contain PostgreSQL, managed OIDC, durable outbox processing, or private object storage.
+Those services are added only with their Phase-1 adapters and tests. The same Dockerfile will later
+be built for the selected server architecture and promoted through real environments.
+
 ## Quality checks
 
 Run lightweight source checks:
@@ -166,9 +206,12 @@ lib/                         Local repositories, services, validation, and stora
 packages/contracts/          Typed envelopes, JSON schemas, and OpenAPI 3.1
 packages/domain/             Browser-free canonical domain primitives
 packages/testkit/            Deterministic cross-workspace test builders
+docker/                      Container runtime configuration
 public/                      Fonts and local image assets
 scripts/                     Build, export, smoke, and verification tooling
 tests/                       Unit, component, integration, and flow tests
+compose.yaml                 Local web/API/worker integration stack
+Dockerfile                   Multi-stage Linux image build for all runtimes
 out/                         Generated static export
 index.html                   Generated single-file offline application
 ```
