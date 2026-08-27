@@ -82,6 +82,18 @@ const organizationWorkspaceResourceSchema = {
   },
 } as const;
 
+const platformWorkspaceResourceSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["id", "tenant_id", "kind", "name"],
+  properties: {
+    id: idSchema("wsp"),
+    tenant_id: idSchema("ten"),
+    kind: { const: "platform" },
+    name: { type: "string", minLength: 1, maxLength: 200 },
+  },
+} as const;
+
 const individualWorkspaceResourceSchema = {
   type: "object",
   additionalProperties: false,
@@ -111,6 +123,7 @@ const teamWorkspaceResourceSchema = {
 
 const workspaceResourceSchema = {
   oneOf: [
+    platformWorkspaceResourceSchema,
     organizationWorkspaceResourceSchema,
     individualWorkspaceResourceSchema,
     teamWorkspaceResourceSchema,

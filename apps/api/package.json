@@ -9,19 +9,25 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "db:migrate:up": "tsx src/postgres/migrate-cli.ts up",
+    "db:migrate:down": "tsx src/postgres/migrate-cli.ts down",
+    "db:seed": "tsx src/postgres/seed-cli.ts",
     "dev": "tsx watch src/server.ts",
     "start": "node dist/server.js",
+    "test:postgres": "vitest run test/postgres-foundation.test.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run --exclude test/postgres-foundation.test.ts"
   },
   "dependencies": {
     "@rahhal/contracts": "0.1.0",
     "@rahhal/domain": "0.1.0",
-    "fastify": "5.11.3"
+    "fastify": "5.11.3",
+    "pg": "8.23.0"
   },
   "devDependencies": {
     "@rahhal/testkit": "0.1.0",
     "@types/node": "22.18.0",
+    "@types/pg": "8.23.1",
     "tsx": "4.23.12",
     "typescript": "5.9.2",
     "vitest": "4.1.10"

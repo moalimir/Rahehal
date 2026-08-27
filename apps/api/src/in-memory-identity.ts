@@ -129,6 +129,14 @@ function workspaceResource(seed: DemoIdentitySeed): WorkspaceResource {
       owner_user_id: workspace.ownerUserId,
     };
   }
+  if (workspace.kind === "platform") {
+    return {
+      id: workspace.id,
+      tenant_id: workspace.tenantId,
+      kind: "platform",
+      name: workspace.name,
+    };
+  }
   return {
     id: workspace.id,
     tenant_id: workspace.tenantId,

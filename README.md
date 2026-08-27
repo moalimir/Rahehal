@@ -3,17 +3,18 @@
 Rahhal is a Persian-first, RTL open-innovation product spanning challenge
 discovery, proposal, review, contract, pilot, delivery, payment, and impact.
 
-The repository currently contains the advanced static/offline web prototype and
-the first executable API, worker, domain, contract, and testkit workspaces. The
-new services use explicit in-memory development adapters: they prove transport,
-authorization, concurrency, idempotency, audit/outbox, and contract boundaries,
-but they are not production persistence or identity authority.
+The repository currently contains the advanced static/offline web prototype,
+the first executable API/worker/domain/contract/testkit workspaces, and the A1a
+PostgreSQL schema foundation. The services still use explicit in-memory
+development adapters: the database is real and tested, but it does not become
+application authority until A1b wires those ports to PostgreSQL.
 
 ## Technology
 
 - Next.js 16.3.1 with App Router and static export
 - React 19 and strict TypeScript
 - npm workspaces with Fastify 5 API and Node worker applications
+- PostgreSQL 16 with checksummed reversible SQL migrations and synthetic seeds
 - Shared domain primitives, OpenAPI 3.1 contracts, and deterministic test builders
 - Tailwind CSS 3 plus project CSS and local Estedad fonts
 - Vitest, Testing Library, JSDOM, ESLint, and Prettier
@@ -77,38 +78,54 @@ export, the compiled Fastify API, and the compiled worker. Start Docker Desktop,
 
 ```bash
 npm run docker:config
+npm run docker:build
 npm run docker:up
 npm run docker:smoke
 ```
 
 Open `http://localhost:3000`; the OpenAPI document is at
-`http://localhost:3001/api/v1/openapi.json`. Follow logs or stop the stack with:
+`http://localhost:3001/api/v1/openapi.json`; PostgreSQL is host-local on port `5433`.
+Follow logs or stop the stack with:
 
 ```bash
 npm run docker:logs
 npm run docker:down
 ```
 
-`RAHHAL_WEB_PORT` and `RAHHAL_API_PORT` may override the two localhost ports. The first build pulls
-the pinned Linux base images; later builds reuse Docker layers. The images run without root, use
-read-only filesystems, drop Linux capabilities, and expose health checks where an HTTP boundary
-exists.
+`RAHHAL_WEB_PORT`, `RAHHAL_API_PORT`, and `RAHHAL_POSTGRES_PORT` override localhost ports.
+`RAHHAL_POSTGRES_PASSWORD` changes the synthetic local-only database credential. `docker:build`
+refreshes application images; `docker:up` starts them and pulls pinned PostgreSQL when absent. The
+application images run without root, use read-only filesystems, drop Linux capabilities, and expose
+health checks where an HTTP boundary exists.
 
-> **Restricted-network note:** the first build must reach `docker.io`/`registry-1.docker.io` (base
-> images and the BuildKit syntax directive) and, if you retarget the base image, `mcr.microsoft.com`.
-> Some ISPs/regions — including networks where this project's Persian-market pilot developers may sit
-> — block or silently time out these registries at the TCP level even though DNS resolves and other
-> hosts (`github.com`, `ghcr.io`) work fine. If `docker compose build` hangs or times out resolving
-> `docker/dockerfile:1.7` or pulling `node`/`nginx` images, this is a local network condition, not a
-> Dockerfile defect: configure Docker Desktop's proxy (Settings → Resources → Proxies) or a trusted
-> registry mirror (Settings → Docker Engine → `registry-mirrors`) for your network, then retry. This
-> does not block native development (`npm run dev`) or any other release gate.
+For database-only work:
 
-This is a portable **local integration baseline**, not production deployment. The API and worker
-still use isolated in-memory demo adapters, the web remains non-authoritative, and the stack does
-not yet contain PostgreSQL, managed OIDC, durable outbox processing, or private object storage.
-Those services are added only with their Phase-1 adapters and tests. The same Dockerfile will later
-be built for the selected server architecture and promoted through real environments.
+```bash
+npm run db:up
+npm run db:migrate:up
+npm run db:seed
+npm run test:postgres
+npm run db:migrate:down
+npm run db:down
+```
+
+`test:postgres` creates and drops its own ephemeral database and refuses non-loopback hosts. The down
+command reverts only the latest migration. Synthetic seeds are deterministic and safe to rerun; they
+must never be used as real identities, credentials, or production data.
+
+> **Restricted-network note:** the first build must reach `docker.io`/`registry-1.docker.io` for the
+> pinned base images and the npm registry for dependencies. An active WireGuard tunnel does not prove
+> that Docker Desktop's Linux VM can use the same route as macOS. If host requests work while image
+> pulls time out, configure Docker Desktop's proxy or a trusted registry mirror for that network.
+> Keep TLS verification enabled and do not add an insecure registry. This does not block native
+> development (`npm run dev`) or the non-container release gates.
+
+This is a portable **local integration baseline**, not production deployment. PostgreSQL now has the
+A1a tables, constraints, seeds, and migration tests, but the API and worker remain isolated in-memory
+demo compositions and the web remains non-authoritative. PostgreSQL adapters, local test OIDC,
+durable outbox claiming, RLS, and private object storage remain later roadmap increments. The same
+Dockerfile will later be built for the selected server architecture and promoted through real
+environments.
 
 ## Quality checks
 
@@ -120,6 +137,7 @@ npm run lint
 npm test
 npm run format:check
 npm run verify:boundaries
+npm run verify:vocabulary
 ```
 
 After `npm run build`, validate the generated artifacts:
@@ -198,6 +216,8 @@ Routes are data-driven. The authoritative registries are
 ```text
 app/                         Next.js routes, layouts, and styles
 apps/api/                    Fastify transport and injected application ports
+apps/api/migrations/         Checksummed PostgreSQL up/down migrations
+apps/api/seeds/              Deterministic synthetic local data
 apps/worker/                 Validated, retrying/dead-letter outbox worker skeleton
 components/                  Public, shared, and role-specific UI
 data/                        Route contracts, fixtures, and registries
@@ -210,7 +230,7 @@ docker/                      Container runtime configuration
 public/                      Fonts and local image assets
 scripts/                     Build, export, smoke, and verification tooling
 tests/                       Unit, component, integration, and flow tests
-compose.yaml                 Local web/API/worker integration stack
+compose.yaml                 Local PostgreSQL/web/API/worker integration stack
 Dockerfile                   Multi-stage Linux image build for all runtimes
 out/                         Generated static export
 index.html                   Generated single-file offline application
@@ -231,4 +251,4 @@ Local storage, frontend guards, in-memory API repositories, demo tokens, mock
 receipts, and mock state transitions are not production security boundaries. A
 production release still requires managed OIDC, PostgreSQL transactions and RLS,
 durable audit/outbox storage, private scanned object storage, provider integrations,
-and the Phase-1 security/operational gates.
+and the pre-pilot hardening gates.

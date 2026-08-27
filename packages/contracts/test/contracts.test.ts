@@ -79,6 +79,12 @@ describe("authoritative API contracts", () => {
     }>();
   });
 
+  it("publishes every canonical workspace kind, including the operator workspace", () => {
+    expect(
+      apiSchemas.WorkspaceResource.oneOf.map((schema) => schema.properties.kind.const),
+    ).toEqual(["platform", "org", "individual", "team"]);
+  });
+
   it("validates untrusted outbox records at runtime", () => {
     const valid = {
       event_id: "evt_00000001",
