@@ -1,8 +1,10 @@
 name: CI
 
 # Release pipeline (85_DEVELOPMENT_GUIDE.md §8). Runs every release gate on the pinned
-# runtime. Only the `visual` job is non-blocking, until a reviewed Golden Master lands
-# (T-E in project-documents/82_PHASE0_COMPLETION.md); everything else is required.
+# runtime; every job here is required. Visual regression (T-E in
+# project-documents/82_PHASE0_COMPLETION.md) is a separate, manually-triggered
+# workflow (visual.yml) until a reviewed Golden Master exists — it cannot pass
+# without one, so running it on every push was pure cost with zero signal.
 
 on:
   push:
@@ -80,24 +82,6 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run build:web
       - run: npm run test:browser
-
-  # ── Visual regression needs a committed Golden Master (T-E) ────────────────────
-  # Budgets + standalone smoke are now green and enforced in `build`.
-  # Remove continue-on-error once playwright/golden/ has a reviewed baseline.
-  visual:
-    name: Visual regression (needs Golden Master)
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: npm ci --include=optional
-      - run: npx playwright install --with-deps chromium
-      - run: npm run build:web
-      - run: npm run test:visual
 
   security:
     name: Dependency & security scan
