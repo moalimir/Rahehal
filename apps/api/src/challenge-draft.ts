@@ -38,7 +38,9 @@ export const emptyChallengeContent = (): ChallengeDraftContentResource => ({
   invitees: [],
   visibility: null,
   public_summary: "",
+  verification_required: false,
   nda_required: false,
+  document_gate_required: false,
   ip_terms: null,
   contact: { name: "", email: "", phone: "" },
   accuracy_confirmed: false,
@@ -79,7 +81,9 @@ export function challengeReadiness(
     invitees: content.invitees,
     visibility: content.visibility,
     publicSummary: content.public_summary,
+    verificationRequired: content.verification_required,
     ndaRequired: content.nda_required,
+    documentGateRequired: content.document_gate_required,
     ipTerms: content.ip_terms,
     contact: content.contact,
     accuracyConfirmed: content.accuracy_confirmed,
@@ -147,6 +151,26 @@ export function mergeChallengeDraftPatch(
     content: { ...mergedContent, applicant_scope: derivedApplicantScope },
     ...(authoringStatus === undefined ? {} : { authoringStatus }),
   };
+}
+
+export function assertEligibilityRuleAttachable(
+  content: ChallengeDraftContentResource,
+  now: Date,
+): void {
+  if (
+    content.proposal_deadline !== null &&
+    new Date(content.proposal_deadline).getTime() <= now.getTime()
+  ) {
+    throw new ApiProblem(422, "VALIDATION", "Proposal deadline must be in the future", {
+      fields: [
+        {
+          path: "/content/proposal_deadline",
+          code: "future",
+          message: "Proposal deadline must be in the future while the challenge is editable",
+        },
+      ],
+    });
+  }
 }
 
 /**

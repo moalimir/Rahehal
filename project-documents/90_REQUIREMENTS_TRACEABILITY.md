@@ -36,33 +36,33 @@ Status meanings:
 
 ## Solver, team, review, and execution
 
-| Requirement | Current evidence                                                                                     | Status    | Production gap                                                         | Phase |
-| ----------- | ---------------------------------------------------------------------------------------------------- | --------- | ---------------------------------------------------------------------- | ----: |
-| FR-SOL-001  | Personal/team profiles, settings, verification, privacy and evidence fixtures                        | Prototype | Durable profile/evidence APIs, moderation and verification             |     3 |
-| FR-SOL-002  | Structured eligibility and challenge authoring share authoritative `ApplicantType`; scope is derived | Prototype | Owner-approved, versioned server rules, overrides, deadlines and audit |     3 |
-| FR-SOL-003  | Workspace-scoped saved store, filters and context-aware URLs                                         | Prototype | Server persistence/sync and real search state                          |     3 |
-| FR-SOL-004  | Canonical workspace ownership checks and draft repository                                            | Prototype | Tenant-scoped database rows and API authorization                      |     3 |
-| FR-SOL-005  | Six-step proposal wizard, validation, declarations and metadata upload                               | Prototype | Server schema, secure evidence and draft collaboration                 |     3 |
-| FR-SOL-006  | Proposal versions/history/diff and immutable-state intent                                            | Prototype | Transactional lock, exact content hashes and revision commands         |     3 |
-| FR-SOL-007  | Team create/invite/request/roles/transfer/remove/archive commands                                    | Prototype | Server membership lifecycle, concurrency and notifications             |     3 |
-| FR-SOL-008  | Explicit role-policy decision module and tests                                                       | Prototype | Central policy service/middleware and exhaustive access tests          |   1/3 |
-| FR-SOL-009  | Shared direct-offer store and transition guard                                                       | Prototype | Authoritative aggregate, expiry scheduler and two-party permissions    |     3 |
-| FR-SOL-010  | Dedicated response workflow and tests prevent premature acceptance                                   | Prototype | Legal state definition and server command separation                   |     3 |
-| FR-REV-001  | Assignment-scoped routes, fixtures, queue and lifecycle state machine                                | Prototype | Assignment database, workload policy and exact versions                |     4 |
-| FR-REV-002  | Browser COI gate blocks materials/scoring                                                            | Prototype | Server/object/export gate before any protected response                |     4 |
-| FR-REV-003  | COI operations concepts and permission states                                                        | Partial   | Authoritative COI record, escalation and non-leaking enforcement       |     4 |
-| FR-REV-004  | Rubric/scoring experience and required-rationale intent                                              | Prototype | Server rubric schema/version and score validation                      |     4 |
-| FR-REV-005  | Final review/lock/receipt/audit concepts                                                             | Prototype | Immutable review transaction and durable audit                         |     4 |
-| FR-REV-006  | State-machine invalidation/reopen intent                                                             | Partial   | Separation-of-duty operations command and evidence                     |     4 |
-| FR-REV-007  | Comparison and blind-review policy content                                                           | Partial   | Field-level anonymity and timed aggregation policy                     |     4 |
-| FR-EXE-001  | Solver case continuity links proposal, contract, pilot and payments                                  | Prototype | Authoritative case-creation transaction and relationships              |     5 |
-| FR-EXE-002  | Contract states, versions, approval/sign UI and commands                                             | Prototype | Legal document/e-sign service and effective-state authority            |     5 |
-| FR-EXE-003  | Pilot milestones, tasks, KPIs and evidence UI                                                        | Prototype | Durable scheduling, evidence and change control                        |     5 |
-| FR-EXE-004  | Deliverable submit/accept/revise/reject states                                                       | Prototype | Server acceptance protocol, evidence and authorized commands           |     5 |
-| FR-EXE-005  | Mock payment requires technical, finance and contract gates                                          | Prototype | Server payment policy, ledger and separation of duty                   |     5 |
-| FR-EXE-006  | State-machine retry/idempotency intent                                                               | Partial   | Provider integration, callback security, ledger and reconciliation     |     5 |
-| FR-EXE-007  | Case close/payment completion/feedback commands                                                      | Prototype | Durable closure rules, one-time feedback and audit                     |     5 |
-| FR-EXE-008  | Impact/ROI/baseline UI and fixtures                                                                  | Prototype | Approved measurement schema, data sources and validation               |     5 |
+| Requirement | Current evidence                                                                                     | Status    | Production gap                                                          | Phase |
+| ----------- | ---------------------------------------------------------------------------------------------------- | --------- | ----------------------------------------------------------------------- | ----: |
+| FR-SOL-001  | Personal/team profiles, settings, verification, privacy and evidence fixtures                        | Prototype | Durable profile/evidence APIs, moderation and verification              |     3 |
+| FR-SOL-002  | Authoritative `ApplicantType`, derived scope, and B3's version-bound PostgreSQL eligibility snapshot | Partial   | C1 server evaluator with explainable reasons/actions and override audit |     3 |
+| FR-SOL-003  | Workspace-scoped saved store, filters and context-aware URLs                                         | Prototype | Server persistence/sync and real search state                           |     3 |
+| FR-SOL-004  | Canonical workspace ownership checks and draft repository                                            | Prototype | Tenant-scoped database rows and API authorization                       |     3 |
+| FR-SOL-005  | Six-step proposal wizard, validation, declarations and metadata upload                               | Prototype | Server schema, secure evidence and draft collaboration                  |     3 |
+| FR-SOL-006  | Proposal versions/history/diff and immutable-state intent                                            | Prototype | Transactional lock, exact content hashes and revision commands          |     3 |
+| FR-SOL-007  | Team create/invite/request/roles/transfer/remove/archive commands                                    | Prototype | Server membership lifecycle, concurrency and notifications              |     3 |
+| FR-SOL-008  | Explicit role-policy decision module and tests                                                       | Prototype | Central policy service/middleware and exhaustive access tests           |   1/3 |
+| FR-SOL-009  | Shared direct-offer store and transition guard                                                       | Prototype | Authoritative aggregate, expiry scheduler and two-party permissions     |     3 |
+| FR-SOL-010  | Dedicated response workflow and tests prevent premature acceptance                                   | Prototype | Legal state definition and server command separation                    |     3 |
+| FR-REV-001  | Assignment-scoped routes, fixtures, queue and lifecycle state machine                                | Prototype | Assignment database, workload policy and exact versions                 |     4 |
+| FR-REV-002  | Browser COI gate blocks materials/scoring                                                            | Prototype | Server/object/export gate before any protected response                 |     4 |
+| FR-REV-003  | COI operations concepts and permission states                                                        | Partial   | Authoritative COI record, escalation and non-leaking enforcement        |     4 |
+| FR-REV-004  | Rubric/scoring experience and required-rationale intent                                              | Prototype | Server rubric schema/version and score validation                       |     4 |
+| FR-REV-005  | Final review/lock/receipt/audit concepts                                                             | Prototype | Immutable review transaction and durable audit                          |     4 |
+| FR-REV-006  | State-machine invalidation/reopen intent                                                             | Partial   | Separation-of-duty operations command and evidence                      |     4 |
+| FR-REV-007  | Comparison and blind-review policy content                                                           | Partial   | Field-level anonymity and timed aggregation policy                      |     4 |
+| FR-EXE-001  | Solver case continuity links proposal, contract, pilot and payments                                  | Prototype | Authoritative case-creation transaction and relationships               |     5 |
+| FR-EXE-002  | Contract states, versions, approval/sign UI and commands                                             | Prototype | Legal document/e-sign service and effective-state authority             |     5 |
+| FR-EXE-003  | Pilot milestones, tasks, KPIs and evidence UI                                                        | Prototype | Durable scheduling, evidence and change control                         |     5 |
+| FR-EXE-004  | Deliverable submit/accept/revise/reject states                                                       | Prototype | Server acceptance protocol, evidence and authorized commands            |     5 |
+| FR-EXE-005  | Mock payment requires technical, finance and contract gates                                          | Prototype | Server payment policy, ledger and separation of duty                    |     5 |
+| FR-EXE-006  | State-machine retry/idempotency intent                                                               | Partial   | Provider integration, callback security, ledger and reconciliation      |     5 |
+| FR-EXE-007  | Case close/payment completion/feedback commands                                                      | Prototype | Durable closure rules, one-time feedback and audit                      |     5 |
+| FR-EXE-008  | Impact/ROI/baseline UI and fixtures                                                                  | Prototype | Approved measurement schema, data sources and validation                |     5 |
 
 ## Operations and non-functional requirements
 

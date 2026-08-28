@@ -231,7 +231,9 @@ export type ChallengeDraftContent = {
   readonly invitees: readonly string[];
   readonly visibility: ChallengeVisibility | null;
   readonly publicSummary: string;
+  readonly verificationRequired: boolean;
   readonly ndaRequired: boolean;
+  readonly documentGateRequired: boolean;
   readonly ipTerms: ChallengeIpTerms | null;
   readonly contact: ChallengeContact;
   readonly accuracyConfirmed: boolean;

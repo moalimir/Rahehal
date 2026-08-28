@@ -53,6 +53,16 @@ function quotedIdentifier(value: string): string {
   return `"${value}"`;
 }
 
+async function expectDatabaseError(operation: Promise<unknown>, code: string): Promise<void> {
+  try {
+    await operation;
+  } catch (error) {
+    expect(error).toMatchObject({ code });
+    return;
+  }
+  throw new Error(`Expected PostgreSQL error ${code}`);
+}
+
 function context(
   key: string,
   ordinal: number,
@@ -149,7 +159,18 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
     expect(first).toMatchObject({ version: 1, content: { title: "مسئله عملیاتی" } });
     const saved = await challenges.patch(
       created.receipt.entity_id,
-      { expected_version: 1, patch: { summary: "شرح نسخه دوم", authoring_status: "ready" } },
+      {
+        expected_version: 1,
+        patch: {
+          summary: "شرح نسخه دوم",
+          allowed_applicant_types: ["individual", "expert-team"],
+          verification_required: true,
+          nda_required: true,
+          document_gate_required: true,
+          proposal_deadline: "2030-02-01T00:00:00.000Z",
+          authoring_status: "ready",
+        },
+      },
       context("a1c-save-challenge-001", 3),
     );
     expect(saved.entityVersion).toBe(2);
@@ -177,6 +198,7 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
 
     const evidence = await database.query<{
       versions: string;
+      eligibility_rules: string;
       audits: string;
       receipts: string;
       events: string;
@@ -185,6 +207,7 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
       `
         SELECT
           (SELECT count(*) FROM challenge_version WHERE challenge_id = $1) AS versions,
+          (SELECT count(*) FROM eligibility_rule WHERE challenge_id = $1) AS eligibility_rules,
           (SELECT count(*) FROM audit_event
             WHERE target_type = 'challenge' AND target_id = $1
               AND reason_code = 'MUTATION_COMMITTED') AS audits,
@@ -199,11 +222,128 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
     );
     expect(evidence.rows[0]).toEqual({
       versions: "2",
+      eligibility_rules: "2",
       audits: "2",
       receipts: "2",
       events: "2",
       replays: "2",
     });
+
+    const latestRule = await database.query<{
+      allowed_applicant_types: string[];
+      verification_required: boolean;
+      nda_required: boolean;
+      document_gate_required: boolean;
+      proposal_deadline: Date;
+    }>(
+      `
+        SELECT
+          allowed_applicant_types,
+          verification_required,
+          nda_required,
+          document_gate_required,
+          proposal_deadline
+        FROM eligibility_rule
+        WHERE challenge_version_id = $1
+      `,
+      [current?.current_version_id],
+    );
+    expect(latestRule.rows[0]).toEqual({
+      allowed_applicant_types: ["individual", "expert-team"],
+      verification_required: true,
+      nda_required: true,
+      document_gate_required: true,
+      proposal_deadline: new Date("2030-02-01T00:00:00.000Z"),
+    });
+  });
+
+  it("rejects expired or closed eligibility rules on editable challenges", async () => {
+    const challenges = adapter();
+    await expect(
+      challenges.create(
+        {
+          expected_version: 0,
+          draft: { proposal_deadline: "2026-08-27T08:29:59.000Z" },
+        },
+        context("b3-expired-rule", 5),
+      ),
+    ).rejects.toMatchObject({ statusCode: 422, code: "VALIDATION" });
+
+    const challenge = await database.query<{ id: string; version_id: string }>(
+      `
+        SELECT challenge.id, version.id AS version_id
+        FROM challenge
+        JOIN challenge_version AS version ON version.challenge_id = challenge.id
+        WHERE challenge.id = 'chl_synthetic_alpha'
+        LIMIT 1
+      `,
+    );
+    const seed = challenge.rows[0];
+    expect(seed).toBeDefined();
+    await database.query(
+      "ALTER TABLE challenge_version DISABLE TRIGGER challenge_version_create_eligibility_rule",
+    );
+    await database.query(
+      `
+        INSERT INTO challenge_version (
+          id, challenge_id, version_number, authoring_status, content,
+          created_by_user_id, created_at
+        )
+        SELECT
+          'chv_b3_closed_rule', challenge_id, 99, authoring_status, content,
+          created_by_user_id, clock_timestamp()
+        FROM challenge_version
+        WHERE id = $1
+      `,
+      [seed?.version_id],
+    );
+    await database.query(
+      "ALTER TABLE challenge_version ENABLE TRIGGER challenge_version_create_eligibility_rule",
+    );
+    await expectDatabaseError(
+      database.query(
+        `
+          INSERT INTO eligibility_rule (
+            id, tenant_id, workspace_id, challenge_id, challenge_version_id,
+            allowed_applicant_types, verification_required, nda_required,
+            document_gate_required, proposal_deadline, state
+          ) VALUES (
+            'elr_b3_expired_rule', 'ten_org_alpha', 'wsp_org_alpha', $1,
+            'chv_b3_closed_rule', '{}', false, false, false,
+            '2025-01-01T00:00:00Z', 'open'
+          )
+        `,
+        [seed?.id],
+      ),
+      "23514",
+    );
+    await expectDatabaseError(
+      database.query(
+        `
+          INSERT INTO eligibility_rule (
+            id, tenant_id, workspace_id, challenge_id, challenge_version_id,
+            allowed_applicant_types, verification_required, nda_required,
+            document_gate_required, proposal_deadline, state
+          ) VALUES (
+            'elr_b3_closed_rule', 'ten_org_alpha', 'wsp_org_alpha', $1,
+            'chv_b3_closed_rule', '{}', false, false, false, NULL, 'closed'
+          )
+        `,
+        [seed?.id],
+      ),
+      "23514",
+    );
+
+    const seedRule = await database.query<{ id: string }>(
+      "SELECT id FROM eligibility_rule WHERE challenge_version_id = $1",
+      [seed?.version_id],
+    );
+    await expectDatabaseError(
+      database.query("UPDATE eligibility_rule SET nda_required = true WHERE id = $1", [
+        seedRule.rows[0]?.id,
+      ]),
+      "55000",
+    );
   });
 
   it("collapses concurrent create retries and rejects key reuse or stale saves", async () => {
@@ -712,6 +852,7 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
       SELECT jsonb_build_object(
         'challenges', (SELECT count(*) FROM challenge),
         'versions', (SELECT count(*) FROM challenge_version),
+        'eligibility_rules', (SELECT count(*) FROM eligibility_rule),
         'audits', (SELECT count(*) FROM audit_event),
         'receipts', (SELECT count(*) FROM mutation_receipt),
         'events', (SELECT count(*) FROM outbox_event),
@@ -734,6 +875,7 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
       SELECT jsonb_build_object(
         'challenges', (SELECT count(*) FROM challenge),
         'versions', (SELECT count(*) FROM challenge_version),
+        'eligibility_rules', (SELECT count(*) FROM eligibility_rule),
         'audits', (SELECT count(*) FROM audit_event),
         'receipts', (SELECT count(*) FROM mutation_receipt),
         'events', (SELECT count(*) FROM outbox_event),

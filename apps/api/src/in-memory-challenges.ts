@@ -31,6 +31,7 @@ import {
   type WorkspaceId,
 } from "@rahhal/domain";
 import {
+  assertEligibilityRuleAttachable,
   challengeReadiness,
   emptyChallengeContent,
   mergeChallengeDraftPatch,
@@ -305,6 +306,7 @@ export class InMemoryChallengeRepository implements ChallengePort {
       const id = parseChallengeId(this.ids.next("chl"));
       const now = this.clock.now().toISOString();
       const merged = mergeChallengeDraftPatch(emptyChallengeContent(), body.draft ?? {});
+      assertEligibilityRuleAttachable(merged.content, new Date(now));
       const resource: ChallengeResource = {
         id,
         current_version_id: parseChallengeVersionId(this.ids.next("chv")),
@@ -378,6 +380,8 @@ export class InMemoryChallengeRepository implements ChallengePort {
       }
 
       const merged = mergeChallengeDraftPatch(stored.current.content, body.patch);
+      const now = this.clock.now();
+      assertEligibilityRuleAttachable(merged.content, now);
       const version = stored.current.version + 1;
       const contentVersion = stored.current.content_version + 1;
       const readiness = challengeReadiness(merged.content, version);
@@ -397,7 +401,7 @@ export class InMemoryChallengeRepository implements ChallengePort {
         // recorded against one specific locked version (B2), never inherited.
         approvals: [],
         publication_readiness: evaluatePublicationReadiness([]),
-        updated_at: this.clock.now().toISOString(),
+        updated_at: now.toISOString(),
       };
       state.challenges.set(storedKey, {
         current: updated,

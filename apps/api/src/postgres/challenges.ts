@@ -37,6 +37,7 @@ import {
 import type { PoolClient } from "pg";
 
 import {
+  assertEligibilityRuleAttachable,
   challengeReadiness,
   emptyChallengeContent,
   mergeChallengeDraftPatch,
@@ -156,7 +157,11 @@ function challengeResource(
     throw new Error("Database returned invalid challenge content");
   }
   const version = challengeVersion(row.lock_version);
-  const content = structuredClone(row.content) as ChallengeDraftContentResource;
+  const content = {
+    verification_required: false,
+    document_gate_required: false,
+    ...structuredClone(row.content),
+  } as ChallengeDraftContentResource;
   return {
     id: parseChallengeId(row.id),
     current_version_id: parseChallengeVersionId(row.current_version_id),
@@ -662,6 +667,7 @@ export class PostgresChallengeAdapter implements ChallengePort {
       const versionId = parseChallengeVersionId(this.ids.next("chv"));
       const occurredAt = this.clock.now().toISOString();
       const merged = mergeChallengeDraftPatch(emptyChallengeContent(), body.draft ?? {});
+      assertEligibilityRuleAttachable(merged.content, new Date(occurredAt));
       const readiness = challengeReadiness(merged.content, 1);
       const authoringStatus = readiness.ready ? "ready" : "draft";
       const insert = await client.query(
@@ -769,6 +775,7 @@ export class PostgresChallengeAdapter implements ChallengePort {
       const contentVersion = current.content_version + 1;
       const versionId = parseChallengeVersionId(this.ids.next("chv"));
       const occurredAt = this.clock.now().toISOString();
+      assertEligibilityRuleAttachable(merged.content, new Date(occurredAt));
       const readiness = challengeReadiness(merged.content, version);
       const authoringStatus = readiness.ready
         ? "ready"

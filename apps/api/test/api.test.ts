@@ -623,6 +623,25 @@ describe("authoritative Fastify API foundation", () => {
     expect(composition.challenges.snapshot().auditEvents).toHaveLength(1);
   });
 
+  it("rejects an expired eligibility deadline before creating a challenge version", async () => {
+    const versionsBefore = composition.challenges.snapshot().versions.length;
+    const response = await app.inject({
+      method: "POST",
+      url: apiRoutes.challenges,
+      headers: ownerHeaders("b3-expired-rule-create-01"),
+      payload: buildCreateChallengeBody({
+        draft: { proposal_deadline: "2025-12-31T23:59:59.000Z" },
+      }),
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json<ErrorEnvelope>().error).toMatchObject({
+      code: "VALIDATION",
+      fields: [expect.objectContaining({ path: "/content/proposal_deadline", code: "future" })],
+    });
+    expect(composition.challenges.snapshot().versions).toHaveLength(versionsBefore);
+  });
+
   it("advances only along the canonical B1 lifecycle with versioned atomic receipts", async () => {
     const content = buildChallengeContentResource();
     const created = await app.inject({

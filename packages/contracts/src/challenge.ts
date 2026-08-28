@@ -73,7 +73,9 @@ export type ChallengeDraftContentResource = {
   readonly invitees: readonly string[];
   readonly visibility: ChallengeVisibility | null;
   readonly public_summary: string;
+  readonly verification_required: boolean;
   readonly nda_required: boolean;
+  readonly document_gate_required: boolean;
   readonly ip_terms: ChallengeIpTerms | null;
   readonly contact: ChallengeContactResource;
   readonly accuracy_confirmed: boolean;

@@ -19,20 +19,21 @@ before any public write-up.
 ## Scope
 
 In scope: this repository, the API/worker workspaces, authorization, tenant &
-cross-tenant access (`access_grant`), file handling, audit integrity, and payment
-gates. Out of scope during the prototype phase: the mock/demo browser stores —
-these are **known** to be non-authoritative (see R-01) and are being replaced by
-server authority in Phase 1.
+cross-tenant access (`access_grant` and the narrow ADR-0015 platform authority),
+file handling, audit integrity, and payment gates. The mock/demo browser stores
+remain non-authoritative and are out of scope as production controls.
 
 ## Current security posture (must be understood before use)
 
-This repository is a **prototype with an in-memory backend walking skeleton**.
-The initial API proves scoped session/workspace/challenge behavior, but its demo
-tokens, repositories, audit, and outbox are not durable or production authority;
-the rest of the lifecycle is still simulated in the browser (R-01). Do not place
-real credentials, identity documents, confidential briefs, proposals, contracts,
-or payment data in it. Production security exists only after the managed OIDC,
-PostgreSQL/RLS, durable audit/outbox, provider, and Phase-1 exit gates pass — see
+This repository is a **local MVP prototype, not a production system**. PostgreSQL
+mode now provides a server-authoritative challenge path through lifecycle gates,
+version-specific approvals, and eligibility-rule snapshots; demo mode and the
+remaining browser-only flows are still non-authoritative. The local Dex identity,
+application-only tenant scoping, and demo worker are development evidence, not
+production controls. Do not place real credentials, identity documents,
+confidential briefs, proposals, contracts, or payment data in it. Production use
+requires the managed OIDC, RLS, durable audit/outbox, private-file, recovery, and
+pre-pilot hardening gates — see
 [project-documents/70_SECURITY_AND_AUTHZ.md](project-documents/70_SECURITY_AND_AUTHZ.md).
 
 ## Handling & standards
