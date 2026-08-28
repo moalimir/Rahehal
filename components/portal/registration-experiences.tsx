@@ -416,7 +416,7 @@ export function SolverRegistrationExperience({ definition }: { definition: Route
                   </span>
                   <strong>حساب حل‌کننده</strong>
                   <small>
-                    فضای شخصی به‌صورت خودکار ساخته می‌شود؛ تیم‌ها workspace هستند و رمز عبور جدا
+                    فضای شخصی به‌صورت خودکار ساخته می‌شود؛ تیم‌ها فضای کاری هستند و رمز عبور جدا
                     ندارند.
                   </small>
                   <b aria-hidden="true">✓</b>

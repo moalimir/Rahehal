@@ -948,7 +948,7 @@ function SolverOtpLoginExperience() {
                 : `کد پنج‌رقمی ارسال‌شده به ${identifier} را وارد کنید.`}
             </p>
             <p className="solver-login-team-note">
-              پس از ورود، فضای شخصی و تیم‌های دارای عضویت فعال در انتخابگر workspace نمایش داده
+              پس از ورود، فضای شخصی و تیم‌های دارای عضویت فعال در انتخابگر فضای کاری نمایش داده
               می‌شوند.
             </p>
             <SolverCodeStepper current={step} labels={["دریافت کد", "تأیید و ورود"]} />
