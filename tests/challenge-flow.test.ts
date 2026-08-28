@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ChallengeRecord } from "@/domain/challenge";
 import { challengeFlowStaticPaths, getChallengeFlowRoute } from "@/data/challenge-flow-routes";
+import { CONNECTED_RECORD_PATH, connectedChallengeHref } from "@/lib/challenges/navigation";
 import {
   createChallenge,
   deleteChallenge,
@@ -338,6 +339,68 @@ describe("Routeهای کانونی و Redirectها", () => {
     expect(getChallengeFlowRoute("/app/org/challenges/CH-DRAFT-001/studio")?.kind).toBe("edit");
     expect(getChallengeFlowRoute("/app/org/challenges/CH-DRAFT-001/overview")?.kind).toBe("detail");
     expect(challengeFlowStaticPaths).toContain("/app/org/challenges/CH-DRAFT-001/edit");
+  });
+
+  it("شناسه سرور را از Query پرونده متصل می‌خواند و مسیر آن Pre-generate است", () => {
+    expect(getChallengeFlowRoute(CONNECTED_RECORD_PATH, "?id=chl_a3_route_record")).toMatchObject({
+      kind: "detail",
+      id: "chl_a3_route_record",
+    });
+    expect(
+      getChallengeFlowRoute(`${CONNECTED_RECORD_PATH}/edit`, "?id=chl_a3_route_record&step=2"),
+    ).toMatchObject({ kind: "edit", id: "chl_a3_route_record" });
+    expect(
+      getChallengeFlowRoute(`${CONNECTED_RECORD_PATH}/studio`, "?id=chl_a3_route_record"),
+    ).toMatchObject({ kind: "edit", id: "chl_a3_route_record" });
+    for (const path of [
+      CONNECTED_RECORD_PATH,
+      `${CONNECTED_RECORD_PATH}/edit`,
+      `${CONNECTED_RECORD_PATH}/preview`,
+      `${CONNECTED_RECORD_PATH}/submitted`,
+    ]) {
+      expect(challengeFlowStaticPaths).toContain(path);
+    }
+  });
+
+  it("بدون شناسه معتبر به وضعیت صریح می‌رسد و هرگز به پرونده نمونه برنمی‌گردد", () => {
+    // A static prerender has no query at all.
+    expect(getChallengeFlowRoute(`${CONNECTED_RECORD_PATH}/edit`)).toMatchObject({
+      kind: "record",
+      view: "edit",
+    });
+    // A malformed or foreign id must not resolve to a record either.
+    expect(getChallengeFlowRoute(CONNECTED_RECORD_PATH, "?id=CH-DRAFT-001")).toMatchObject({
+      kind: "record",
+      view: "detail",
+    });
+    expect(getChallengeFlowRoute(CONNECTED_RECORD_PATH, "?id=chl_%20")).toMatchObject({
+      kind: "record",
+    });
+    // Server ids never resolve from the path itself; the demo build cannot
+    // pre-generate them, so the route must stay unknown rather than 200.
+    expect(getChallengeFlowRoute("/app/org/challenges/chl_a3_route_record/edit")).toBeUndefined();
+  });
+});
+
+describe("بازنویسی پیوند پرونده در حالت متصل", () => {
+  it("شناسه سرور را از مسیر به Query منتقل می‌کند و Queryهای دیگر را نگه می‌دارد", () => {
+    expect(connectedChallengeHref("/app/org/challenges/chl_a3_href/edit?step=2")).toBe(
+      `${CONNECTED_RECORD_PATH}/edit/?id=chl_a3_href&step=2`,
+    );
+    expect(connectedChallengeHref("/app/org/challenges/chl_a3_href")).toBe(
+      `${CONNECTED_RECORD_PATH}/?id=chl_a3_href`,
+    );
+    expect(connectedChallengeHref("/app/org/challenges/chl_a3_href/submitted")).toBe(
+      `${CONNECTED_RECORD_PATH}/submitted/?id=chl_a3_href`,
+    );
+  });
+
+  it("مسیرهای غیرشناسه و شناسه‌های نمایشی را دست‌نخورده رد می‌کند", () => {
+    expect(connectedChallengeHref("/app/org/challenges")).toBe("/app/org/challenges");
+    expect(connectedChallengeHref("/app/org/challenges/new")).toBe("/app/org/challenges/new");
+    expect(connectedChallengeHref("/app/org/challenges/CH-DRAFT-001/edit")).toBe(
+      "/app/org/challenges/CH-DRAFT-001/edit",
+    );
   });
 });
 

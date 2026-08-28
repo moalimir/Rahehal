@@ -1,10 +1,15 @@
 import { CHALLENGE_ROUTE_IDS } from "@/lib/challenges/ids";
-import { isNetworkWebRuntime } from "@/lib/runtime/mode";
+import { CONNECTED_RECORD_PATH } from "@/lib/challenges/navigation";
+
+export type ChallengeRecordView = "detail" | "edit" | "preview" | "submitted";
 
 export type ChallengeFlowRoute =
   | { kind: "list"; path: string }
   | { kind: "new"; path: string }
-  | { kind: "detail" | "edit" | "preview" | "submitted"; path: string; id: string }
+  | { kind: ChallengeRecordView; path: string; id: string }
+  // The connected record path before its `id` query is known. Static export
+  // prerenders it without a query; the client resolves the id on mount.
+  | { kind: "record"; path: string; view: ChallengeRecordView }
   | { kind: "redirect"; path: string; target: string };
 
 const rootRedirects: Record<string, string> = {
@@ -36,54 +41,78 @@ const generatedRedirects = Object.fromEntries(
 
 const redirects: Record<string, string> = { ...rootRedirects, ...generatedRedirects };
 
+/**
+ * Both builds pre-generate the connected record paths. They are inert in the
+ * demo build and carry `?id=chl_…` in the connected build — see
+ * `CONNECTED_RECORD_PATH`.
+ */
+const connectedRecordPaths = [
+  CONNECTED_RECORD_PATH,
+  `${CONNECTED_RECORD_PATH}/overview`,
+  `${CONNECTED_RECORD_PATH}/edit`,
+  `${CONNECTED_RECORD_PATH}/preview`,
+  `${CONNECTED_RECORD_PATH}/submitted`,
+];
+
 export const challengeFlowStaticPaths = [
   "/app/org/challenges",
   "/app/org/challenges/new",
   ...canonicalPaths,
+  ...connectedRecordPaths,
   ...Object.keys(redirects),
 ];
 
-export function getChallengeFlowRoute(path: string): ChallengeFlowRoute | undefined {
+function recordView(segment: string | undefined): ChallengeRecordView {
+  if (segment === "studio" || segment === "edit") return "edit";
+  if (segment === "preview" || segment === "submitted") return segment;
+  return "detail";
+}
+
+const serverChallengeId = /^chl_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$/;
+
+export function getChallengeFlowRoute(path: string, search = ""): ChallengeFlowRoute | undefined {
   const normalized = path.length > 1 ? path.replace(/\/$/, "") : path;
   if (normalized === "/app/org/challenges") return { kind: "list", path: normalized };
   if (normalized === "/app/org/challenges/new") return { kind: "new", path: normalized };
   if (redirects[normalized])
     return { kind: "redirect", path: normalized, target: redirects[normalized] };
+
+  const record = normalized.match(
+    new RegExp(
+      `^${CONNECTED_RECORD_PATH}(?:/(overview|edit|studio|preview|submitted))?$`.replaceAll(
+        "/",
+        "\\/",
+      ),
+    ),
+  );
+  if (record) {
+    const view = recordView(record[1]);
+    const id = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search).get("id");
+    if (id && serverChallengeId.test(id)) return { kind: view, path: normalized, id };
+    return { kind: "record", path: normalized, view };
+  }
+
   const match = normalized.match(
     /^\/app\/org\/challenges\/([^/]+)(?:\/(overview|edit|studio|preview|submitted))?$/,
   );
-  if (
-    !match ||
-    (!CHALLENGE_ROUTE_IDS.includes(match[1]) &&
-      !(isNetworkWebRuntime && /^chl_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$/.test(match[1])))
-  )
-    return undefined;
-  const segment = match[2];
-  return {
-    kind:
-      segment === "studio" || segment === "edit"
-        ? "edit"
-        : segment === "preview" || segment === "submitted"
-          ? segment
-          : "detail",
-    path: normalized,
-    id: match[1],
-  };
+  if (!match || !CHALLENGE_ROUTE_IDS.includes(match[1])) return undefined;
+  return { kind: recordView(match[2]), path: normalized, id: match[1] };
 }
 
 export function challengeFlowMetadata(route: ChallengeFlowRoute) {
+  const kind = route.kind === "record" ? route.view : route.kind;
   const title =
-    route.kind === "list"
+    kind === "list"
       ? "مسئله‌ها و چالش‌ها"
-      : route.kind === "new"
+      : kind === "new"
         ? "ثبت مسئله سازمانی"
-        : route.kind === "edit"
+        : kind === "edit"
           ? "تکمیل مسئله"
-          : route.kind === "preview"
+          : kind === "preview"
             ? "پیش‌نمایش پرونده"
-            : route.kind === "submitted"
+            : kind === "submitted"
               ? "رسید ارسال پرونده"
-              : route.kind === "redirect"
+              : kind === "redirect"
                 ? "انتقال به مسیر جدید"
                 : "نمای پرونده";
   return { title, summary: "مدیریت ثبت، تکمیل و ارسال مسئله سازمانی برای بررسی پلتفرم." };

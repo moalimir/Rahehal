@@ -14,6 +14,7 @@ import { getChallengeFlowRoute, type ChallengeFlowRoute } from "@/data/challenge
 import { navigateChallenge, readStandalonePath } from "@/lib/challenges/navigation";
 import { useWebRuntime } from "@/components/runtime-provider";
 import { ChallengeShell } from "@/components/challenge-flow/shell";
+import { isNetworkWebRuntime } from "@/lib/runtime/mode";
 
 function ConnectedChallengeBoundary({ children }: { children: ReactNode }) {
   const runtime = useWebRuntime();
@@ -106,13 +107,38 @@ function ConnectedChallengeBoundary({ children }: { children: ReactNode }) {
   return children;
 }
 
+/**
+ * The connected record path renders before its `id` query is read. On a static
+ * prerender, and for a hand-typed URL with no id, this is the resting state —
+ * an explicit empty state rather than a look-alike record.
+ */
+function UnresolvedChallengeRecord() {
+  return (
+    <ChallengeShell title="پرونده‌ای انتخاب نشده" description="نشانی این صفحه شناسه پرونده ندارد.">
+      <section className="challenge-empty-state">
+        <h2>پرونده مورد نظر مشخص نیست</h2>
+        <p>از فهرست مسئله‌ها یک پرونده را باز کنید تا نشانی آن کامل شود.</p>
+        <Link className="challenge-button challenge-button--primary" href="/app/org/challenges">
+          بازگشت به فهرست مسئله‌ها
+        </Link>
+      </section>
+    </ChallengeShell>
+  );
+}
+
 export function ChallengeFlowApp({ route: initialRoute }: { route: ChallengeFlowRoute }) {
   const [route, setRoute] = useState(initialRoute);
   useEffect(() => {
+    // The offline bundle carries the route in the hash; the connected build
+    // carries the record id in the query, which a static prerender cannot see.
+    // Both are resolved here, on mount and on every history change.
+    const standalone = readStandalonePath();
+    if (!standalone && !isNetworkWebRuntime) return;
     const sync = () => {
-      const standalone = readStandalonePath();
-      if (!standalone) return;
-      const next = getChallengeFlowRoute(standalone.pathname);
+      const current = readStandalonePath();
+      const next = current
+        ? getChallengeFlowRoute(current.pathname, current.query)
+        : getChallengeFlowRoute(window.location.pathname, window.location.search);
       if (next) setRoute(next);
     };
     sync();
@@ -131,6 +157,8 @@ export function ChallengeFlowApp({ route: initialRoute }: { route: ChallengeFlow
       <ChallengeIntakePage />
     ) : route.kind === "list" ? (
       <ChallengeListPage />
+    ) : route.kind === "record" ? (
+      <UnresolvedChallengeRecord />
     ) : route.kind === "edit" ? (
       <ChallengeEditPage id={route.id} />
     ) : route.kind === "preview" ? (
