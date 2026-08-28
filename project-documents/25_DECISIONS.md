@@ -11,22 +11,23 @@ Status values: `accepted` · `accepted (eng) / pending-owner-sign-off` · `propo
 
 ## Part A — Architecture Decision Records
 
-| ADR  | Title                                                                         | Status                                  | Maps to            |
-| ---- | ----------------------------------------------------------------------------- | --------------------------------------- | ------------------ |
-| 0001 | Adopt the canonical model as law                                              | accepted                                | D1–D3, D6–D9       |
-| 0002 | Hybrid Next.js runtime                                                        | accepted                                | D10                |
-| 0003 | Modular monolith + async workers                                              | accepted                                | 40 §1–2            |
-| 0004 | PostgreSQL authoritative; app-scoped + RLS tenancy                            | accepted                                | 50 §2              |
-| 0005 | Cross-tenant collaboration via `access_grant`                                 | accepted                                | D15                |
-| 0006 | COI as a first-class record                                                   | accepted                                | D8                 |
-| 0007 | Command contract: idempotency, optimistic concurrency, receipts, typed errors | accepted                                | 20 §9, 60 §3–4     |
-| 0008 | Transactional outbox + append-only immutable audit                            | accepted                                | 40 §5, §7          |
-| 0009 | Private object storage: pre-signed upload, quarantine+scan, signed reads      | accepted                                | 40 §6              |
-| 0010 | Identity via managed OIDC; separate KYB/verification                          | accepted                                | 40 §4              |
-| 0011 | Non-custodial payment orchestration (pilot)                                   | accepted (eng) / pending-owner-sign-off | D-06, DEC-2026-008 |
-| 0012 | AI posture: assistive-only, deferred, egress-gated                            | accepted                                | D14                |
-| 0013 | TypeScript/Node; one language across web/api/worker                           | accepted                                | 40 §3              |
-| 0014 | Fastify 5 transport over injected application ports                           | accepted                                | 40 §3, 60          |
+| ADR  | Title                                                                          | Status                                  | Maps to            |
+| ---- | ------------------------------------------------------------------------------ | --------------------------------------- | ------------------ |
+| 0001 | Adopt the canonical model as law                                               | accepted                                | D1–D3, D6–D9       |
+| 0002 | Hybrid Next.js runtime                                                         | accepted                                | D10                |
+| 0003 | Modular monolith + async workers                                               | accepted                                | 40 §1–2            |
+| 0004 | PostgreSQL authoritative; app-scoped + RLS tenancy                             | accepted                                | 50 §2              |
+| 0005 | Cross-tenant collaboration via `access_grant`                                  | accepted                                | D15                |
+| 0006 | COI as a first-class record                                                    | accepted                                | D8                 |
+| 0007 | Command contract: idempotency, optimistic concurrency, receipts, typed errors  | accepted                                | 20 §9, 60 §3–4     |
+| 0008 | Transactional outbox + append-only immutable audit                             | accepted                                | 40 §5, §7          |
+| 0009 | Private object storage: pre-signed upload, quarantine+scan, signed reads       | accepted                                | 40 §6              |
+| 0010 | Identity via managed OIDC; separate KYB/verification                           | accepted                                | 40 §4              |
+| 0011 | Non-custodial payment orchestration (pilot)                                    | accepted (eng) / pending-owner-sign-off | D-06, DEC-2026-008 |
+| 0012 | AI posture: assistive-only, deferred, egress-gated                             | accepted                                | D14                |
+| 0013 | TypeScript/Node; one language across web/api/worker                            | accepted                                | 40 §3              |
+| 0014 | Fastify 5 transport over injected application ports                            | accepted                                | 40 §3, 60          |
+| 0015 | Platform-role standing authority is narrower than `access_grant` collaboration | accepted                                | D15, DEC-2026-011  |
 
 ### ADR-0001 — Adopt the canonical model as law
 
@@ -101,6 +102,12 @@ Status values: `accepted` · `accepted (eng) / pending-owner-sign-off` · `propo
 **Decision.** Use Fastify 5 for the initial Node API transport. Route modules validate the versioned JSON contract and depend on injected session, workspace, and challenge application ports; Fastify, demo repositories, and provider adapters remain outside `packages/domain` and `packages/contracts`.
 **Consequences.** The API is testable through in-process HTTP injection, starts quickly, and does not couple domain policy to a framework. The initial in-memory composition is explicitly demo-only and refuses production mode. A1c adds an explicit PostgreSQL composition with no fallback; A2 adds local provider-neutral OIDC while still refusing production. The managed IdP decision and browser network composition remain release requirements.
 
+### ADR-0015 — Platform-role standing authority is narrower than `access_grant` collaboration
+
+**Context.** ADR-0005/DEC-2026-011 make `access_grant` the sole cross-tenant reach mechanism for _collaboration_ between two tenants (e.g. org ↔ solver-team) — bilateral, resource-scoped, negotiated. B2 ([80_DELIVERY_ROADMAP](80_DELIVERY_ROADMAP.md)) needs `platform:ops`/`platform:finance`/`platform:legal` to record their publication gate on any org's challenge; those roles hold no membership in the org's workspace, and provisioning a per-challenge `access_grant` for every platform actor on every org's challenge does not fit `access_grant`'s bilateral, negotiated shape — it would simulate a "grant" the org never actually offers or accepts. ADR-0005 already recognizes one non-grant, non-membership reach category for the same reason: reviewer access, "a narrow per-assignment, COI-gated grant" resolved from assignment state, not an `access_grant` row.
+**Decision.** Platform-role standing authority is a second instance of that same category: a fixed, named, narrow set of platform-owned actions (currently: recording one of the four B2 publication gates) that a `platform:*` role may perform against any org's workspace, resolved directly from an _active_ platform membership (`WorkspacePort.findActivePlatformRole`) rather than from an `access_grant` row. It carries the same liveness guarantee as every other membership check — suspending or removing the platform membership denies it immediately — and every decision (allow and deny) is recorded through the same `audit_event` pipeline as every other authorization decision ([70_SECURITY_AND_AUTHZ](70_SECURITY_AND_AUTHZ.md) §2). It does not weaken `access_grant` for actual org↔solver collaboration, and it is not a general cross-tenant read/write escape hatch: each action a platform role reaches this way must be individually named in code (`gateApproverRoles`), never a wildcard.
+**Consequences.** [70_SECURITY_AND_AUTHZ](70_SECURITY_AND_AUTHZ.md) §2's "Reach" step gets a fourth case alongside same-tenant / `access_grant` / public-projection: standing platform authority for a specific named action. Future platform-wide oversight actions (e.g. a platform-level review or audit capability) may reuse this same pattern instead of provisioning per-org `access_grant` rows, but any such addition is itself a new, reviewed decision, not an automatic extension of this one, and must stay within the "fixed, narrow, named action" boundary.
+
 ---
 
 ## Part B — P0 decision log
@@ -163,3 +170,4 @@ Each resolves a P0 item from [95 §2](95_RISKS_AND_OPEN_QUESTIONS.md). Defaults 
 - **Status:** accepted 2026-08-27 (owner, doc 27) · **Owner:** Product + Security · **Blocking milestones:** Phase 1 (first production migration)
 - **Decision (default):** tenant kinds are `organization`, `solver`, and `platform`. Organization workspaces belong to an organization tenant; each individual or team solver workspace belongs to a solver tenant; platform workspaces belong to the platform tenant. One user identity may hold active memberships across multiple tenants/workspaces. A solver company remains a `team` workspace with `TeamKind=company`, not an organization tenant; a company that also publishes challenges receives a separate organization tenant. Cross-tenant collaboration is possible only through the explicit `access_grant` model.
 - **Consequences:** every protected row has one owning tenant; context switching is explicit; membership removal cuts access immediately; team ownership transfer does not change tenant ownership. The first production migration must encode tenant kind and workspace-kind compatibility constraints after owner approval.
+- **Amended by ADR-0015 (2026-08-28):** "cross-tenant collaboration is possible only through `access_grant`" governs bilateral, negotiated tenant-to-tenant collaboration. It does not extend to a platform role's standing, role-derived authority over a fixed, narrow, named action set across every org tenant (first instance: B2 publication-gate recording) — see ADR-0015.

@@ -22,6 +22,7 @@ import {
   type TenantId,
   type UserId,
   type WorkspaceId,
+  type WorkspaceRole,
 } from "@rahhal/domain";
 import { forbidden, idempotencyConflict, notFound, staleVersion } from "./errors.js";
 import { InMemoryCriticalSection } from "./in-memory-critical-section.js";
@@ -587,6 +588,31 @@ export class InMemoryIdentityAdapter
 
   async findActive(userId: UserId, workspaceId: string): Promise<WorkspaceAccess | null> {
     return this.findActiveCurrent(userId, workspaceId);
+  }
+
+  async findActivePlatformRole(
+    userId: UserId,
+    roles: readonly WorkspaceRole[],
+    targetWorkspaceId: string,
+  ): Promise<WorkspaceAccess | null> {
+    if (!isWorkspaceId(targetWorkspaceId)) return null;
+    const platformSeed = this.seeds.find(
+      (candidate) =>
+        candidate.user.id === userId &&
+        candidate.workspace.kind === "platform" &&
+        roles.includes(candidate.membership.role) &&
+        this.state.membershipStates.get(candidate.membership.id) === "active",
+    );
+    if (!platformSeed) return null;
+    const targetSeed = this.seeds.find((candidate) => candidate.workspace.id === targetWorkspaceId);
+    if (!targetSeed) return null;
+    return {
+      tenantId: targetSeed.workspace.tenantId,
+      workspaceId: targetSeed.workspace.id,
+      role: platformSeed.membership.role,
+      workspace: targetSeed.workspace,
+      membership: platformSeed.membership,
+    };
   }
 
   async switchContext(

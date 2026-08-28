@@ -130,7 +130,8 @@ GET  /challenges/{id}                          # private aggregate (member-scope
 PATCH /challenges/{id}                         # autosave draft (expected_version)
 POST /challenges/{id}:request-triage           # draft → triage        (pre: brief-valid)
 POST /challenges/{id}:advance-formulation      # triage → formulation
-POST /challenges/{id}/approvals:record         # per-gate approval (business/technical/finance/legal/quality)
+POST /challenges/{id}:request-approvals        # formulation → approvals (pre: formulation-complete; locks the version)
+POST /challenges/{id}/approvals:record         # per-gate approval (technical/legal/finance/quality)
 POST /challenges/{id}:publish                  # approvals → published  (pre: 3 approvals + quality; atomic version lock + projection + outbox)
 POST /challenges/{id}:close                    # controlled close/pause/cancel
 GET  /challenges/{id}/versions                 # immutable history

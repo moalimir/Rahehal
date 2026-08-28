@@ -27,6 +27,7 @@ import {
   type SessionId,
   type UserId,
   type Workspace,
+  type WorkspaceRole,
 } from "@rahhal/domain";
 import type { PoolClient } from "pg";
 
@@ -168,7 +169,12 @@ function cachedMutation(value: unknown): CachedSessionMutation {
   return record as unknown as CachedSessionMutation;
 }
 
-function workspaceFromRow(row: AccessRow): Workspace {
+type WorkspaceRow = Pick<
+  AccessRow,
+  "workspace_id" | "tenant_id" | "workspace_kind" | "workspace_name" | "owner_user_id" | "team_kind"
+>;
+
+function workspaceFromRow(row: WorkspaceRow): Workspace {
   const id = parseWorkspaceId(row.workspace_id);
   const tenantId = parseTenantId(row.tenant_id);
   if (!isWorkspaceKind(row.workspace_kind)) throw new Error("Unknown workspace kind in database");
@@ -941,6 +947,88 @@ export class PostgresIdentityWorkspaceAdapter
     return this.unitOfWork.run(() =>
       this.activeAccess(this.unitOfWork.currentClient(), userId, workspaceId),
     );
+  }
+
+  async findActivePlatformRole(
+    userId: UserId,
+    roles: readonly WorkspaceRole[],
+    targetWorkspaceId: string,
+  ): Promise<WorkspaceAccess | null> {
+    if (roles.length === 0) return null;
+    return this.unitOfWork.run(async () => {
+      const client = this.unitOfWork.currentClient();
+      const platformResult = await client.query<AccessRow>(
+        `
+          SELECT
+            m.id AS membership_id,
+            m.tenant_id,
+            m.workspace_id,
+            m.workspace_kind,
+            m.user_id,
+            m.role,
+            m.state,
+            m.created_at AS membership_created_at,
+            m.updated_at AS membership_updated_at,
+            w.name AS workspace_name,
+            w.owner_user_id,
+            w.team_kind
+          FROM membership AS m
+          JOIN workspace AS w
+            ON w.id = m.workspace_id
+           AND w.tenant_id = m.tenant_id
+           AND w.kind = m.workspace_kind
+          WHERE m.user_id = $1
+            AND m.workspace_kind = 'platform'
+            AND m.role = ANY($2::text[])
+            AND m.state = 'active'
+          FOR SHARE OF m, w
+        `,
+        [userId, roles],
+      );
+      const platformRow = platformResult.rows[0];
+      if (!platformRow) return null;
+      if (!isWorkspaceRole(platformRow.role)) throw new Error("Unknown workspace role in database");
+      if (!isMembershipState(platformRow.state)) {
+        throw new Error("Unknown membership state in database");
+      }
+
+      const targetResult = await client.query<WorkspaceRow>(
+        `
+          SELECT
+            id AS workspace_id,
+            tenant_id,
+            kind AS workspace_kind,
+            name AS workspace_name,
+            owner_user_id,
+            team_kind
+          FROM workspace
+          WHERE id = $1
+          FOR SHARE
+        `,
+        [targetWorkspaceId],
+      );
+      const targetRow = targetResult.rows[0];
+      if (!targetRow) return null;
+      const target = workspaceFromRow(targetRow);
+
+      const membership: Membership = {
+        id: parseMembershipId(platformRow.membership_id),
+        tenantId: parseTenantId(platformRow.tenant_id),
+        workspaceId: parseWorkspaceId(platformRow.workspace_id),
+        userId: parseUserId(platformRow.user_id),
+        role: platformRow.role,
+        state: platformRow.state,
+        createdAt: timestamp(platformRow.membership_created_at),
+        updatedAt: timestamp(platformRow.membership_updated_at),
+      };
+      return {
+        tenantId: target.tenantId,
+        workspaceId: target.id,
+        role: platformRow.role,
+        workspace: target,
+        membership,
+      };
+    });
   }
 
   async switchContext(

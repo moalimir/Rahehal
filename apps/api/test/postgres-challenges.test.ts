@@ -6,7 +6,14 @@ import type {
   MutationSuccessEnvelope,
   SuccessEnvelope,
 } from "@rahhal/contracts";
-import { parseCorrelationId, parseTenantId, parseUserId, parseWorkspaceId } from "@rahhal/domain";
+import {
+  parseCorrelationId,
+  parseTenantId,
+  parseUserId,
+  parseWorkspaceId,
+  type UserId,
+  type WorkspaceRole,
+} from "@rahhal/domain";
 import { buildChallengeContentResource } from "@rahhal/testkit";
 
 import { buildApi } from "../src/app.js";
@@ -45,7 +52,11 @@ function quotedIdentifier(value: string): string {
   return `"${value}"`;
 }
 
-function context(key: string, ordinal: number) {
+function context(
+  key: string,
+  ordinal: number,
+  overrides: { readonly role?: WorkspaceRole; readonly actorUserId?: UserId } = {},
+) {
   return {
     actorUserId: ownerUserId,
     tenantId: ownerTenantId,
@@ -53,6 +64,7 @@ function context(key: string, ordinal: number) {
     role: "org:owner" as const,
     idempotencyKey: key,
     correlationId: parseCorrelationId(`cor_a1c_${ordinal.toString().padStart(4, "0")}`),
+    ...overrides,
   };
 }
 
@@ -386,6 +398,311 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
       `,
       [created.receipt.entity_id, ownerTenantId],
     );
+    expect(after.rows[0]?.snapshot).toBe(before.rows[0]?.snapshot);
+  });
+
+  async function advanceToApprovals(
+    challenges: PostgresChallengeAdapter,
+    keyPrefix: string,
+    ordinal: number,
+  ): Promise<string> {
+    const created = await challenges.create(
+      { expected_version: 0, draft: buildChallengeContentResource() },
+      context(`${keyPrefix}-create`, ordinal),
+    );
+    const challengeId = created.receipt.entity_id;
+    await challenges.transition(
+      challengeId,
+      "request-triage",
+      { expected_version: 1 },
+      context(`${keyPrefix}-triage`, ordinal + 1),
+    );
+    await challenges.transition(
+      challengeId,
+      "advance-formulation",
+      { expected_version: 2 },
+      context(`${keyPrefix}-formulation`, ordinal + 2),
+    );
+    await challenges.transition(
+      challengeId,
+      "request-approvals",
+      { expected_version: 3 },
+      context(`${keyPrefix}-approvals`, ordinal + 3),
+    );
+    return challengeId;
+  }
+
+  it("records all four B2 publication gates with atomic evidence and reaches publication readiness", async () => {
+    await database.query(`
+      INSERT INTO app_user (
+        id, display_name, primary_email, email_verified, primary_phone, phone_verified,
+        created_at, updated_at
+      ) VALUES
+        (
+          'usr_gate_legal_test', 'Test Legal Approver', 'gate-legal-test@synthetic.invalid',
+          true, NULL, false, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'
+        ),
+        (
+          'usr_gate_finance_test', 'Test Finance Approver', 'gate-finance-test@synthetic.invalid',
+          true, NULL, false, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'
+        )
+      ON CONFLICT (id) DO NOTHING
+    `);
+
+    const challenges = adapter();
+    const challengeId = await advanceToApprovals(challenges, "b2-full", 100);
+
+    const technical = await challenges.recordApproval(
+      challengeId,
+      {
+        expected_version: 4,
+        gate: "technical",
+        decision: "approved",
+        reason: "Technical review complete.",
+      },
+      context("b2-full-technical", 104, { role: "org:approver_technical" }),
+    );
+    expect(technical).toMatchObject({
+      entityVersion: 1,
+      receipt: { next_actions: ["await_remaining_gates"] },
+    });
+
+    const legal = await challenges.recordApproval(
+      challengeId,
+      {
+        expected_version: 4,
+        gate: "legal",
+        decision: "approved",
+        reason: "Legal review complete.",
+      },
+      context("b2-full-legal", 105, {
+        role: "platform:legal",
+        actorUserId: parseUserId("usr_gate_legal_test"),
+      }),
+    );
+    expect(legal.receipt.next_actions).toEqual(["await_remaining_gates"]);
+
+    const finance = await challenges.recordApproval(
+      challengeId,
+      {
+        expected_version: 4,
+        gate: "finance",
+        decision: "approved",
+        reason: "Finance review complete.",
+      },
+      context("b2-full-finance", 106, {
+        role: "platform:finance",
+        actorUserId: parseUserId("usr_gate_finance_test"),
+      }),
+    );
+    expect(finance.receipt.next_actions).toEqual(["await_remaining_gates"]);
+
+    const qualityContext = context("b2-full-quality", 107, {
+      role: "platform:ops",
+      actorUserId: parseUserId("usr_platform_ops"),
+    });
+    const quality = await challenges.recordApproval(
+      challengeId,
+      {
+        expected_version: 4,
+        gate: "quality",
+        decision: "approved",
+        reason: "Quality review complete.",
+      },
+      qualityContext,
+    );
+    expect(quality.receipt.next_actions).toEqual(["ready_for_publish"]);
+    const qualityReplay = await challenges.recordApproval(
+      challengeId,
+      {
+        expected_version: 4,
+        gate: "quality",
+        decision: "approved",
+        reason: "Quality review complete.",
+      },
+      qualityContext,
+    );
+    expect(qualityReplay).toEqual({
+      ...quality,
+      receipt: { ...quality.receipt, idempotent: true },
+    });
+
+    const finalState = await challenges.getScoped(context("b2-full-read", 108), challengeId);
+    expect(finalState?.publication_readiness).toEqual({
+      ready: true,
+      satisfied: ["technical", "legal", "finance", "quality"],
+      missing: [],
+    });
+    expect(finalState?.approvals).toHaveLength(4);
+    // Gate recording never touches the challenge's own aggregate version.
+    expect(finalState?.version).toBe(4);
+
+    const evidence = await database.query<{
+      approvals: string;
+      approval_audits: string;
+      approval_receipts: string;
+      approval_events: string;
+    }>(
+      `
+        SELECT
+          (SELECT count(*) FROM challenge_approval WHERE challenge_id = $1) AS approvals,
+          (SELECT count(*) FROM audit_event
+            WHERE target_type = 'challenge' AND target_id = $1
+              AND action = 'challenge.approval.recorded') AS approval_audits,
+          (SELECT count(*) FROM mutation_receipt
+            WHERE entity_type = 'challenge_approval'
+              AND entity_id IN (SELECT id FROM challenge_approval WHERE challenge_id = $1)) AS approval_receipts,
+          (SELECT count(*) FROM outbox_event
+            WHERE aggregate_type = 'challenge_approval'
+              AND aggregate_id IN (SELECT id FROM challenge_approval WHERE challenge_id = $1)) AS approval_events
+      `,
+      [challengeId],
+    );
+    expect(evidence.rows[0]).toEqual({
+      approvals: "4",
+      approval_audits: "4",
+      approval_receipts: "4",
+      approval_events: "4",
+    });
+
+    await expect(
+      database.query(
+        `UPDATE challenge_approval SET decision = 'rejected' WHERE challenge_id = $1`,
+        [challengeId],
+      ),
+    ).rejects.toThrow(/append-only/);
+    await expect(
+      database.query(`DELETE FROM challenge_approval WHERE challenge_id = $1`, [challengeId]),
+    ).rejects.toThrow(/append-only/);
+  });
+
+  it("rejects a duplicate gate and separation-of-duty violations under real constraints", async () => {
+    const challenges = adapter();
+    const challengeId = await advanceToApprovals(challenges, "b2-conflict", 110);
+
+    await challenges.recordApproval(
+      challengeId,
+      {
+        expected_version: 4,
+        gate: "technical",
+        decision: "approved",
+        reason: "First technical review.",
+      },
+      context("b2-conflict-technical", 114, { role: "org:approver_technical" }),
+    );
+
+    await expect(
+      challenges.recordApproval(
+        challengeId,
+        {
+          expected_version: 4,
+          gate: "technical",
+          decision: "approved",
+          reason: "Second technical review.",
+        },
+        context("b2-conflict-technical-again", 115, {
+          role: "org:approver_technical",
+          actorUserId: parseUserId("usr_solver_alpha"),
+        }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 409, code: "CONFLICT" });
+
+    await expect(
+      challenges.recordApproval(
+        challengeId,
+        {
+          expected_version: 4,
+          gate: "quality",
+          decision: "approved",
+          reason: "Same actor, different gate.",
+        },
+        context("b2-conflict-second-gate", 116, { role: "platform:ops" }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 409, code: "CONFLICT" });
+
+    const count = await database.query<{ count: string }>(
+      "SELECT count(*) AS count FROM challenge_approval WHERE challenge_id = $1",
+      [challengeId],
+    );
+    expect(count.rows[0]?.count).toBe("1");
+  });
+
+  it("serializes concurrent duplicate gate submissions for the same version", async () => {
+    const challenges = adapter();
+    const challengeId = await advanceToApprovals(challenges, "b2-race", 120);
+
+    const attempt = (ordinal: number, actorUserId: UserId) =>
+      challenges.recordApproval(
+        challengeId,
+        {
+          expected_version: 4,
+          gate: "technical",
+          decision: "approved",
+          reason: "Concurrent technical review.",
+        },
+        context(`b2-race-technical-${ordinal}`, 124 + ordinal, {
+          role: "org:approver_technical",
+          actorUserId,
+        }),
+      );
+
+    const results = await Promise.allSettled([
+      attempt(1, ownerUserId),
+      attempt(2, parseUserId("usr_solver_alpha")),
+    ]);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const rejected = results.filter(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]?.reason).toMatchObject({ statusCode: 409, code: "CONFLICT" });
+
+    const count = await database.query<{ count: string }>(
+      "SELECT count(*) AS count FROM challenge_approval WHERE challenge_id = $1",
+      [challengeId],
+    );
+    expect(count.rows[0]?.count).toBe("1");
+  });
+
+  it("rolls back all approval evidence when the commit fails", async () => {
+    const challenges = adapter();
+    const challengeId = await advanceToApprovals(challenges, "b2-rollback", 130);
+    const snapshotQuery = `
+      SELECT jsonb_build_object(
+        'approvals', (SELECT count(*) FROM challenge_approval WHERE challenge_id = $1),
+        'audits', (SELECT count(*) FROM audit_event
+          WHERE target_id = $1 AND action = 'challenge.approval.recorded'),
+        'receipts', (SELECT count(*) FROM mutation_receipt WHERE entity_type = 'challenge_approval'),
+        'events', (SELECT count(*) FROM outbox_event WHERE aggregate_type = 'challenge_approval'),
+        'replays', (SELECT count(*) FROM idempotency_key
+          WHERE tenant_id = $2 AND idempotency_key = 'b2-rollback-record-01')
+      )::text AS snapshot
+    `;
+    const before = await database.query<{ snapshot: string }>(snapshotQuery, [
+      challengeId,
+      ownerTenantId,
+    ]);
+    const failing = adapter({
+      beforeCommit: () => {
+        throw new Error("forced B2 approval rollback");
+      },
+    });
+    await expect(
+      failing.recordApproval(
+        challengeId,
+        {
+          expected_version: 4,
+          gate: "technical",
+          decision: "approved",
+          reason: "Should roll back.",
+        },
+        context("b2-rollback-record-01", 134, { role: "org:approver_technical" }),
+      ),
+    ).rejects.toThrow("forced B2 approval rollback");
+    const after = await database.query<{ snapshot: string }>(snapshotQuery, [
+      challengeId,
+      ownerTenantId,
+    ]);
     expect(after.rows[0]?.snapshot).toBe(before.rows[0]?.snapshot);
   });
 

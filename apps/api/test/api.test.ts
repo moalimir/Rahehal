@@ -57,6 +57,25 @@ function ownerHeaders(idempotencyKey?: string) {
   };
 }
 
+/**
+ * Builds headers for a gate-recording request against the alpha org's
+ * challenge. Platform actors (platformOps/platformFinance/platformLegal)
+ * are never members of wsp_org_alpha, so their session stays active in
+ * their own platform workspace -- the request still targets wsp_org_alpha
+ * via X-Workspace-Id, exactly modeling the B2 cross-tenant path.
+ */
+function gateHeaders(
+  credential: { readonly accessToken: string },
+  idempotencyKey?: string,
+  targetWorkspaceId: string = demoApiCredentials.owner.workspaceId,
+) {
+  return {
+    authorization: `Bearer ${credential.accessToken}`,
+    "x-workspace-id": targetWorkspaceId,
+    ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}),
+  };
+}
+
 type ChallengeRaceOperation = "create" | "read" | "patch";
 
 function challengeRaceRequest(
@@ -186,7 +205,7 @@ describe("authoritative Fastify API foundation", () => {
     expect(firstBody.data.receipt.idempotent).toBe(false);
     expect(secondBody.data.receipt).toEqual({ ...firstBody.data.receipt, idempotent: true });
     expect(secondBody.data.tokens).toEqual(firstBody.data.tokens);
-    expect(composition.identity.snapshot().sessions).toHaveLength(4);
+    expect(composition.identity.snapshot().sessions).toHaveLength(7);
     expect(composition.identity.snapshot().auditEvents).toHaveLength(1);
     expect(composition.identity.snapshot().outboxEvents).toHaveLength(1);
   });
@@ -209,7 +228,7 @@ describe("authoritative Fastify API foundation", () => {
     expect(replayWithNewKey.statusCode).toBe(403);
     expect(replayWithNewKey.json<ErrorEnvelope>().error.code).toBe("NO_ACCESS");
     const snapshot = composition.identity.snapshot();
-    expect(snapshot.sessions).toHaveLength(4);
+    expect(snapshot.sessions).toHaveLength(7);
     expect(snapshot.auditEvents).toHaveLength(1);
     expect(snapshot.outboxEvents).toHaveLength(1);
     expect(snapshot.consumedOidcExchangeCount).toBe(1);
@@ -693,6 +712,197 @@ describe("authoritative Fastify API foundation", () => {
     ).toHaveLength(5);
   });
 
+  async function createChallengeAtApprovalsStage(keyPrefix: string): Promise<string> {
+    const created = await app.inject({
+      method: "POST",
+      url: apiRoutes.challenges,
+      headers: ownerHeaders(`${keyPrefix}-create`),
+      payload: buildCreateChallengeBody({ draft: buildChallengeContentResource() }),
+    });
+    const challengeId = created.json<MutationSuccessEnvelope>().data.entity_id;
+    await app.inject({
+      method: "POST",
+      url: apiRoutes.requestChallengeTriage.replace("{challengeId}", challengeId),
+      headers: ownerHeaders(`${keyPrefix}-triage`),
+      payload: { expected_version: 1 },
+    });
+    await app.inject({
+      method: "POST",
+      url: apiRoutes.advanceChallengeFormulation.replace("{challengeId}", challengeId),
+      headers: ownerHeaders(`${keyPrefix}-formulation`),
+      payload: { expected_version: 2 },
+    });
+    const approvals = await app.inject({
+      method: "POST",
+      url: apiRoutes.requestChallengeApprovals.replace("{challengeId}", challengeId),
+      headers: ownerHeaders(`${keyPrefix}-approvals`),
+      payload: { expected_version: 3 },
+    });
+    expect(approvals.statusCode).toBe(200);
+    return challengeId;
+  }
+
+  it("records all four B2 publication gates across the org and platform authorization paths", async () => {
+    const challengeId = await createChallengeAtApprovalsStage("b2-full");
+    const recordUrl = apiRoutes.recordChallengeApproval.replace("{challengeId}", challengeId);
+
+    const technical = await app.inject({
+      method: "POST",
+      url: recordUrl,
+      headers: gateHeaders(demoApiCredentials.approver, "b2-full-technical"),
+      payload: {
+        expected_version: 4,
+        gate: "technical",
+        decision: "approved",
+        reason: "طرح فنی از نظر امکان‌سنجی بررسی و تأیید شد.",
+      },
+    });
+    expect(technical.statusCode).toBe(200);
+    const technicalBody = technical.json<MutationSuccessEnvelope>();
+    expect(technicalBody.data).toMatchObject({
+      idempotent: false,
+      next_actions: ["await_remaining_gates"],
+    });
+    expect(technicalBody.meta.entity_version).toBe(1);
+
+    const technicalReplay = await app.inject({
+      method: "POST",
+      url: recordUrl,
+      headers: gateHeaders(demoApiCredentials.approver, "b2-full-technical"),
+      payload: {
+        expected_version: 4,
+        gate: "technical",
+        decision: "approved",
+        reason: "طرح فنی از نظر امکان‌سنجی بررسی و تأیید شد.",
+      },
+    });
+    expect(technicalReplay.json<MutationSuccessEnvelope>()).toMatchObject({
+      data: {
+        entity_id: technicalBody.data.entity_id,
+        receipt_id: technicalBody.data.receipt_id,
+        audit_event_id: technicalBody.data.audit_event_id,
+        idempotent: true,
+      },
+      meta: { entity_version: 1 },
+    });
+
+    // legal/finance/quality are all recorded cross-tenant: each platform
+    // actor's own session stays active in wsp_platform_main, never in
+    // wsp_org_alpha, so this is the narrow platform-authority path (B2),
+    // not the ordinary org-membership path.
+    const legal = await app.inject({
+      method: "POST",
+      url: recordUrl,
+      headers: gateHeaders(demoApiCredentials.platformLegal, "b2-full-legal"),
+      payload: {
+        expected_version: 4,
+        gate: "legal",
+        decision: "approved",
+        reason: "بند حقوقی بررسی و تأیید شد.",
+      },
+    });
+    expect(legal.statusCode).toBe(200);
+    expect(legal.json<MutationSuccessEnvelope>().data.next_actions).toEqual([
+      "await_remaining_gates",
+    ]);
+
+    const finance = await app.inject({
+      method: "POST",
+      url: recordUrl,
+      headers: gateHeaders(demoApiCredentials.platformFinance, "b2-full-finance"),
+      payload: {
+        expected_version: 4,
+        gate: "finance",
+        decision: "approved",
+        reason: "بودجه بررسی و تأیید شد.",
+      },
+    });
+    expect(finance.statusCode).toBe(200);
+    expect(finance.json<MutationSuccessEnvelope>().data.next_actions).toEqual([
+      "await_remaining_gates",
+    ]);
+
+    const quality = await app.inject({
+      method: "POST",
+      url: recordUrl,
+      headers: gateHeaders(demoApiCredentials.platformOps, "b2-full-quality"),
+      payload: {
+        expected_version: 4,
+        gate: "quality",
+        decision: "approved",
+        reason: "بررسی کیفیت مستقل انجام و تأیید شد.",
+      },
+    });
+    expect(quality.statusCode).toBe(200);
+    expect(quality.json<MutationSuccessEnvelope>().data.next_actions).toEqual([
+      "ready_for_publish",
+    ]);
+
+    const read = await app.inject({
+      method: "GET",
+      url: `/api/v1/challenges/${challengeId}`,
+      headers: ownerHeaders(),
+    });
+    const resource = read.json<SuccessEnvelope<ChallengeResource>>().data;
+    expect(resource.publication_readiness).toEqual({
+      ready: true,
+      satisfied: ["technical", "legal", "finance", "quality"],
+      missing: [],
+    });
+    expect(resource.approvals.map((approval) => approval.gate).sort()).toEqual([
+      "finance",
+      "legal",
+      "quality",
+      "technical",
+    ]);
+    // Gate recording never touches the challenge's own aggregate version --
+    // challenge_approval is a separate, independently-versioned aggregate.
+    expect(resource.version).toBe(4);
+
+    const snapshot = composition.challenges.snapshot();
+    expect(
+      snapshot.auditEvents.filter((event) => event.action === "challenge.approval.recorded"),
+    ).toHaveLength(4);
+    expect(
+      snapshot.outboxEvents.filter((event) => event.event_type === "challenge.approval.recorded"),
+    ).toHaveLength(4);
+  });
+
+  it("denies gate recording for an ineligible role and for an unreachable cross-tenant target", async () => {
+    const challengeId = await createChallengeAtApprovalsStage("b2-denied");
+    const recordUrl = apiRoutes.recordChallengeApproval.replace("{challengeId}", challengeId);
+    const technicalPayload = {
+      expected_version: 4,
+      gate: "technical" as const,
+      decision: "approved" as const,
+      reason: "تلاش نامعتبر.",
+    };
+
+    // The org's own owner is a real member of the workspace but holds no
+    // gate-eligible role -- denied via the ordinary org-context path.
+    const ownerAttempt = await app.inject({
+      method: "POST",
+      url: recordUrl,
+      headers: ownerHeaders("b2-denied-owner"),
+      payload: technicalPayload,
+    });
+    expect(ownerAttempt.statusCode).toBe(403);
+    expect(ownerAttempt.json<ErrorEnvelope>().error.code).toBe("NO_ACCESS");
+
+    // A platform actor with no standing authority for this gate (platformOps
+    // only ever holds "quality") cannot reach it cross-tenant either -- and
+    // the denial reads as NOT_FOUND, not NO_ACCESS, so it cannot be used to
+    // probe whether the challenge exists.
+    const platformOpsAttempt = await app.inject({
+      method: "POST",
+      url: recordUrl,
+      headers: gateHeaders(demoApiCredentials.platformOps, "b2-denied-platform-ops-technical"),
+      payload: technicalPayload,
+    });
+    expect(platformOpsAttempt.statusCode).toBe(404);
+    expect(platformOpsAttempt.json<ErrorEnvelope>().error.code).toBe("NOT_FOUND");
+  });
+
   it("replays a challenge command with the same receipt and one aggregate effect", async () => {
     const request = {
       method: "POST" as const,
@@ -1050,6 +1260,7 @@ describe("authoritative Fastify API foundation", () => {
         patch: (id, body, context) => challenges.patch(id, body, context),
         transition: (id, command, body, context) =>
           challenges.transition(id, command, body, context),
+        recordApproval: (id, body, context) => challenges.recordApproval(id, body, context),
       },
     });
 
@@ -1336,10 +1547,154 @@ describe("in-memory challenge transaction", () => {
     expect(repository.snapshot()).toEqual({
       challenges: [],
       versions: [],
+      approvals: [],
       auditEvents: [],
       outboxEvents: [],
       idempotencyEntryCount: 0,
     });
+  });
+
+  async function createChallengeAtApprovals(repository: InMemoryChallengeRepository, seed: number) {
+    const tenantId = deterministicId(idPrefixes.tenant, seed);
+    const workspaceId = deterministicId(idPrefixes.workspace, seed);
+    const base = {
+      tenantId,
+      workspaceId,
+      actorUserId: deterministicId(idPrefixes.user, seed),
+      role: "org:owner" as const,
+      correlationId: deterministicId(idPrefixes.correlation, seed),
+    };
+    const created = await repository.create(
+      buildCreateChallengeBody({ draft: buildChallengeContentResource() }),
+      { ...base, idempotencyKey: `b2-setup-create-${seed}` },
+    );
+    const challengeId = created.receipt.entity_id;
+    await repository.transition(
+      challengeId,
+      "request-triage",
+      { expected_version: 1 },
+      { ...base, idempotencyKey: `b2-setup-triage-${seed}` },
+    );
+    await repository.transition(
+      challengeId,
+      "advance-formulation",
+      { expected_version: 2 },
+      { ...base, idempotencyKey: `b2-setup-formulation-${seed}` },
+    );
+    await repository.transition(
+      challengeId,
+      "request-approvals",
+      { expected_version: 3 },
+      { ...base, idempotencyKey: `b2-setup-approvals-${seed}` },
+    );
+    return { challengeId, tenantId, workspaceId };
+  }
+
+  it("enforces separation of duty and rejects a duplicate gate on one version", async () => {
+    const repository = new InMemoryChallengeRepository(clock, new MonotonicIdFactory());
+    const { challengeId, tenantId, workspaceId } = await createChallengeAtApprovals(repository, 40);
+    const actorA = deterministicId(idPrefixes.user, 41);
+    const actorB = deterministicId(idPrefixes.user, 42);
+    const base = {
+      tenantId,
+      workspaceId,
+      correlationId: deterministicId(idPrefixes.correlation, 40),
+    };
+
+    const recorded = await repository.recordApproval(
+      challengeId,
+      { expected_version: 4, gate: "technical", decision: "approved", reason: "بررسی فنی." },
+      {
+        ...base,
+        actorUserId: actorA,
+        role: "org:approver_technical",
+        idempotencyKey: "b2-conflict-technical",
+      },
+    );
+    expect(recorded.entityVersion).toBe(1);
+
+    await expect(
+      repository.recordApproval(
+        challengeId,
+        { expected_version: 4, gate: "technical", decision: "approved", reason: "بررسی دوباره." },
+        {
+          ...base,
+          actorUserId: actorB,
+          role: "org:approver_technical",
+          idempotencyKey: "b2-conflict-technical-again",
+        },
+      ),
+    ).rejects.toMatchObject({ statusCode: 409, code: "CONFLICT" });
+
+    await expect(
+      repository.recordApproval(
+        challengeId,
+        { expected_version: 4, gate: "quality", decision: "approved", reason: "بررسی کیفیت." },
+        {
+          ...base,
+          actorUserId: actorA,
+          role: "platform:ops",
+          idempotencyKey: "b2-conflict-second-gate",
+        },
+      ),
+    ).rejects.toMatchObject({ statusCode: 409, code: "CONFLICT" });
+
+    const snapshot = repository.snapshot();
+    expect(
+      snapshot.approvals.filter((approval) => approval.challenge_id === challengeId),
+    ).toHaveLength(1);
+  });
+
+  it("rejects a gate recording before the challenge reaches the approvals stage", async () => {
+    const repository = new InMemoryChallengeRepository(clock, new MonotonicIdFactory());
+    const tenantId = deterministicId(idPrefixes.tenant, 50);
+    const workspaceId = deterministicId(idPrefixes.workspace, 50);
+    const created = await repository.create(
+      buildCreateChallengeBody({ draft: buildChallengeContentResource() }),
+      {
+        tenantId,
+        workspaceId,
+        actorUserId: deterministicId(idPrefixes.user, 50),
+        role: "org:owner",
+        correlationId: deterministicId(idPrefixes.correlation, 50),
+        idempotencyKey: "b2-wrong-stage-create",
+      },
+    );
+
+    await expect(
+      repository.recordApproval(
+        created.receipt.entity_id,
+        { expected_version: 1, gate: "technical", decision: "approved", reason: "زودهنگام." },
+        {
+          tenantId,
+          workspaceId,
+          actorUserId: deterministicId(idPrefixes.user, 51),
+          role: "org:approver_technical",
+          correlationId: deterministicId(idPrefixes.correlation, 50),
+          idempotencyKey: "b2-wrong-stage-record",
+        },
+      ),
+    ).rejects.toMatchObject({ statusCode: 409, code: "INVALID_STATE" });
+  });
+
+  it("rejects a gate recording from a role that is not eligible for that gate", async () => {
+    const repository = new InMemoryChallengeRepository(clock, new MonotonicIdFactory());
+    const { challengeId, tenantId, workspaceId } = await createChallengeAtApprovals(repository, 60);
+
+    await expect(
+      repository.recordApproval(
+        challengeId,
+        { expected_version: 4, gate: "quality", decision: "approved", reason: "نامعتبر." },
+        {
+          tenantId,
+          workspaceId,
+          actorUserId: deterministicId(idPrefixes.user, 61),
+          role: "org:owner",
+          correlationId: deterministicId(idPrefixes.correlation, 60),
+          idempotencyKey: "b2-wrong-role",
+        },
+      ),
+    ).rejects.toMatchObject({ statusCode: 403, code: "NO_ACCESS" });
   });
 
   it("rolls back session, audit, outbox, OIDC consumption, and idempotency on commit failure", async () => {

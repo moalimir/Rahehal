@@ -1,5 +1,6 @@
 import type {
   ApiError,
+  ChallengeApprovalResource,
   ChallengeDraftContentResource,
   ChallengeResource,
   CreateChallengeBody,
@@ -161,10 +162,33 @@ export function buildChallengeResource(
     content_version: 1,
     readiness: { ready: true, evaluated_version: 1, issues: [] },
     content: buildChallengeContentResource(contentOverrides),
+    approvals: [],
+    publication_readiness: {
+      ready: false,
+      satisfied: [],
+      missing: ["technical", "legal", "finance", "quality"],
+    },
     created_by: deterministicId(idPrefixes.user),
     created_at: fixedTimestamp,
     updated_at: fixedTimestamp,
     ...aggregateOverrides,
+  };
+}
+
+export function buildChallengeApprovalResource(
+  overrides: Partial<ChallengeApprovalResource> = {},
+): ChallengeApprovalResource {
+  return {
+    id: deterministicId(idPrefixes.challengeApproval),
+    challenge_id: deterministicId(idPrefixes.challenge),
+    challenge_version_id: deterministicId(idPrefixes.challengeVersion),
+    gate: "technical",
+    decision: "approved",
+    reason: "پروفایل فنی و امکان‌سنجی بررسی و تأیید شد.",
+    recorded_by: deterministicId(idPrefixes.user),
+    recorded_by_role: "org:approver_technical",
+    recorded_at: fixedTimestamp,
+    ...overrides,
   };
 }
 

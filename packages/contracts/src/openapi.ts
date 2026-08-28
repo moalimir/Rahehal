@@ -293,6 +293,24 @@ export const openApiDocument = {
         },
       },
     },
+    [apiRoutes.recordChallengeApproval]: {
+      post: {
+        operationId: "recordChallengeApproval",
+        tags: ["Challenge"],
+        summary:
+          "Record one publication gate decision (technical/legal/finance/quality) for the locked approvals version",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, challengeIdParameter],
+        requestBody: { required: true, content: jsonContent("RecordChallengeApprovalBody") },
+        responses: {
+          "200": {
+            description: "A receipt for the recorded gate decision.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
   },
   components: {
     securitySchemes: {

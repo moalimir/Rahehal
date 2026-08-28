@@ -1,4 +1,6 @@
 import type {
+  ChallengeApprovalNextAction,
+  ChallengeApprovalResource,
   ChallengeNextAction,
   ChallengeResource,
   ChallengeTransitionBody,
@@ -6,17 +8,22 @@ import type {
   MutationReceipt,
   OutboxEvent,
   PatchChallengeBody,
+  RecordChallengeApprovalBody,
 } from "@rahhal/contracts";
 import {
   canTransition,
   challengeTransitions,
+  evaluatePublicationReadiness,
   isAggregateVersion,
+  isGateApproverRole,
   parseAuditEventId,
+  parseChallengeApprovalId,
   parseChallengeId,
   parseChallengeVersionId,
   parsePrefixedId,
   parseReceiptId,
   type AuditEventId,
+  type ChallengeApprovalId,
   type ChallengeId,
   type CorrelationId,
   type TenantId,
@@ -28,7 +35,7 @@ import {
   emptyChallengeContent,
   mergeChallengeDraftPatch,
 } from "./challenge-draft.js";
-import { ApiProblem, idempotencyConflict, notFound, staleVersion } from "./errors.js";
+import { ApiProblem, forbidden, idempotencyConflict, notFound, staleVersion } from "./errors.js";
 import { commandFingerprint } from "./primitives.js";
 import type {
   ChallengeCommandContext,
@@ -52,7 +59,8 @@ export type ChallengeAuditRecord = {
     | "challenge.draft.updated"
     | "challenge.triage.requested"
     | "challenge.formulation.started"
-    | "challenge.approvals.requested";
+    | "challenge.approvals.requested"
+    | "challenge.approval.recorded";
   readonly outcome: "success";
   readonly correlationId: CorrelationId;
   readonly occurredAt: string;
@@ -64,14 +72,19 @@ type StoredChallenge = {
 };
 
 type ChallengeMutationOutcome = MutationOutcome<ChallengeId, ChallengeNextAction>;
+type ChallengeApprovalMutationOutcome = MutationOutcome<
+  ChallengeApprovalId,
+  ChallengeApprovalNextAction
+>;
 
 type IdempotencyRecord = {
   readonly fingerprint: string;
-  readonly outcome: ChallengeMutationOutcome;
+  readonly outcome: ChallengeMutationOutcome | ChallengeApprovalMutationOutcome;
 };
 
 type RepositoryState = {
   readonly challenges: Map<string, StoredChallenge>;
+  readonly approvals: ChallengeApprovalResource[];
   readonly idempotency: Map<string, IdempotencyRecord>;
   readonly auditEvents: ChallengeAuditRecord[];
   readonly outboxEvents: OutboxEvent[];
@@ -80,10 +93,26 @@ type RepositoryState = {
 export type ChallengeRepositorySnapshot = {
   readonly challenges: readonly ChallengeResource[];
   readonly versions: readonly ChallengeResource[];
+  readonly approvals: readonly ChallengeApprovalResource[];
   readonly auditEvents: readonly ChallengeAuditRecord[];
   readonly outboxEvents: readonly OutboxEvent[];
   readonly idempotencyEntryCount: number;
 };
+
+/** Recomputes the derived approvals view + publication readiness for one resource snapshot. */
+function withApprovals(
+  resource: ChallengeResource,
+  allApprovals: readonly ChallengeApprovalResource[],
+): ChallengeResource {
+  const approvals = allApprovals.filter(
+    (approval) => approval.challenge_version_id === resource.current_version_id,
+  );
+  return {
+    ...resource,
+    approvals,
+    publication_readiness: evaluatePublicationReadiness(approvals),
+  };
+}
 
 function scopeKey(tenantId: TenantId, workspaceId: WorkspaceId, challengeId: string) {
   return `${tenantId}\u0000${workspaceId}\u0000${challengeId}`;
@@ -98,6 +127,7 @@ function copyState(state: RepositoryState): RepositoryState {
     challenges: new Map(
       [...state.challenges].map(([key, stored]) => [key, structuredClone(stored)] as const),
     ),
+    approvals: structuredClone(state.approvals),
     idempotency: new Map(
       [...state.idempotency].map(([key, record]) => [key, structuredClone(record)] as const),
     ),
@@ -109,6 +139,7 @@ function copyState(state: RepositoryState): RepositoryState {
 export class InMemoryChallengeRepository implements ChallengePort {
   private state: RepositoryState = {
     challenges: new Map(),
+    approvals: [],
     idempotency: new Map(),
     auditEvents: [],
     outboxEvents: [],
@@ -128,18 +159,18 @@ export class InMemoryChallengeRepository implements ChallengePort {
     return result;
   }
 
-  private replay(
+  private replay<Outcome extends ChallengeMutationOutcome | ChallengeApprovalMutationOutcome>(
     state: RepositoryState,
     key: string,
     fingerprint: string,
-  ): ChallengeMutationOutcome | null {
+  ): Outcome | null {
     const cached = state.idempotency.get(key);
     if (!cached) return null;
     if (cached.fingerprint !== fingerprint) throw idempotencyConflict();
     return {
       entityVersion: cached.outcome.entityVersion,
       receipt: { ...cached.outcome.receipt, idempotent: true },
-    };
+    } as Outcome;
   }
 
   private recordMutation(
@@ -194,6 +225,64 @@ export class InMemoryChallengeRepository implements ChallengePort {
     return outcome;
   }
 
+  /**
+   * Records evidence for a challenge_approval row — a distinct aggregate from
+   * the challenge itself, so the receipt/outbox target the approval's own id
+   * while the audit trail stays keyed by the parent challenge (matching how
+   * every other challenge-scoped audit query already reads it).
+   */
+  private recordApprovalMutation(
+    state: RepositoryState,
+    approval: ChallengeApprovalResource,
+    challenge: ChallengeResource,
+    context: ChallengeCommandContext,
+    nextActions: readonly ChallengeApprovalNextAction[],
+    idempotency: { key: string; fingerprint: string },
+  ): ChallengeApprovalMutationOutcome {
+    const timestamp = this.clock.now().toISOString();
+    const auditId = parseAuditEventId(this.ids.next("aud"));
+    const receipt: MutationReceipt<ChallengeApprovalId, ChallengeApprovalNextAction> = {
+      entity_id: approval.id,
+      receipt_id: parseReceiptId(this.ids.next("rcp")),
+      audit_event_id: auditId,
+      timestamp,
+      idempotent: false,
+      next_actions: nextActions,
+    };
+    const outcome = {
+      receipt,
+      entityVersion: 1,
+    } satisfies ChallengeApprovalMutationOutcome;
+    state.auditEvents.push({
+      id: auditId,
+      tenantId: context.tenantId,
+      workspaceId: context.workspaceId,
+      actorUserId: context.actorUserId,
+      entityId: challenge.id,
+      entityVersion: challenge.version,
+      action: "challenge.approval.recorded",
+      outcome: "success",
+      correlationId: context.correlationId,
+      occurredAt: timestamp,
+    });
+    state.outboxEvents.push({
+      event_id: parsePrefixedId(this.ids.next("evt"), "evt"),
+      event_type: "challenge.approval.recorded",
+      schema_version: 1,
+      aggregate_type: "challenge_approval",
+      aggregate_id: approval.id,
+      tenant_id: context.tenantId,
+      correlation_id: context.correlationId,
+      occurred_at: timestamp,
+      payload: { challenge_id: challenge.id, gate: approval.gate, decision: approval.decision },
+    });
+    state.idempotency.set(idempotency.key, {
+      fingerprint: idempotency.fingerprint,
+      outcome: structuredClone(outcome),
+    });
+    return outcome;
+  }
+
   async create(
     body: CreateChallengeBody,
     context: ChallengeCommandContext,
@@ -206,7 +295,7 @@ export class InMemoryChallengeRepository implements ChallengePort {
       body,
     });
     return this.transact((state) => {
-      const replay = this.replay(state, key, fingerprint);
+      const replay = this.replay<ChallengeMutationOutcome>(state, key, fingerprint);
       if (replay) return replay;
       if (body.expected_version !== 0 || !isAggregateVersion(body.expected_version)) {
         throw new ApiProblem(422, "VALIDATION", "A new challenge must expect version zero");
@@ -226,6 +315,8 @@ export class InMemoryChallengeRepository implements ChallengePort {
         content_version: 1,
         readiness: challengeReadiness(merged.content, 1),
         content: merged.content,
+        approvals: [],
+        publication_readiness: evaluatePublicationReadiness([]),
         created_by: context.actorUserId,
         created_at: now,
         updated_at: now,
@@ -271,7 +362,7 @@ export class InMemoryChallengeRepository implements ChallengePort {
       const storedKey = scopeKey(context.tenantId, context.workspaceId, id);
       const stored = state.challenges.get(storedKey);
       if (!stored) throw notFound();
-      const replay = this.replay(state, key, fingerprint);
+      const replay = this.replay<ChallengeMutationOutcome>(state, key, fingerprint);
       if (replay) return replay;
       if (body.expected_version !== stored.current.version) {
         throw staleVersion(stored.current.version);
@@ -301,6 +392,10 @@ export class InMemoryChallengeRepository implements ChallengePort {
         content_version: contentVersion,
         readiness,
         content: merged.content,
+        // A new version_id starts with no approvals of its own — gates are
+        // recorded against one specific locked version (B2), never inherited.
+        approvals: [],
+        publication_readiness: evaluatePublicationReadiness([]),
         updated_at: this.clock.now().toISOString(),
       };
       state.challenges.set(storedKey, {
@@ -354,7 +449,7 @@ export class InMemoryChallengeRepository implements ChallengePort {
     });
 
     return this.transact((state) => {
-      const replay = this.replay(state, key, fingerprint);
+      const replay = this.replay<ChallengeMutationOutcome>(state, key, fingerprint);
       if (replay) return replay;
       const storedKey = scopeKey(context.tenantId, context.workspaceId, id);
       const stored = state.challenges.get(storedKey);
@@ -416,6 +511,85 @@ export class InMemoryChallengeRepository implements ChallengePort {
     });
   }
 
+  async recordApproval(
+    id: string,
+    body: RecordChallengeApprovalBody,
+    context: ChallengeCommandContext,
+  ): Promise<ChallengeApprovalMutationOutcome> {
+    const key = idempotencyKey(context, "challenge:record-approval");
+    const fingerprint = commandFingerprint({
+      command: "challenge:record-approval",
+      actorUserId: context.actorUserId,
+      workspaceId: context.workspaceId,
+      id,
+      body,
+    });
+
+    return this.transact((state) => {
+      const replay = this.replay<ChallengeApprovalMutationOutcome>(state, key, fingerprint);
+      if (replay) return replay;
+      const storedKey = scopeKey(context.tenantId, context.workspaceId, id);
+      const stored = state.challenges.get(storedKey);
+      if (!stored) throw notFound();
+      if (body.expected_version !== stored.current.version) {
+        throw staleVersion(stored.current.version);
+      }
+      if (stored.current.stage !== "approvals") {
+        throw new ApiProblem(409, "INVALID_STATE", "Challenge is not awaiting approvals", {
+          currentState: stored.current.stage,
+          allowedTransitions: challengeTransitions
+            .filter(({ from }) => from === stored.current.stage)
+            .map(({ to }) => to),
+        });
+      }
+      // Defense in depth: app.ts resolves org- or platform-side authorization
+      // before this is reached, but the adapter never trusts that alone.
+      if (!isGateApproverRole(body.gate, context.role)) throw forbidden();
+
+      const versionId = stored.current.current_version_id;
+      const existingForVersion = state.approvals.filter(
+        (approval) => approval.challenge_version_id === versionId,
+      );
+      if (existingForVersion.some((approval) => approval.gate === body.gate)) {
+        throw new ApiProblem(409, "CONFLICT", `The ${body.gate} gate is already recorded`, {
+          recovery: "refetch_and_retry",
+        });
+      }
+      if (existingForVersion.some((approval) => approval.recorded_by === context.actorUserId)) {
+        throw new ApiProblem(
+          409,
+          "CONFLICT",
+          "This actor already recorded a different gate on this version",
+          { recovery: "refetch_and_retry" },
+        );
+      }
+
+      const occurredAt = this.clock.now().toISOString();
+      const approval: ChallengeApprovalResource = {
+        id: parseChallengeApprovalId(this.ids.next("cap")),
+        challenge_id: stored.current.id,
+        challenge_version_id: versionId,
+        gate: body.gate,
+        decision: body.decision,
+        reason: body.reason,
+        recorded_by: context.actorUserId,
+        recorded_by_role: context.role,
+        recorded_at: occurredAt,
+      };
+      state.approvals.push(approval);
+      const refreshed = withApprovals(stored.current, state.approvals);
+      state.challenges.set(storedKey, { ...stored, current: refreshed });
+
+      const nextActions: readonly ChallengeApprovalNextAction[] = [
+        refreshed.publication_readiness.ready ? "ready_for_publish" : "await_remaining_gates",
+      ];
+      return this.recordApprovalMutation(state, approval, refreshed, context, nextActions, {
+        key,
+        fingerprint,
+      });
+    });
+  }
+
   seed(resource: ChallengeResource) {
     this.state.challenges.set(scopeKey(resource.tenant_id, resource.workspace_id, resource.id), {
       current: structuredClone(resource),
@@ -428,6 +602,7 @@ export class InMemoryChallengeRepository implements ChallengePort {
     return {
       challenges: stored.map(({ current }) => structuredClone(current)),
       versions: stored.flatMap(({ versions }) => structuredClone(versions)),
+      approvals: structuredClone(this.state.approvals),
       auditEvents: structuredClone(this.state.auditEvents),
       outboxEvents: structuredClone(this.state.outboxEvents),
       idempotencyEntryCount: this.state.idempotency.size,

@@ -1,4 +1,6 @@
 import type {
+  ChallengeApprovalNextAction,
+  ChallengeApprovalResource,
   ChallengeDraftContentResource,
   ChallengeNextAction,
   ChallengeResource,
@@ -6,14 +8,21 @@ import type {
   CreateChallengeBody,
   MutationReceipt,
   PatchChallengeBody,
+  RecordChallengeApprovalBody,
 } from "@rahhal/contracts";
 import {
+  approvalDecisions,
   canTransition,
   challengeAuthoringStages,
   challengeTransitions,
+  evaluatePublicationReadiness,
   isAggregateVersion,
   isChallengeDraftAuthoringStatus,
+  isGateApproverRole,
+  isPublicationGate,
+  isWorkspaceRole,
   parseAuditEventId,
+  parseChallengeApprovalId,
   parseChallengeId,
   parseChallengeVersionId,
   parsePrefixedId,
@@ -21,6 +30,8 @@ import {
   parseTenantId,
   parseUserId,
   parseWorkspaceId,
+  type ApprovalDecision,
+  type ChallengeApprovalId,
   type ChallengeId,
 } from "@rahhal/domain";
 import type { PoolClient } from "pg";
@@ -30,7 +41,7 @@ import {
   emptyChallengeContent,
   mergeChallengeDraftPatch,
 } from "../challenge-draft.js";
-import { ApiProblem, idempotencyConflict, notFound, staleVersion } from "../errors.js";
+import { ApiProblem, forbidden, idempotencyConflict, notFound, staleVersion } from "../errors.js";
 import { commandFingerprint } from "../primitives.js";
 import type {
   ChallengeCommandContext,
@@ -74,6 +85,10 @@ type CachedChallengeMutation = {
 };
 
 type ChallengeMutationOutcome = MutationOutcome<ChallengeId, ChallengeNextAction>;
+type ChallengeApprovalMutationOutcome = MutationOutcome<
+  ChallengeApprovalId,
+  ChallengeApprovalNextAction
+>;
 type ChallengeEvidenceAction =
   | "challenge.draft.created"
   | "challenge.draft.updated"
@@ -89,6 +104,32 @@ const challengeNextActions = [
   "await_approvals",
 ] as const satisfies readonly ChallengeNextAction[];
 
+const challengeApprovalNextActions = [
+  "await_remaining_gates",
+  "ready_for_publish",
+] as const satisfies readonly ChallengeApprovalNextAction[];
+
+type ChallengeApprovalRow = {
+  readonly id: string;
+  readonly challenge_id: string;
+  readonly challenge_version_id: string;
+  readonly gate: string;
+  readonly decision: string;
+  readonly reason: string;
+  readonly recorded_by_user_id: string;
+  readonly recorded_by_role: string;
+  readonly recorded_at: Date;
+};
+
+type CachedChallengeApprovalMutation = {
+  readonly entity_id: string;
+  readonly entity_version: number;
+  readonly receipt_id: string;
+  readonly audit_event_id: string;
+  readonly timestamp: string;
+  readonly next_actions: readonly string[];
+};
+
 function timestamp(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
@@ -101,7 +142,9 @@ function challengeVersion(value: unknown): number {
   return version;
 }
 
-function challengeResource(row: ChallengeRow): ChallengeResource {
+function challengeResource(
+  row: ChallengeRow,
+): Omit<ChallengeResource, "approvals" | "publication_readiness"> {
   if (!challengeAuthoringStages.includes(row.stage as (typeof challengeAuthoringStages)[number])) {
     throw new Error("Authoring API loaded a challenge outside its lifecycle boundary");
   }
@@ -130,6 +173,29 @@ function challengeResource(row: ChallengeRow): ChallengeResource {
   };
 }
 
+function challengeApprovalResource(row: ChallengeApprovalRow): ChallengeApprovalResource {
+  if (!isPublicationGate(row.gate)) {
+    throw new Error("Database returned an invalid publication gate");
+  }
+  if (!approvalDecisions.includes(row.decision as ApprovalDecision)) {
+    throw new Error("Database returned an invalid approval decision");
+  }
+  if (!isWorkspaceRole(row.recorded_by_role)) {
+    throw new Error("Database returned an invalid approval role");
+  }
+  return {
+    id: parseChallengeApprovalId(row.id),
+    challenge_id: parseChallengeId(row.challenge_id),
+    challenge_version_id: parseChallengeVersionId(row.challenge_version_id),
+    gate: row.gate,
+    decision: row.decision as ApprovalDecision,
+    reason: row.reason,
+    recorded_by: parseUserId(row.recorded_by_user_id),
+    recorded_by_role: row.recorded_by_role,
+    recorded_at: timestamp(row.recorded_at),
+  };
+}
+
 function cachedMutation(value: unknown): CachedChallengeMutation {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error("Database returned an invalid challenge idempotency response");
@@ -150,6 +216,29 @@ function cachedMutation(value: unknown): CachedChallengeMutation {
     throw new Error("Database returned an invalid challenge idempotency response");
   }
   return record as unknown as CachedChallengeMutation;
+}
+
+function cachedApprovalMutation(value: unknown): CachedChallengeApprovalMutation {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("Database returned an invalid challenge approval idempotency response");
+  }
+  const record = value as Record<string, unknown>;
+  if (
+    typeof record["entity_id"] !== "string" ||
+    !Number.isSafeInteger(record["entity_version"]) ||
+    typeof record["receipt_id"] !== "string" ||
+    typeof record["audit_event_id"] !== "string" ||
+    typeof record["timestamp"] !== "string" ||
+    !Array.isArray(record["next_actions"]) ||
+    !record["next_actions"].every(
+      (item) =>
+        typeof item === "string" &&
+        challengeApprovalNextActions.includes(item as ChallengeApprovalNextAction),
+    )
+  ) {
+    throw new Error("Database returned an invalid challenge approval idempotency response");
+  }
+  return record as unknown as CachedChallengeApprovalMutation;
 }
 
 export class PostgresChallengeAdapter implements ChallengePort {
@@ -203,6 +292,41 @@ export class PostgresChallengeAdapter implements ChallengePort {
     return cachedMutation(row.response_body);
   }
 
+  private async loadApprovalReplay(
+    client: PoolClient,
+    context: ChallengeCommandContext,
+    requestHash: string,
+  ): Promise<CachedChallengeApprovalMutation | null> {
+    await client.query(
+      `
+        DELETE FROM idempotency_key
+        WHERE scope_kind = 'tenant'
+          AND tenant_id = $1
+          AND credential_fingerprint IS NULL
+          AND idempotency_key = $2
+          AND expires_at <= $3
+      `,
+      [context.tenantId, context.idempotencyKey, this.clock.now().toISOString()],
+    );
+    const result = await client.query<IdempotencyRow>(
+      `
+        SELECT request_hash, status, response_body
+        FROM idempotency_key
+        WHERE scope_kind = 'tenant'
+          AND tenant_id = $1
+          AND credential_fingerprint IS NULL
+          AND idempotency_key = $2
+        FOR UPDATE
+      `,
+      [context.tenantId, context.idempotencyKey],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    if (row.request_hash !== requestHash) throw idempotencyConflict();
+    if (row.status !== "completed") throw new Error("Idempotency record is incomplete");
+    return cachedApprovalMutation(row.response_body);
+  }
+
   private outcome(cached: CachedChallengeMutation, idempotent: boolean): ChallengeMutationOutcome {
     const receipt: MutationReceipt<ChallengeId, ChallengeNextAction> = {
       entity_id: parseChallengeId(cached.entity_id),
@@ -213,6 +337,21 @@ export class PostgresChallengeAdapter implements ChallengePort {
       next_actions: cached.next_actions as readonly ChallengeNextAction[],
     };
     return { receipt, entityVersion: challengeVersion(cached.entity_version) };
+  }
+
+  private approvalOutcome(
+    cached: CachedChallengeApprovalMutation,
+    idempotent: boolean,
+  ): ChallengeApprovalMutationOutcome {
+    const receipt: MutationReceipt<ChallengeApprovalId, ChallengeApprovalNextAction> = {
+      entity_id: parseChallengeApprovalId(cached.entity_id),
+      receipt_id: parseReceiptId(cached.receipt_id),
+      audit_event_id: parseAuditEventId(cached.audit_event_id),
+      timestamp: timestamp(cached.timestamp),
+      idempotent,
+      next_actions: cached.next_actions as readonly ChallengeApprovalNextAction[],
+    };
+    return { receipt, entityVersion: cached.entity_version };
   }
 
   private async recordMutation(
@@ -323,6 +462,139 @@ export class PostgresChallengeAdapter implements ChallengePort {
     return this.outcome(cached, false);
   }
 
+  /**
+   * Records evidence for a challenge_approval row -- a distinct aggregate from
+   * the challenge itself, so the receipt/outbox target the approval's own id
+   * while the audit trail stays keyed by the parent challenge (matching how
+   * every other challenge-scoped audit query already reads it).
+   */
+  private async recordApprovalMutation(
+    client: PoolClient,
+    approval: ChallengeApprovalResource,
+    challenge: ChallengeResource,
+    context: ChallengeCommandContext,
+    nextActions: readonly ChallengeApprovalNextAction[],
+    requestHash: string,
+  ): Promise<ChallengeApprovalMutationOutcome> {
+    const occurredAt = this.clock.now().toISOString();
+    const auditId = parseAuditEventId(this.ids.next("aud"));
+    const receiptId = parseReceiptId(this.ids.next("rcp"));
+    const outboxId = parsePrefixedId(this.ids.next("evt"), "evt");
+    const cached: CachedChallengeApprovalMutation = {
+      entity_id: approval.id,
+      entity_version: 1,
+      receipt_id: receiptId,
+      audit_event_id: auditId,
+      timestamp: occurredAt,
+      next_actions: nextActions,
+    };
+
+    await client.query(
+      `
+        INSERT INTO audit_event (
+          id, correlation_id, tenant_id, workspace_id, actor_kind, actor_user_id,
+          action, outcome, reason_code, target_type, target_id, metadata, occurred_at
+        ) VALUES (
+          $1, $2, $3, $4, 'user', $5, 'challenge.approval.recorded', 'success',
+          'MUTATION_COMMITTED', 'challenge', $6, jsonb_build_object('entity_version', $7::bigint), $8
+        )
+      `,
+      [
+        auditId,
+        context.correlationId,
+        context.tenantId,
+        context.workspaceId,
+        context.actorUserId,
+        challenge.id,
+        challenge.version,
+        occurredAt,
+      ],
+    );
+    await client.query(
+      `
+        INSERT INTO mutation_receipt (
+          id, tenant_id, workspace_id, entity_type, entity_id, entity_version,
+          audit_event_id, correlation_id, next_actions, occurred_at
+        ) VALUES ($1, $2, $3, 'challenge_approval', $4, 1, $5, $6, $7::jsonb, $8)
+      `,
+      [
+        receiptId,
+        context.tenantId,
+        context.workspaceId,
+        approval.id,
+        auditId,
+        context.correlationId,
+        JSON.stringify(nextActions),
+        occurredAt,
+      ],
+    );
+    await client.query(
+      `
+        INSERT INTO outbox_event (
+          id, tenant_id, correlation_id, event_type, schema_version, aggregate_type,
+          aggregate_id, payload, dedupe_key, occurred_at, available_at
+        ) VALUES (
+          $1, $2, $3, 'challenge.approval.recorded', 1, 'challenge_approval', $4,
+          jsonb_build_object('challenge_id', $5::text, 'gate', $6::text, 'decision', $7::text),
+          $8, $9, $9
+        )
+      `,
+      [
+        outboxId,
+        context.tenantId,
+        context.correlationId,
+        approval.id,
+        challenge.id,
+        approval.gate,
+        approval.decision,
+        `challenge.approval.recorded:${approval.id}`,
+        occurredAt,
+      ],
+    );
+    await client.query(
+      `
+        INSERT INTO idempotency_key (
+          id, scope_kind, tenant_id, credential_fingerprint, idempotency_key,
+          request_hash, status, response_status, response_body, created_at, expires_at
+        ) VALUES (
+          $1, 'tenant', $2, NULL, $3, $4, 'completed', 200, $5::jsonb, $6, $7
+        )
+      `,
+      [
+        `idk_${commandFingerprint({
+          tenantId: context.tenantId,
+          idempotencyKey: context.idempotencyKey,
+        })}`,
+        context.tenantId,
+        context.idempotencyKey,
+        requestHash,
+        JSON.stringify(cached),
+        occurredAt,
+        new Date(new Date(occurredAt).getTime() + 24 * 60 * 60_000).toISOString(),
+      ],
+    );
+    return this.approvalOutcome(cached, false);
+  }
+
+  private async approvalsForVersion(
+    client: PoolClient,
+    versionId: string,
+    lock: boolean,
+  ): Promise<ChallengeApprovalResource[]> {
+    const result = await client.query<ChallengeApprovalRow>(
+      `
+        SELECT
+          id, challenge_id, challenge_version_id, gate, decision, reason,
+          recorded_by_user_id, recorded_by_role, recorded_at
+        FROM challenge_approval
+        WHERE challenge_version_id = $1
+        ${lock ? "FOR UPDATE" : "FOR SHARE"}
+      `,
+      [versionId],
+    );
+    return result.rows.map(challengeApprovalResource);
+  }
+
   private async findScoped(
     client: PoolClient,
     scope: ChallengeScope,
@@ -355,7 +627,15 @@ export class PostgresChallengeAdapter implements ChallengePort {
       `,
       [scope.tenantId, scope.workspaceId, id],
     );
-    return result.rows[0] ? challengeResource(result.rows[0]) : null;
+    const row = result.rows[0];
+    if (!row) return null;
+    const resource = challengeResource(row);
+    const approvals = await this.approvalsForVersion(client, resource.current_version_id, lock);
+    return {
+      ...resource,
+      approvals,
+      publication_readiness: evaluatePublicationReadiness(approvals),
+    };
   }
 
   async create(
@@ -430,6 +710,8 @@ export class PostgresChallengeAdapter implements ChallengePort {
         content_version: 1,
         readiness,
         content: merged.content,
+        approvals: [],
+        publication_readiness: evaluatePublicationReadiness([]),
         created_by: context.actorUserId,
         created_at: occurredAt,
         updated_at: occurredAt,
@@ -539,6 +821,10 @@ export class PostgresChallengeAdapter implements ChallengePort {
         content_version: contentVersion,
         readiness,
         content: merged.content,
+        // A new version_id starts with no approvals of its own -- gates are
+        // recorded against one specific locked version (B2), never inherited.
+        approvals: [],
+        publication_readiness: evaluatePublicationReadiness([]),
         updated_at: occurredAt,
       };
       return this.recordMutation(
@@ -684,6 +970,107 @@ export class PostgresChallengeAdapter implements ChallengePort {
         context,
         definition.action,
         definition.nextActions,
+        requestHash,
+      );
+    });
+  }
+
+  async recordApproval(
+    id: string,
+    body: RecordChallengeApprovalBody,
+    context: ChallengeCommandContext,
+  ): Promise<ChallengeApprovalMutationOutcome> {
+    const requestHash = commandFingerprint({
+      action: "challenge.record-approval",
+      actorUserId: context.actorUserId,
+      workspaceId: context.workspaceId,
+      id,
+      body,
+    });
+    return this.unitOfWork.run(async () => {
+      const client = this.unitOfWork.currentClient();
+      await this.lockIdempotencyKey(client, context);
+      const replay = await this.loadApprovalReplay(client, context, requestHash);
+      if (replay) return this.approvalOutcome(replay, true);
+
+      const current = await this.findScoped(client, context, id, true);
+      if (!current) throw notFound();
+      if (body.expected_version !== current.version) throw staleVersion(current.version);
+      if (current.stage !== "approvals") {
+        throw new ApiProblem(409, "INVALID_STATE", "Challenge is not awaiting approvals", {
+          currentState: current.stage,
+          allowedTransitions: challengeTransitions
+            .filter(({ from }) => from === current.stage)
+            .map(({ to }) => to),
+        });
+      }
+      // Defense in depth: app.ts resolves org- or platform-side authorization
+      // before this is reached, but the adapter never trusts that alone.
+      if (!isGateApproverRole(body.gate, context.role)) throw forbidden();
+
+      if (current.approvals.some((approval) => approval.gate === body.gate)) {
+        throw new ApiProblem(409, "CONFLICT", `The ${body.gate} gate is already recorded`, {
+          recovery: "refetch_and_retry",
+        });
+      }
+      if (current.approvals.some((approval) => approval.recorded_by === context.actorUserId)) {
+        throw new ApiProblem(
+          409,
+          "CONFLICT",
+          "This actor already recorded a different gate on this version",
+          { recovery: "refetch_and_retry" },
+        );
+      }
+
+      const approvalId = parseChallengeApprovalId(this.ids.next("cap"));
+      const occurredAt = this.clock.now().toISOString();
+      const insert = await client.query(
+        `
+          INSERT INTO challenge_approval (
+            id, tenant_id, workspace_id, challenge_id, challenge_version_id,
+            gate, decision, reason, recorded_by_user_id, recorded_by_role, recorded_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        `,
+        [
+          approvalId,
+          context.tenantId,
+          context.workspaceId,
+          current.id,
+          current.current_version_id,
+          body.gate,
+          body.decision,
+          body.reason,
+          context.actorUserId,
+          context.role,
+          occurredAt,
+        ],
+      );
+      if (insert.rowCount !== 1) {
+        throw new Error("Challenge approval insert did not affect exactly one row");
+      }
+
+      const approval: ChallengeApprovalResource = {
+        id: approvalId,
+        challenge_id: current.id,
+        challenge_version_id: current.current_version_id,
+        gate: body.gate,
+        decision: body.decision,
+        reason: body.reason,
+        recorded_by: context.actorUserId,
+        recorded_by_role: context.role,
+        recorded_at: occurredAt,
+      };
+      const publicationReadiness = evaluatePublicationReadiness([...current.approvals, approval]);
+      const nextActions: readonly ChallengeApprovalNextAction[] = [
+        publicationReadiness.ready ? "ready_for_publish" : "await_remaining_gates",
+      ];
+
+      return this.recordApprovalMutation(
+        client,
+        approval,
+        current,
+        context,
+        nextActions,
         requestHash,
       );
     });

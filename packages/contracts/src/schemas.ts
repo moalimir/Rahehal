@@ -1,6 +1,7 @@
 import {
   applicantScopes,
   applicantTypes,
+  approvalDecisions,
   challengeAuthoringStages,
   challengeBudgetStatuses,
   challengeDraftAuthoringStatuses,
@@ -13,9 +14,11 @@ import {
   membershipStates,
   organizationRoles,
   platformRoles,
+  publicationGates,
   teamKinds,
   teamRoles,
   workspaceKinds,
+  workspaceRoles,
 } from "@rahhal/domain";
 
 import { apiErrorCodes } from "./envelopes.js";
@@ -362,6 +365,44 @@ const challengeReadinessSchema = {
   },
 } as const;
 
+const challengeApprovalResourceSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "challenge_id",
+    "challenge_version_id",
+    "gate",
+    "decision",
+    "reason",
+    "recorded_by",
+    "recorded_by_role",
+    "recorded_at",
+  ],
+  properties: {
+    id: idSchema("cap"),
+    challenge_id: idSchema("chl"),
+    challenge_version_id: idSchema("chv"),
+    gate: { type: "string", enum: publicationGates },
+    decision: { type: "string", enum: approvalDecisions },
+    reason: { type: "string", minLength: 1, maxLength: 2_000 },
+    recorded_by: idSchema("usr"),
+    recorded_by_role: { type: "string", enum: workspaceRoles },
+    recorded_at: dateTimeSchema,
+  },
+} as const;
+
+const publicationReadinessSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["ready", "satisfied", "missing"],
+  properties: {
+    ready: { type: "boolean" },
+    satisfied: { type: "array", items: { type: "string", enum: publicationGates } },
+    missing: { type: "array", items: { type: "string", enum: publicationGates } },
+  },
+} as const;
+
 const challengeResourceSchema = {
   type: "object",
   additionalProperties: false,
@@ -376,6 +417,8 @@ const challengeResourceSchema = {
     "content_version",
     "readiness",
     "content",
+    "approvals",
+    "publication_readiness",
     "created_by",
     "created_at",
     "updated_at",
@@ -391,6 +434,8 @@ const challengeResourceSchema = {
     content_version: { type: "integer", minimum: 1 },
     readiness: challengeReadinessSchema,
     content: challengeDraftContentSchema,
+    approvals: { type: "array", items: challengeApprovalResourceSchema },
+    publication_readiness: publicationReadinessSchema,
     created_by: idSchema("usr"),
     created_at: dateTimeSchema,
     updated_at: dateTimeSchema,
@@ -655,6 +700,20 @@ export const apiSchemas = {
     required: ["expected_version"],
     properties: {
       expected_version: { type: "integer", minimum: 1 },
+      reason: { type: "string", minLength: 1, maxLength: 2_000 },
+      step_up_token: { type: "string", minLength: 1, maxLength: 4_096 },
+    },
+  },
+  ChallengeApprovalResource: challengeApprovalResourceSchema,
+  PublicationReadiness: publicationReadinessSchema,
+  RecordChallengeApprovalBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "gate", "decision", "reason"],
+    properties: {
+      expected_version: { type: "integer", minimum: 1 },
+      gate: { type: "string", enum: publicationGates },
+      decision: { type: "string", enum: approvalDecisions },
       reason: { type: "string", minLength: 1, maxLength: 2_000 },
       step_up_token: { type: "string", minLength: 1, maxLength: 4_096 },
     },

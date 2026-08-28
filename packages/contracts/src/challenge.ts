@@ -1,6 +1,8 @@
 import type {
   ApplicantScope,
   ApplicantType,
+  ApprovalDecision,
+  ChallengeApprovalId,
   ChallengeBudgetStatus,
   ChallengeAuthoringStage,
   ChallengeDraftAuthoringStatus,
@@ -13,9 +15,11 @@ import type {
   ChallengeWorkMode,
   Currency,
   FileId,
+  PublicationGate,
   TenantId,
   UserId,
   WorkspaceId,
+  WorkspaceRole,
 } from "@rahhal/domain";
 
 import type {
@@ -81,6 +85,24 @@ export type ChallengeDraftPatch = Partial<ChallengeDraftContentResource> & {
   readonly authoring_status?: ChallengeDraftAuthoringStatus;
 };
 
+export type ChallengeApprovalResource = {
+  readonly id: ChallengeApprovalId;
+  readonly challenge_id: ChallengeId;
+  readonly challenge_version_id: ChallengeVersionId;
+  readonly gate: PublicationGate;
+  readonly decision: ApprovalDecision;
+  readonly reason: string;
+  readonly recorded_by: UserId;
+  readonly recorded_by_role: WorkspaceRole;
+  readonly recorded_at: string;
+};
+
+export type PublicationReadinessResource = {
+  readonly ready: boolean;
+  readonly satisfied: readonly PublicationGate[];
+  readonly missing: readonly PublicationGate[];
+};
+
 export type ChallengeResource = {
   readonly id: ChallengeId;
   readonly current_version_id: ChallengeVersionId;
@@ -92,6 +114,8 @@ export type ChallengeResource = {
   readonly content_version: number;
   readonly readiness: ApiReadiness;
   readonly content: ChallengeDraftContentResource;
+  readonly approvals: readonly ChallengeApprovalResource[];
+  readonly publication_readiness: PublicationReadinessResource;
   readonly created_by: UserId;
   readonly created_at: string;
   readonly updated_at: string;
@@ -108,12 +132,20 @@ export type PatchChallengeBody = VersionedCommand & {
 
 export type ChallengeTransitionBody = VersionedCommand;
 
+export type RecordChallengeApprovalBody = VersionedCommand & {
+  readonly gate: PublicationGate;
+  readonly decision: ApprovalDecision;
+  readonly reason: string;
+};
+
 export type ChallengeNextAction =
   | "edit"
   | "request_triage"
   | "advance_formulation"
   | "request_approvals"
   | "await_approvals";
+
+export type ChallengeApprovalNextAction = "await_remaining_gates" | "ready_for_publish";
 
 export type ChallengeSuccessEnvelope = {
   readonly ok: true;
@@ -123,6 +155,10 @@ export type ChallengeSuccessEnvelope = {
 export type ChallengeMutationSuccessEnvelope = MutationSuccessEnvelope<
   ChallengeId,
   ChallengeNextAction
+>;
+export type ChallengeApprovalMutationSuccessEnvelope = MutationSuccessEnvelope<
+  ChallengeApprovalId,
+  ChallengeApprovalNextAction
 >;
 
 export function hasChallengeDraftChanges(patch: ChallengeDraftPatch): boolean {

@@ -1,4 +1,5 @@
 import type {
+  ChallengeApprovalNextAction,
   ChallengeResource,
   ChallengeNextAction,
   ChallengeTransitionBody,
@@ -8,12 +9,14 @@ import type {
   OidcAuthorizationStartBody,
   OidcAuthorizationStartResult,
   PatchChallengeBody,
+  RecordChallengeApprovalBody,
   SessionExchangeBody,
   SessionRefreshBody,
   SessionRevokeBody,
   SessionTokenSet,
 } from "@rahhal/contracts";
 import type {
+  ChallengeApprovalId,
   ChallengeId,
   EntityId,
   Membership,
@@ -32,7 +35,7 @@ export type Clock = {
 };
 
 export type IdFactory = {
-  next(prefix: "ses" | "chl" | "chv" | "rcp" | "aud" | "cor" | "evt" | "oat"): string;
+  next(prefix: "ses" | "chl" | "chv" | "cap" | "rcp" | "aud" | "cor" | "evt" | "oat"): string;
 };
 
 export type AuthenticatedSession = {
@@ -115,6 +118,20 @@ export type WorkspaceAccess = {
 export interface WorkspacePort {
   getMe(session: AuthenticatedSession): Promise<MeResource | null>;
   findActive(userId: UserId, workspaceId: string): Promise<WorkspaceAccess | null>;
+  /**
+   * Platform roles (platform:ops/finance/legal) hold no membership in an
+   * org's workspace, so `findActive` can never grant them access to it. This
+   * resolves their standing platform authority instead, scoped to a specific
+   * target workspace they don't belong to — used only for the narrow set of
+   * cross-tenant platform actions (recording a quality/finance/legal
+   * publication gate) that the security model explicitly grants to platform
+   * roles regardless of org membership.
+   */
+  findActivePlatformRole(
+    userId: UserId,
+    roles: readonly WorkspaceRole[],
+    targetWorkspaceId: string,
+  ): Promise<WorkspaceAccess | null>;
   switchContext(
     session: AuthenticatedSession,
     targetWorkspaceId: string,
@@ -175,6 +192,11 @@ export interface ChallengePort {
     body: ChallengeTransitionBody,
     context: ChallengeCommandContext,
   ): Promise<MutationOutcome<ChallengeId, ChallengeNextAction>>;
+  recordApproval(
+    id: string,
+    body: RecordChallengeApprovalBody,
+    context: ChallengeCommandContext,
+  ): Promise<MutationOutcome<ChallengeApprovalId, ChallengeApprovalNextAction>>;
 }
 
 export type AccessDecisionRecord = {

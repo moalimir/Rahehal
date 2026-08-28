@@ -43,7 +43,7 @@ request = {
 **Evaluation order (fail closed at each step):**
 
 1. **Authn** — valid, unexpired token → else `NO_ACCESS`.
-2. **Reach** — the subject reaches the record via _(a)_ the same active tenant, _(b)_ an active `access_grant` linking their active workspace to the record's collaboration (cross-tenant open-innovation sharing — [42 §3](42_FOUNDATION_HARDENING.md)), or _(c)_ a public projection → else `NOT_FOUND` (non-enumerating). Pure `tenant_id ==` isolation would deny the core org↔solver flow.
+2. **Reach** — the subject reaches the record via _(a)_ the same active tenant, _(b)_ an active `access_grant` linking their active workspace to the record's collaboration (cross-tenant open-innovation sharing — [42 §3](42_FOUNDATION_HARDENING.md)), _(c)_ a public projection, or _(d)_ standing platform-role authority over one fixed, named action (not general reach — [25 ADR-0015](25_DECISIONS.md), first instance: B2 publication-gate recording) → else `NOT_FOUND` (non-enumerating). Pure `tenant_id ==` isolation would deny the core org↔solver flow.
 3. **Membership** — an _active_ membership exists → else `NO_ACCESS`.
 4. **Role capability** — some held role grants `action` → else `NO_ACCESS`.
 5. **State** — `action` is legal from `target.state` (state machine) → else `INVALID_STATE`.

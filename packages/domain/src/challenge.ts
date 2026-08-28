@@ -393,3 +393,68 @@ export function isAggregateVersion(value: unknown): value is number {
 export function isMoneyAmountMinor(value: unknown): value is number {
   return Number.isSafeInteger(value) && (value as number) >= 0;
 }
+
+/**
+ * The four independent publication gates (canonical model §8.2): technical,
+ * legal, and finance are each attributed to a distinct actor, plus the ops
+ * quality gate. There is no "business" gate — see 20_CANONICAL_MODEL.md and
+ * 70_SECURITY_AND_AUTHZ.md §6, and the approvals→published preconditions
+ * ("technical-approved", "legal-approved", "finance-approved",
+ * "quality-passed") already defined on challengeTransitions above.
+ */
+export const publicationGates = ["technical", "legal", "finance", "quality"] as const;
+export type PublicationGate = (typeof publicationGates)[number];
+
+export const approvalDecisions = ["approved", "rejected"] as const;
+export type ApprovalDecision = (typeof approvalDecisions)[number];
+
+export function isPublicationGate(value: unknown): value is PublicationGate {
+  return publicationGates.includes(value as PublicationGate);
+}
+
+/**
+ * Who may record each gate. `technical` is org-only — there is no platform
+ * equivalent, since only the organization has the domain knowledge to vet
+ * technical feasibility. `legal`/`finance` accept either the org's own
+ * designated approver or the platform's compliance staff. `quality` is
+ * platform-only: an org cannot self-certify the one independent check that
+ * exists specifically to not be self-certified.
+ */
+export const gateApproverRoles: Record<PublicationGate, readonly WorkspaceRole[]> = {
+  technical: ["org:approver_technical"],
+  legal: ["org:approver_legal", "platform:legal"],
+  finance: ["org:approver_finance", "platform:finance"],
+  quality: ["platform:ops"],
+};
+
+export function isGateApproverRole(gate: PublicationGate, role: WorkspaceRole): boolean {
+  return gateApproverRoles[gate].includes(role);
+}
+
+export type ChallengeApprovalRecord = {
+  readonly gate: PublicationGate;
+  readonly decision: ApprovalDecision;
+};
+
+export type PublicationReadiness = {
+  readonly ready: boolean;
+  readonly satisfied: readonly PublicationGate[];
+  readonly missing: readonly PublicationGate[];
+};
+
+/**
+ * Publication requires all four gates recorded with an "approved" decision
+ * (canonical model invariant #2). A recorded "rejected" decision still
+ * occupies that gate's one row per version — the version cannot be
+ * re-approved; a reasoned decision must send the challenge back through
+ * formulation as a new version instead (out of B2's scope).
+ */
+export function evaluatePublicationReadiness(
+  approvals: readonly ChallengeApprovalRecord[],
+): PublicationReadiness {
+  const satisfied = publicationGates.filter((gate) =>
+    approvals.some((approval) => approval.gate === gate && approval.decision === "approved"),
+  );
+  const missing = publicationGates.filter((gate) => !satisfied.includes(gate));
+  return { ready: missing.length === 0, satisfied, missing };
+}

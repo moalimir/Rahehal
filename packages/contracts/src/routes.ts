@@ -11,6 +11,7 @@ export const apiRoutes = {
   requestChallengeTriage: "/api/v1/challenges/{challengeId}:request-triage",
   advanceChallengeFormulation: "/api/v1/challenges/{challengeId}:advance-formulation",
   requestChallengeApprovals: "/api/v1/challenges/{challengeId}:request-approvals",
+  recordChallengeApproval: "/api/v1/challenges/{challengeId}/approvals:record",
 } as const;
 
 /**

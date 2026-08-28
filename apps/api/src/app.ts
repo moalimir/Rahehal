@@ -17,6 +17,7 @@ import {
   type OidcAuthorizationStartBody,
   type OidcAuthorizationStartSuccessEnvelope,
   type PatchChallengeBody,
+  type RecordChallengeApprovalBody,
   type SessionExchangeBody,
   type SessionRefreshBody,
   type SessionRevokeBody,
@@ -25,6 +26,7 @@ import {
   type SwitchWorkspaceContextBody,
   type VersionedApiMeta,
 } from "@rahhal/contracts";
+import { gateApproverRoles, isGateApproverRole, isPlatformRole } from "@rahhal/domain";
 import {
   authorizationFlowCookie,
   browserCookieNames,
@@ -339,6 +341,115 @@ function registerChallengeTransition(
           );
           return mutationSuccess(outcome, request, ports);
         },
+      );
+    },
+  );
+}
+
+/**
+ * Records one publication gate. Unlike every other challenge route, the
+ * eligible actor is not always a member of the challenge's own workspace:
+ * platform:legal/finance/ops hold standing authority over specific gates
+ * (gateApproverRoles) but no membership in the org's workspace, so their
+ * session is never "active" there. `session.activeWorkspaceId` tells us
+ * upfront which case this is -- no try-the-org-path-then-catch fallback,
+ * since a caught 404 from runAuthorizedWorkspace can't be told apart from
+ * "challenge not found in this (correct) workspace".
+ */
+function registerRecordChallengeApproval(app: FastifyInstance, ports: ApiPorts): void {
+  const action = "challenge:record-approval";
+
+  app.post<{ Params: ChallengeIdParams; Body: RecordChallengeApprovalBody }>(
+    fastifyChallengeCommandPath(apiRoutes.recordChallengeApproval),
+    {
+      schema: {
+        params: challengeIdParamsSchema,
+        body: apiSchemas.RecordChallengeApprovalBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request): Promise<MutationSuccessEnvelope> => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const workspaceId = requiredHeader(request, "X-Workspace-Id");
+      const gate = request.body.gate;
+
+      const recordOnAccess = async (access: WorkspaceAccess) => {
+        const visible = await ports.challenges.getScoped(
+          challengeScope(session, access),
+          request.params.challengeId,
+        );
+        if (!visible) {
+          await ports.decisionAudit.record({
+            outcome: "denied",
+            actorUserId: session.userId,
+            tenantId: access.tenantId,
+            workspaceId: access.workspaceId,
+            action,
+            entityType: "challenge",
+            entityId: request.params.challengeId,
+            reason: "record_unreachable",
+            correlationId: correlationId(request),
+            occurredAt: ports.clock.now().toISOString(),
+          });
+          throw notFound();
+        }
+        await recordWorkspaceAccessSuccess(request, ports, session, access, {
+          action,
+          entityType: "challenge",
+          entityId: request.params.challengeId,
+        });
+        const outcome = await ports.challenges.recordApproval(
+          request.params.challengeId,
+          request.body,
+          { ...challengeScope(session, access), ...idempotencyCommand(request) },
+        );
+        return mutationSuccess(outcome, request, ports);
+      };
+
+      if (session.activeWorkspaceId !== workspaceId) {
+        const platformRoles = gateApproverRoles[gate].filter(isPlatformRole);
+        const access =
+          platformRoles.length > 0
+            ? await ports.workspaces.findActivePlatformRole(
+                session.userId,
+                platformRoles,
+                workspaceId,
+              )
+            : null;
+        if (!access) {
+          await ports.decisionAudit.record({
+            outcome: "denied",
+            actorUserId: session.userId,
+            workspaceId,
+            action,
+            entityType: "challenge",
+            entityId: request.params.challengeId,
+            reason: "workspace_unreachable",
+            correlationId: correlationId(request),
+            occurredAt: ports.clock.now().toISOString(),
+          });
+          throw notFound();
+        }
+        return recordOnAccess(access);
+      }
+
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action,
+          entityType: "challenge",
+          entityId: request.params.challengeId,
+          allows: (access) => isGateApproverRole(gate, access.role),
+          deferSuccess: true,
+        },
+        recordOnAccess,
       );
     },
   );
@@ -845,6 +956,7 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
     "request-approvals",
     "challenge:request-approvals",
   );
+  registerRecordChallengeApproval(app, ports);
 
   return app;
 }
