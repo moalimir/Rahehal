@@ -40,6 +40,7 @@ import {
   challengeReadiness,
   emptyChallengeContent,
   mergeChallengeDraftPatch,
+  satisfiedTransitionPreconditions,
 } from "../challenge-draft.js";
 import { ApiProblem, forbidden, idempotencyConflict, notFound, staleVersion } from "../errors.js";
 import { commandFingerprint } from "../primitives.js";
@@ -913,9 +914,13 @@ export class PostgresChallengeAdapter implements ChallengePort {
         });
       }
       if (
-        !canTransition(challengeTransitions, current.stage, definition.to, context.role, [
-          definition.precondition,
-        ])
+        !canTransition(
+          challengeTransitions,
+          current.stage,
+          definition.to,
+          context.role,
+          satisfiedTransitionPreconditions(current.stage, readiness),
+        )
       ) {
         throw new ApiProblem(409, "INVALID_STATE", "Challenge transition is not allowed", {
           currentState: current.stage,
@@ -927,7 +932,7 @@ export class PostgresChallengeAdapter implements ChallengePort {
 
       const occurredAt = this.clock.now().toISOString();
       if (definition.lockReason) {
-        await client.query(
+        const versionLock = await client.query(
           `
             UPDATE challenge_version
             SET locked_at = $3, lock_reason = $4
@@ -935,6 +940,21 @@ export class PostgresChallengeAdapter implements ChallengePort {
           `,
           [current.current_version_id, current.id, occurredAt, definition.lockReason],
         );
+        // Zero rows is legitimate: the guard is `locked_at IS NULL`, and a
+        // version submitted for triage and then for approvals with no content
+        // edit in between is already locked (the append-only trigger permits
+        // only the unlocked -> locked mutation, so it keeps its first
+        // lock_reason). What must never happen is the version ending this
+        // transition unlocked, or missing entirely.
+        if (versionLock.rowCount !== 1) {
+          const existing = await client.query<{ locked_at: Date | null }>(
+            "SELECT locked_at FROM challenge_version WHERE id = $1 AND challenge_id = $2",
+            [current.current_version_id, current.id],
+          );
+          if (!existing.rows[0] || existing.rows[0].locked_at === null) {
+            throw new Error("Challenge version was not locked by its submitting transition");
+          }
+        }
       }
 
       const version = current.version + 1;

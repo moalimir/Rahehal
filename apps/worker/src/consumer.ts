@@ -1,4 +1,5 @@
 import { isOutboxEvent, type OutboxEvent } from "@rahhal/contracts";
+import { challengeOutboxEventTypes } from "@rahhal/domain";
 import type {
   DeliveryLedger,
   OutboxClaim,
@@ -8,9 +9,10 @@ import type {
   WorkerClock,
 } from "./ports.js";
 
+// Challenge event types come from the domain so a new lifecycle or approval
+// event cannot be emitted by the API without the worker routing it.
 export const supportedOutboxEventTypes = [
-  "challenge.draft.created",
-  "challenge.draft.updated",
+  ...challengeOutboxEventTypes,
   "session.exchanged",
   "session.refreshed",
   "session.revoked",

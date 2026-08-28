@@ -949,14 +949,20 @@ export class PostgresIdentityWorkspaceAdapter
     );
   }
 
-  async findActivePlatformRole(
+  /**
+   * Resolution primitive only — private, and takes the caller's `client` so
+   * platform authority can never be resolved outside the unit of work that
+   * performs the write. Resolving it in its own transaction would release the
+   * `FOR SHARE` locks before the mutation ran, reopening the revocation race.
+   */
+  private async activePlatformAccess(
+    client: PoolClient,
     userId: UserId,
     roles: readonly WorkspaceRole[],
     targetWorkspaceId: string,
   ): Promise<WorkspaceAccess | null> {
     if (roles.length === 0) return null;
-    return this.unitOfWork.run(async () => {
-      const client = this.unitOfWork.currentClient();
+    {
       const platformResult = await client.query<AccessRow>(
         `
           SELECT
@@ -1028,7 +1034,7 @@ export class PostgresIdentityWorkspaceAdapter
         workspace: target,
         membership,
       };
-    });
+    }
   }
 
   async switchContext(
@@ -1196,6 +1202,98 @@ export class PostgresIdentityWorkspaceAdapter
         entityType: authorization.entityType,
         entityId: authorization.entityId,
         reason: error.kind,
+        correlationId: authorization.correlationId,
+        occurredAt: this.clock.now().toISOString(),
+      });
+      if (error.kind === "session_not_current" || error.kind === "role_capability_denied") {
+        throw forbidden();
+      }
+      throw notFound();
+    }
+  }
+
+  async runAuthorizedPlatformRole<Result>(
+    session: AuthenticatedSession,
+    roles: readonly WorkspaceRole[],
+    targetWorkspaceId: string,
+    authorization: WorkspaceAuthorization,
+    operation: (access: WorkspaceAccess) => Result | Promise<Result>,
+  ): Promise<Result> {
+    let authorizedAccess: WorkspaceAccess | undefined;
+    try {
+      return await this.unitOfWork.run(async () => {
+        const client = this.unitOfWork.currentClient();
+        // Revalidated inside the transaction, not from the request-time
+        // snapshot: a session revoked after authentication must deny here.
+        const current = await this.sessionByAccess(client, session, "share");
+        if (
+          !this.sessionIsUsable(current, this.clock.now()) ||
+          aggregateVersion(current.session_version) !== session.version
+        ) {
+          throw new TransactionDenial("session_not_current");
+        }
+        // Deliberately no active_workspace_id check: the whole point is that
+        // the actor's active context is their platform workspace, never the
+        // org workspace they are acting on.
+        const access = await this.activePlatformAccess(
+          client,
+          session.userId,
+          roles,
+          targetWorkspaceId,
+        );
+        if (!access) throw new TransactionDenial("workspace_unreachable");
+        if (authorization.allows && !authorization.allows(access)) {
+          throw new TransactionDenial("role_capability_denied", access);
+        }
+        authorizedAccess = access;
+        if (!authorization.deferSuccess) {
+          await this.decisionAudit.record({
+            outcome: "success",
+            actorUserId: session.userId,
+            tenantId: access.tenantId,
+            workspaceId: access.workspaceId,
+            action: authorization.action,
+            entityType: authorization.entityType,
+            entityId: authorization.entityId,
+            correlationId: authorization.correlationId,
+            occurredAt: this.clock.now().toISOString(),
+          });
+        }
+        return operation(access);
+      });
+    } catch (error) {
+      if (!(error instanceof TransactionDenial)) {
+        if (
+          authorization.deferSuccess &&
+          authorizedAccess &&
+          error instanceof ApiProblem &&
+          error.statusCode === 404
+        ) {
+          await this.decisionAudit.record({
+            outcome: "denied",
+            actorUserId: session.userId,
+            tenantId: authorizedAccess.tenantId,
+            workspaceId: authorizedAccess.workspaceId,
+            action: authorization.action,
+            entityType: authorization.entityType,
+            entityId: authorization.entityId,
+            reason: "record_unreachable",
+            correlationId: authorization.correlationId,
+            occurredAt: this.clock.now().toISOString(),
+          });
+        }
+        throw error;
+      }
+      await this.decisionAudit.record({
+        outcome: "denied",
+        actorUserId: session.userId,
+        tenantId: error.access?.tenantId,
+        workspaceId: error.access?.workspaceId ?? targetWorkspaceId,
+        action: authorization.action,
+        entityType: authorization.entityType,
+        entityId: authorization.entityId,
+        reason:
+          error.kind === "workspace_unreachable" ? "platform_authority_unreachable" : error.kind,
         correlationId: authorization.correlationId,
         occurredAt: this.clock.now().toISOString(),
       });

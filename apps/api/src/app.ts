@@ -412,30 +412,20 @@ function registerRecordChallengeApproval(app: FastifyInstance, ports: ApiPorts):
       };
 
       if (session.activeWorkspaceId !== workspaceId) {
-        const platformRoles = gateApproverRoles[gate].filter(isPlatformRole);
-        const access =
-          platformRoles.length > 0
-            ? await ports.workspaces.findActivePlatformRole(
-                session.userId,
-                platformRoles,
-                workspaceId,
-              )
-            : null;
-        if (!access) {
-          await ports.decisionAudit.record({
-            outcome: "denied",
-            actorUserId: session.userId,
-            workspaceId,
+        return ports.authority.runAuthorizedPlatformRole(
+          session,
+          gateApproverRoles[gate].filter(isPlatformRole),
+          workspaceId,
+          {
             action,
+            correlationId: correlationId(request),
             entityType: "challenge",
             entityId: request.params.challengeId,
-            reason: "workspace_unreachable",
-            correlationId: correlationId(request),
-            occurredAt: ports.clock.now().toISOString(),
-          });
-          throw notFound();
-        }
-        return recordOnAccess(access);
+            allows: (access) => isGateApproverRole(gate, access.role),
+            deferSuccess: true,
+          },
+          recordOnAccess,
+        );
       }
 
       return runAuthorizedWorkspace(

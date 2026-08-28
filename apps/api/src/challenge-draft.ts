@@ -148,3 +148,27 @@ export function mergeChallengeDraftPatch(
     ...(authoringStatus === undefined ? {} : { authoringStatus }),
   };
 }
+
+/**
+ * The transition preconditions the server can actually attest to right now.
+ *
+ * `canTransition` fails closed on any precondition it is not handed, so this
+ * must never simply echo back the precondition of the transition being
+ * attempted — doing so makes the check a tautology that silently auto-satisfies
+ * any precondition added to `challengeTransitions` later.
+ *
+ * `brief-valid`/`formulation-complete` are attested by the shared readiness
+ * contract. `triage-passed` has no authoritative record yet (no triage-outcome
+ * entity is modelled before a later milestone), so reaching the `triage` stage
+ * is the only signal that exists for it; that is stated here rather than hidden
+ * behind a precondition that appears to be enforced.
+ */
+export function satisfiedTransitionPreconditions(
+  stage: string,
+  readiness: ApiReadiness,
+): readonly string[] {
+  return [
+    ...(readiness.ready ? ["brief-valid", "formulation-complete"] : []),
+    ...(stage === "triage" ? ["triage-passed"] : []),
+  ];
+}

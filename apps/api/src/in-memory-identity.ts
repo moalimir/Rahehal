@@ -409,6 +409,78 @@ export class InMemoryIdentityAdapter
     });
   }
 
+  async runAuthorizedPlatformRole<Result>(
+    session: AuthenticatedSession,
+    roles: readonly WorkspaceRole[],
+    targetWorkspaceId: string,
+    authorization: WorkspaceAuthorization,
+    operation: (access: WorkspaceAccess) => Result | Promise<Result>,
+  ): Promise<Result> {
+    return this.criticalSection.run(async () => {
+      // Revalidated inside the critical section, not from the request-time
+      // snapshot: a session revoked after authentication must deny here.
+      const current = this.currentSession(session);
+      if (!current) {
+        await this.decisionAudit.record({
+          outcome: "denied",
+          actorUserId: session.userId,
+          workspaceId: targetWorkspaceId,
+          action: authorization.action,
+          entityType: authorization.entityType,
+          entityId: authorization.entityId,
+          reason: "session_not_current",
+          correlationId: authorization.correlationId,
+          occurredAt: this.clock.now().toISOString(),
+        });
+        throw forbidden();
+      }
+      const access = this.findActivePlatformRoleCurrent(session.userId, roles, targetWorkspaceId);
+      if (!access) {
+        await this.decisionAudit.record({
+          outcome: "denied",
+          actorUserId: session.userId,
+          workspaceId: targetWorkspaceId,
+          action: authorization.action,
+          entityType: authorization.entityType,
+          entityId: authorization.entityId,
+          reason: "platform_authority_unreachable",
+          correlationId: authorization.correlationId,
+          occurredAt: this.clock.now().toISOString(),
+        });
+        throw notFound();
+      }
+      if (authorization.allows && !authorization.allows(access)) {
+        await this.decisionAudit.record({
+          outcome: "denied",
+          actorUserId: session.userId,
+          tenantId: access.tenantId,
+          workspaceId: access.workspaceId,
+          action: authorization.action,
+          entityType: authorization.entityType,
+          entityId: authorization.entityId,
+          reason: "role_capability_denied",
+          correlationId: authorization.correlationId,
+          occurredAt: this.clock.now().toISOString(),
+        });
+        throw forbidden();
+      }
+      if (!authorization.deferSuccess) {
+        await this.decisionAudit.record({
+          outcome: "success",
+          actorUserId: session.userId,
+          tenantId: access.tenantId,
+          workspaceId: access.workspaceId,
+          action: authorization.action,
+          entityType: authorization.entityType,
+          entityId: authorization.entityId,
+          correlationId: authorization.correlationId,
+          occurredAt: this.clock.now().toISOString(),
+        });
+      }
+      return operation(access);
+    });
+  }
+
   async authenticate(accessToken: string): Promise<AuthenticatedSession | null> {
     const sessionId = this.state.accessIndex.get(accessToken);
     const session = sessionId ? this.state.sessions.get(sessionId) : undefined;
@@ -590,11 +662,16 @@ export class InMemoryIdentityAdapter
     return this.findActiveCurrent(userId, workspaceId);
   }
 
-  async findActivePlatformRole(
+  /**
+   * Resolution primitive only — private so platform authority can never be
+   * resolved outside `runAuthorizedPlatformRole`'s critical section, which is
+   * what keeps revocation/suspension races closed.
+   */
+  private findActivePlatformRoleCurrent(
     userId: UserId,
     roles: readonly WorkspaceRole[],
     targetWorkspaceId: string,
-  ): Promise<WorkspaceAccess | null> {
+  ): WorkspaceAccess | null {
     if (!isWorkspaceId(targetWorkspaceId)) return null;
     const platformSeed = this.seeds.find(
       (candidate) =>

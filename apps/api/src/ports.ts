@@ -118,20 +118,6 @@ export type WorkspaceAccess = {
 export interface WorkspacePort {
   getMe(session: AuthenticatedSession): Promise<MeResource | null>;
   findActive(userId: UserId, workspaceId: string): Promise<WorkspaceAccess | null>;
-  /**
-   * Platform roles (platform:ops/finance/legal) hold no membership in an
-   * org's workspace, so `findActive` can never grant them access to it. This
-   * resolves their standing platform authority instead, scoped to a specific
-   * target workspace they don't belong to — used only for the narrow set of
-   * cross-tenant platform actions (recording a quality/finance/legal
-   * publication gate) that the security model explicitly grants to platform
-   * roles regardless of org membership.
-   */
-  findActivePlatformRole(
-    userId: UserId,
-    roles: readonly WorkspaceRole[],
-    targetWorkspaceId: string,
-  ): Promise<WorkspaceAccess | null>;
   switchContext(
     session: AuthenticatedSession,
     targetWorkspaceId: string,
@@ -153,6 +139,27 @@ export interface WorkspaceAuthorityUnitOfWorkPort {
   runAuthorizedWorkspace<Result>(
     session: AuthenticatedSession,
     workspaceId: string,
+    authorization: WorkspaceAuthorization,
+    operation: (access: WorkspaceAccess) => Result | Promise<Result>,
+  ): Promise<Result>;
+  /**
+   * The cross-tenant sibling of `runAuthorizedWorkspace` (ADR-0015). Platform
+   * roles (platform:ops/finance/legal) hold no membership in an org's
+   * workspace, so `runAuthorizedWorkspace` can never authorize them there;
+   * this resolves their standing platform authority against a target
+   * workspace they do not belong to.
+   *
+   * It deliberately mirrors `runAuthorizedWorkspace`'s guarantees rather than
+   * exposing a bare lookup: the session and the platform membership are both
+   * revalidated *inside* the same unit of work that runs `operation`, so a
+   * session revoked or a membership suspended mid-flight denies the write
+   * instead of racing past it. Resolving platform access outside the unit of
+   * work would reintroduce exactly that race.
+   */
+  runAuthorizedPlatformRole<Result>(
+    session: AuthenticatedSession,
+    roles: readonly WorkspaceRole[],
+    targetWorkspaceId: string,
     authorization: WorkspaceAuthorization,
     operation: (access: WorkspaceAccess) => Result | Promise<Result>,
   ): Promise<Result>;

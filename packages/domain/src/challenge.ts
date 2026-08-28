@@ -395,6 +395,26 @@ export function isMoneyAmountMinor(value: unknown): value is number {
 }
 
 /**
+ * Every outbox event type the challenge slice emits today. The worker derives
+ * its supported set from this list rather than maintaining its own copy: an
+ * event emitted by a challenge adapter but missing here is dead-lettered as
+ * `UNSUPPORTED_EVENT_TYPE` instead of routed, which is silent data loss. The
+ * API test suite asserts a full lifecycle emits nothing outside this set.
+ *
+ * Transition audit names are the `audit` field on `challengeTransitions`;
+ * only the stages the API can actually reach today are listed.
+ */
+export const challengeOutboxEventTypes = [
+  "challenge.draft.created",
+  "challenge.draft.updated",
+  "challenge.triage.requested",
+  "challenge.formulation.started",
+  "challenge.approvals.requested",
+  "challenge.approval.recorded",
+] as const;
+export type ChallengeOutboxEventType = (typeof challengeOutboxEventTypes)[number];
+
+/**
  * The four independent publication gates (canonical model §8.2): technical,
  * legal, and finance are each attributed to a distinct actor, plus the ops
  * quality gate. There is no "business" gate — see 20_CANONICAL_MODEL.md and

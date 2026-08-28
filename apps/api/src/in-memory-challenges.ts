@@ -34,6 +34,7 @@ import {
   challengeReadiness,
   emptyChallengeContent,
   mergeChallengeDraftPatch,
+  satisfiedTransitionPreconditions,
 } from "./challenge-draft.js";
 import { ApiProblem, forbidden, idempotencyConflict, notFound, staleVersion } from "./errors.js";
 import { commandFingerprint } from "./primitives.js";
@@ -480,9 +481,13 @@ export class InMemoryChallengeRepository implements ChallengePort {
         });
       }
       if (
-        !canTransition(challengeTransitions, stored.current.stage, definition.to, context.role, [
-          definition.precondition,
-        ])
+        !canTransition(
+          challengeTransitions,
+          stored.current.stage,
+          definition.to,
+          context.role,
+          satisfiedTransitionPreconditions(stored.current.stage, readiness),
+        )
       ) {
         throw new ApiProblem(409, "INVALID_STATE", "Challenge transition is not allowed", {
           currentState: stored.current.stage,

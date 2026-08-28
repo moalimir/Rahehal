@@ -8,6 +8,7 @@ import {
   type MeResource,
 } from "@rahhal/contracts";
 import {
+  challengeOutboxEventTypes,
   idPrefixes,
   parseChallengeId,
   parseTenantId,
@@ -866,6 +867,15 @@ describe("authoritative Fastify API foundation", () => {
     expect(
       snapshot.outboxEvents.filter((event) => event.event_type === "challenge.approval.recorded"),
     ).toHaveLength(4);
+
+    // The worker dead-letters any event type outside its supported set, so an
+    // event the challenge slice emits but the domain list omits is silent data
+    // loss rather than a visible failure.
+    const emitted = [...new Set(snapshot.outboxEvents.map((event) => event.event_type))].sort();
+    expect(emitted.length).toBeGreaterThan(0);
+    expect(
+      emitted.filter((type) => !(challengeOutboxEventTypes as readonly string[]).includes(type)),
+    ).toEqual([]);
   });
 
   it("denies gate recording for an ineligible role and for an unreachable cross-tenant target", async () => {
@@ -901,6 +911,44 @@ describe("authoritative Fastify API foundation", () => {
     });
     expect(platformOpsAttempt.statusCode).toBe(404);
     expect(platformOpsAttempt.json<ErrorEnvelope>().error.code).toBe("NOT_FOUND");
+  });
+
+  it("revalidates session revocation inside the cross-tenant platform gate unit of work", async () => {
+    const challengeId = await createChallengeAtApprovalsStage("b2-revoke");
+    const before = composition.challenges.snapshot();
+    const paused = pauseAfterSuccessfulAuthentication(composition);
+    await app.close();
+    app = paused.app;
+
+    const request = app.inject({
+      method: "POST",
+      url: apiRoutes.recordChallengeApproval.replace("{challengeId}", challengeId),
+      headers: gateHeaders(demoApiCredentials.platformOps, "b2-revoke-quality"),
+      payload: {
+        expected_version: 4,
+        gate: "quality",
+        decision: "approved",
+        reason: "بررسی کیفیت پس از ابطال نشست.",
+      },
+    });
+    await paused.authenticated;
+    await composition.identity.revoke(
+      demoApiCredentials.platformOps.accessToken,
+      buildSessionRevokeBody({
+        expected_version: 1,
+        session_id: demoApiCredentials.platformOps.sessionId,
+      }),
+      {
+        idempotencyKey: "b2-revoke-platform-session",
+        correlationId: deterministicId(idPrefixes.correlation, 70),
+      },
+    );
+    paused.release();
+    const response = await request;
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json<ErrorEnvelope>().error.code).toBe("NO_ACCESS");
+    expect(composition.challenges.snapshot()).toEqual(before);
   });
 
   it("replays a challenge command with the same receipt and one aggregate effect", async () => {

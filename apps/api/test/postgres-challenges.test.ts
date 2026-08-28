@@ -20,6 +20,7 @@ import { buildApi } from "../src/app.js";
 import { MonotonicIdFactory } from "../src/primitives.js";
 import { createRuntimeApiComposition } from "../src/runtime-composition.js";
 import { PostgresChallengeAdapter } from "../src/postgres/challenges.js";
+import { credentialDigest } from "../src/postgres/identity-workspace.js";
 import { runMigrations } from "../src/postgres/migrations.js";
 import { seedSyntheticData } from "../src/postgres/seeds.js";
 import { PostgresUnitOfWork } from "../src/postgres/unit-of-work.js";
@@ -812,6 +813,126 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
     });
     await thirdApi.close();
     await thirdComposition.close();
+  });
+
+  it("authorizes a cross-tenant platform gate through the unit of work and denies a revoked session", async () => {
+    const platformToken = "local-b2-access-platform-ops";
+    await database.query(
+      `
+        INSERT INTO app_session (
+          id, user_id, origin_tenant_id, token_family_id, access_token_digest,
+          refresh_token_digest, session_version, active_tenant_id, active_workspace_id,
+          issued_at, access_expires_at, refresh_expires_at, last_used_at
+        ) VALUES (
+          'ses_platform_ops_b2', 'usr_platform_ops', 'ten_platform', 'family_platform_ops_b2',
+          $1, $2, 1, 'ten_platform', 'wsp_platform_main',
+          '2026-01-01T00:00:00Z', '2029-01-01T00:00:00Z', '2030-01-01T00:00:00Z',
+          '2026-01-01T00:00:00Z'
+        )
+      `,
+      [credentialDigest(platformToken), credentialDigest(`${platformToken}-refresh`)],
+    );
+
+    const composition = await createRuntimeApiComposition(postgresRuntimeEnvironment());
+    const api = buildApi(composition.ports);
+    try {
+      // Drive the org-side lifecycle to `approvals` with the seeded org owner.
+      const created = await api.inject({
+        method: "POST",
+        url: "/api/v1/challenges",
+        headers: apiHeaders("b2-authz-create"),
+        payload: { expected_version: 0, draft: buildChallengeContentResource() },
+      });
+      expect(created.statusCode).toBe(201);
+      const challengeId = created.json<MutationSuccessEnvelope>().data.entity_id;
+      for (const [route, version, key] of [
+        [":request-triage", 1, "b2-authz-triage"],
+        [":advance-formulation", 2, "b2-authz-formulation"],
+        [":request-approvals", 3, "b2-authz-approvals"],
+      ] as const) {
+        const step = await api.inject({
+          method: "POST",
+          url: `/api/v1/challenges/${challengeId}${route}`,
+          headers: apiHeaders(key),
+          payload: { expected_version: version },
+        });
+        expect(step.statusCode).toBe(200);
+      }
+
+      const gateUrl = `/api/v1/challenges/${challengeId}/approvals:record`;
+      const platformHeaders = (idempotencyKey: string) => ({
+        authorization: `Bearer ${platformToken}`,
+        // The platform actor's own session stays active in wsp_platform_main;
+        // the target org workspace is reached only via platform authority.
+        "x-workspace-id": ownerWorkspaceId,
+        "idempotency-key": idempotencyKey,
+      });
+
+      const quality = await api.inject({
+        method: "POST",
+        url: gateUrl,
+        headers: platformHeaders("b2-authz-quality"),
+        payload: {
+          expected_version: 4,
+          gate: "quality",
+          decision: "approved",
+          reason: "Independent platform quality review passed.",
+        },
+      });
+      expect(quality.statusCode).toBe(200);
+      const recorded = await database.query<{ role: string; user_id: string }>(
+        `
+          SELECT recorded_by_role AS role, recorded_by_user_id AS user_id
+          FROM challenge_approval
+          WHERE challenge_id = $1 AND gate = 'quality'
+        `,
+        [challengeId],
+      );
+      expect(recorded.rows[0]).toEqual({ role: "platform:ops", user_id: "usr_platform_ops" });
+
+      // platform:ops holds no standing authority over the technical gate, so
+      // the cross-tenant reach fails and must not enumerate the challenge.
+      const technical = await api.inject({
+        method: "POST",
+        url: gateUrl,
+        headers: platformHeaders("b2-authz-technical"),
+        payload: {
+          expected_version: 4,
+          gate: "technical",
+          decision: "approved",
+          reason: "Not this actor's gate.",
+        },
+      });
+      expect(technical.statusCode).toBe(404);
+
+      await database.query(
+        `
+          UPDATE app_session
+          SET revoked_at = clock_timestamp(), revocation_reason = 'b2_authority_test'
+          WHERE id = 'ses_platform_ops_b2'
+        `,
+      );
+      const afterRevocation = await api.inject({
+        method: "POST",
+        url: gateUrl,
+        headers: platformHeaders("b2-authz-after-revoke"),
+        payload: {
+          expected_version: 4,
+          gate: "legal",
+          decision: "approved",
+          reason: "Revoked session must not record a gate.",
+        },
+      });
+      expect(afterRevocation.statusCode).toBe(403);
+      const total = await database.query<{ count: string }>(
+        "SELECT count(*) AS count FROM challenge_approval WHERE challenge_id = $1",
+        [challengeId],
+      );
+      expect(total.rows[0]?.count).toBe("1");
+    } finally {
+      await api.close();
+      await composition.close();
+    }
   });
 
   it("requires explicit runtime mode and never falls back to demo authority", async () => {
