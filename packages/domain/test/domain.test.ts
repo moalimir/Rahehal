@@ -9,6 +9,7 @@ import {
   canTransition,
   challengeStages,
   challengeTransitions,
+  evaluateChallengeReadiness,
   isAggregateVersion,
   isApplicantType,
   isChallengeId,
@@ -20,8 +21,46 @@ import {
   parseChallengeId,
   teamKinds,
   type ChallengeId,
+  type ChallengeDraftContent,
   type TeamKind,
 } from "../src/index.js";
+
+function readyChallengeContent(): ChallengeDraftContent {
+  return {
+    title: "کاهش اتلاف انرژی",
+    summary: "شرح روشن و قابل سنجش از مسئله عملیاتی",
+    category: "انرژی",
+    location: "کارخانه یک",
+    desiredOutcome: "کاهش سنجش‌پذیر مصرف انرژی خط تولید",
+    currentState: "مصرف فعلی خط تولید بالاتر از خط مبنای مصوب است.",
+    consequence: "هزینه تولید افزایش یافته است.",
+    expectedOutput: "راهکار پایلوت‌شده و قابل اندازه‌گیری",
+    successCriteria: [
+      { id: "criterion-1", title: "کاهش مصرف", target: "۲۰ درصد", method: "مقایسه با خط مبنا" },
+    ],
+    inScope: "خط تولید شماره یک کارخانه",
+    constraints: "داده واقعی خارج نمی‌شود.",
+    organizationSupport: "تیم انرژی در دسترس است.",
+    previousAttempts: "پایلوتی اجرا نشده است.",
+    outputType: "pilot",
+    sourcingModel: "public",
+    applicantScope: "both",
+    allowedApplicantTypes: ["individual", "company"],
+    workMode: "hybrid",
+    proposalDeadline: "2026-09-30T20:29:59.000Z",
+    preferredStartDate: null,
+    budget: { status: "fixed", amountMinor: 100_000_000, currency: "IRR" },
+    invitees: [],
+    visibility: "registered",
+    publicSummary: "خلاصه عمومی ایمن برای معرفی مسئله اتلاف انرژی خط تولید.",
+    ndaRequired: false,
+    ipTerms: "solver_license",
+    contact: { name: "سارا نادری", email: "sara@example.test", phone: "+989121234567" },
+    accuracyConfirmed: true,
+    legalNotes: "",
+    attachmentIds: [],
+  };
+}
 
 describe("canonical domain primitives", () => {
   it("keeps the canonical applicant and lifecycle vocabularies", () => {
@@ -70,6 +109,29 @@ describe("canonical domain primitives", () => {
       false,
     );
     expect(canTransition(challengeTransitions, "pilot", "closed", "org:member")).toBe(false);
+    expect(
+      canTransition(challengeTransitions, "draft", "triage", "org:owner", ["brief-valid"]),
+    ).toBe(true);
+  });
+
+  it("evaluates one deterministic readiness contract for every challenge boundary", () => {
+    expect(evaluateChallengeReadiness(readyChallengeContent())).toEqual({
+      ready: true,
+      issues: [],
+    });
+
+    const incomplete = evaluateChallengeReadiness({
+      ...readyChallengeContent(),
+      title: "",
+      accuracyConfirmed: false,
+    });
+    expect(incomplete).toMatchObject({
+      ready: false,
+      issues: [
+        { path: "/content/title", code: "min_length", step: 1 },
+        { path: "/content/accuracy_confirmed", code: "required", step: 4 },
+      ],
+    });
   });
 
   it("validates opaque prefixes without treating an ID shape as authority", () => {

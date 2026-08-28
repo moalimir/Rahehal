@@ -154,6 +154,8 @@ function foreignChallenge(now: string): ChallengeResource {
     stage: "draft",
     authoring_status: "draft",
     version: 1,
+    content_version: 1,
+    readiness: { ready: false, evaluated_version: 1, issues: [] },
     content: {
       title: "چالش محرمانه سازمان بتا",
       summary: "",

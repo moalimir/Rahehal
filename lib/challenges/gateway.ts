@@ -1,4 +1,6 @@
 import type { ChallengeRecord } from "@/domain/challenge";
+import type { ApiReadiness } from "@rahhal/contracts";
+import type { ChallengeAuthoringStage } from "@rahhal/domain";
 
 export type InitialChallengeInput = Pick<
   ChallengeRecord,
@@ -24,6 +26,8 @@ export type ChallengeGatewayErrorCode =
 export type ChallengeResultMeta = {
   readonly server_time: string;
   readonly correlation_id: string;
+  readonly readiness?: ApiReadiness;
+  readonly stage?: ChallengeAuthoringStage;
 };
 
 export type ChallengeResult<Data> =
@@ -33,10 +37,11 @@ export type ChallengeResult<Data> =
       error: {
         code: ChallengeGatewayErrorCode;
         message: string;
-        fields?: readonly { path: string; code: string; message: string }[];
+        fields?: readonly { path: string; code: string; message: string; step?: 1 | 2 | 3 | 4 }[];
         current_version?: number;
         current_state?: string;
         allowed_transitions?: readonly string[];
+        readiness?: ApiReadiness;
         recovery?: string;
       };
       meta: ChallengeResultMeta;
@@ -52,6 +57,7 @@ export interface ChallengeCommands {
   save(record: ChallengeRecord): Promise<ChallengeResult<ChallengeRecord>>;
   delete(id: string): Promise<ChallengeResult<{ id: string }>>;
   submit(record: ChallengeRecord): Promise<ChallengeResult<ChallengeRecord>>;
+  advanceFormulation(id: string): Promise<ChallengeResult<ChallengeRecord>>;
   publish(id: string): Promise<ChallengeResult<ChallengeRecord>>;
 }
 

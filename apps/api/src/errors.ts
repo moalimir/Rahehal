@@ -1,9 +1,12 @@
-import type { ApiErrorCode, ApiFieldError, ErrorEnvelope } from "@rahhal/contracts";
+import type { ApiErrorCode, ApiFieldError, ApiReadiness, ErrorEnvelope } from "@rahhal/contracts";
 import type { CorrelationId } from "@rahhal/domain";
 
 export type ApiProblemOptions = {
   readonly currentVersion?: number;
   readonly fields?: readonly ApiFieldError[];
+  readonly currentState?: string;
+  readonly allowedTransitions?: readonly string[];
+  readonly readiness?: ApiReadiness;
   readonly recovery?: string;
 };
 
@@ -33,6 +36,13 @@ export function errorEnvelope(
         ? {}
         : { current_version: problem.options.currentVersion }),
       ...(problem.options.fields === undefined ? {} : { fields: problem.options.fields }),
+      ...(problem.options.currentState === undefined
+        ? {}
+        : { current_state: problem.options.currentState }),
+      ...(problem.options.allowedTransitions === undefined
+        ? {}
+        : { allowed_transitions: problem.options.allowedTransitions }),
+      ...(problem.options.readiness === undefined ? {} : { readiness: problem.options.readiness }),
       ...(problem.options.recovery === undefined ? {} : { recovery: problem.options.recovery }),
     },
     meta: { server_time: serverTime, correlation_id: correlationId },

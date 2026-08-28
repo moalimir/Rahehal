@@ -34,6 +34,7 @@ describe("authoritative API contracts", () => {
     expect(apiSchemas.SwitchWorkspaceContextBody.required).toContain("expected_version");
     expect(apiSchemas.CreateChallengeBody.required).toContain("expected_version");
     expect(apiSchemas.PatchChallengeBody.required).toContain("expected_version");
+    expect(apiSchemas.ChallengeTransitionBody.required).toContain("expected_version");
 
     expectTypeOf<CreateChallengeBody["expected_version"]>().toEqualTypeOf<0>();
     expectTypeOf<PatchChallengeBody["expected_version"]>().toEqualTypeOf<number>();
@@ -66,6 +67,9 @@ describe("authoritative API contracts", () => {
         apiRoutes.switchWorkspaceContext,
         apiRoutes.challenges,
         apiRoutes.challengeById,
+        apiRoutes.requestChallengeTriage,
+        apiRoutes.advanceChallengeFormulation,
+        apiRoutes.requestChallengeApprovals,
       ]),
     );
 
@@ -74,6 +78,9 @@ describe("authoritative API contracts", () => {
       "X-Workspace-Id",
       "Idempotency-Key",
     ]);
+    expect(apiSchemas.ChallengeResource.required).toEqual(
+      expect.arrayContaining(["version", "content_version", "readiness"]),
+    );
   });
 
   it("keeps transport contracts language-neutral", () => {

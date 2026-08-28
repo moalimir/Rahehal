@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import {
   ChallengeLoadErrorState,
   ChallengeShell,
@@ -8,10 +9,15 @@ import {
   StatusBadge,
 } from "@/components/challenge-flow/shell";
 import { useChallengeRecord } from "@/components/challenge-flow/hooks";
+import { useWebRuntime } from "@/components/runtime-provider";
 import { formatDateTime } from "@/lib/challenges/model";
+import { navigateChallenge } from "@/lib/challenges/navigation";
 
 export function ChallengeSubmittedPage({ id }: { id: string }) {
-  const { record, loadError } = useChallengeRecord(id);
+  const runtime = useWebRuntime();
+  const { record, loadError, stage } = useChallengeRecord(id);
+  const [transitionPending, setTransitionPending] = useState(false);
+  const [transitionError, setTransitionError] = useState("");
   if (record === undefined)
     return (
       <ChallengeShell title="رسید ارسال">
@@ -44,7 +50,11 @@ export function ChallengeSubmittedPage({ id }: { id: string }) {
   return (
     <ChallengeShell
       title="رسید ارسال"
-      description="نسخه ثبت‌شده پرونده در این مرورگر نگهداری می‌شود."
+      description={
+        runtime.mode === "network"
+          ? "نسخه ثبت‌شده پرونده در سرور مرجع نگهداری می‌شود."
+          : "نسخه نمایشی پرونده در این مرورگر نگهداری می‌شود."
+      }
     >
       <section className="challenge-submitted-card">
         <div className="challenge-success-icon" aria-hidden="true">
@@ -80,6 +90,29 @@ export function ChallengeSubmittedPage({ id }: { id: string }) {
           </p>
         </div>
         <footer>
+          {runtime.mode === "network" && stage === "triage" && (
+            <button
+              type="button"
+              className="challenge-button challenge-button--primary"
+              disabled={transitionPending}
+              onClick={() => {
+                setTransitionPending(true);
+                setTransitionError("");
+                void runtime.challengeGateway.commands
+                  .advanceFormulation(record.id)
+                  .then((result) => {
+                    setTransitionPending(false);
+                    if (!result.ok) {
+                      setTransitionError(result.error.message);
+                      return;
+                    }
+                    navigateChallenge(`/app/org/challenges/${record.id}/edit`);
+                  });
+              }}
+            >
+              {transitionPending ? "در حال ثبت…" : "تأیید غربالگری و شروع صورت‌بندی"}
+            </button>
+          )}
           <Link
             className="challenge-button challenge-button--primary"
             href={`/app/org/challenges/${record.id}`}
@@ -90,6 +123,11 @@ export function ChallengeSubmittedPage({ id }: { id: string }) {
             بازگشت به مسئله‌ها
           </Link>
         </footer>
+        {transitionError && (
+          <div className="challenge-inline-error" role="alert">
+            {transitionError}
+          </div>
+        )}
       </section>
     </ChallengeShell>
   );

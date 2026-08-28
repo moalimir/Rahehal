@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChallengeRecord } from "@/domain/challenge";
-import type { ChallengeResult } from "@/lib/challenges/gateway";
+import type { ChallengeResult, ChallengeResultMeta } from "@/lib/challenges/gateway";
 import { formatDateTime } from "@/lib/challenges/model";
 import { useChallengeGateway } from "@/components/runtime-provider";
 import { normalizedEditableRecord } from "@/lib/challenges/validation";
@@ -54,6 +54,7 @@ export function useChallengeRecord(id: string) {
     Extract<ChallengeResult<never>, { ok: false }>["error"] | null
   >(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
+  const [resourceMeta, setResourceMeta] = useState<ChallengeResultMeta | null>(null);
   const recordRef = useRef<ChallengeRecord | null>(null);
   const statusRef = useRef<SaveStatus>("idle");
   const timerRef = useRef<number | null>(null);
@@ -85,10 +86,12 @@ export function useChallengeRecord(id: string) {
     setLoadError("");
     setSaveError(null);
     setSaveStatus("idle");
+    setResourceMeta(null);
     void challengeGateway.queries.get(id).then((result) => {
       if (!active || activeIdRef.current !== id || loadGeneration !== loadGenerationRef.current)
         return;
       const stored = result.ok ? result.data : null;
+      setResourceMeta(result.ok ? result.meta : null);
       setLoadError(!result.ok && result.error.code !== "NOT_FOUND" ? result.error.message : "");
       recordRef.current = stored;
       setLoadedId(id);
@@ -139,6 +142,7 @@ export function useChallengeRecord(id: string) {
     }
     if (snapshotUnchanged) {
       setSaveError(null);
+      setResourceMeta(result.meta);
       recordRef.current = result.data;
       setRecord(result.data);
       setSaveStatus("saved");
@@ -187,5 +191,7 @@ export function useChallengeRecord(id: string) {
     lastSavedLabel: visibleRecord ? formatDateTime(visibleRecord.updatedAt) : "—",
     loadError: loadedId === id ? loadError : "",
     saveError,
+    readiness: resourceMeta?.readiness ?? null,
+    stage: resourceMeta?.stage ?? null,
   };
 }

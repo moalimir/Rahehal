@@ -1,6 +1,7 @@
 import {
   applicantScopes,
   applicantTypes,
+  challengeAuthoringStages,
   challengeBudgetStatuses,
   challengeDraftAuthoringStatuses,
   challengeIpTerms,
@@ -338,6 +339,29 @@ const challengeDraftPatchSchema = {
   },
 } as const;
 
+const challengeReadinessIssueSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["path", "code", "message", "step"],
+  properties: {
+    path: { type: "string", maxLength: 500 },
+    code: { type: "string", maxLength: 100 },
+    message: { type: "string", maxLength: 2_000 },
+    step: { type: "integer", minimum: 1, maximum: 4 },
+  },
+} as const;
+
+const challengeReadinessSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["ready", "evaluated_version", "issues"],
+  properties: {
+    ready: { type: "boolean" },
+    evaluated_version: { type: "integer", minimum: 1 },
+    issues: { type: "array", items: challengeReadinessIssueSchema },
+  },
+} as const;
+
 const challengeResourceSchema = {
   type: "object",
   additionalProperties: false,
@@ -349,6 +373,8 @@ const challengeResourceSchema = {
     "stage",
     "authoring_status",
     "version",
+    "content_version",
+    "readiness",
     "content",
     "created_by",
     "created_at",
@@ -359,9 +385,11 @@ const challengeResourceSchema = {
     current_version_id: idSchema("chv"),
     tenant_id: idSchema("ten"),
     workspace_id: idSchema("wsp"),
-    stage: { const: "draft" },
+    stage: { type: "string", enum: challengeAuthoringStages },
     authoring_status: { type: "string", enum: challengeDraftAuthoringStatuses },
-    version: { type: "integer", minimum: 0 },
+    version: { type: "integer", minimum: 1 },
+    content_version: { type: "integer", minimum: 1 },
+    readiness: challengeReadinessSchema,
     content: challengeDraftContentSchema,
     created_by: idSchema("usr"),
     created_at: dateTimeSchema,
@@ -407,11 +435,7 @@ const apiErrorSchema = {
         type: "object",
         additionalProperties: false,
         required: ["path", "code", "message"],
-        properties: {
-          path: { type: "string", maxLength: 500 },
-          code: { type: "string", maxLength: 100 },
-          message: { type: "string", maxLength: 2_000 },
-        },
+        properties: challengeReadinessIssueSchema.properties,
       },
     },
     current_version: { type: "integer", minimum: 0 },
@@ -421,6 +445,7 @@ const apiErrorSchema = {
       uniqueItems: true,
       items: { type: "string", maxLength: 100 },
     },
+    readiness: challengeReadinessSchema,
     recovery: { type: "string", maxLength: 200 },
   },
 } as const;
@@ -601,6 +626,7 @@ export const apiSchemas = {
   WorkspaceContextMutationSuccessEnvelope: successEnvelopeFor(mutationReceiptSchema, true),
   ChallengeDraftContent: challengeDraftContentSchema,
   ChallengeDraftPatch: challengeDraftPatchSchema,
+  ChallengeReadiness: challengeReadinessSchema,
   ChallengeResource: challengeResourceSchema,
   ChallengeSuccessEnvelope: successEnvelopeFor(challengeResourceSchema, true),
   CreateChallengeBody: {
@@ -621,6 +647,16 @@ export const apiSchemas = {
       reason: { type: "string", minLength: 1, maxLength: 2_000 },
       step_up_token: { type: "string", minLength: 1, maxLength: 4_096 },
       patch: challengeDraftPatchSchema,
+    },
+  },
+  ChallengeTransitionBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version"],
+    properties: {
+      expected_version: { type: "integer", minimum: 1 },
+      reason: { type: "string", minLength: 1, maxLength: 2_000 },
+      step_up_token: { type: "string", minLength: 1, maxLength: 4_096 },
     },
   },
   OutboxEvent: outboxEventSchema,

@@ -48,10 +48,14 @@ function inferLastStep(content: ChallengeDraftContentResource): 1 | 2 | 3 | 4 {
 
 export function challengeResourceToRecord(resource: ChallengeResource): ChallengeRecord {
   const content = resource.content;
+  const status: ChallengeRecord["status"] =
+    resource.stage === "triage" || resource.stage === "approvals"
+      ? "under_review"
+      : resource.authoring_status;
   return {
     ...emptyChallenge(resource.id, resource.created_at),
     id: resource.id,
-    status: resource.authoring_status,
+    status,
     title: content.title,
     summary: content.summary,
     category: content.category,
@@ -88,6 +92,7 @@ export function challengeResourceToRecord(resource: ChallengeResource): Challeng
     legalNotes: content.legal_notes,
     createdAt: resource.created_at,
     updatedAt: resource.updated_at,
+    ...(resource.stage === "draft" ? {} : { submittedAt: resource.updated_at }),
     lastStep: inferLastStep(content),
   };
 }
@@ -193,7 +198,11 @@ export function createNetworkChallengeGateway(
     );
     if (!result.ok) return failure(result);
     resources.set(id, result.data);
-    return { ok: true, data: challengeResourceToRecord(result.data), meta: result.meta };
+    return {
+      ok: true,
+      data: challengeResourceToRecord(result.data),
+      meta: { ...result.meta, readiness: result.data.readiness, stage: result.data.stage },
+    };
   };
 
   return {
@@ -264,11 +273,62 @@ export function createNetworkChallengeGateway(
       async delete() {
         return localFailure("INVALID_STATE", "حذف پیش‌نویس هنوز در قرارداد سرور این فاز نیست.");
       },
-      async submit() {
-        return localFailure(
-          "INVALID_STATE",
-          "ارسال پرونده از فاز ۲ و پس از دروازه آمادگی فعال می‌شود.",
+      async submit(record) {
+        const resource = resources.get(record.id);
+        if (!resource) return localFailure("CONFLICT", "نسخه سرور را دوباره دریافت کنید.");
+        const command =
+          resource.stage === "draft"
+            ? "request-triage"
+            : resource.stage === "formulation"
+              ? "request-approvals"
+              : null;
+        if (!command) {
+          return localFailure("INVALID_STATE", "پرونده در وضعیت فعلی قابل ارسال نیست.");
+        }
+        const headers = workspaceHeaders();
+        if (!headers) return localFailure("NO_ACCESS", "ابتدا یک فضای کاری سازمانی انتخاب کنید.");
+        const body = { expected_version: resource.version };
+        const fingerprint = `${command}:${record.id}:${resource.version}`;
+        const key = pendingKeys.get(fingerprint) ?? idempotencyKey(`web-challenge-${command}`);
+        pendingKeys.set(fingerprint, key);
+        const result = await requestApi<MutationSuccessEnvelope>(
+          `/api/v1/challenges/${encodeURIComponent(record.id)}:${command}`,
+          {
+            method: "POST",
+            headers: { ...headers, "idempotency-key": key },
+            body: JSON.stringify(body),
+          },
         );
+        if (!result.ok) return failure(result);
+        const loaded = await get(record.id);
+        if (loaded.ok) pendingKeys.delete(fingerprint);
+        return loaded;
+      },
+      async advanceFormulation(id) {
+        const resource = resources.get(id);
+        if (!resource) return localFailure("CONFLICT", "نسخه سرور را دوباره دریافت کنید.");
+        if (resource.stage !== "triage") {
+          return localFailure("INVALID_STATE", "پرونده در مرحله غربالگری نیست.");
+        }
+        const headers = workspaceHeaders();
+        if (!headers) return localFailure("NO_ACCESS", "ابتدا یک فضای کاری سازمانی انتخاب کنید.");
+        const body = { expected_version: resource.version };
+        const fingerprint = `advance-formulation:${id}:${resource.version}`;
+        const key =
+          pendingKeys.get(fingerprint) ?? idempotencyKey("web-challenge-advance-formulation");
+        pendingKeys.set(fingerprint, key);
+        const result = await requestApi<MutationSuccessEnvelope>(
+          `/api/v1/challenges/${encodeURIComponent(id)}:advance-formulation`,
+          {
+            method: "POST",
+            headers: { ...headers, "idempotency-key": key },
+            body: JSON.stringify(body),
+          },
+        );
+        if (!result.ok) return failure(result);
+        const loaded = await get(id);
+        if (loaded.ok) pendingKeys.delete(fingerprint);
+        return loaded;
       },
       async publish() {
         return localFailure(

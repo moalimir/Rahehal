@@ -20,7 +20,7 @@ import {
 import { PostgresUnitOfWork } from "./postgres/unit-of-work.js";
 import { HmacSessionCredentialIssuer } from "./session-credentials.js";
 
-const requiredMigration = "0004_a2_oidc_authorization";
+const requiredMigration = "0005_b1_authoritative_challenge_lifecycle";
 
 type OidcAdapter = OidcExchangePort & OidcAuthorizationPort;
 

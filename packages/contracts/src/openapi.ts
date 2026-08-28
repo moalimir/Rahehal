@@ -242,6 +242,57 @@ export const openApiDocument = {
         },
       },
     },
+    [apiRoutes.requestChallengeTriage]: {
+      post: {
+        operationId: "requestChallengeTriage",
+        tags: ["Challenge"],
+        summary: "Submit the current ready brief for triage and lock its content version",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, challengeIdParameter],
+        requestBody: { required: true, content: jsonContent("ChallengeTransitionBody") },
+        responses: {
+          "200": {
+            description: "A receipt for the draft to triage transition.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.advanceChallengeFormulation]: {
+      post: {
+        operationId: "advanceChallengeFormulation",
+        tags: ["Challenge"],
+        summary: "Record successful triage and open formulation authoring",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, challengeIdParameter],
+        requestBody: { required: true, content: jsonContent("ChallengeTransitionBody") },
+        responses: {
+          "200": {
+            description: "A receipt for the triage to formulation transition.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.requestChallengeApprovals]: {
+      post: {
+        operationId: "requestChallengeApprovals",
+        tags: ["Challenge"],
+        summary: "Submit the ready formulation for approvals and lock its content version",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, challengeIdParameter],
+        requestBody: { required: true, content: jsonContent("ChallengeTransitionBody") },
+        responses: {
+          "200": {
+            description: "A receipt for the formulation to approvals transition.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
   },
   components: {
     securitySchemes: {

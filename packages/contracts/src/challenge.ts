@@ -2,6 +2,7 @@ import type {
   ApplicantScope,
   ApplicantType,
   ChallengeBudgetStatus,
+  ChallengeAuthoringStage,
   ChallengeDraftAuthoringStatus,
   ChallengeId,
   ChallengeIpTerms,
@@ -17,7 +18,12 @@ import type {
   WorkspaceId,
 } from "@rahhal/domain";
 
-import type { MutationSuccessEnvelope, VersionedApiMeta, VersionedCommand } from "./envelopes.js";
+import type {
+  ApiReadiness,
+  MutationSuccessEnvelope,
+  VersionedApiMeta,
+  VersionedCommand,
+} from "./envelopes.js";
 
 export type ChallengeSuccessCriterionResource = {
   readonly id: string;
@@ -80,9 +86,11 @@ export type ChallengeResource = {
   readonly current_version_id: ChallengeVersionId;
   readonly tenant_id: TenantId;
   readonly workspace_id: WorkspaceId;
-  readonly stage: "draft";
+  readonly stage: ChallengeAuthoringStage;
   readonly authoring_status: ChallengeDraftAuthoringStatus;
   readonly version: number;
+  readonly content_version: number;
+  readonly readiness: ApiReadiness;
   readonly content: ChallengeDraftContentResource;
   readonly created_by: UserId;
   readonly created_at: string;
@@ -98,12 +106,24 @@ export type PatchChallengeBody = VersionedCommand & {
   readonly patch: ChallengeDraftPatch;
 };
 
+export type ChallengeTransitionBody = VersionedCommand;
+
+export type ChallengeNextAction =
+  | "edit"
+  | "request_triage"
+  | "advance_formulation"
+  | "request_approvals"
+  | "await_approvals";
+
 export type ChallengeSuccessEnvelope = {
   readonly ok: true;
   readonly data: ChallengeResource;
   readonly meta: VersionedApiMeta;
 };
-export type ChallengeMutationSuccessEnvelope = MutationSuccessEnvelope<ChallengeId, "edit">;
+export type ChallengeMutationSuccessEnvelope = MutationSuccessEnvelope<
+  ChallengeId,
+  ChallengeNextAction
+>;
 
 export function hasChallengeDraftChanges(patch: ChallengeDraftPatch): boolean {
   return Object.keys(patch).length > 0;

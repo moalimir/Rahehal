@@ -16,6 +16,7 @@ import {
 } from "@rahhal/domain";
 import {
   buildCreateChallengeBody,
+  buildChallengeContentResource,
   buildChallengeResource,
   buildPatchChallengeBody,
   buildSessionExchangeBody,
@@ -568,6 +569,130 @@ describe("authoritative Fastify API foundation", () => {
     );
   });
 
+  it("returns the same authoritative readiness issues from draft read and triage submit", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: apiRoutes.challenges,
+      headers: ownerHeaders("b1-readiness-create-01"),
+      payload: buildCreateChallengeBody({ draft: { title: "کوتاه" } }),
+    });
+    const challengeId = created.json<MutationSuccessEnvelope>().data.entity_id;
+    const read = await app.inject({
+      method: "GET",
+      url: `/api/v1/challenges/${challengeId}`,
+      headers: ownerHeaders(),
+    });
+    const resource = read.json<SuccessEnvelope<ChallengeResource>>().data;
+
+    const submitted = await app.inject({
+      method: "POST",
+      url: apiRoutes.requestChallengeTriage.replace("{challengeId}", challengeId),
+      headers: ownerHeaders("b1-readiness-submit-01"),
+      payload: { expected_version: resource.version },
+    });
+    const failure = submitted.json<ErrorEnvelope>();
+
+    expect(resource.readiness.ready).toBe(false);
+    expect(submitted.statusCode).toBe(422);
+    expect(failure.error).toMatchObject({
+      code: "VALIDATION",
+      current_version: resource.version,
+      readiness: resource.readiness,
+      fields: resource.readiness.issues,
+    });
+    expect(composition.challenges.snapshot().auditEvents).toHaveLength(1);
+  });
+
+  it("advances only along the canonical B1 lifecycle with versioned atomic receipts", async () => {
+    const content = buildChallengeContentResource();
+    const created = await app.inject({
+      method: "POST",
+      url: apiRoutes.challenges,
+      headers: ownerHeaders("b1-lifecycle-create-01"),
+      payload: buildCreateChallengeBody({ draft: content }),
+    });
+    const challengeId = created.json<MutationSuccessEnvelope>().data.entity_id;
+
+    const skipped = await app.inject({
+      method: "POST",
+      url: apiRoutes.requestChallengeApprovals.replace("{challengeId}", challengeId),
+      headers: ownerHeaders("b1-lifecycle-skip-01"),
+      payload: { expected_version: 1 },
+    });
+    expect(skipped.statusCode).toBe(409);
+    expect(skipped.json<ErrorEnvelope>().error).toMatchObject({
+      code: "INVALID_STATE",
+      current_state: "draft",
+      allowed_transitions: ["triage"],
+    });
+
+    const triageRequest = {
+      method: "POST" as const,
+      url: apiRoutes.requestChallengeTriage.replace("{challengeId}", challengeId),
+      headers: ownerHeaders("b1-lifecycle-triage-01"),
+      payload: { expected_version: 1 },
+    };
+    const triage = await app.inject(triageRequest);
+    const triageReplay = await app.inject(triageRequest);
+    expect(triage.statusCode).toBe(200);
+    expect(triage.json<MutationSuccessEnvelope>()).toMatchObject({
+      data: { idempotent: false, next_actions: ["advance_formulation"] },
+      meta: { entity_version: 2 },
+    });
+    expect(triageReplay.json<MutationSuccessEnvelope>()).toMatchObject({
+      data: { idempotent: true },
+      meta: { entity_version: 2 },
+    });
+
+    const formulation = await app.inject({
+      method: "POST",
+      url: apiRoutes.advanceChallengeFormulation.replace("{challengeId}", challengeId),
+      headers: ownerHeaders("b1-lifecycle-formulation-01"),
+      payload: { expected_version: 2 },
+    });
+    expect(formulation.statusCode).toBe(200);
+    expect(formulation.json<MutationSuccessEnvelope>().meta.entity_version).toBe(3);
+
+    const save = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/challenges/${challengeId}`,
+      headers: ownerHeaders("b1-lifecycle-save-01"),
+      payload: { expected_version: 3, patch: { summary: "نسخه دقیق صورت‌بندی نهایی" } },
+    });
+    expect(save.statusCode).toBe(200);
+    expect(save.json<MutationSuccessEnvelope>().meta.entity_version).toBe(4);
+
+    const approvals = await app.inject({
+      method: "POST",
+      url: apiRoutes.requestChallengeApprovals.replace("{challengeId}", challengeId),
+      headers: ownerHeaders("b1-lifecycle-approvals-01"),
+      payload: { expected_version: 4 },
+    });
+    expect(approvals.statusCode).toBe(200);
+    expect(approvals.json<MutationSuccessEnvelope>()).toMatchObject({
+      data: { next_actions: ["await_approvals"] },
+      meta: { entity_version: 5 },
+    });
+
+    const read = await app.inject({
+      method: "GET",
+      url: `/api/v1/challenges/${challengeId}`,
+      headers: ownerHeaders(),
+    });
+    expect(read.json<SuccessEnvelope<ChallengeResource>>().data).toMatchObject({
+      stage: "approvals",
+      version: 5,
+      content_version: 2,
+      readiness: { ready: true, evaluated_version: 5, issues: [] },
+    });
+    const snapshot = composition.challenges.snapshot();
+    expect(snapshot.versions.filter(({ id }) => id === challengeId)).toHaveLength(2);
+    expect(snapshot.auditEvents.filter(({ entityId }) => entityId === challengeId)).toHaveLength(5);
+    expect(
+      snapshot.outboxEvents.filter(({ aggregate_id }) => aggregate_id === challengeId),
+    ).toHaveLength(5);
+  });
+
   it("replays a challenge command with the same receipt and one aggregate effect", async () => {
     const request = {
       method: "POST" as const,
@@ -923,6 +1048,8 @@ describe("authoritative Fastify API foundation", () => {
         },
         getScoped: (scope, id) => challenges.getScoped(scope, id),
         patch: (id, body, context) => challenges.patch(id, body, context),
+        transition: (id, command, body, context) =>
+          challenges.transition(id, command, body, context),
       },
     });
 

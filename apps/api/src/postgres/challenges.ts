@@ -1,11 +1,16 @@
 import type {
   ChallengeDraftContentResource,
+  ChallengeNextAction,
   ChallengeResource,
+  ChallengeTransitionBody,
   CreateChallengeBody,
   MutationReceipt,
   PatchChallengeBody,
 } from "@rahhal/contracts";
 import {
+  canTransition,
+  challengeAuthoringStages,
+  challengeTransitions,
   isAggregateVersion,
   isChallengeDraftAuthoringStatus,
   parseAuditEventId,
@@ -20,13 +25,18 @@ import {
 } from "@rahhal/domain";
 import type { PoolClient } from "pg";
 
-import { emptyChallengeContent, mergeChallengeDraftPatch } from "../challenge-draft.js";
+import {
+  challengeReadiness,
+  emptyChallengeContent,
+  mergeChallengeDraftPatch,
+} from "../challenge-draft.js";
 import { ApiProblem, idempotencyConflict, notFound, staleVersion } from "../errors.js";
 import { commandFingerprint } from "../primitives.js";
 import type {
   ChallengeCommandContext,
   ChallengePort,
   ChallengeScope,
+  ChallengeTransitionCommand,
   Clock,
   IdFactory,
   MutationOutcome,
@@ -40,6 +50,7 @@ type ChallengeRow = {
   readonly workspace_id: string;
   readonly stage: string;
   readonly authoring_status: string;
+  readonly lock_version: number;
   readonly version_number: number;
   readonly content: unknown;
   readonly created_by_user_id: string;
@@ -62,8 +73,21 @@ type CachedChallengeMutation = {
   readonly next_actions: readonly string[];
 };
 
-type ChallengeMutationOutcome = MutationOutcome<ChallengeId, "edit">;
-type ChallengeEvidenceAction = "challenge.draft.created" | "challenge.draft.updated";
+type ChallengeMutationOutcome = MutationOutcome<ChallengeId, ChallengeNextAction>;
+type ChallengeEvidenceAction =
+  | "challenge.draft.created"
+  | "challenge.draft.updated"
+  | "challenge.triage.requested"
+  | "challenge.formulation.started"
+  | "challenge.approvals.requested";
+
+const challengeNextActions = [
+  "edit",
+  "request_triage",
+  "advance_formulation",
+  "request_approvals",
+  "await_approvals",
+] as const satisfies readonly ChallengeNextAction[];
 
 function timestamp(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
@@ -78,22 +102,28 @@ function challengeVersion(value: unknown): number {
 }
 
 function challengeResource(row: ChallengeRow): ChallengeResource {
-  if (row.stage !== "draft") throw new Error("Draft API loaded a non-draft challenge");
+  if (!challengeAuthoringStages.includes(row.stage as (typeof challengeAuthoringStages)[number])) {
+    throw new Error("Authoring API loaded a challenge outside its lifecycle boundary");
+  }
   if (!isChallengeDraftAuthoringStatus(row.authoring_status)) {
     throw new Error("Database returned an invalid challenge authoring status");
   }
   if (typeof row.content !== "object" || row.content === null || Array.isArray(row.content)) {
     throw new Error("Database returned invalid challenge content");
   }
+  const version = challengeVersion(row.lock_version);
+  const content = structuredClone(row.content) as ChallengeDraftContentResource;
   return {
     id: parseChallengeId(row.id),
     current_version_id: parseChallengeVersionId(row.current_version_id),
     tenant_id: parseTenantId(row.tenant_id),
     workspace_id: parseWorkspaceId(row.workspace_id),
-    stage: "draft",
+    stage: row.stage as ChallengeResource["stage"],
     authoring_status: row.authoring_status,
-    version: challengeVersion(row.version_number),
-    content: structuredClone(row.content) as ChallengeDraftContentResource,
+    version,
+    content_version: challengeVersion(row.version_number),
+    readiness: challengeReadiness(content, version),
+    content,
     created_by: parseUserId(row.created_by_user_id),
     created_at: timestamp(row.created_at),
     updated_at: timestamp(row.updated_at),
@@ -112,7 +142,10 @@ function cachedMutation(value: unknown): CachedChallengeMutation {
     typeof record["audit_event_id"] !== "string" ||
     typeof record["timestamp"] !== "string" ||
     !Array.isArray(record["next_actions"]) ||
-    !record["next_actions"].every((item) => item === "edit")
+    !record["next_actions"].every(
+      (item) =>
+        typeof item === "string" && challengeNextActions.includes(item as ChallengeNextAction),
+    )
   ) {
     throw new Error("Database returned an invalid challenge idempotency response");
   }
@@ -171,13 +204,13 @@ export class PostgresChallengeAdapter implements ChallengePort {
   }
 
   private outcome(cached: CachedChallengeMutation, idempotent: boolean): ChallengeMutationOutcome {
-    const receipt: MutationReceipt<ChallengeId, "edit"> = {
+    const receipt: MutationReceipt<ChallengeId, ChallengeNextAction> = {
       entity_id: parseChallengeId(cached.entity_id),
       receipt_id: parseReceiptId(cached.receipt_id),
       audit_event_id: parseAuditEventId(cached.audit_event_id),
       timestamp: timestamp(cached.timestamp),
       idempotent,
-      next_actions: ["edit"],
+      next_actions: cached.next_actions as readonly ChallengeNextAction[],
     };
     return { receipt, entityVersion: challengeVersion(cached.entity_version) };
   }
@@ -187,6 +220,7 @@ export class PostgresChallengeAdapter implements ChallengePort {
     resource: ChallengeResource,
     context: ChallengeCommandContext,
     action: ChallengeEvidenceAction,
+    nextActions: readonly ChallengeNextAction[],
     requestHash: string,
   ): Promise<ChallengeMutationOutcome> {
     const occurredAt = this.clock.now().toISOString();
@@ -199,7 +233,7 @@ export class PostgresChallengeAdapter implements ChallengePort {
       receipt_id: receiptId,
       audit_event_id: auditId,
       timestamp: occurredAt,
-      next_actions: ["edit"],
+      next_actions: nextActions,
     };
 
     await client.query(
@@ -239,7 +273,7 @@ export class PostgresChallengeAdapter implements ChallengePort {
         resource.version,
         auditId,
         context.correlationId,
-        JSON.stringify(["edit"]),
+        JSON.stringify(nextActions),
         occurredAt,
       ],
     );
@@ -304,6 +338,7 @@ export class PostgresChallengeAdapter implements ChallengePort {
           challenge.workspace_id,
           challenge.stage,
           version.authoring_status,
+          challenge.lock_version,
           version.version_number,
           version.content,
           challenge.created_by_user_id,
@@ -346,6 +381,8 @@ export class PostgresChallengeAdapter implements ChallengePort {
       const versionId = parseChallengeVersionId(this.ids.next("chv"));
       const occurredAt = this.clock.now().toISOString();
       const merged = mergeChallengeDraftPatch(emptyChallengeContent(), body.draft ?? {});
+      const readiness = challengeReadiness(merged.content, 1);
+      const authoringStatus = readiness.ready ? "ready" : "draft";
       const insert = await client.query(
         `
           INSERT INTO challenge (
@@ -373,7 +410,7 @@ export class PostgresChallengeAdapter implements ChallengePort {
         [
           versionId,
           challengeId,
-          merged.authoringStatus ?? "draft",
+          authoringStatus,
           JSON.stringify(merged.content),
           context.actorUserId,
           occurredAt,
@@ -388,14 +425,23 @@ export class PostgresChallengeAdapter implements ChallengePort {
         tenant_id: context.tenantId,
         workspace_id: context.workspaceId,
         stage: "draft",
-        authoring_status: merged.authoringStatus ?? "draft",
+        authoring_status: authoringStatus,
         version: 1,
+        content_version: 1,
+        readiness,
         content: merged.content,
         created_by: context.actorUserId,
         created_at: occurredAt,
         updated_at: occurredAt,
       };
-      return this.recordMutation(client, resource, context, "challenge.draft.created", requestHash);
+      return this.recordMutation(
+        client,
+        resource,
+        context,
+        "challenge.draft.created",
+        ["edit"],
+        requestHash,
+      );
     });
   }
 
@@ -426,12 +472,26 @@ export class PostgresChallengeAdapter implements ChallengePort {
       const current = await this.findScoped(client, context, id, true);
       if (!current) throw notFound();
       if (body.expected_version !== current.version) throw staleVersion(current.version);
+      if (current.stage !== "draft" && current.stage !== "formulation") {
+        throw new ApiProblem(409, "INVALID_STATE", "Challenge content is not editable", {
+          currentState: current.stage,
+          allowedTransitions: challengeTransitions
+            .filter(({ from }) => from === current.stage)
+            .map(({ to }) => to),
+        });
+      }
 
       const merged = mergeChallengeDraftPatch(current.content, body.patch);
       const version = current.version + 1;
+      const contentVersion = current.content_version + 1;
       const versionId = parseChallengeVersionId(this.ids.next("chv"));
       const occurredAt = this.clock.now().toISOString();
-      const authoringStatus = merged.authoringStatus ?? current.authoring_status;
+      const readiness = challengeReadiness(merged.content, version);
+      const authoringStatus = readiness.ready
+        ? "ready"
+        : current.stage === "formulation"
+          ? "needs_changes"
+          : "draft";
       const versionInsert = await client.query(
         `
           INSERT INTO challenge_version (
@@ -442,7 +502,7 @@ export class PostgresChallengeAdapter implements ChallengePort {
         [
           versionId,
           current.id,
-          version,
+          contentVersion,
           authoringStatus,
           JSON.stringify(merged.content),
           context.actorUserId,
@@ -476,10 +536,156 @@ export class PostgresChallengeAdapter implements ChallengePort {
         current_version_id: versionId,
         authoring_status: authoringStatus,
         version,
+        content_version: contentVersion,
+        readiness,
         content: merged.content,
         updated_at: occurredAt,
       };
-      return this.recordMutation(client, resource, context, "challenge.draft.updated", requestHash);
+      return this.recordMutation(
+        client,
+        resource,
+        context,
+        "challenge.draft.updated",
+        ["edit"],
+        requestHash,
+      );
+    });
+  }
+
+  async transition(
+    id: string,
+    command: ChallengeTransitionCommand,
+    body: ChallengeTransitionBody,
+    context: ChallengeCommandContext,
+  ): Promise<ChallengeMutationOutcome> {
+    const definitions = {
+      "request-triage": {
+        from: "draft",
+        to: "triage",
+        precondition: "brief-valid",
+        action: "challenge.triage.requested",
+        nextActions: ["advance_formulation"],
+        lockReason: "triage_submission",
+      },
+      "advance-formulation": {
+        from: "triage",
+        to: "formulation",
+        precondition: "triage-passed",
+        action: "challenge.formulation.started",
+        nextActions: ["edit"],
+        lockReason: null,
+      },
+      "request-approvals": {
+        from: "formulation",
+        to: "approvals",
+        precondition: "formulation-complete",
+        action: "challenge.approvals.requested",
+        nextActions: ["await_approvals"],
+        lockReason: "approval_submission",
+      },
+    } as const;
+    const definition = definitions[command];
+    const requestHash = commandFingerprint({
+      action: `challenge.${command}`,
+      actorUserId: context.actorUserId,
+      workspaceId: context.workspaceId,
+      id,
+      body,
+    });
+
+    return this.unitOfWork.run(async () => {
+      const client = this.unitOfWork.currentClient();
+      await this.lockIdempotencyKey(client, context);
+      const replay = await this.loadReplay(client, context, requestHash);
+      if (replay) return this.outcome(replay, true);
+
+      const current = await this.findScoped(client, context, id, true);
+      if (!current) throw notFound();
+      if (body.expected_version !== current.version) throw staleVersion(current.version);
+
+      const rule = challengeTransitions.find(
+        ({ from, to }) => from === current.stage && to === definition.to,
+      );
+      if (!rule || !rule.roles.some((role) => role === context.role)) {
+        throw new ApiProblem(409, "INVALID_STATE", "Challenge transition is not allowed", {
+          currentState: current.stage,
+          allowedTransitions: challengeTransitions
+            .filter(
+              ({ from, roles }) =>
+                from === current.stage && roles.some((role) => role === context.role),
+            )
+            .map(({ to }) => to),
+        });
+      }
+
+      const readiness = challengeReadiness(current.content, current.version);
+      if (command !== "advance-formulation" && !readiness.ready) {
+        throw new ApiProblem(422, "VALIDATION", "Challenge brief is not ready", {
+          currentVersion: current.version,
+          fields: readiness.issues,
+          readiness,
+        });
+      }
+      if (
+        !canTransition(challengeTransitions, current.stage, definition.to, context.role, [
+          definition.precondition,
+        ])
+      ) {
+        throw new ApiProblem(409, "INVALID_STATE", "Challenge transition is not allowed", {
+          currentState: current.stage,
+          allowedTransitions: challengeTransitions
+            .filter(({ from }) => from === current.stage)
+            .map(({ to }) => to),
+        });
+      }
+
+      const occurredAt = this.clock.now().toISOString();
+      if (definition.lockReason) {
+        await client.query(
+          `
+            UPDATE challenge_version
+            SET locked_at = $3, lock_reason = $4
+            WHERE id = $1 AND challenge_id = $2 AND locked_at IS NULL
+          `,
+          [current.current_version_id, current.id, occurredAt, definition.lockReason],
+        );
+      }
+
+      const version = current.version + 1;
+      const aggregateUpdate = await client.query(
+        `
+          UPDATE challenge
+          SET stage = $4, lock_version = $5, updated_at = $6
+          WHERE tenant_id = $1 AND workspace_id = $2 AND id = $3 AND lock_version = $7
+        `,
+        [
+          context.tenantId,
+          context.workspaceId,
+          current.id,
+          definition.to,
+          version,
+          occurredAt,
+          current.version,
+        ],
+      );
+      if (aggregateUpdate.rowCount !== 1) {
+        throw new Error("Challenge transition did not affect exactly one aggregate");
+      }
+      const resource: ChallengeResource = {
+        ...current,
+        stage: definition.to,
+        version,
+        readiness: { ...readiness, evaluated_version: version },
+        updated_at: occurredAt,
+      };
+      return this.recordMutation(
+        client,
+        resource,
+        context,
+        definition.action,
+        definition.nextActions,
+        requestHash,
+      );
     });
   }
 }

@@ -1,5 +1,7 @@
 import type {
   ChallengeResource,
+  ChallengeNextAction,
+  ChallengeTransitionBody,
   CreateChallengeBody,
   MeResource,
   MutationReceipt,
@@ -151,17 +153,28 @@ export type ChallengeCommandContext = ChallengeScope & {
   readonly correlationId: CorrelationId;
 };
 
+export type ChallengeTransitionCommand =
+  | "request-triage"
+  | "advance-formulation"
+  | "request-approvals";
+
 export interface ChallengePort {
   create(
     body: CreateChallengeBody,
     context: ChallengeCommandContext,
-  ): Promise<MutationOutcome<ChallengeId, "edit">>;
+  ): Promise<MutationOutcome<ChallengeId, ChallengeNextAction>>;
   getScoped(scope: ChallengeScope, id: string): Promise<ChallengeResource | null>;
   patch(
     id: string,
     body: PatchChallengeBody,
     context: ChallengeCommandContext,
-  ): Promise<MutationOutcome<ChallengeId, "edit">>;
+  ): Promise<MutationOutcome<ChallengeId, ChallengeNextAction>>;
+  transition(
+    id: string,
+    command: ChallengeTransitionCommand,
+    body: ChallengeTransitionBody,
+    context: ChallengeCommandContext,
+  ): Promise<MutationOutcome<ChallengeId, ChallengeNextAction>>;
 }
 
 export type AccessDecisionRecord = {

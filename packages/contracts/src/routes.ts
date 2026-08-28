@@ -8,6 +8,9 @@ export const apiRoutes = {
   switchWorkspaceContext: "/api/v1/me/context:switch",
   challenges: "/api/v1/challenges",
   challengeById: "/api/v1/challenges/{challengeId}",
+  requestChallengeTriage: "/api/v1/challenges/{challengeId}:request-triage",
+  advanceChallengeFormulation: "/api/v1/challenges/{challengeId}:advance-formulation",
+  requestChallengeApprovals: "/api/v1/challenges/{challengeId}:request-approvals",
 } as const;
 
 /**

@@ -24,6 +24,9 @@ export const challengeStages = [
 ] as const;
 export type ChallengeStage = (typeof challengeStages)[number];
 
+export const challengeAuthoringStages = ["draft", "triage", "formulation", "approvals"] as const;
+export type ChallengeAuthoringStage = (typeof challengeAuthoringStages)[number];
+
 export type Transition<State extends string> = {
   readonly from: State;
   readonly to: State;
@@ -54,7 +57,7 @@ export const challengeTransitions = [
   {
     from: "draft",
     to: "triage",
-    roles: ["org:member"],
+    roles: ["org:owner", "org:member"],
     preconditions: ["brief-valid"],
     sideEffects: ["lock-intake-version"],
     notification: "مسئول غربالگری",
@@ -64,7 +67,7 @@ export const challengeTransitions = [
   {
     from: "triage",
     to: "formulation",
-    roles: ["org:member", "platform:ops"],
+    roles: ["org:owner", "org:member", "platform:ops"],
     preconditions: ["triage-passed"],
     sideEffects: ["open-formulation-workspace"],
     notification: "مالک مسئله",
@@ -74,7 +77,7 @@ export const challengeTransitions = [
   {
     from: "formulation",
     to: "approvals",
-    roles: ["org:member", "platform:ops"],
+    roles: ["org:owner", "org:member", "platform:ops"],
     preconditions: ["formulation-complete"],
     sideEffects: ["create-approval-tasks"],
     notification: "تأییدکنندگان",
@@ -235,6 +238,129 @@ export type ChallengeDraftContent = {
   readonly legalNotes: string;
   readonly attachmentIds: readonly FileId[];
 };
+
+export type ChallengeReadinessIssue = {
+  readonly path: string;
+  readonly code: "required" | "min_length" | "format" | "derived_value";
+  readonly message: string;
+  readonly step: 1 | 2 | 3 | 4;
+};
+
+export type ChallengeReadiness = {
+  readonly ready: boolean;
+  readonly issues: readonly ChallengeReadinessIssue[];
+};
+
+function hasText(value: string, minimum = 2): boolean {
+  return value.trim().length >= minimum;
+}
+
+/**
+ * The authoritative, deterministic brief-readiness rule used by reads,
+ * previews, and lifecycle commands. It intentionally validates only fields
+ * persisted in the canonical challenge content.
+ */
+export function evaluateChallengeReadiness(content: ChallengeDraftContent): ChallengeReadiness {
+  const issues: ChallengeReadinessIssue[] = [];
+  const add = (
+    path: string,
+    code: ChallengeReadinessIssue["code"],
+    message: string,
+    step: ChallengeReadinessIssue["step"],
+  ) => issues.push({ path, code, message, step });
+
+  if (!hasText(content.title, 5))
+    add("/content/title", "min_length", "عنوان مسئله را روشن و کوتاه وارد کنید.", 1);
+  if (!hasText(content.summary, 12))
+    add("/content/summary", "min_length", "شرح یک جمله‌ای مسئله را کامل‌تر بنویسید.", 1);
+  if (!hasText(content.category))
+    add("/content/category", "required", "دسته‌بندی اصلی را انتخاب کنید.", 1);
+  if (!hasText(content.location, 3))
+    add("/content/location", "min_length", "واحد، سایت یا محل درگیر را وارد کنید.", 1);
+  if (!hasText(content.contact.name, 3))
+    add("/content/contact/name", "min_length", "مالک مسئله را مشخص کنید.", 1);
+  if (!hasText(content.desiredOutcome, 10))
+    add("/content/desired_outcome", "min_length", "نتیجه مورد انتظار سازمان را توضیح دهید.", 1);
+
+  if (!hasText(content.currentState, 15))
+    add("/content/current_state", "min_length", "وضعیت فعلی را با جزئیات کافی توضیح دهید.", 2);
+  if (!hasText(content.expectedOutput, 8))
+    add("/content/expected_output", "min_length", "خروجی نهایی مورد انتظار را مشخص کنید.", 2);
+  if (
+    !content.successCriteria.some(
+      (item) => hasText(item.title, 3) && hasText(item.target, 2) && hasText(item.method, 4),
+    )
+  ) {
+    add("/content/success_criteria", "required", "حداقل یک معیار موفقیت کامل اضافه کنید.", 2);
+  }
+  if (!hasText(content.inScope, 8))
+    add("/content/in_scope", "min_length", "موارد داخل دامنه را مشخص کنید.", 2);
+
+  if (!content.outputType)
+    add("/content/output_type", "required", "خروجی مورد انتظار همکاری را انتخاب کنید.", 3);
+  if (!content.sourcingModel)
+    add("/content/sourcing_model", "required", "شیوه جذب حل‌کننده را انتخاب کنید.", 3);
+  if (!content.allowedApplicantTypes.length) {
+    add(
+      "/content/allowed_applicant_types",
+      "required",
+      "حداقل یک نوع مشارکت‌کننده مجاز انتخاب کنید.",
+      3,
+    );
+  }
+  const includesPerson = content.allowedApplicantTypes.includes("individual");
+  const includesTeam = content.allowedApplicantTypes.some((type) => type !== "individual");
+  const expectedScope =
+    includesPerson && includesTeam
+      ? "both"
+      : includesPerson
+        ? "person"
+        : includesTeam
+          ? "team"
+          : null;
+  if (content.applicantScope !== expectedScope) {
+    add(
+      "/content/applicant_scope",
+      "derived_value",
+      "دامنه همکاری باید با مشارکت‌کنندگان مجاز سازگار باشد.",
+      3,
+    );
+  }
+  if (!content.workMode)
+    add("/content/work_mode", "required", "شیوه انجام همکاری را انتخاب کنید.", 3);
+  if (!content.proposalDeadline)
+    add("/content/proposal_deadline", "required", "مهلت دریافت پیشنهاد را وارد کنید.", 3);
+  if (content.budget.status === "fixed" && content.budget.amountMinor === null) {
+    add("/content/budget/amount_minor", "required", "مبلغ بودجه مشخص را وارد کنید.", 3);
+  }
+  if (
+    (content.sourcingModel === "private" || content.sourcingModel === "hybrid") &&
+    content.invitees.length === 0
+  ) {
+    add("/content/invitees", "required", "حداقل یک دعوت‌شونده یا گروه هدف را مشخص کنید.", 3);
+  }
+
+  if (!content.visibility)
+    add("/content/visibility", "required", "سطح نمایش پرونده را انتخاب کنید.", 4);
+  if (
+    (content.visibility === "public" || content.visibility === "registered") &&
+    !hasText(content.publicSummary, 20)
+  ) {
+    add("/content/public_summary", "min_length", "خلاصه عمومی را بدون اطلاعات حساس کامل کنید.", 4);
+  }
+  if (!content.ipTerms)
+    add("/content/ip_terms", "required", "وضعیت مالکیت فکری را انتخاب کنید.", 4);
+  if (!/^\S+@\S+\.\S+$/.test(content.contact.email.trim())) {
+    add("/content/contact/email", "format", "ایمیل معتبر مسئول پیگیری را وارد کنید.", 4);
+  }
+  if (!hasText(content.contact.phone, 7))
+    add("/content/contact/phone", "min_length", "شماره تماس مسئول پیگیری را وارد کنید.", 4);
+  if (!content.accuracyConfirmed) {
+    add("/content/accuracy_confirmed", "required", "صحت اطلاعات و اختیار ارسال را تأیید کنید.", 4);
+  }
+
+  return { ready: issues.length === 0, issues };
+}
 
 export type ChallengeDraft = {
   readonly id: ChallengeId;

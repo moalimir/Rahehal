@@ -7,6 +7,7 @@ import type {
   SuccessEnvelope,
 } from "@rahhal/contracts";
 import { parseCorrelationId, parseTenantId, parseUserId, parseWorkspaceId } from "@rahhal/domain";
+import { buildChallengeContentResource } from "@rahhal/testkit";
 
 import { buildApi } from "../src/app.js";
 import { MonotonicIdFactory } from "../src/primitives.js";
@@ -146,7 +147,7 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
     );
     expect(current).toMatchObject({
       version: 2,
-      authoring_status: "ready",
+      authoring_status: "draft",
       content: { title: "مسئله عملیاتی", summary: "شرح نسخه دوم" },
     });
     await expect(
@@ -213,6 +214,179 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
         context("a1c-stale-save-key", 6),
       ),
     ).rejects.toMatchObject({ statusCode: 409, code: "CONFLICT" });
+  });
+
+  it("persists the B1 lifecycle, locks submitted content, and separates aggregate/content versions", async () => {
+    const challenges = adapter();
+    const created = await challenges.create(
+      { expected_version: 0, draft: buildChallengeContentResource() },
+      context("b1-postgres-create-01", 20),
+    );
+    const challengeId = created.receipt.entity_id;
+    const draft = await challenges.getScoped(context("b1-read-draft", 21), challengeId);
+    expect(draft).toMatchObject({
+      stage: "draft",
+      version: 1,
+      content_version: 1,
+      readiness: { ready: true, evaluated_version: 1, issues: [] },
+    });
+
+    const triageCommand = context("b1-postgres-triage-01", 22);
+    const triage = await challenges.transition(
+      challengeId,
+      "request-triage",
+      { expected_version: 1 },
+      triageCommand,
+    );
+    const triageReplay = await challenges.transition(
+      challengeId,
+      "request-triage",
+      { expected_version: 1 },
+      triageCommand,
+    );
+    expect(triage).toMatchObject({
+      entityVersion: 2,
+      receipt: { idempotent: false, next_actions: ["advance_formulation"] },
+    });
+    expect(triageReplay).toEqual({
+      ...triage,
+      receipt: { ...triage.receipt, idempotent: true },
+    });
+    const submittedVersion = await database.query<{
+      locked_at: Date | null;
+      lock_reason: string | null;
+    }>(
+      `
+        SELECT locked_at, lock_reason
+        FROM challenge_version
+        WHERE challenge_id = $1 AND version_number = 1
+      `,
+      [challengeId],
+    );
+    expect(submittedVersion.rows[0]).toMatchObject({
+      locked_at: expect.any(Date),
+      lock_reason: "triage_submission",
+    });
+
+    await challenges.transition(
+      challengeId,
+      "advance-formulation",
+      { expected_version: 2 },
+      context("b1-postgres-formulation-01", 23),
+    );
+    await challenges.patch(
+      challengeId,
+      { expected_version: 3, patch: { summary: "Refined measurable challenge summary." } },
+      context("b1-postgres-refine-01", 24),
+    );
+    const approvals = await challenges.transition(
+      challengeId,
+      "request-approvals",
+      { expected_version: 4 },
+      context("b1-postgres-approvals-01", 25),
+    );
+    expect(approvals).toMatchObject({
+      entityVersion: 5,
+      receipt: { next_actions: ["await_approvals"] },
+    });
+
+    const current = await challenges.getScoped(context("b1-read-approvals", 26), challengeId);
+    expect(current).toMatchObject({
+      stage: "approvals",
+      version: 5,
+      content_version: 2,
+      readiness: { ready: true, evaluated_version: 5 },
+    });
+    await expect(
+      challenges.patch(
+        challengeId,
+        { expected_version: 5, patch: { title: "Forbidden in approvals" } },
+        context("b1-postgres-edit-approvals", 27),
+      ),
+    ).rejects.toMatchObject({ code: "INVALID_STATE", statusCode: 409 });
+
+    const evidence = await database.query<{
+      versions: string;
+      locked_versions: string;
+      audits: string;
+      receipts: string;
+      events: string;
+    }>(
+      `
+        SELECT
+          (SELECT count(*) FROM challenge_version WHERE challenge_id = $1) AS versions,
+          (SELECT count(*) FROM challenge_version
+            WHERE challenge_id = $1 AND locked_at IS NOT NULL) AS locked_versions,
+          (SELECT count(*) FROM audit_event
+            WHERE target_type = 'challenge' AND target_id = $1
+              AND reason_code = 'MUTATION_COMMITTED') AS audits,
+          (SELECT count(*) FROM mutation_receipt
+            WHERE entity_type = 'challenge' AND entity_id = $1) AS receipts,
+          (SELECT count(*) FROM outbox_event
+            WHERE aggregate_type = 'challenge' AND aggregate_id = $1) AS events
+      `,
+      [challengeId],
+    );
+    expect(evidence.rows[0]).toEqual({
+      versions: "2",
+      locked_versions: "2",
+      audits: "5",
+      receipts: "5",
+      events: "5",
+    });
+  });
+
+  it("rolls back a B1 transition and all evidence when commit fails", async () => {
+    const created = await adapter().create(
+      { expected_version: 0, draft: buildChallengeContentResource() },
+      context("b1-rollback-create-01", 30),
+    );
+    const before = await database.query<{ snapshot: string }>(
+      `
+        SELECT jsonb_build_object(
+          'stage', (SELECT stage FROM challenge WHERE id = $1),
+          'version', (SELECT lock_version FROM challenge WHERE id = $1),
+          'locked', (SELECT count(*) FROM challenge_version
+            WHERE challenge_id = $1 AND locked_at IS NOT NULL),
+          'audits', (SELECT count(*) FROM audit_event WHERE target_id = $1),
+          'receipts', (SELECT count(*) FROM mutation_receipt WHERE entity_id = $1),
+          'events', (SELECT count(*) FROM outbox_event WHERE aggregate_id = $1),
+          'replays', (SELECT count(*) FROM idempotency_key
+            WHERE tenant_id = $2 AND idempotency_key = 'b1-rollback-transition-01')
+        )::text AS snapshot
+      `,
+      [created.receipt.entity_id, ownerTenantId],
+    );
+    const failing = adapter({
+      beforeCommit: () => {
+        throw new Error("forced B1 transition rollback");
+      },
+    });
+    await expect(
+      failing.transition(
+        created.receipt.entity_id,
+        "request-triage",
+        { expected_version: 1 },
+        context("b1-rollback-transition-01", 31),
+      ),
+    ).rejects.toThrow("forced B1 transition rollback");
+    const after = await database.query<{ snapshot: string }>(
+      `
+        SELECT jsonb_build_object(
+          'stage', (SELECT stage FROM challenge WHERE id = $1),
+          'version', (SELECT lock_version FROM challenge WHERE id = $1),
+          'locked', (SELECT count(*) FROM challenge_version
+            WHERE challenge_id = $1 AND locked_at IS NOT NULL),
+          'audits', (SELECT count(*) FROM audit_event WHERE target_id = $1),
+          'receipts', (SELECT count(*) FROM mutation_receipt WHERE entity_id = $1),
+          'events', (SELECT count(*) FROM outbox_event WHERE aggregate_id = $1),
+          'replays', (SELECT count(*) FROM idempotency_key
+            WHERE tenant_id = $2 AND idempotency_key = 'b1-rollback-transition-01')
+        )::text AS snapshot
+      `,
+      [created.receipt.entity_id, ownerTenantId],
+    );
+    expect(after.rows[0]?.snapshot).toBe(before.rows[0]?.snapshot);
   });
 
   it("rolls back aggregate, version, receipt, audit, outbox, and replay together", async () => {

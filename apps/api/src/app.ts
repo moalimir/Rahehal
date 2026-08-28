@@ -11,6 +11,7 @@ import {
   type BrowserOidcAuthorizationStartSuccessEnvelope,
   openApiDocument,
   type CreateChallengeBody,
+  type ChallengeTransitionBody,
   type MeResource,
   type MutationSuccessEnvelope,
   type OidcAuthorizationStartBody,
@@ -39,6 +40,7 @@ import type {
   ApiPorts,
   AuthenticatedSession,
   ChallengeScope,
+  ChallengeTransitionCommand,
   MutationOutcome,
   WorkspaceAccess,
   WorkspaceAuthorization,
@@ -260,6 +262,87 @@ async function revokeSession(request: FastifyRequest, ports: ApiPorts, body: Ses
 // find-my-way treats a single colon as a path parameter marker. Its double-colon
 // escape preserves the literal command separators in the published API paths.
 const fastifyLiteralPath = (path: string) => path.replaceAll(":", "::");
+
+const fastifyChallengeCommandPath = (path: string) =>
+  fastifyLiteralPath(path).replace(
+    "{challengeId}",
+    `:challengeId(${challengeIdParamsSchema.properties.challengeId.pattern})`,
+  );
+
+function registerChallengeTransition(
+  app: FastifyInstance,
+  ports: ApiPorts,
+  route: string,
+  command: ChallengeTransitionCommand,
+  action: string,
+): void {
+  app.post<{ Params: ChallengeIdParams; Body: ChallengeTransitionBody }>(
+    fastifyChallengeCommandPath(route),
+    {
+      schema: {
+        params: challengeIdParamsSchema,
+        body: apiSchemas.ChallengeTransitionBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request): Promise<MutationSuccessEnvelope> => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action,
+          entityType: "challenge",
+          entityId: request.params.challengeId,
+          allows: canEditChallenge,
+          deferSuccess: true,
+        },
+        async (access) => {
+          const visible = await ports.challenges.getScoped(
+            challengeScope(session, access),
+            request.params.challengeId,
+          );
+          if (!visible) {
+            await ports.decisionAudit.record({
+              outcome: "denied",
+              actorUserId: session.userId,
+              tenantId: access.tenantId,
+              workspaceId: access.workspaceId,
+              action,
+              entityType: "challenge",
+              entityId: request.params.challengeId,
+              reason: "record_unreachable",
+              correlationId: correlationId(request),
+              occurredAt: ports.clock.now().toISOString(),
+            });
+            throw notFound();
+          }
+          await recordWorkspaceAccessSuccess(request, ports, session, access, {
+            action,
+            entityType: "challenge",
+            entityId: request.params.challengeId,
+          });
+          const outcome = await ports.challenges.transition(
+            request.params.challengeId,
+            command,
+            request.body,
+            {
+              ...challengeScope(session, access),
+              ...idempotencyCommand(request),
+            },
+          );
+          return mutationSuccess(outcome, request, ports);
+        },
+      );
+    },
+  );
+}
 
 function requireBrowserOrigin(request: FastifyRequest, settings: BrowserSessionRuntimeSettings) {
   const origin = request.headers.origin;
@@ -739,6 +822,28 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
         },
       );
     },
+  );
+
+  registerChallengeTransition(
+    app,
+    ports,
+    apiRoutes.requestChallengeTriage,
+    "request-triage",
+    "challenge:request-triage",
+  );
+  registerChallengeTransition(
+    app,
+    ports,
+    apiRoutes.advanceChallengeFormulation,
+    "advance-formulation",
+    "challenge:advance-formulation",
+  );
+  registerChallengeTransition(
+    app,
+    ports,
+    apiRoutes.requestChallengeApprovals,
+    "request-approvals",
+    "challenge:request-approvals",
   );
 
   return app;
