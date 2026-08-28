@@ -265,10 +265,16 @@ export function createNetworkChallengeGateway(
         return localFailure("INVALID_STATE", "حذف پیش‌نویس هنوز در قرارداد سرور این فاز نیست.");
       },
       async submit() {
-        return localFailure("INVALID_STATE", "ارسال پرونده از فاز ۲ و پس از دروازه آمادگی فعال می‌شود.");
+        return localFailure(
+          "INVALID_STATE",
+          "ارسال پرونده از فاز ۲ و پس از دروازه آمادگی فعال می‌شود.",
+        );
       },
       async publish() {
-        return localFailure("INVALID_STATE", "انتشار پرونده از فاز ۲ و پس از تصویب‌ها فعال می‌شود.");
+        return localFailure(
+          "INVALID_STATE",
+          "انتشار پرونده از فاز ۲ و پس از تصویب‌ها فعال می‌شود.",
+        );
       },
     },
   };

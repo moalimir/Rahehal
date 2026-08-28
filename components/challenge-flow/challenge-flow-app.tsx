@@ -31,7 +31,10 @@ function ConnectedChallengeBoundary({ children }: { children: ReactNode }) {
   }
   if (runtime.sessionStatus === "anonymous") {
     return (
-      <ChallengeShell title="ورود سازمانی لازم است" description="این بخش به API و پایگاه داده متصل است.">
+      <ChallengeShell
+        title="ورود سازمانی لازم است"
+        description="این بخش به API و پایگاه داده متصل است."
+      >
         <section className="challenge-empty-state">
           <h2>برای مدیریت پیش‌نویس وارد شوید</h2>
           <p>هویت، عضویت و فضای کاری در سرور بررسی می‌شود.</p>
@@ -47,7 +50,10 @@ function ConnectedChallengeBoundary({ children }: { children: ReactNode }) {
   }
   if (runtime.sessionStatus === "error") {
     return (
-      <ChallengeShell title="ارتباط با سرویس برقرار نشد" description="درخواست به داده نمایشی برنگشت.">
+      <ChallengeShell
+        title="ارتباط با سرویس برقرار نشد"
+        description="درخواست به داده نمایشی برنگشت."
+      >
         <section className="challenge-empty-state" role="alert">
           <h2>سرویس موقتاً در دسترس نیست</h2>
           <p>{runtime.sessionError?.message}</p>
@@ -68,7 +74,10 @@ function ConnectedChallengeBoundary({ children }: { children: ReactNode }) {
     runtime.me?.workspaces.filter((workspace) => workspace.kind === "org") ?? [];
   if (!active || active.workspace_kind !== "org") {
     return (
-      <ChallengeShell title="انتخاب فضای کاری" description="دسترسی هر درخواست با عضویت فعال تطبیق می‌شود.">
+      <ChallengeShell
+        title="انتخاب فضای کاری"
+        description="دسترسی هر درخواست با عضویت فعال تطبیق می‌شود."
+      >
         <section className="challenge-empty-state">
           <h2>یک فضای سازمانی را فعال کنید</h2>
           {organizationWorkspaces.map((workspace) => (

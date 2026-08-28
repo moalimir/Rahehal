@@ -180,6 +180,11 @@ export function ConfiguredRoleShell({
       onSignOut={
         connectedOrganization
           ? () => {
+              // A full document navigation is deliberate after revoking a session:
+              // it discards every in-memory gateway, cache, and provider value that
+              // a client-side `router.push` would keep alive. The Next rule assumes
+              // ordinary in-app navigation, which this is not.
+              // eslint-disable-next-line @next/next/no-location-assign-relative-destination
               void runtime.signOut().then(() => window.location.assign("/auth/organization/login"));
             }
           : undefined

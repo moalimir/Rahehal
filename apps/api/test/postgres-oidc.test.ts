@@ -50,7 +50,14 @@ type ExchangeResponse = {
     receipt: { idempotent: boolean };
   };
 };
-type MeResponse = { data: { user: { email_verified: boolean } } };
+type MeResponse = {
+  data: {
+    user: { email_verified: boolean };
+    active_context: { workspace_id: string } | null;
+    workspaces: readonly { id: string; kind: string }[];
+  };
+  meta: { entity_version: number };
+};
 
 function jsonBody<Result>(response: { body: string }): Result {
   return JSON.parse(response.body) as Result;
@@ -373,7 +380,14 @@ describe("A2 PostgreSQL OIDC authorization", () => {
       headers: { cookie: accessCookie },
     });
     expect(me.statusCode).toBe(200);
-    expect(jsonBody<MeResponse>(me).data.user.email_verified).toBe(true);
+    const signedIn = jsonBody<MeResponse>(me);
+    expect(signedIn.data.user.email_verified).toBe(true);
+    // A freshly exchanged session carries no active workspace; the server's own
+    // receipt says the next action is `select_workspace`.
+    expect(signedIn.data.active_context).toBeNull();
+    expect(signedIn.data.workspaces.some((workspace) => workspace.id === "wsp_org_alpha")).toBe(
+      true,
+    );
 
     const deniedWrite = await app.inject({
       method: "POST",
@@ -386,6 +400,40 @@ describe("A2 PostgreSQL OIDC authorization", () => {
       payload: { expected_version: 0, draft: { title: "Denied cross-site write" } },
     });
     expect(deniedWrite.statusCode).toBe(403);
+
+    // Same-origin and a real membership are still not enough: without a selected
+    // workspace the command is refused, and the refusal does not confirm the
+    // workspace exists.
+    const beforeSelection = await app.inject({
+      method: "POST",
+      url: "/api/v1/challenges",
+      headers: {
+        cookie: accessCookie,
+        origin: "http://localhost:3000",
+        "sec-fetch-site": "same-origin",
+        "x-workspace-id": "wsp_org_alpha",
+        "idempotency-key": "a3-browser-create-before-selection",
+      },
+      payload: { expected_version: 0, draft: { title: "Write before workspace selection" } },
+    });
+    expect(beforeSelection.statusCode).toBe(404);
+    expect(jsonBody<{ error: { code: string } }>(beforeSelection).error.code).toBe("NOT_FOUND");
+
+    const selectWorkspace = await app.inject({
+      method: "POST",
+      url: "/api/v1/me/context:switch",
+      headers: {
+        cookie: accessCookie,
+        origin: "http://localhost:3000",
+        "sec-fetch-site": "same-origin",
+        "idempotency-key": "a3-browser-select-workspace-alpha",
+      },
+      payload: {
+        expected_version: signedIn.meta.entity_version,
+        workspace_id: "wsp_org_alpha",
+      },
+    });
+    expect(selectWorkspace.statusCode).toBe(200);
 
     const created = await app.inject({
       method: "POST",

@@ -38,9 +38,7 @@ export function NetworkOrganizationLogin() {
           <div className="organization-auth-card organization-auth-card--login">
             <span className="organization-auth-badge">محیط محلی متصل</span>
             <h1>ورود به حساب سازمانی</h1>
-            <p>
-              ورود با OIDC محلی انجام می‌شود؛ نشست، عضویت و فضای کاری را سرور بررسی می‌کند.
-            </p>
+            <p>ورود با OIDC محلی انجام می‌شود؛ نشست، عضویت و فضای کاری را سرور بررسی می‌کند.</p>
             {error && (
               <div className="form-message form-message--error" role="alert">
                 {error}
@@ -61,7 +59,7 @@ export function NetworkOrganizationLogin() {
               </button>
             )}
             <p className="organization-auth-help">
-              حساب مصنوعی: <bdi dir="ltr">owner-alpha@synthetic.invalid</bdi> · گذرواژه: {" "}
+              حساب مصنوعی: <bdi dir="ltr">owner-alpha@synthetic.invalid</bdi> · گذرواژه:{" "}
               <bdi dir="ltr">rahhal-local-owner</bdi>
             </p>
           </div>

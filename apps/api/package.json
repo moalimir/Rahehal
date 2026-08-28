@@ -17,7 +17,7 @@
     "start": "node dist/server.js",
     "test:postgres": "vitest run test/postgres-*.test.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --exclude test/postgres-*.test.ts"
+    "test": "vitest run --exclude 'test/postgres-*.test.ts'"
   },
   "dependencies": {
     "@rahhal/contracts": "0.1.0",

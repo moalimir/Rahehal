@@ -62,13 +62,20 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<MeResource | null>(null);
   const [sessionVersion, setSessionVersion] = useState<number | null>(null);
   const [sessionError, setSessionError] = useState<ErrorEnvelope["error"] | null>(null);
-  const activeWorkspaceRef = useRef<string | null>(null);
   const commandKeysRef = useRef(new Map<string, string>());
-  const [challengeGateway] = useState(() =>
-    network
-      ? createNetworkChallengeGateway({ activeWorkspaceId: () => activeWorkspaceRef.current })
-      : demoChallengeGateway,
-  );
+  // The gateway reads the active workspace at request time, never at render time,
+  // so the mutable scope and the gateway that closes over it are created together.
+  const [{ scope, challengeGateway }] = useState(() => {
+    const workspaceScope: { activeWorkspaceId: string | null } = { activeWorkspaceId: null };
+    return {
+      scope: workspaceScope,
+      challengeGateway: network
+        ? createNetworkChallengeGateway({
+            activeWorkspaceId: () => workspaceScope.activeWorkspaceId,
+          })
+        : demoChallengeGateway,
+    };
+  });
 
   const refreshMe = useCallback(async () => {
     if (!network) return true;
@@ -76,18 +83,18 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     if (!result.ok) {
       setMe(null);
       setSessionVersion(null);
-      activeWorkspaceRef.current = null;
+      scope.activeWorkspaceId = null;
       setSessionError(result.error);
       setSessionStatus(result.error.code === "NO_ACCESS" ? "anonymous" : "error");
       return false;
     }
     setMe(result.data);
     setSessionVersion(result.meta.entity_version);
-    activeWorkspaceRef.current = result.data.active_context?.workspace_id ?? null;
+    scope.activeWorkspaceId = result.data.active_context?.workspace_id ?? null;
     setSessionError(null);
     setSessionStatus("authenticated");
     return true;
-  }, [network]);
+  }, [network, scope]);
 
   useEffect(() => {
     if (network) void refreshMe();
@@ -142,10 +149,10 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     });
     setMe(null);
     setSessionVersion(null);
-    activeWorkspaceRef.current = null;
+    scope.activeWorkspaceId = null;
     setSessionError(null);
     setSessionStatus("anonymous");
-  }, [network]);
+  }, [network, scope]);
 
   const value = useMemo<WebRuntimeContextValue>(
     () => ({
@@ -180,7 +187,9 @@ export function useWebRuntime(): WebRuntimeContextValue {
   const runtime = useContext(WebRuntimeContext);
   if (!runtime) {
     if (webRuntimeMode === "network") {
-      throw new Error("The network web runtime requires RuntimeProvider; demo fallback is forbidden");
+      throw new Error(
+        "The network web runtime requires RuntimeProvider; demo fallback is forbidden",
+      );
     }
     return standaloneDemoRuntime;
   }

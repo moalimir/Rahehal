@@ -170,7 +170,9 @@ export function ChallengeEditPage({ id }: { id: string }) {
         {saveError && (
           <div className="challenge-inline-error" role="alert" data-error-code={saveError.code}>
             <strong>
-              {saveError.code === "CONFLICT" ? "نسخه تازه‌تری روی سرور وجود دارد." : "ذخیره انجام نشد."}
+              {saveError.code === "CONFLICT"
+                ? "نسخه تازه‌تری روی سرور وجود دارد."
+                : "ذخیره انجام نشد."}
             </strong>{" "}
             {saveError.message}
             {saveError.code === "CONFLICT" && (

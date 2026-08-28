@@ -15,7 +15,7 @@ const internalApiOrigin = process.env.RAHHAL_API_INTERNAL_URL ?? "http://127.0.0
 
 if (networkRuntime) {
   const apiUrl = new URL(internalApiOrigin);
-  if (!['http:', 'https:'].includes(apiUrl.protocol) || apiUrl.pathname !== '/') {
+  if (!["http:", "https:"].includes(apiUrl.protocol) || apiUrl.pathname !== "/") {
     throw new Error("RAHHAL_API_INTERNAL_URL must be an HTTP(S) origin");
   }
 }
