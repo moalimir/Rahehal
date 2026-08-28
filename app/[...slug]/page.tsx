@@ -17,8 +17,9 @@ import { routeDefinitions } from "@/data/routes";
 import { challenges } from "@/data/mock";
 import { CHALLENGE_ROUTE_IDS } from "@/lib/challenges/ids";
 import { getLegacyResolution, legacyRouteEntries } from "@/data/legacy-redirects";
+import { isNetworkWebRuntime } from "@/lib/runtime/mode";
 
-export const dynamicParams = false;
+export const dynamicParams = isNetworkWebRuntime;
 
 export function generateStaticParams() {
   const publicRoutes = routeDefinitions.filter((route) => route.role === "public");

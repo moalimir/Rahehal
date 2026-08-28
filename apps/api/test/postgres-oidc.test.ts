@@ -26,6 +26,7 @@ const testDatabaseName = `rahhal_a2_oidc_${process.pid}_${Date.now()}`;
 const testDatabaseUrl = new URL(adminUrl);
 testDatabaseUrl.pathname = `/${testDatabaseName}`;
 const redirectUri = "http://localhost:3000/auth/callback";
+const browserRedirectUri = "http://localhost:3000/auth/browser/callback";
 const alternateRedirectUri = "http://localhost:3000/auth/alternate-callback";
 const flowSecret = "a2-oidc-flow-secret-with-at-least-thirty-two-bytes";
 const credentialSecret = "a2-session-secret-with-at-least-thirty-two-bytes";
@@ -53,6 +54,17 @@ type MeResponse = { data: { user: { email_verified: boolean } } };
 
 function jsonBody<Result>(response: { body: string }): Result {
   return JSON.parse(response.body) as Result;
+}
+
+function setCookieValues(response: { headers: Record<string, unknown> }): readonly string[] {
+  const value = response.headers["set-cookie"];
+  return Array.isArray(value) ? value.map(String) : typeof value === "string" ? [value] : [];
+}
+
+function cookiePair(values: readonly string[], name: string): string {
+  const value = values.find((candidate) => candidate.startsWith(`${name}=`));
+  if (!value) throw new Error(`Missing ${name} cookie`);
+  return value.split(";", 1)[0];
 }
 
 function authorizationCallback(authorizationUrl: string): Promise<URL> {
@@ -90,7 +102,7 @@ beforeAll(async () => {
     {
       issuer: new URL(provider.issuer),
       clientId: "rahhal-test-web",
-      allowedRedirectUris: new Set([redirectUri, alternateRedirectUri]),
+      allowedRedirectUris: new Set([redirectUri, alternateRedirectUri, browserRedirectUri]),
       flowSecret,
       allowInsecureHttp: true,
     },
@@ -105,16 +117,25 @@ beforeAll(async () => {
     ids,
     audit,
   );
-  app = buildApi({
-    oidcAuthorization: oidc,
-    sessions: identity,
-    workspaces: identity,
-    authority: identity,
-    challenges: new PostgresChallengeAdapter(unitOfWork, clock, ids),
-    decisionAudit: audit,
-    clock,
-    ids,
-  });
+  app = buildApi(
+    {
+      oidcAuthorization: oidc,
+      sessions: identity,
+      workspaces: identity,
+      authority: identity,
+      challenges: new PostgresChallengeAdapter(unitOfWork, clock, ids),
+      decisionAudit: audit,
+      clock,
+      ids,
+    },
+    {
+      browserSession: {
+        origin: "http://localhost:3000",
+        redirectUri: browserRedirectUri,
+        secureCookies: false,
+      },
+    },
+  );
 }, 60_000);
 
 beforeEach(() => {
@@ -310,6 +331,95 @@ describe("A2 PostgreSQL OIDC authorization", () => {
       headers: { authorization: `Bearer ${tokens.access_token}` },
     });
     expect(denied.statusCode).toBe(403);
+  });
+
+  it("keeps browser credentials HttpOnly, enforces same-origin writes, and survives reload", async () => {
+    const start = await app.inject({
+      method: "POST",
+      url: "/auth/browser/oidc:start",
+      headers: {
+        origin: "http://localhost:3000",
+        "sec-fetch-site": "same-origin",
+        "idempotency-key": "a3-browser-start-owner-alpha",
+      },
+      payload: { expected_version: 0 },
+    });
+    expect(start.statusCode).toBe(200);
+    expect(start.body).not.toContain("code_verifier");
+    expect(start.body).not.toContain('"state"');
+    const flowCookie = cookiePair(setCookieValues(start), "rahhal-oidc-flow");
+    expect(setCookieValues(start).join(";")).toContain("HttpOnly");
+    expect(setCookieValues(start).join(";")).toContain("SameSite=Lax");
+
+    const startData = jsonBody<{ data: { authorization_url: string } }>(start).data;
+    const callback = await authorizationCallback(startData.authorization_url);
+    expect(callback.toString()).not.toContain("code_verifier");
+    const exchange = await app.inject({
+      method: "GET",
+      url: `${callback.pathname}${callback.search}`,
+      headers: { cookie: flowCookie },
+    });
+    expect(exchange.statusCode).toBe(303);
+    expect(exchange.headers.location).toBe("/app/org/challenges/new");
+    expect(exchange.body).not.toContain("rahhal-at-");
+    expect(exchange.body).not.toContain("rahhal-rt-");
+    const sessionCookieValues = setCookieValues(exchange);
+    const accessCookie = cookiePair(sessionCookieValues, "rahhal-access");
+    expect(sessionCookieValues.join(";")).toContain("HttpOnly");
+
+    const me = await app.inject({
+      method: "GET",
+      url: "/api/v1/me",
+      headers: { cookie: accessCookie },
+    });
+    expect(me.statusCode).toBe(200);
+    expect(jsonBody<MeResponse>(me).data.user.email_verified).toBe(true);
+
+    const deniedWrite = await app.inject({
+      method: "POST",
+      url: "/api/v1/challenges",
+      headers: {
+        cookie: accessCookie,
+        "x-workspace-id": "wsp_org_alpha",
+        "idempotency-key": "a3-browser-create-denied",
+      },
+      payload: { expected_version: 0, draft: { title: "Denied cross-site write" } },
+    });
+    expect(deniedWrite.statusCode).toBe(403);
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/challenges",
+      headers: {
+        cookie: accessCookie,
+        origin: "http://localhost:3000",
+        "sec-fetch-site": "same-origin",
+        "x-workspace-id": "wsp_org_alpha",
+        "idempotency-key": "a3-browser-create-allowed",
+      },
+      payload: { expected_version: 0, draft: { title: "Browser authoritative draft" } },
+    });
+    expect(created.statusCode).toBe(201);
+
+    const revoke = await app.inject({
+      method: "POST",
+      url: "/auth/browser/session:revoke",
+      headers: {
+        cookie: accessCookie,
+        origin: "http://localhost:3000",
+        "sec-fetch-site": "same-origin",
+        "idempotency-key": "a3-browser-revoke-owner-alpha",
+      },
+      payload: {},
+    });
+    expect(revoke.statusCode).toBe(200);
+    expect(setCookieValues(revoke).join(";")).toContain("Max-Age=0");
+    const deniedAfterRevoke = await app.inject({
+      method: "GET",
+      url: "/api/v1/me",
+      headers: { cookie: accessCookie },
+    });
+    expect(deniedAfterRevoke.statusCode).toBe(403);
   });
 
   it("denies an expired authorization attempt before contacting the provider", async () => {

@@ -1,4 +1,5 @@
 import { CHALLENGE_ROUTE_IDS } from "@/lib/challenges/ids";
+import { isNetworkWebRuntime } from "@/lib/runtime/mode";
 
 export type ChallengeFlowRoute =
   | { kind: "list"; path: string }
@@ -51,7 +52,12 @@ export function getChallengeFlowRoute(path: string): ChallengeFlowRoute | undefi
   const match = normalized.match(
     /^\/app\/org\/challenges\/([^/]+)(?:\/(overview|edit|studio|preview|submitted))?$/,
   );
-  if (!match || !CHALLENGE_ROUTE_IDS.includes(match[1])) return undefined;
+  if (
+    !match ||
+    (!CHALLENGE_ROUTE_IDS.includes(match[1]) &&
+      !(isNetworkWebRuntime && /^chl_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$/.test(match[1])))
+  )
+    return undefined;
   const segment = match[2];
   return {
     kind:

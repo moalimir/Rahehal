@@ -12,7 +12,14 @@ export type InitialChallengeInput = Pick<
   | "attachments"
 >;
 
-export type ChallengeGatewayErrorCode = "NOT_FOUND" | "INVALID_STATE" | "VALIDATION" | "STORAGE";
+export type ChallengeGatewayErrorCode =
+  | "VALIDATION"
+  | "NO_ACCESS"
+  | "NOT_FOUND"
+  | "INVALID_STATE"
+  | "CONFLICT"
+  | "STEP_UP_REQUIRED"
+  | "STORAGE";
 
 export type ChallengeResultMeta = {
   readonly server_time: string;

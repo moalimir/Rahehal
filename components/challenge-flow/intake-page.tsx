@@ -14,7 +14,7 @@ import { categoryOptions, currentUser, type ChallengeRecord } from "@/domain/cha
 import type { InitialChallengeInput } from "@/lib/challenges/gateway";
 import { createAttachment, emptyChallenge } from "@/lib/challenges/model";
 import { navigateChallenge } from "@/lib/challenges/navigation";
-import { demoChallengeGateway } from "@/lib/challenges/runtime";
+import { useChallengeGateway } from "@/components/runtime-provider";
 import { issueFor, validateStep } from "@/lib/challenges/validation";
 import { CHALLENGE_UPLOAD_ACCEPT, challengeUploadError } from "@/lib/validation/upload";
 
@@ -30,6 +30,7 @@ const initialForm: InitialChallengeInput = {
 };
 
 export function ChallengeIntakePage() {
+  const challengeGateway = useChallengeGateway();
   const [form, setForm] = useState<InitialChallengeInput>(initialForm);
   const [submitted, setSubmitted] = useState(false);
   const [fatalError, setFatalError] = useState("");
@@ -51,7 +52,7 @@ export function ChallengeIntakePage() {
       return;
     }
     setBusy(true);
-    const result = await demoChallengeGateway.commands.create(form);
+    const result = await challengeGateway.commands.create(form);
     setBusy(false);
     if (!result.ok) {
       setFatalError(result.error.message);

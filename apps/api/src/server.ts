@@ -1,4 +1,5 @@
 import { buildApi } from "./app.js";
+import { browserSessionRuntimeSettings } from "./browser-session.js";
 import { createRuntimeApiComposition } from "./runtime-composition.js";
 
 const port = Number(process.env.RAHHAL_API_PORT ?? "3001");
@@ -7,7 +8,9 @@ if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
 }
 
 const composition = await createRuntimeApiComposition();
-const app = buildApi(composition.ports);
+const app = buildApi(composition.ports, {
+  browserSession: browserSessionRuntimeSettings(process.env),
+});
 
 let closing = false;
 const close = async () => {

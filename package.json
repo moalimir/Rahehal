@@ -15,6 +15,7 @@
   "scripts": {
     "dev": "npm run build:packages && next dev",
     "dev:web": "npm run build:packages && next dev",
+    "dev:web:network": "npm run build:packages && RAHHAL_WEB_RUNTIME=network next dev",
     "dev:api": "npm run build:packages && npm run dev --workspace @rahhal/api",
     "dev:worker": "npm run build:packages && npm run dev --workspace @rahhal/worker",
     "docker:config": "docker compose config --quiet",
@@ -31,6 +32,7 @@
     "db:seed": "npm run db:seed --workspace @rahhal/api",
     "build": "npm run build:packages && npm run build:web:app && npm run build:services",
     "build:web": "npm run build:packages && npm run build:web:app",
+    "build:web:network": "npm run build:packages && RAHHAL_WEB_RUNTIME=network next build --webpack",
     "build:web:app": "next build --webpack && node scripts/build-offline-bundle.mjs",
     "build:packages": "npm run build --workspace @rahhal/domain && npm run build --workspace @rahhal/contracts && npm run build --workspace @rahhal/testkit",
     "build:services": "npm run build --workspace @rahhal/api && npm run build --workspace @rahhal/worker",

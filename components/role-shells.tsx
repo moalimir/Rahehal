@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { RoleAppShell, type AppNavigationItem, type AppShellRole } from "@/components/app-shell";
+import { useWebRuntime } from "@/components/runtime-provider";
 
 const navigation: Record<Exclude<AppShellRole, "solver">, AppNavigationItem[]> = {
   org: [
@@ -130,14 +131,59 @@ export function ConfiguredRoleShell({
   children: ReactNode;
 }) {
   const organizationShell = role === "org";
+  const runtime = useWebRuntime();
+  const connectedOrganization = organizationShell && runtime.mode === "network";
+  const organizationWorkspaces = connectedOrganization
+    ? (runtime.me?.workspaces.filter((workspace) => workspace.kind === "org") ?? [])
+    : [];
+  const activeWorkspace = organizationWorkspaces.find(
+    (workspace) => workspace.id === runtime.me?.active_context?.workspace_id,
+  );
+  const activeMembership = runtime.me?.memberships.find(
+    (membership) => membership.workspace_id === activeWorkspace?.id,
+  );
+  const account = connectedOrganization
+    ? {
+        workspaceLabel: "فضای سازمانی فعال",
+        workspaceName: activeWorkspace?.name ?? "انتخاب فضای کاری",
+        userName: runtime.me?.user.display_name ?? "کاربر راه‌حل",
+        userRole:
+          activeMembership?.role === "org:owner"
+            ? "مالک سازمان"
+            : activeMembership?.role === "org:member"
+              ? "عضو سازمان"
+              : "عضو بدون فضای فعال",
+      }
+    : accounts[role];
   return (
     <RoleAppShell
       role={role}
       navigation={navigation[role]}
       currentPath={currentPath}
-      account={accounts[role]}
+      account={account}
       rootClassName={organizationShell ? "rh-shell rh-org-shell" : `app-shell app-shell--${role}`}
       contentClassName={organizationShell ? "rh-main rh-org-main" : "app-content"}
+      workspaceOptions={organizationWorkspaces.map((workspace) => ({
+        id: workspace.id,
+        label: workspace.name,
+        description: "سازمان",
+        space: "org" as const,
+      }))}
+      activeWorkspaceId={activeWorkspace?.id}
+      onWorkspaceChange={
+        connectedOrganization
+          ? (workspaceId) => {
+              void runtime.switchWorkspace(workspaceId);
+            }
+          : undefined
+      }
+      onSignOut={
+        connectedOrganization
+          ? () => {
+              void runtime.signOut().then(() => window.location.assign("/auth/organization/login"));
+            }
+          : undefined
+      }
     >
       {children}
     </RoleAppShell>

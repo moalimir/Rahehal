@@ -9,3 +9,15 @@ export const apiRoutes = {
   challenges: "/api/v1/challenges",
   challengeById: "/api/v1/challenges/{challengeId}",
 } as const;
+
+/**
+ * Same-origin browser transport owned by the web runtime. These routes are
+ * intentionally separate from the bearer-token OpenAPI surface: they adapt
+ * the OIDC/session contract to HttpOnly cookies and never expose credentials
+ * to client JavaScript.
+ */
+export const browserSessionRoutes = {
+  oidcAuthorizationStart: "/auth/browser/oidc:start",
+  oidcCallback: "/auth/browser/callback",
+  sessionRevoke: "/auth/browser/session:revoke",
+} as const;

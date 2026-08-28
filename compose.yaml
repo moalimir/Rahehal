@@ -69,17 +69,26 @@ services:
       - no-new-privileges:true
     ports:
       - name: web
-        target: 8080
+        target: 3000
         published: ${RAHHAL_WEB_PORT:-3000}
         host_ip: 127.0.0.1
         protocol: tcp
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))",
+        ]
       interval: 10s
       timeout: 3s
       start_period: 10s
       retries: 5
     stop_grace_period: 10s
+    depends_on:
+      api:
+        condition: service_healthy
 
   database-setup:
     image: ${RAHHAL_API_IMAGE:-rahhal/api:local}
@@ -140,8 +149,9 @@ services:
       RAHHAL_DATABASE_POOL_MAX: 10
       OIDC_ISSUER_URL: http://dex.localhost:5556/dex
       OIDC_CLIENT_ID: rahhal-local-web
-      OIDC_ALLOWED_REDIRECT_URIS: http://localhost:3000/auth/callback
+      OIDC_ALLOWED_REDIRECT_URIS: http://localhost:3000/auth/browser/callback
       OIDC_ALLOW_INSECURE_HTTP: "true"
+      RAHHAL_BROWSER_ORIGIN: http://localhost:3000
       OIDC_FLOW_SECRET: ${RAHHAL_OIDC_FLOW_SECRET:?run npm run docker:env:init}
       SESSION_CREDENTIAL_SECRET: ${RAHHAL_SESSION_CREDENTIAL_SECRET:?run npm run docker:env:init}
     depends_on:

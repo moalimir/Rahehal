@@ -7,6 +7,7 @@ import "./solver-workspace.css";
 import "./organization-workspace.css";
 import "./app-shell.css";
 import { DialogAccessibilityManager } from "@/components/a11y/dialog-manager";
+import { RuntimeProvider } from "@/components/runtime-provider";
 
 export const metadata: Metadata = {
   title: { default: "راه‌حل | از مسئله واقعی تا راهکار قابل اجرا", template: "%s | راه‌حل" },
@@ -22,7 +23,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <a className="skip-link" href="#main-content">
           رفتن به محتوای اصلی
         </a>
-        {children}
+        <RuntimeProvider>{children}</RuntimeProvider>
       </body>
     </html>
   );

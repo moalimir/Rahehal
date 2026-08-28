@@ -21,24 +21,47 @@ FROM dependencies AS source
 COPY . .
 
 FROM source AS web-build
-RUN npm run build:web
+ENV RAHHAL_WEB_RUNTIME=network \
+    RAHHAL_API_INTERNAL_URL=http://api:3001
+RUN npm run build:web:network
 
 FROM source AS service-build
 RUN npm run build:workspaces
 
-FROM nginx:1.29.1-alpine AS web
+FROM ${NODE_IMAGE} AS web
 ARG RAHHAL_REVISION=local
-LABEL org.opencontainers.image.title="Rahhal local web demo" \
-      org.opencontainers.image.description="Static, non-authoritative Rahhal web demo" \
+ENV NODE_ENV=development \
+    NEXT_TELEMETRY_DISABLED=1 \
+    HOSTNAME=0.0.0.0 \
+    PORT=3000
+LABEL org.opencontainers.image.title="Rahhal local connected web" \
+      org.opencontainers.image.description="Next.js browser client connected to the PostgreSQL-authoritative API" \
       org.opencontainers.image.revision="${RAHHAL_REVISION}"
+WORKDIR /workspace
 
+COPY --from=web-build --chown=node:node /workspace/.next/standalone ./
+COPY --from=web-build --chown=node:node /workspace/.next/static ./.next/static
+COPY --from=web-build --chown=node:node /workspace/public ./public
+
+USER node
+EXPOSE 3000
+HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=5 \
+  CMD node -e "fetch('http://127.0.0.1:3000/').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))"
+STOPSIGNAL SIGTERM
+CMD ["node", "server.js"]
+
+FROM source AS web-demo-build
+RUN npm run build:web
+
+FROM nginx:1.29.1-alpine AS web-demo
+ARG RAHHAL_REVISION=local
+LABEL org.opencontainers.image.title="Rahhal static web demo" \
+      org.opencontainers.image.description="Static, non-authoritative Rahhal browser demo" \
+      org.opencontainers.image.revision="${RAHHAL_REVISION}"
 COPY docker/nginx.conf /etc/nginx/nginx.conf
-COPY --from=web-build --chown=nginx:nginx /workspace/out /usr/share/nginx/html
-
+COPY --from=web-demo-build --chown=nginx:nginx /workspace/out /usr/share/nginx/html
 USER nginx
 EXPOSE 8080
-HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=5 \
-  CMD wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1
 CMD ["nginx", "-g", "daemon off;"]
 
 FROM toolchain AS service-runtime-dependencies

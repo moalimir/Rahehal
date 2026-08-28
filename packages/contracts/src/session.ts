@@ -22,6 +22,18 @@ export type OidcAuthorizationStartResult = {
 
 export type OidcAuthorizationStartSuccessEnvelope = SuccessEnvelope<OidcAuthorizationStartResult>;
 
+export type BrowserOidcAuthorizationStartBody = {
+  readonly expected_version: 0;
+};
+
+export type BrowserOidcAuthorizationStartResult = {
+  readonly authorization_url: string;
+  readonly expires_at: string;
+};
+
+export type BrowserOidcAuthorizationStartSuccessEnvelope =
+  SuccessEnvelope<BrowserOidcAuthorizationStartResult>;
+
 export type SessionExchangeBody = {
   readonly expected_version: 0;
   readonly authorization_code: string;

@@ -28,7 +28,7 @@ function stepFromLocation(fallback: WizardStep): WizardStep {
 }
 
 export function ChallengeEditPage({ id }: { id: string }) {
-  const { record, updateRecord, saveNow, saveStatus, lastSavedLabel, loadError } =
+  const { record, updateRecord, saveNow, saveStatus, lastSavedLabel, loadError, saveError } =
     useChallengeRecord(id);
   const [step, setStep] = useState<WizardStep>(1);
   const [showErrors, setShowErrors] = useState(false);
@@ -167,6 +167,19 @@ export function ChallengeEditPage({ id }: { id: string }) {
           <SaveIndicator status={saveStatus} />
         </header>
         <ErrorSummary issues={issues} />
+        {saveError && (
+          <div className="challenge-inline-error" role="alert" data-error-code={saveError.code}>
+            <strong>
+              {saveError.code === "CONFLICT" ? "نسخه تازه‌تری روی سرور وجود دارد." : "ذخیره انجام نشد."}
+            </strong>{" "}
+            {saveError.message}
+            {saveError.code === "CONFLICT" && (
+              <button type="button" onClick={() => window.location.reload()}>
+                دریافت نسخه تازه
+              </button>
+            )}
+          </div>
+        )}
         {stepContent}
         <footer className="challenge-form-actions">
           <div>

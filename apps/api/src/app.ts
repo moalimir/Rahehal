@@ -6,6 +6,9 @@ import Fastify, {
 import {
   apiRoutes,
   apiSchemas,
+  browserSessionRoutes,
+  type BrowserOidcAuthorizationStartBody,
+  type BrowserOidcAuthorizationStartSuccessEnvelope,
   openApiDocument,
   type CreateChallengeBody,
   type MeResource,
@@ -21,6 +24,16 @@ import {
   type SwitchWorkspaceContextBody,
   type VersionedApiMeta,
 } from "@rahhal/contracts";
+import {
+  authorizationFlowCookie,
+  browserCookieNames,
+  clearBrowserAuthorizationFlowCookie,
+  clearBrowserSessionCookies,
+  decodeBrowserAuthorizationFlow,
+  parseCookies,
+  sessionCookies,
+  type BrowserSessionRuntimeSettings,
+} from "./browser-session.js";
 import { ApiProblem, errorEnvelope, notFound } from "./errors.js";
 import type {
   ApiPorts,
@@ -30,7 +43,13 @@ import type {
   WorkspaceAccess,
   WorkspaceAuthorization,
 } from "./ports.js";
-import { correlationId, bearerToken, requireSession, requiredHeader } from "./primitives.js";
+import {
+  commandFingerprint,
+  correlationId,
+  bearerToken,
+  requireSession,
+  requiredHeader,
+} from "./primitives.js";
 
 const challengeIdParamsSchema = {
   type: "object",
@@ -45,6 +64,15 @@ const challengeIdParamsSchema = {
 } as const;
 
 type ChallengeIdParams = { challengeId: string };
+
+type BrowserOidcCallbackQuery = {
+  readonly code: string;
+  readonly state: string;
+};
+
+export type ApiRuntimeOptions = {
+  readonly browserSession?: BrowserSessionRuntimeSettings;
+};
 
 const apiErrorResponses = {
   403: apiSchemas.ErrorEnvelope,
@@ -233,11 +261,40 @@ async function revokeSession(request: FastifyRequest, ports: ApiPorts, body: Ses
 // escape preserves the literal command separators in the published API paths.
 const fastifyLiteralPath = (path: string) => path.replaceAll(":", "::");
 
-export function buildApi(ports: ApiPorts): FastifyInstance {
-  const app = Fastify({ logger: false, ajv: { customOptions: { removeAdditional: false } } });
+function requireBrowserOrigin(request: FastifyRequest, settings: BrowserSessionRuntimeSettings) {
+  const origin = request.headers.origin;
+  const fetchSite = request.headers["sec-fetch-site"];
+  if (
+    origin !== settings.origin ||
+    (typeof fetchSite === "string" && fetchSite !== "same-origin")
+  ) {
+    throw new ApiProblem(403, "NO_ACCESS", "A same-origin browser request is required");
+  }
+}
 
-  app.addHook("onRequest", async (_request, reply) => {
+export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): FastifyInstance {
+  const app = Fastify({ logger: false, ajv: { customOptions: { removeAdditional: false } } });
+  const cookieAuthenticatedRequests = new WeakSet<FastifyRequest>();
+
+  app.addHook("onRequest", async (request, reply) => {
     void reply.header("cache-control", "no-store");
+    if (options.browserSession && !request.headers.authorization) {
+      const accessToken = parseCookies(request.headers.cookie).get(browserCookieNames.access);
+      if (accessToken) {
+        request.headers.authorization = `Bearer ${accessToken}`;
+        cookieAuthenticatedRequests.add(request);
+      }
+    }
+  });
+
+  app.addHook("preValidation", async (request) => {
+    if (
+      options.browserSession &&
+      cookieAuthenticatedRequests.has(request) &&
+      !["GET", "HEAD", "OPTIONS"].includes(request.method)
+    ) {
+      requireBrowserOrigin(request, options.browserSession);
+    }
   });
 
   app.setErrorHandler((error, request, reply) => {
@@ -265,6 +322,155 @@ export function buildApi(ports: ApiPorts): FastifyInstance {
     void reply.header("cache-control", "no-store");
     return openApiDocument;
   });
+
+  if (options.browserSession) {
+    const settings = options.browserSession;
+
+    app.post<{ Body: BrowserOidcAuthorizationStartBody }>(
+      fastifyLiteralPath(browserSessionRoutes.oidcAuthorizationStart),
+      {
+        schema: {
+          body: {
+            type: "object",
+            additionalProperties: false,
+            required: ["expected_version"],
+            properties: { expected_version: { const: 0 } },
+          },
+          response: {
+            200: {
+              type: "object",
+              additionalProperties: false,
+              required: ["ok", "data", "meta"],
+              properties: {
+                ok: { const: true },
+                data: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["authorization_url", "expires_at"],
+                  properties: {
+                    authorization_url: { type: "string", format: "uri", maxLength: 4_096 },
+                    expires_at: { type: "string", format: "date-time" },
+                  },
+                },
+                meta: apiSchemas.ApiMeta,
+              },
+            },
+            ...apiErrorResponses,
+          },
+        },
+      },
+      async (request, reply): Promise<BrowserOidcAuthorizationStartSuccessEnvelope> => {
+        requireBrowserOrigin(request, settings);
+        const result = await ports.oidcAuthorization.start(
+          { expected_version: request.body.expected_version, redirect_uri: settings.redirectUri },
+          idempotencyCommand(request),
+        );
+        void reply.header(
+          "set-cookie",
+          authorizationFlowCookie(
+            {
+              state: result.state,
+              codeVerifier: result.code_verifier,
+              expiresAt: result.expires_at,
+            },
+            settings,
+            ports.clock.now(),
+          ),
+        );
+        return {
+          ok: true,
+          data: {
+            authorization_url: result.authorization_url,
+            expires_at: result.expires_at,
+          },
+          meta: {
+            server_time: ports.clock.now().toISOString(),
+            correlation_id: correlationId(request),
+          },
+        };
+      },
+    );
+
+    app.get<{ Querystring: BrowserOidcCallbackQuery }>(
+      browserSessionRoutes.oidcCallback,
+      {
+        schema: {
+          querystring: {
+            type: "object",
+            additionalProperties: false,
+            required: ["code", "state"],
+            properties: {
+              code: { type: "string", minLength: 1, maxLength: 4_096 },
+              state: { type: "string", minLength: 32, maxLength: 1_024 },
+            },
+          },
+        },
+      },
+      async (request, reply) => {
+        const fail = () => {
+          void reply
+            .code(303)
+            .header("set-cookie", clearBrowserAuthorizationFlowCookie(settings))
+            .header("location", "/auth/organization/login?authError=callback_failed")
+            .send();
+        };
+        const flowValue = parseCookies(request.headers.cookie).get(browserCookieNames.flow);
+        const flow = flowValue ? decodeBrowserAuthorizationFlow(flowValue) : null;
+        if (
+          !flow ||
+          flow.state !== request.query.state ||
+          Date.parse(flow.expiresAt) <= ports.clock.now().getTime()
+        ) {
+          return fail();
+        }
+
+        try {
+          const outcome = await ports.sessions.exchange(
+            {
+              expected_version: 0,
+              authorization_code: request.query.code,
+              code_verifier: flow.codeVerifier,
+              redirect_uri: settings.redirectUri,
+              state: request.query.state,
+            },
+            {
+              idempotencyKey: `browser-exchange-${commandFingerprint({
+                code: request.query.code,
+                state: request.query.state,
+              })}`,
+              correlationId: correlationId(request),
+            },
+          );
+          void reply
+            .code(303)
+            .header("set-cookie", [
+              ...sessionCookies(outcome.tokens, settings, ports.clock.now()),
+              clearBrowserAuthorizationFlowCookie(settings),
+            ])
+            .header("location", "/app/org/challenges/new")
+            .send();
+        } catch {
+          return fail();
+        }
+      },
+    );
+
+    app.post(fastifyLiteralPath(browserSessionRoutes.sessionRevoke), async (request, reply) => {
+      requireBrowserOrigin(request, settings);
+      try {
+        const accessToken = bearerToken(request);
+        const session = await ports.sessions.authenticate(accessToken);
+        if (!session) throw new ApiProblem(403, "NO_ACCESS", "Authentication required");
+        const outcome = await revokeSession(request, ports, {
+          expected_version: session.version,
+          session_id: session.id,
+        });
+        return mutationSuccess(outcome, request, ports);
+      } finally {
+        void reply.header("set-cookie", clearBrowserSessionCookies(settings));
+      }
+    });
+  }
 
   app.post<{ Body: OidcAuthorizationStartBody }>(
     fastifyLiteralPath(apiRoutes.oidcAuthorizationStart),

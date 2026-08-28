@@ -1,0 +1,72 @@
+import type { ApiErrorCode, ErrorEnvelope } from "@rahhal/contracts";
+import { parseCorrelationId } from "@rahhal/domain";
+
+type ApiEnvelopeLike = {
+  readonly ok: boolean;
+};
+
+const messages: Readonly<Record<ApiErrorCode, string>> = {
+  VALIDATION: "اطلاعات درخواست معتبر نیست.",
+  NO_ACCESS: "نشست یا دسترسی فعال برای این اقدام وجود ندارد.",
+  NOT_FOUND: "پرونده در فضای کاری فعال در دسترس نیست.",
+  INVALID_STATE: "این اقدام در وضعیت فعلی پرونده مجاز نیست.",
+  CONFLICT: "نسخه پرونده تغییر کرده است؛ داده تازه را دریافت و دوباره تلاش کنید.",
+  STEP_UP_REQUIRED: "برای این اقدام تأیید هویت تازه‌تری لازم است.",
+  STORAGE: "ارتباط با سرویس برقرار نشد؛ با همان درخواست دوباره تلاش کنید.",
+};
+
+function unavailable(message = messages.STORAGE): ErrorEnvelope {
+  return {
+    ok: false,
+    error: { code: "STORAGE", message, recovery: "retry_with_same_idempotency_key" },
+    meta: {
+      server_time: new Date().toISOString(),
+      correlation_id: parseCorrelationId("cor_web_unavailable"),
+    },
+  };
+}
+
+function isEnvelope(value: unknown): value is ApiEnvelopeLike {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate.ok === "boolean" && typeof candidate.meta === "object";
+}
+
+export async function requestApi<Success extends ApiEnvelopeLike>(
+  path: string,
+  init: RequestInit = {},
+): Promise<Success | ErrorEnvelope> {
+  try {
+    const response = await fetch(path, {
+      ...init,
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: {
+        accept: "application/json",
+        ...(init.body ? { "content-type": "application/json" } : {}),
+        ...init.headers,
+      },
+    });
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!contentType.includes("application/json")) return unavailable();
+    const payload: unknown = await response.json();
+    if (!isEnvelope(payload)) return unavailable("پاسخ سرویس با قرارداد مورد انتظار سازگار نیست.");
+    if (!payload.ok) {
+      const problem = payload as ErrorEnvelope;
+      const code = problem.error?.code;
+      if (!code || !(code in messages)) return unavailable();
+      return {
+        ...problem,
+        error: { ...problem.error, message: messages[code] },
+      };
+    }
+    if (!response.ok) return unavailable();
+    return payload as Success;
+  } catch {
+    return unavailable();
+  }
+}
+
+export function idempotencyKey(prefix: string): string {
+  return `${prefix}-${crypto.randomUUID()}`;
+}
