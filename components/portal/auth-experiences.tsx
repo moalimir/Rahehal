@@ -455,6 +455,10 @@ export function SolverLoginExperience() {
   const [success, setSuccess] = useState("");
   const [returnTo, setReturnTo] = useState("");
   const [requestedRole, setRequestedRole] = useState<"solver" | "reviewer" | "ops">("solver");
+  // Which dashboard context this sign-in is framed for — not a separate
+  // credential: a team has no independent password, so both tabs submit the
+  // same identifier/password. It only changes the recovery-flow link.
+  const [accountKind, setAccountKind] = useState<"individual" | "team">("individual");
 
   useEffect(() => {
     const isStandalone = document.documentElement.dataset.challengeStandalone === "true";
@@ -522,11 +526,28 @@ export function SolverLoginExperience() {
       <main className="solver-login-main" id="main-content">
         <section className="solver-login-form-panel">
           <form className="solver-login-card" onSubmit={submit} noValidate>
-            <span className="organization-auth-badge">یک حساب، چند فضای کاری</span>
-            <h1>ورود حل‌کننده</h1>
-            <p>
-              با هویت انسانی خود وارد شوید؛ فضای شخصی و تیم‌های فعال پس از ورود قابل انتخاب‌اند.
-            </p>
+            <span className="organization-auth-badge">پنل متخصصان و تیم‌ها</span>
+            <h1>ورود متخصصان و تیم‌ها</h1>
+            <p>برای مشاهده چالش‌ها و مدیریت راه‌حل‌های خود وارد شوید.</p>
+
+            <div className="solver-login-tabs" role="radiogroup" aria-label="نوع حساب">
+              <button
+                type="button"
+                className={accountKind === "individual" ? "is-active" : ""}
+                aria-pressed={accountKind === "individual"}
+                onClick={() => setAccountKind("individual")}
+              >
+                حساب فردی
+              </button>
+              <button
+                type="button"
+                className={accountKind === "team" ? "is-active" : ""}
+                aria-pressed={accountKind === "team"}
+                onClick={() => setAccountKind("team")}
+              >
+                حساب تیمی
+              </button>
+            </div>
 
             <label className="organization-auth-field">
               <span>ایمیل یا شماره همراه</span>
@@ -595,7 +616,9 @@ export function SolverLoginExperience() {
                 />
                 مرا به خاطر بسپار
               </label>
-              <Link href="/auth/recovery?account=solver">رمز عبور را فراموش کرده‌اید؟</Link>
+              <Link href={`/auth/recovery?account=${accountKind}`}>
+                رمز عبور را فراموش کرده‌اید؟
+              </Link>
             </div>
 
             {success && (
