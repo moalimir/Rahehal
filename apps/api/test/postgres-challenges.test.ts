@@ -75,6 +75,12 @@ function postgresRuntimeEnvironment(): NodeJS.ProcessEnv {
     RAHHAL_API_MODE: "postgres",
     DATABASE_URL: testDatabaseUrl.toString(),
     RAHHAL_DATABASE_POOL_MAX: "4",
+    OIDC_ISSUER_URL: "http://dex.localhost:5556/dex",
+    OIDC_CLIENT_ID: "rahhal-local-web",
+    OIDC_ALLOWED_REDIRECT_URIS: "http://localhost:3000/auth/callback",
+    OIDC_ALLOW_INSECURE_HTTP: "true",
+    OIDC_FLOW_SECRET: "a1c-runtime-test-oidc-flow-secret-00000001",
+    SESSION_CREDENTIAL_SECRET: "a1c-runtime-test-session-secret-00000001",
   };
 }
 
@@ -326,6 +332,6 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
     ).rejects.toThrow("no runtime fallback");
     await expect(
       createRuntimeApiComposition({ NODE_ENV: "production", RAHHAL_API_MODE: "postgres" }),
-    ).rejects.toThrow("local-integration-only");
+    ).rejects.toThrow("refuses production");
   });
 });

@@ -1,5 +1,6 @@
 export const apiRoutes = {
   openApi: "/api/v1/openapi.json",
+  oidcAuthorizationStart: "/api/v1/auth/oidc:start",
   sessionExchange: "/api/v1/auth/session:exchange",
   sessionRefresh: "/api/v1/auth/session:refresh",
   sessionRevoke: "/api/v1/auth/session:revoke",

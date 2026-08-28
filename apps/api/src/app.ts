@@ -10,6 +10,8 @@ import {
   type CreateChallengeBody,
   type MeResource,
   type MutationSuccessEnvelope,
+  type OidcAuthorizationStartBody,
+  type OidcAuthorizationStartSuccessEnvelope,
   type PatchChallengeBody,
   type SessionExchangeBody,
   type SessionRefreshBody,
@@ -263,6 +265,24 @@ export function buildApi(ports: ApiPorts): FastifyInstance {
     void reply.header("cache-control", "no-store");
     return openApiDocument;
   });
+
+  app.post<{ Body: OidcAuthorizationStartBody }>(
+    fastifyLiteralPath(apiRoutes.oidcAuthorizationStart),
+    {
+      schema: {
+        body: apiSchemas.OidcAuthorizationStartBody,
+        response: { 200: apiSchemas.OidcAuthorizationStartSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request): Promise<OidcAuthorizationStartSuccessEnvelope> => ({
+      ok: true,
+      data: await ports.oidcAuthorization.start(request.body, idempotencyCommand(request)),
+      meta: {
+        server_time: ports.clock.now().toISOString(),
+        correlation_id: correlationId(request),
+      },
+    }),
+  );
 
   app.post<{ Body: SessionExchangeBody }>(
     fastifyLiteralPath(apiRoutes.sessionExchange),

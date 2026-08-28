@@ -3,6 +3,8 @@ import type {
   CreateChallengeBody,
   MeResource,
   MutationReceipt,
+  OidcAuthorizationStartBody,
+  OidcAuthorizationStartResult,
   PatchChallengeBody,
   SessionExchangeBody,
   SessionRefreshBody,
@@ -28,7 +30,7 @@ export type Clock = {
 };
 
 export type IdFactory = {
-  next(prefix: "ses" | "chl" | "chv" | "rcp" | "aud" | "cor" | "evt"): string;
+  next(prefix: "ses" | "chl" | "chv" | "rcp" | "aud" | "cor" | "evt" | "oat"): string;
 };
 
 export type AuthenticatedSession = {
@@ -46,12 +48,22 @@ export type SessionCommand = {
 };
 
 export type OidcIdentity = {
+  readonly authorizationAttemptId: string;
   readonly issuer: string;
   readonly subject: string;
+  readonly verifiedEmail: string;
 };
 
 export interface OidcExchangePort {
   exchange(body: SessionExchangeBody): Promise<OidcIdentity | null>;
+  consume(identity: OidcIdentity): Promise<void>;
+}
+
+export interface OidcAuthorizationPort {
+  start(
+    body: OidcAuthorizationStartBody,
+    command: SessionCommand,
+  ): Promise<OidcAuthorizationStartResult>;
 }
 
 export type IssuedSessionCredentials = {
@@ -170,6 +182,7 @@ export interface AccessDecisionAuditPort {
 }
 
 export type ApiPorts = {
+  readonly oidcAuthorization: OidcAuthorizationPort;
   readonly sessions: SessionPort;
   readonly workspaces: WorkspacePort;
   readonly authority: WorkspaceAuthorityUnitOfWorkPort;

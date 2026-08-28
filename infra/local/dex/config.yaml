@@ -1,0 +1,27 @@
+issuer: http://dex.localhost:5556/dex
+
+storage:
+  type: sqlite3
+  config:
+    file: /var/dex/dex.db
+
+web:
+  http: 0.0.0.0:5556
+
+oauth2:
+  skipApprovalScreen: true
+
+enablePasswordDB: true
+
+staticClients:
+  - id: rahhal-local-web
+    name: Rahhal local web
+    public: true
+    redirectURIs:
+      - http://localhost:3000/auth/callback
+
+staticPasswords:
+  - email: owner-alpha@synthetic.invalid
+    hash: $2y$12$8Slc7htGDKSPQU9UTXDEVOCw8KIAXk0lO7ZRufTPnRNKW6frPWP7q
+    username: local-owner
+    userID: owner-alpha

@@ -78,7 +78,7 @@ Status values: `accepted` · `accepted (eng) / pending-owner-sign-off` · `propo
 ### ADR-0010 — Identity via managed OIDC; separate KYB/verification
 
 **Decision.** Delegate authN/OTP/password/recovery to a managed in-region OIDC IdP; app stores only the user↔subject link, verified contacts, MFA status; KYB/verification is a separate workflow (ops-reviewed).
-**Consequences.** Don't build auth; do own verification. Revocation + membership checks deny immediately.
+**Consequences.** Don't build auth; do own verification. Revocation + membership checks deny immediately. A2 proves the provider-neutral authorization-code + PKCE boundary with pinned `openid-client` and a synthetic local Dex provider; this is development evidence, not selection or approval of the production IdP.
 
 ### ADR-0011 — Non-custodial payment orchestration (pilot)
 
@@ -99,7 +99,7 @@ Status values: `accepted` · `accepted (eng) / pending-owner-sign-off` · `propo
 ### ADR-0014 — Fastify 5 transport over injected application ports
 
 **Decision.** Use Fastify 5 for the initial Node API transport. Route modules validate the versioned JSON contract and depend on injected session, workspace, and challenge application ports; Fastify, demo repositories, and provider adapters remain outside `packages/domain` and `packages/contracts`.
-**Consequences.** The API is testable through in-process HTTP injection, starts quickly, and does not couple domain policy to a framework. The initial in-memory composition is explicitly demo-only and refuses production mode. A1c adds an explicit PostgreSQL composition with no fallback; managed OIDC and the browser network composition remain Phase-1 release requirements.
+**Consequences.** The API is testable through in-process HTTP injection, starts quickly, and does not couple domain policy to a framework. The initial in-memory composition is explicitly demo-only and refuses production mode. A1c adds an explicit PostgreSQL composition with no fallback; A2 adds local provider-neutral OIDC while still refusing production. The managed IdP decision and browser network composition remain release requirements.
 
 ---
 

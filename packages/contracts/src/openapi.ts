@@ -73,6 +73,27 @@ export const openApiDocument = {
         },
       },
     },
+    [apiRoutes.oidcAuthorizationStart]: {
+      post: {
+        operationId: "startOidcAuthorization",
+        tags: ["Session"],
+        summary: "Start a server-bound OIDC authorization-code and PKCE flow",
+        parameters: [idempotencyHeader],
+        requestBody: {
+          required: true,
+          content: jsonContent("OidcAuthorizationStartBody"),
+        },
+        responses: {
+          "200": {
+            description: "The provider authorization URL and one-time browser-held PKCE values.",
+            content: jsonContent("OidcAuthorizationStartSuccessEnvelope"),
+          },
+          "409": commonCommandErrors["409"],
+          "422": commonCommandErrors["422"],
+          "503": commonCommandErrors["503"],
+        },
+      },
+    },
     [apiRoutes.sessionExchange]: {
       post: {
         operationId: "exchangeSession",

@@ -66,7 +66,7 @@ Success returns the canonical receipt:
 }
 ```
 
-Session exchange and refresh are the one response-shape specialization: their successful `data` is `{ tokens, receipt }`, because the write must return the rotated credentials and its canonical mutation receipt together. Session revoke, workspace context switch, challenge create, and challenge save return the receipt directly. Every mutation response still carries versioned meta.
+OIDC authorization start returns the provider URL plus one-time browser-held state and PKCE verifier; the server retains only their digests and exact redirect binding. Session exchange and refresh are the command response-shape specialization: their successful `data` is `{ tokens, receipt }`, because the write must return the rotated credentials and its canonical mutation receipt together. Session revoke, workspace context switch, challenge create, and challenge save return the receipt directly. Every aggregate mutation response still carries versioned meta.
 
 - **Idempotency**: `Idempotency-Key` is stored per `(tenant, command, key)` (50 §8) with the cached response and a canonical request fingerprint. The fingerprint binds the actor, active workspace, target, and normalized command body; an exact retry within TTL returns the _same_ receipt with `idempotent:true`, while reuse for a different command context/body returns `409 CONFLICT` and never discloses the first receipt. Session exchange/rotation use an equivalent credential-scoped fingerprint before a tenant context exists. This prevents duplicate submissions, decisions, invitations, signatures, and payments without turning a shared key into a cross-workspace read channel (NFR-REL-001).
 - **Optimistic concurrency**: `expected_version` must equal the aggregate's current `version`, else `409 CONFLICT` (see §4). Retry never silently overwrites.
@@ -109,11 +109,12 @@ Rate-limited requests return `429` with `Retry-After`. All errors carry `correla
 
 ## 5. MVP slice endpoints
 
-The first published OpenAPI increment has exactly **8 paths / 9 operations**: `GET /api/v1/openapi.json`; `POST` session exchange/refresh/revoke; `GET /api/v1/me`; `POST /api/v1/me/context:switch`; `POST /api/v1/challenges`; and `GET` + `PATCH /api/v1/challenges/{challengeId}`. It implements §5.1 plus challenge draft create/read/save from §5.2. All three session writes carry `expected_version` (`0` for exchange) and `Idempotency-Key`; protected challenge writes additionally require `X-Workspace-Id`. The remaining endpoint inventory below is the approved MVP target, not a claim that those routes already exist. A1c provides explicit demo and PostgreSQL API compositions with no fallback; PostgreSQL mode is authoritative for seeded-session challenge calls but intentionally fails OIDC exchange/credential issuance closed until A2. RLS and the web network composition remain later gates.
+The published A2 OpenAPI increment has exactly **9 paths / 10 operations**: `GET /api/v1/openapi.json`; `POST` OIDC authorization start and session exchange/refresh/revoke; `GET /api/v1/me`; `POST /api/v1/me/context:switch`; `POST /api/v1/challenges`; and `GET` + `PATCH /api/v1/challenges/{challengeId}`. It implements §5.1 plus challenge draft create/read/save from §5.2. Every implemented write carries `expected_version` and `Idempotency-Key`; protected challenge writes additionally require `X-Workspace-Id`. The remaining endpoint inventory below is the approved MVP target, not a claim that those routes already exist. A2 PostgreSQL mode validates signed issuer/audience/nonce, exact state/redirect, S256 PKCE, the existing `(issuer, subject)` link, and a verified matching contact before issuing digest-only app credentials. RLS, the managed production IdP, and the web network composition remain later gates.
 
 ### 5.1 Identity & context
 
 ```
+POST /auth/oidc:start              # exact redirect → provider authorization URL + one-time PKCE values
 POST /auth/session:exchange        # OIDC code → app session (thin; IdP owns credentials/OTP)
 POST /auth/session:refresh
 POST /auth/session:revoke

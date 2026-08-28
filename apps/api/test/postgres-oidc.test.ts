@@ -1,0 +1,433 @@
+import { Client, Pool } from "pg";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+
+import { buildSessionExchangeBody, buildSessionRevokeBody } from "@rahhal/testkit";
+import { parseCorrelationId, parseSessionId } from "@rahhal/domain";
+
+import { buildApi } from "../src/app.js";
+import { PostgresAccessDecisionAudit } from "../src/postgres/access-decision-audit.js";
+import { PostgresChallengeAdapter } from "../src/postgres/challenges.js";
+import { PostgresIdentityWorkspaceAdapter } from "../src/postgres/identity-workspace.js";
+import { runMigrations } from "../src/postgres/migrations.js";
+import { PostgresOidcAuthorizationAdapter } from "../src/postgres/oidc-authorization.js";
+import { seedSyntheticData } from "../src/postgres/seeds.js";
+import { PostgresUnitOfWork } from "../src/postgres/unit-of-work.js";
+import { commandFingerprint, MonotonicIdFactory, RandomIdFactory } from "../src/primitives.js";
+import { HmacSessionCredentialIssuer } from "../src/session-credentials.js";
+import { FakeOidcProvider } from "./support/fake-oidc-provider.js";
+
+const defaultAdminUrl = "postgresql://rahhal:rahhal-local-only@127.0.0.1:5433/postgres";
+const adminUrl = new URL(process.env.RAHHAL_TEST_DATABASE_ADMIN_URL ?? defaultAdminUrl);
+if (!["127.0.0.1", "localhost", "::1"].includes(adminUrl.hostname)) {
+  throw new Error("OIDC integration tests refuse to create databases on a non-loopback host");
+}
+
+const testDatabaseName = `rahhal_a2_oidc_${process.pid}_${Date.now()}`;
+const testDatabaseUrl = new URL(adminUrl);
+testDatabaseUrl.pathname = `/${testDatabaseName}`;
+const redirectUri = "http://localhost:3000/auth/callback";
+const alternateRedirectUri = "http://localhost:3000/auth/alternate-callback";
+const flowSecret = "a2-oidc-flow-secret-with-at-least-thirty-two-bytes";
+const credentialSecret = "a2-session-secret-with-at-least-thirty-two-bytes";
+
+let admin: Client;
+let database: Pool;
+let provider: FakeOidcProvider;
+let app: ReturnType<typeof buildApi>;
+let oidc: PostgresOidcAuthorizationAdapter;
+let currentTime = new Date();
+
+function quotedIdentifier(value: string): string {
+  if (!/^[a-z0-9_]+$/.test(value)) throw new Error("Unsafe test database identifier");
+  return `"${value}"`;
+}
+
+type StartResponse = { data: Record<string, string> };
+type ExchangeResponse = {
+  data: {
+    tokens: Record<string, string>;
+    receipt: { idempotent: boolean };
+  };
+};
+type MeResponse = { data: { user: { email_verified: boolean } } };
+
+function jsonBody<Result>(response: { body: string }): Result {
+  return JSON.parse(response.body) as Result;
+}
+
+function authorizationCallback(authorizationUrl: string): Promise<URL> {
+  return fetch(authorizationUrl, { redirect: "manual" }).then((response) => {
+    const location = response.headers.get("location");
+    if (response.status !== 302 || !location) throw new Error("Fake provider did not redirect");
+    return new URL(location);
+  });
+}
+
+beforeAll(async () => {
+  provider = new FakeOidcProvider();
+  await provider.start();
+
+  admin = new Client({ connectionString: adminUrl.toString() });
+  await admin.connect();
+  await admin.query(`CREATE DATABASE ${quotedIdentifier(testDatabaseName)}`);
+  database = new Pool({ connectionString: testDatabaseUrl.toString(), max: 6 });
+  await runMigrations(database, "up");
+  await seedSyntheticData(database);
+  await database.query(
+    `
+      INSERT INTO identity_link (id, user_id, issuer, subject)
+      VALUES ('idl_owner_alpha_fake_oidc', 'usr_owner_alpha', $1, 'owner-alpha')
+    `,
+    [new URL(provider.issuer).toString()],
+  );
+
+  const clock = { now: () => new Date(currentTime) };
+  const ids = new MonotonicIdFactory();
+  const unitOfWork = new PostgresUnitOfWork(database);
+  const audit = new PostgresAccessDecisionAudit(unitOfWork, ids);
+  oidc = new PostgresOidcAuthorizationAdapter(
+    unitOfWork,
+    {
+      issuer: new URL(provider.issuer),
+      clientId: "rahhal-test-web",
+      allowedRedirectUris: new Set([redirectUri, alternateRedirectUri]),
+      flowSecret,
+      allowInsecureHttp: true,
+    },
+    clock,
+    ids,
+  );
+  const identity = new PostgresIdentityWorkspaceAdapter(
+    unitOfWork,
+    oidc,
+    new HmacSessionCredentialIssuer(credentialSecret),
+    clock,
+    ids,
+    audit,
+  );
+  app = buildApi({
+    oidcAuthorization: oidc,
+    sessions: identity,
+    workspaces: identity,
+    authority: identity,
+    challenges: new PostgresChallengeAdapter(unitOfWork, clock, ids),
+    decisionAudit: audit,
+    clock,
+    ids,
+  });
+}, 60_000);
+
+beforeEach(() => {
+  currentTime = new Date();
+});
+
+afterAll(async () => {
+  if (app) await app.close();
+  if (database) await database.end();
+  if (admin) {
+    await admin.query(`DROP DATABASE IF EXISTS ${quotedIdentifier(testDatabaseName)}`);
+    await admin.end();
+  }
+  if (provider) await provider.close();
+});
+
+describe("A2 PostgreSQL OIDC authorization", () => {
+  it("starts an idempotent server-bound PKCE flow without persisting browser secrets", async () => {
+    const request = () =>
+      app.inject({
+        method: "POST",
+        url: "/api/v1/auth/oidc:start",
+        headers: { "idempotency-key": "a2-start-owner-alpha-0001" },
+        payload: { expected_version: 0, redirect_uri: redirectUri },
+      });
+    const first = await request();
+    const replay = await request();
+    expect(first.statusCode).toBe(200);
+    expect(jsonBody<StartResponse>(replay).data).toEqual(jsonBody<StartResponse>(first).data);
+
+    const data = jsonBody<StartResponse>(first).data;
+    const authorizationUrl = new URL(data.authorization_url ?? "");
+    expect(authorizationUrl.origin).toBe(provider.issuer);
+    expect(authorizationUrl.searchParams.get("state")).toBe(data.state);
+    expect(authorizationUrl.searchParams.get("code_challenge_method")).toBe("S256");
+    expect(data.code_verifier).toHaveLength(43);
+
+    const persisted = await database.query<{ serialized: string }>(`
+      SELECT row_to_json(attempt)::text AS serialized
+      FROM oidc_authorization_attempt AS attempt
+      WHERE idempotency_key_digest IS NOT NULL
+      ORDER BY created_at DESC
+      LIMIT 1
+    `);
+    const serialized = persisted.rows[0]?.serialized ?? "";
+    expect(serialized).not.toContain(data.state);
+    expect(serialized).not.toContain(data.code_verifier);
+    expect(serialized).not.toContain(authorizationUrl.searchParams.get("nonce"));
+
+    const conflict = await app.inject({
+      method: "POST",
+      url: "/api/v1/auth/oidc:start",
+      headers: { "idempotency-key": "a2-start-owner-alpha-0001" },
+      payload: { expected_version: 0, redirect_uri: alternateRedirectUri },
+    });
+    expect(conflict.statusCode).toBe(409);
+
+    const malformedRedirect = await app.inject({
+      method: "POST",
+      url: "/api/v1/auth/oidc:start",
+      headers: { "idempotency-key": "a2-start-fragment-redirect" },
+      payload: { expected_version: 0, redirect_uri: `${redirectUri}#credential-fragment` },
+    });
+    expect(malformedRedirect.statusCode).toBe(403);
+  });
+
+  it("validates a signed provider response against issuer, audience, nonce, and PKCE", async () => {
+    const start = await oidc.start(
+      { expected_version: 0, redirect_uri: redirectUri },
+      {
+        idempotencyKey: "a2-direct-validation-start",
+        correlationId: parseCorrelationId("cor_a2_direct_validation_start"),
+      },
+    );
+    const callback = await authorizationCallback(start.authorization_url);
+    const identity = await oidc.exchange(
+      buildSessionExchangeBody({
+        authorization_code: callback.searchParams.get("code") ?? "",
+        code_verifier: start.code_verifier,
+        redirect_uri: redirectUri,
+        state: callback.searchParams.get("state") ?? "",
+      }),
+    );
+    expect(identity).toMatchObject({
+      issuer: new URL(provider.issuer).toString(),
+      subject: "owner-alpha",
+      verifiedEmail: "owner-alpha@synthetic.invalid",
+    });
+    if (!identity) throw new Error("Validated identity is required for rollback evidence");
+
+    const rollbackUnitOfWork = new PostgresUnitOfWork(database, () => {
+      throw new Error("forced application-session commit failure");
+    });
+    const rollbackOidc = new PostgresOidcAuthorizationAdapter(
+      rollbackUnitOfWork,
+      {
+        issuer: new URL(provider.issuer),
+        clientId: "rahhal-test-web",
+        allowedRedirectUris: new Set([redirectUri]),
+        flowSecret,
+        allowInsecureHttp: true,
+      },
+      { now: () => new Date(currentTime) },
+      new RandomIdFactory(),
+    );
+    await expect(rollbackUnitOfWork.run(() => rollbackOidc.consume(identity))).rejects.toThrow(
+      "forced application-session commit failure",
+    );
+    const persisted = await database.query<{ status: string }>(
+      "SELECT status FROM oidc_authorization_attempt WHERE id = $1",
+      [identity.authorizationAttemptId],
+    );
+    expect(persisted.rows[0]?.status).toBe("validated");
+  });
+
+  it("exchanges a signed verified identity once, issues a revocable session, and replays safely", async () => {
+    const tokenExchangesBefore = provider.tokenExchangeCount;
+    const start = await app.inject({
+      method: "POST",
+      url: "/api/v1/auth/oidc:start",
+      headers: { "idempotency-key": "a2-start-owner-alpha-0002" },
+      payload: { expected_version: 0, redirect_uri: redirectUri },
+    });
+    const startData = jsonBody<StartResponse>(start).data;
+    const callback = await authorizationCallback(startData.authorization_url ?? "");
+    const exchangePayload = buildSessionExchangeBody({
+      authorization_code: callback.searchParams.get("code") ?? "",
+      code_verifier: startData.code_verifier,
+      redirect_uri: redirectUri,
+      state: callback.searchParams.get("state") ?? "",
+    });
+    const exchange = () =>
+      app.inject({
+        method: "POST",
+        url: "/api/v1/auth/session:exchange",
+        headers: { "idempotency-key": "a2-exchange-owner-alpha-0001" },
+        payload: exchangePayload,
+      });
+    const first = await exchange();
+    const replay = await exchange();
+    expect(first.statusCode).toBe(200);
+    expect(jsonBody<ExchangeResponse>(replay).data.receipt.idempotent).toBe(true);
+    expect(provider.tokenExchangeCount).toBe(tokenExchangesBefore + 1);
+
+    const tokens = jsonBody<ExchangeResponse>(first).data.tokens;
+    const me = await app.inject({
+      method: "GET",
+      url: "/api/v1/me",
+      headers: { authorization: `Bearer ${tokens.access_token}` },
+    });
+    expect(me.statusCode).toBe(200);
+    expect(jsonBody<MeResponse>(me).data.user.email_verified).toBe(true);
+
+    const reused = await app.inject({
+      method: "POST",
+      url: "/api/v1/auth/session:exchange",
+      headers: { "idempotency-key": "a2-exchange-owner-alpha-reuse" },
+      payload: exchangePayload,
+    });
+    expect(reused.statusCode).toBe(403);
+    expect(provider.tokenExchangeCount).toBe(tokenExchangesBefore + 1);
+
+    const rows = await database.query<{ status: string; persisted: string }>(
+      `
+        SELECT attempt.status, row_to_json(session)::text AS persisted
+        FROM oidc_authorization_attempt AS attempt
+        JOIN app_session AS session ON session.id = $1
+        WHERE attempt.state_digest = $2
+      `,
+      [tokens.session_id, commandFingerprint(exchangePayload.state)],
+    );
+    expect(rows.rows[0]?.status).toBe("consumed");
+    expect(rows.rows[0]?.persisted).not.toContain(tokens.access_token);
+    expect(rows.rows[0]?.persisted).not.toContain(tokens.refresh_token);
+    expect(rows.rows[0]?.persisted).not.toContain(exchangePayload.authorization_code);
+
+    const revoke = await app.inject({
+      method: "POST",
+      url: "/api/v1/auth/session:revoke",
+      headers: {
+        authorization: `Bearer ${tokens.access_token}`,
+        "idempotency-key": "a2-revoke-owner-alpha-0001",
+      },
+      payload: buildSessionRevokeBody({
+        expected_version: 1,
+        session_id: parseSessionId(tokens.session_id ?? ""),
+      }),
+    });
+    expect(revoke.statusCode).toBe(200);
+    const denied = await app.inject({
+      method: "GET",
+      url: "/api/v1/me",
+      headers: { authorization: `Bearer ${tokens.access_token}` },
+    });
+    expect(denied.statusCode).toBe(403);
+  });
+
+  it("denies an expired authorization attempt before contacting the provider", async () => {
+    const start = await app.inject({
+      method: "POST",
+      url: "/api/v1/auth/oidc:start",
+      headers: { "idempotency-key": "a2-start-expired-attempt" },
+      payload: { expected_version: 0, redirect_uri: redirectUri },
+    });
+    const startData = jsonBody<StartResponse>(start).data;
+    const callback = await authorizationCallback(startData.authorization_url ?? "");
+    const before = provider.tokenExchangeCount;
+    currentTime = new Date(currentTime.getTime() + 11 * 60_000);
+    const exchange = await app.inject({
+      method: "POST",
+      url: "/api/v1/auth/session:exchange",
+      headers: { "idempotency-key": "a2-exchange-expired-attempt" },
+      payload: buildSessionExchangeBody({
+        authorization_code: callback.searchParams.get("code") ?? "",
+        code_verifier: startData.code_verifier,
+        redirect_uri: redirectUri,
+        state: callback.searchParams.get("state") ?? "",
+      }),
+    });
+    expect(exchange.statusCode).toBe(403);
+    expect(provider.tokenExchangeCount).toBe(before);
+  });
+
+  it("denies protected calls when the issued access credential expires", async () => {
+    const start = await app.inject({
+      method: "POST",
+      url: "/api/v1/auth/oidc:start",
+      headers: { "idempotency-key": "a2-start-session-expiry" },
+      payload: { expected_version: 0, redirect_uri: redirectUri },
+    });
+    const startData = jsonBody<StartResponse>(start).data;
+    const callback = await authorizationCallback(startData.authorization_url ?? "");
+    const exchange = await app.inject({
+      method: "POST",
+      url: "/api/v1/auth/session:exchange",
+      headers: { "idempotency-key": "a2-exchange-session-expiry" },
+      payload: buildSessionExchangeBody({
+        authorization_code: callback.searchParams.get("code") ?? "",
+        code_verifier: startData.code_verifier,
+        redirect_uri: redirectUri,
+        state: callback.searchParams.get("state") ?? "",
+      }),
+    });
+    expect(exchange.statusCode).toBe(200);
+    const accessToken = jsonBody<ExchangeResponse>(exchange).data.tokens.access_token;
+    currentTime = new Date(currentTime.getTime() + 16 * 60_000);
+    const denied = await app.inject({
+      method: "GET",
+      url: "/api/v1/me",
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+    expect(denied.statusCode).toBe(403);
+  });
+
+  it("rejects a provider contact that is not verified", async () => {
+    const unverifiedProvider = new FakeOidcProvider({ emailVerified: false });
+    await unverifiedProvider.start();
+    try {
+      await database.query(
+        `
+          INSERT INTO identity_link (id, user_id, issuer, subject)
+          VALUES ('idl_owner_unverified_oidc', 'usr_owner_alpha', $1, 'owner-alpha')
+        `,
+        [new URL(unverifiedProvider.issuer).toString()],
+      );
+      const clock = { now: () => new Date(currentTime) };
+      const ids = new RandomIdFactory();
+      const unitOfWork = new PostgresUnitOfWork(database);
+      const audit = new PostgresAccessDecisionAudit(unitOfWork, ids);
+      const oidc = new PostgresOidcAuthorizationAdapter(
+        unitOfWork,
+        {
+          issuer: new URL(unverifiedProvider.issuer),
+          clientId: "rahhal-unverified-test-web",
+          allowedRedirectUris: new Set([redirectUri]),
+          flowSecret,
+          allowInsecureHttp: true,
+        },
+        clock,
+        ids,
+      );
+      const identity = new PostgresIdentityWorkspaceAdapter(
+        unitOfWork,
+        oidc,
+        new HmacSessionCredentialIssuer(credentialSecret),
+        clock,
+        ids,
+        audit,
+      );
+      const start = await oidc.start(
+        { expected_version: 0, redirect_uri: redirectUri },
+        {
+          idempotencyKey: "a2-unverified-start-0001",
+          correlationId: parseCorrelationId("cor_a2_unverified_start_0001"),
+        },
+      );
+      const callback = await authorizationCallback(start.authorization_url);
+      await expect(
+        identity.exchange(
+          buildSessionExchangeBody({
+            authorization_code: callback.searchParams.get("code") ?? "",
+            code_verifier: start.code_verifier,
+            redirect_uri: redirectUri,
+            state: callback.searchParams.get("state") ?? "",
+          }),
+          {
+            idempotencyKey: "a2-unverified-exchange-0001",
+            correlationId: parseCorrelationId("cor_a2_unverified_exchange_0001"),
+          },
+        ),
+      ).rejects.toMatchObject({ statusCode: 403, code: "NO_ACCESS" });
+    } finally {
+      await unverifiedProvider.close();
+    }
+  });
+});

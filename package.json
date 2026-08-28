@@ -18,6 +18,7 @@
     "dev:api": "npm run build:packages && npm run dev --workspace @rahhal/api",
     "dev:worker": "npm run build:packages && npm run dev --workspace @rahhal/worker",
     "docker:config": "docker compose config --quiet",
+    "docker:env:init": "node scripts/create-local-env.mjs",
     "docker:build": "docker compose build",
     "docker:up": "docker compose up --detach --wait",
     "docker:smoke": "node scripts/smoke-docker.mjs",

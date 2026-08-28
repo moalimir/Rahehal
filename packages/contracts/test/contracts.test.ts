@@ -12,6 +12,7 @@ import {
   type ErrorEnvelope,
   type PatchChallengeBody,
   type OutboxEvent,
+  type OidcAuthorizationStartBody,
   type SessionExchangeBody,
   type SuccessEnvelope,
 } from "../src/index.js";
@@ -26,6 +27,7 @@ describe("authoritative API contracts", () => {
   });
 
   it("carries optimistic concurrency in every implemented command body", () => {
+    expect(apiSchemas.OidcAuthorizationStartBody.required).toContain("expected_version");
     expect(apiSchemas.SessionExchangeBody.required).toContain("expected_version");
     expect(apiSchemas.SessionRefreshBody.required).toContain("expected_version");
     expect(apiSchemas.SessionRevokeBody.required).toContain("expected_version");
@@ -36,6 +38,7 @@ describe("authoritative API contracts", () => {
     expectTypeOf<CreateChallengeBody["expected_version"]>().toEqualTypeOf<0>();
     expectTypeOf<PatchChallengeBody["expected_version"]>().toEqualTypeOf<number>();
     expectTypeOf<SessionExchangeBody["state"]>().toEqualTypeOf<string>();
+    expectTypeOf<OidcAuthorizationStartBody["expected_version"]>().toEqualTypeOf<0>();
   });
 
   it("defines the complete canonical mutation receipt", () => {
@@ -55,6 +58,7 @@ describe("authoritative API contracts", () => {
     expect(Object.keys(openApiDocument.paths)).toEqual(
       expect.arrayContaining([
         apiRoutes.openApi,
+        apiRoutes.oidcAuthorizationStart,
         apiRoutes.sessionExchange,
         apiRoutes.sessionRefresh,
         apiRoutes.sessionRevoke,

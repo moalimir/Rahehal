@@ -493,6 +493,37 @@ export const apiSchemas = {
   SuccessEnvelope: successEnvelopeSchema,
   MutationReceipt: mutationReceiptSchema,
   MutationSuccessEnvelope: successEnvelopeFor(mutationReceiptSchema, true),
+  OidcAuthorizationStartBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "redirect_uri"],
+    properties: {
+      expected_version: { const: 0 },
+      redirect_uri: { type: "string", format: "uri", maxLength: 2_048 },
+    },
+  },
+  OidcAuthorizationStartResult: {
+    type: "object",
+    additionalProperties: false,
+    required: ["authorization_url", "state", "code_verifier", "expires_at"],
+    properties: {
+      authorization_url: { type: "string", format: "uri", maxLength: 4_096 },
+      state: { type: "string", minLength: 32, maxLength: 1_024 },
+      code_verifier: { type: "string", minLength: 43, maxLength: 128 },
+      expires_at: dateTimeSchema,
+    },
+  },
+  OidcAuthorizationStartSuccessEnvelope: successEnvelopeFor({
+    type: "object",
+    additionalProperties: false,
+    required: ["authorization_url", "state", "code_verifier", "expires_at"],
+    properties: {
+      authorization_url: { type: "string", format: "uri", maxLength: 4_096 },
+      state: { type: "string", minLength: 32, maxLength: 1_024 },
+      code_verifier: { type: "string", minLength: 43, maxLength: 128 },
+      expires_at: dateTimeSchema,
+    },
+  }),
   SessionExchangeBody: {
     type: "object",
     additionalProperties: false,

@@ -1,10 +1,11 @@
 import { createHmac } from "node:crypto";
 
-import type { SessionExchangeBody } from "@rahhal/contracts";
+import type { OidcAuthorizationStartBody, SessionExchangeBody } from "@rahhal/contracts";
 
 import { commandFingerprint } from "../../src/primitives.js";
 import type {
   OidcExchangePort,
+  OidcAuthorizationPort,
   OidcIdentity,
   SessionCredentialIssuerPort,
 } from "../../src/ports.js";
@@ -44,7 +45,30 @@ export class LocalTestOidcExchangeAdapter implements OidcExchangePort {
     });
     if (this.consumed.has(exchangeFingerprint)) return null;
     this.consumed.add(exchangeFingerprint);
-    return { issuer: record.issuer, subject: record.subject };
+    return {
+      authorizationAttemptId: record.authorizationAttemptId,
+      issuer: record.issuer,
+      subject: record.subject,
+      verifiedEmail: record.verifiedEmail,
+    };
+  }
+
+  async consume(): Promise<void> {
+    // The adapter consumes during exchange; production consumption is transaction-scoped.
+  }
+}
+
+export class LocalTestOidcAuthorizationAdapter
+  extends LocalTestOidcExchangeAdapter
+  implements OidcAuthorizationPort
+{
+  async start(body: OidcAuthorizationStartBody) {
+    return {
+      authorization_url: `https://oidc.synthetic.invalid/authorize?redirect_uri=${encodeURIComponent(body.redirect_uri)}`,
+      state: "local-test-state-0000000000000000000000000000",
+      code_verifier: "local-test-code-verifier-000000000000000000000000000",
+      expires_at: "2026-01-01T00:10:00.000Z",
+    };
   }
 }
 

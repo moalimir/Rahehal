@@ -78,8 +78,18 @@ INSERT INTO identity_link (
     'solver-alpha',
     '2026-01-01T00:00:00Z',
     '2026-01-01T00:00:00Z'
+  ),
+  (
+    'idl_owner_alpha_local_oidc',
+    'usr_owner_alpha',
+    'http://dex.localhost:5556/dex',
+    'Cgtvd25lci1hbHBoYRIFbG9jYWw',
+    '2026-01-01T00:00:00Z',
+    NULL
   )
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT (id) DO UPDATE
+SET issuer = EXCLUDED.issuer,
+    subject = EXCLUDED.subject;
 
 INSERT INTO workspace (
   id,

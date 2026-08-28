@@ -42,8 +42,10 @@ const solverUserId = parseUserId("usr_solver_alpha");
 const ownerWorkspaceId = parseWorkspaceId("wsp_org_alpha");
 const clock = { now: () => new Date(fixedTimestamp) };
 const localOidcRecord = {
+  authorizationAttemptId: "oat_owner_alpha",
   issuer: "https://oidc.synthetic.invalid",
   subject: "owner-alpha",
+  verifiedEmail: "owner-alpha@synthetic.invalid",
   authorizationCode: "local-a1b-authorization-code-owner-alpha",
   codeVerifier: "local-a1b-code-verifier-owner-alpha-0000000000000000",
   redirectUri: "http://localhost:3000/auth/callback",

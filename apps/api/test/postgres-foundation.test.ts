@@ -50,8 +50,11 @@ beforeAll(async () => {
     "0001_a1a_foundation",
     "0002_a1b_identity_transaction",
     "0003_a1c_authoritative_challenge",
+    "0004_a2_oidc_authorization",
   ]);
 
+  const a2Down = await runMigrations(database, "down");
+  expect(a2Down.applied).toEqual(["0004_a2_oidc_authorization"]);
   const a1cDown = await runMigrations(database, "down");
   expect(a1cDown.applied).toEqual(["0003_a1c_authoritative_challenge"]);
   const a1bDown = await runMigrations(database, "down");
@@ -75,6 +78,7 @@ beforeAll(async () => {
     "0001_a1a_foundation",
     "0002_a1b_identity_transaction",
     "0003_a1c_authoritative_challenge",
+    "0004_a2_oidc_authorization",
   ]);
   const noOpUp = await runMigrations(database, "up");
   expect(noOpUp.applied).toEqual([]);
@@ -106,6 +110,7 @@ describe("A1a PostgreSQL foundation", () => {
       "identity_link",
       "membership",
       "mutation_receipt",
+      "oidc_authorization_attempt",
       "outbox_event",
       "tenant",
       "workspace",
@@ -117,9 +122,9 @@ describe("A1a PostgreSQL foundation", () => {
       ORDER BY table_name
     `);
     expect(tables.rows.map((row) => row.table_name)).toEqual([
-      ...expectedTables.slice(0, 11),
+      ...expectedTables.slice(0, 12),
       "schema_migration",
-      ...expectedTables.slice(11),
+      ...expectedTables.slice(12),
     ]);
 
     const ledger = await database.query<{ id: string; checksum: string }>(
@@ -133,6 +138,10 @@ describe("A1a PostgreSQL foundation", () => {
       },
       {
         id: "0003_a1c_authoritative_challenge",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+      {
+        id: "0004_a2_oidc_authorization",
         checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
       },
     ]);
@@ -404,6 +413,8 @@ describe("A1a PostgreSQL foundation", () => {
   });
 
   it("fails the A1b migration atomically for an orphaned existing session", async () => {
+    const a2Down = await runMigrations(database, "down");
+    expect(a2Down.applied).toEqual(["0004_a2_oidc_authorization"]);
     const a1cDown = await runMigrations(database, "down");
     expect(a1cDown.applied).toEqual(["0003_a1c_authoritative_challenge"]);
     const down = await runMigrations(database, "down");
@@ -455,6 +466,7 @@ describe("A1a PostgreSQL foundation", () => {
     expect(recovered.applied).toEqual([
       "0002_a1b_identity_transaction",
       "0003_a1c_authoritative_challenge",
+      "0004_a2_oidc_authorization",
     ]);
   });
 });

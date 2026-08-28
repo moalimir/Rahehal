@@ -24,14 +24,17 @@ Open `http://localhost:3000`.
 Use native `npm run dev` for the fastest hot-reload loop. Use Docker whenever a change affects runtime packaging, environment behavior, service startup, or Linux portability:
 
 ```bash
+npm run docker:env:init
 npm run docker:config
 npm run docker:build
 npm run docker:up
 npm run docker:smoke
 ```
 
-The default local endpoints are web `http://localhost:3000` and API OpenAPI
-`http://localhost:3001/api/v1/openapi.json`. Override host ports without editing Compose:
+The initializer creates an ignored mode-0600 `.env` with independent random A2 flow/session
+secrets and refuses to replace an existing file. The default local endpoints are web
+`http://localhost:3000`, API OpenAPI `http://localhost:3001/api/v1/openapi.json`, and the synthetic
+Dex issuer `http://dex.localhost:5556/dex`. Override host ports without editing Compose:
 
 ```bash
 RAHHAL_WEB_PORT=3100 RAHHAL_API_PORT=3101 npm run docker:up
@@ -45,9 +48,9 @@ npm run docker:logs
 npm run docker:down
 ```
 
-`docker:build` refreshes changed targets. `docker:up` waits for PostgreSQL, runs the guarded one-shot migration/seed container, then starts the PostgreSQL-composed API and waits for HTTP health. `docker:smoke` creates a challenge with the synthetic session, restarts the API container, and reads the same record back. The images run as unprivileged users on read-only root filesystems with all Linux capabilities dropped; writable temporary space is bounded `tmpfs`. Published ports bind to `127.0.0.1`, not the LAN. Do not weaken those defaults to simulate a server.
+`docker:build` refreshes changed targets. `docker:up` waits for Dex and PostgreSQL, runs the guarded one-shot migration/seed container, then starts the PostgreSQL-composed API and waits for HTTP health. `docker:smoke` creates a challenge with the synthetic session, restarts the API container, and reads the same record back. Dex exposes one synthetic local login (`owner-alpha@synthetic.invalid` / `rahhal-local-owner`) and an exact `http://localhost:3000/auth/callback` redirect; A3 will connect that callback to the web. The images run as unprivileged users on read-only root filesystems with all Linux capabilities dropped; writable temporary space is bounded `tmpfs`. Published ports bind to `127.0.0.1`, not the LAN. Do not weaken those defaults to simulate a server.
 
-The stack is intentionally incomplete: A1a supplies pinned PostgreSQL and the base schema; A1b supplies PostgreSQL session/workspace authorization and a transaction-scoped unit of work; A1c adds the authoritative challenge adapter and explicit PostgreSQL API composition. The OIDC exchange and credential issuer deliberately return `503` until A2, while the synthetic digest-only session enables local acceptance. The worker and browser remain demo authority, and no application event crosses from the API process to the worker yet. Add OIDC, the web network gateway, object storage, scanning, or telemetry only in the roadmap increment that supplies its negative tests, health behavior, and recovery procedure.
+The stack is intentionally incomplete: A1a supplies pinned PostgreSQL and the base schema; A1b supplies PostgreSQL session/workspace authorization and a transaction-scoped unit of work; A1c adds the authoritative challenge adapter and explicit PostgreSQL API composition; A2 adds local standards-compatible OIDC plus revocable opaque application sessions. The managed production IdP, MFA/step-up, web network gateway, RLS, and abuse controls remain later gates. The worker and browser remain demo authority, and no application event crosses from the API process to the worker yet. Add the web gateway, object storage, scanning, or telemetry only in the roadmap increment that supplies its negative tests, health behavior, and recovery procedure.
 
 ### Local PostgreSQL workflow
 
@@ -71,10 +74,12 @@ npm run test:postgres
 ```
 
 The test refuses a non-loopback admin URL. It creates and drops only generated
-`rahhal_a1a_test_*`, `rahhal_a1b_test_*`, and `rahhal_a1c_test_*` databases. The suite covers migration/seed constraints
+`rahhal_a1a_test_*`, `rahhal_a1b_test_*`, `rahhal_a1c_test_*`, and `rahhal_a2_oidc_*` databases. The suite covers migration/seed constraints
 plus session digest storage, rotation/revocation/replay, principal and membership revalidation,
 transaction locks, immutable challenge versions, receipt/audit/outbox/idempotency atomicity,
-concurrent create replay, scope denial, rollback, and API-runtime restart persistence. Stop PostgreSQL without deleting its named volume with
+concurrent create replay, scope denial, rollback, API-runtime restart persistence, signed OIDC
+issuer/audience/nonce/PKCE validation, verified-contact denial, one-time consumption, and login/session
+expiry. Stop PostgreSQL without deleting its named volume with
 `npm run db:down`. `npm run db:migrate:down` reverts one migration; run it only against the database
 whose rollback you intend to test.
 
@@ -164,6 +169,7 @@ Generated reports under `reports/generated/` are disposable evidence and are ign
 ### Container checks
 
 ```bash
+npm run docker:env:init # first clean checkout only
 npm run docker:config
 npm run docker:build
 npm run docker:up

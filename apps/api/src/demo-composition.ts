@@ -232,6 +232,11 @@ export function createDemoApiComposition(options: {
     decisionAudit,
     criticalSection,
     ports: {
+      oidcAuthorization: {
+        async start() {
+          throw new Error("The demo API does not publish a real OIDC authorization flow");
+        },
+      },
       sessions: identity,
       workspaces: identity,
       authority: identity,

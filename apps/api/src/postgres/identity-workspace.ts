@@ -566,22 +566,30 @@ export class PostgresIdentityWorkspaceAdapter
       );
       if (concurrentReplay) return this.tokenOutcome(concurrentReplay, true);
 
-      const principal = await client.query<{ user_id: string; tenant_id: string }>(
+      const principal = await client.query<{
+        user_id: string;
+        tenant_id: string;
+        primary_email: string;
+      }>(
         `
-          SELECT link.user_id, membership.tenant_id
+          SELECT link.user_id, membership.tenant_id, app_user.primary_email
           FROM identity_link AS link
+          JOIN app_user ON app_user.id = link.user_id
           JOIN membership
             ON membership.user_id = link.user_id
            AND membership.state = 'active'
           WHERE link.issuer = $1 AND link.subject = $2
           ORDER BY membership.created_at, membership.id
           LIMIT 1
-          FOR SHARE OF link, membership
+          FOR SHARE OF link, app_user, membership
         `,
         [identity.issuer, identity.subject],
       );
       const actor = principal.rows[0];
       if (!actor) throw forbidden();
+      if (actor.primary_email.trim().toLowerCase() !== identity.verifiedEmail) throw forbidden();
+
+      await this.oidc.consume(identity);
 
       await client.query(
         `
@@ -590,6 +598,14 @@ export class PostgresIdentityWorkspaceAdapter
           WHERE issuer = $1 AND subject = $2
         `,
         [identity.issuer, identity.subject, this.clock.now().toISOString()],
+      );
+      await client.query(
+        `
+          UPDATE app_user
+          SET email_verified = true, updated_at = GREATEST(updated_at, $2::timestamptz)
+          WHERE id = $1
+        `,
+        [actor.user_id, this.clock.now().toISOString()],
       );
 
       const sessionId = parseSessionId(this.ids.next("ses"));
