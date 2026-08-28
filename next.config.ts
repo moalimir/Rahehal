@@ -1,5 +1,9 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { NextConfig } from "next";
 import createBundleAnalyzer from "@next/bundle-analyzer";
+
+const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 
 const withBundleAnalyzer = createBundleAnalyzer({
   enabled: process.env.ANALYZE === "true",
@@ -40,6 +44,21 @@ const nextConfig: NextConfig = {
         destination: `${internalApiOrigin.replace(/\/$/, "")}/auth/browser/:path*`,
       },
     ];
+  },
+  webpack(config, { webpack }) {
+    // The demo build is a static export with no API behind it. Replace the
+    // connected-runtime modules with a stub so the network gateway and the
+    // browser-session client stay out of the demo bundle instead of shipping
+    // as unreachable code. See lib/runtime/network-disabled.ts.
+    if (!networkRuntime) {
+      config.plugins.push(
+        new webpack.NormalModuleReplacementPlugin(
+          /^@\/lib\/(?:api\/http|challenges\/adapters\/network)$/,
+          path.join(projectRoot, "lib/runtime/network-disabled.ts"),
+        ),
+      );
+    }
+    return config;
   },
 };
 
