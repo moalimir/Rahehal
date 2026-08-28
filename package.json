@@ -13,9 +13,9 @@
   },
   "packageManager": "npm@11.13.0",
   "scripts": {
-    "dev": "npm run build:packages && next dev",
-    "dev:web": "npm run build:packages && next dev",
-    "dev:web:network": "npm run build:packages && RAHHAL_WEB_RUNTIME=network next dev",
+    "dev": "npm run build:packages && next dev --webpack",
+    "dev:web": "npm run build:packages && next dev --webpack",
+    "dev:web:network": "npm run build:packages && RAHHAL_WEB_RUNTIME=network next dev --webpack",
     "dev:api": "npm run build:packages && npm run dev --workspace @rahhal/api",
     "dev:worker": "npm run build:packages && npm run dev --workspace @rahhal/worker",
     "docker:config": "docker compose config --quiet",
@@ -75,7 +75,8 @@
     "analyze:build": "node scripts/analyze-build-assets.mjs",
     "analyze:bundle": "node scripts/run-bundle-analysis.mjs",
     "check:budgets": "node scripts/check-performance-budgets.mjs",
-    "css:prune-legacy": "node scripts/prune-legacy-shell-css.mjs"
+    "css:prune-legacy": "node scripts/prune-legacy-shell-css.mjs",
+    "test:browser:connected": "PLAYWRIGHT_SKIP_WEBSERVER=1 playwright test playwright/connected.pw.ts --project=desktop-1280x800"
   },
   "dependencies": {
     "next": "16.3.1",
