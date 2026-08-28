@@ -8,18 +8,20 @@ import type {
   CreateChallengeBody,
   MutationReceipt,
   PatchChallengeBody,
+  PublishChallengeBody,
   RecordChallengeApprovalBody,
 } from "@rahhal/contracts";
 import {
   approvalDecisions,
   canTransition,
-  challengeAuthoringStages,
+  challengeManagedStages,
   challengeTransitions,
   evaluatePublicationReadiness,
   isAggregateVersion,
   isChallengeDraftAuthoringStatus,
   isGateApproverRole,
   isPublicationGate,
+  isPubliclyProjectable,
   isWorkspaceRole,
   parseAuditEventId,
   parseChallengeApprovalId,
@@ -38,6 +40,7 @@ import type { PoolClient } from "pg";
 
 import {
   assertEligibilityRuleAttachable,
+  challengePublicProjection,
   challengeReadiness,
   emptyChallengeContent,
   mergeChallengeDraftPatch,
@@ -59,6 +62,7 @@ import { PostgresUnitOfWork } from "./unit-of-work.js";
 type ChallengeRow = {
   readonly id: string;
   readonly current_version_id: string;
+  readonly published_version_id: string | null;
   readonly tenant_id: string;
   readonly workspace_id: string;
   readonly stage: string;
@@ -96,7 +100,8 @@ type ChallengeEvidenceAction =
   | "challenge.draft.updated"
   | "challenge.triage.requested"
   | "challenge.formulation.started"
-  | "challenge.approvals.requested";
+  | "challenge.approvals.requested"
+  | "challenge.published";
 
 const challengeNextActions = [
   "edit",
@@ -104,6 +109,7 @@ const challengeNextActions = [
   "advance_formulation",
   "request_approvals",
   "await_approvals",
+  "await_proposals",
 ] as const satisfies readonly ChallengeNextAction[];
 
 const challengeApprovalNextActions = [
@@ -147,7 +153,7 @@ function challengeVersion(value: unknown): number {
 function challengeResource(
   row: ChallengeRow,
 ): Omit<ChallengeResource, "approvals" | "publication_readiness"> {
-  if (!challengeAuthoringStages.includes(row.stage as (typeof challengeAuthoringStages)[number])) {
+  if (!challengeManagedStages.includes(row.stage as (typeof challengeManagedStages)[number])) {
     throw new Error("Authoring API loaded a challenge outside its lifecycle boundary");
   }
   if (!isChallengeDraftAuthoringStatus(row.authoring_status)) {
@@ -165,6 +171,8 @@ function challengeResource(
   return {
     id: parseChallengeId(row.id),
     current_version_id: parseChallengeVersionId(row.current_version_id),
+    published_version_id:
+      row.published_version_id === null ? null : parseChallengeVersionId(row.published_version_id),
     tenant_id: parseTenantId(row.tenant_id),
     workspace_id: parseWorkspaceId(row.workspace_id),
     stage: row.stage as ChallengeResource["stage"],
@@ -612,6 +620,7 @@ export class PostgresChallengeAdapter implements ChallengePort {
         SELECT
           challenge.id,
           challenge.current_version_id,
+          challenge.published_version_id,
           challenge.tenant_id,
           challenge.workspace_id,
           challenge.stage,
@@ -709,6 +718,7 @@ export class PostgresChallengeAdapter implements ChallengePort {
       const resource: ChallengeResource = {
         id: challengeId,
         current_version_id: versionId,
+        published_version_id: null,
         tenant_id: context.tenantId,
         workspace_id: context.workspaceId,
         stage: "draft",
@@ -997,6 +1007,178 @@ export class PostgresChallengeAdapter implements ChallengePort {
         context,
         definition.action,
         definition.nextActions,
+        requestHash,
+      );
+    });
+  }
+
+  async publish(
+    id: string,
+    body: PublishChallengeBody,
+    context: ChallengeCommandContext,
+  ): Promise<ChallengeMutationOutcome> {
+    const requestHash = commandFingerprint({
+      action: "challenge.publish",
+      actorUserId: context.actorUserId,
+      workspaceId: context.workspaceId,
+      id,
+      body,
+    });
+    return this.unitOfWork.run(async () => {
+      const client = this.unitOfWork.currentClient();
+      await this.lockIdempotencyKey(client, context);
+      const replay = await this.loadReplay(client, context, requestHash);
+      if (replay) return this.outcome(replay, true);
+
+      // `FOR UPDATE` on the aggregate plus `FOR UPDATE` on the version's
+      // approvals: two concurrent publishes of the same challenge serialize
+      // here, and the loser then fails its `lock_version` guard rather than
+      // writing a second projection row.
+      const current = await this.findScoped(client, context, id, true);
+      if (!current) throw notFound();
+      if (body.expected_version !== current.version) throw staleVersion(current.version);
+
+      const readiness = challengeReadiness(current.content, current.version);
+      if (
+        !canTransition(
+          challengeTransitions,
+          current.stage,
+          "published",
+          context.role,
+          satisfiedTransitionPreconditions(current.stage, readiness, current.publication_readiness),
+        )
+      ) {
+        throw new ApiProblem(409, "INVALID_STATE", "Challenge cannot be published yet", {
+          currentState: current.stage,
+          allowedTransitions: challengeTransitions
+            .filter(({ from }) => from === current.stage)
+            .map(({ to }) => to),
+        });
+      }
+      if (!readiness.ready) {
+        throw new ApiProblem(422, "VALIDATION", "Challenge brief is not ready", {
+          currentVersion: current.version,
+          fields: readiness.issues,
+          readiness,
+        });
+      }
+
+      const occurredAt = this.clock.now().toISOString();
+      // The version reaching `approvals` is already locked by that transition;
+      // this keeps the invariant that a published version is never unlocked
+      // without depending on which submission locked it first.
+      const versionLock = await client.query(
+        `
+          UPDATE challenge_version
+          SET locked_at = $3, lock_reason = $4
+          WHERE id = $1 AND challenge_id = $2 AND locked_at IS NULL
+        `,
+        [current.current_version_id, current.id, occurredAt, "publication"],
+      );
+      if (versionLock.rowCount !== 1) {
+        const existing = await client.query<{ locked_at: Date | null }>(
+          "SELECT locked_at FROM challenge_version WHERE id = $1 AND challenge_id = $2",
+          [current.current_version_id, current.id],
+        );
+        if (!existing.rows[0] || existing.rows[0].locked_at === null) {
+          throw new Error("Published challenge version was left unlocked");
+        }
+      }
+
+      const version = current.version + 1;
+      const aggregateUpdate = await client.query(
+        `
+          UPDATE challenge
+          SET stage = 'published',
+              published_version_id = $4,
+              lock_version = $5,
+              updated_at = $6
+          WHERE tenant_id = $1
+            AND workspace_id = $2
+            AND id = $3
+            AND lock_version = $7
+            AND published_version_id IS NULL
+        `,
+        [
+          context.tenantId,
+          context.workspaceId,
+          current.id,
+          current.current_version_id,
+          version,
+          occurredAt,
+          current.version,
+        ],
+      );
+      if (aggregateUpdate.rowCount !== 1) {
+        throw new Error("Challenge publication did not affect exactly one aggregate");
+      }
+
+      if (isPubliclyProjectable(current.content.visibility)) {
+        const projection = challengePublicProjection(
+          current.id,
+          current.current_version_id,
+          current.content,
+          occurredAt,
+        );
+        const projectionInsert = await client.query(
+          `
+            INSERT INTO challenge_public_projection (
+              challenge_id, tenant_id, challenge_version_id, title, category, location,
+              public_summary, output_type, sourcing_model, applicant_scope,
+              allowed_applicant_types, work_mode, proposal_deadline, preferred_start_date,
+              budget_status, budget_amount_minor, budget_currency, visibility,
+              verification_required, nda_required, document_gate_required, ip_terms,
+              published_at
+            ) VALUES (
+              $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::text[], $12, $13, $14,
+              $15, $16, $17, $18, $19, $20, $21, $22, $23
+            )
+          `,
+          [
+            projection.challenge_id,
+            context.tenantId,
+            projection.challenge_version_id,
+            projection.title,
+            projection.category,
+            projection.location,
+            projection.public_summary,
+            projection.output_type,
+            projection.sourcing_model,
+            projection.applicant_scope,
+            [...projection.allowed_applicant_types],
+            projection.work_mode,
+            projection.proposal_deadline,
+            projection.preferred_start_date,
+            projection.budget.status,
+            projection.budget.amount_minor,
+            projection.budget.currency,
+            projection.visibility,
+            projection.verification_required,
+            projection.nda_required,
+            projection.document_gate_required,
+            projection.ip_terms,
+            projection.published_at,
+          ],
+        );
+        if (projectionInsert.rowCount !== 1) {
+          throw new Error("Challenge public projection insert did not affect exactly one row");
+        }
+      }
+
+      const resource: ChallengeResource = {
+        ...current,
+        stage: "published",
+        published_version_id: current.current_version_id,
+        version,
+        readiness: { ...readiness, evaluated_version: version },
+        updated_at: occurredAt,
+      };
+      return this.recordMutation(
+        client,
+        resource,
+        context,
+        "challenge.published",
+        ["await_proposals"],
         requestHash,
       );
     });

@@ -2,12 +2,14 @@ import type {
   ChallengeApprovalNextAction,
   ChallengeApprovalResource,
   ChallengeNextAction,
+  ChallengePublicProjectionResource,
   ChallengeResource,
   ChallengeTransitionBody,
   CreateChallengeBody,
   MutationReceipt,
   OutboxEvent,
   PatchChallengeBody,
+  PublishChallengeBody,
   RecordChallengeApprovalBody,
 } from "@rahhal/contracts";
 import {
@@ -16,6 +18,7 @@ import {
   evaluatePublicationReadiness,
   isAggregateVersion,
   isGateApproverRole,
+  isPubliclyProjectable,
   parseAuditEventId,
   parseChallengeApprovalId,
   parseChallengeId,
@@ -32,6 +35,7 @@ import {
 } from "@rahhal/domain";
 import {
   assertEligibilityRuleAttachable,
+  challengePublicProjection,
   challengeReadiness,
   emptyChallengeContent,
   mergeChallengeDraftPatch,
@@ -62,7 +66,8 @@ export type ChallengeAuditRecord = {
     | "challenge.triage.requested"
     | "challenge.formulation.started"
     | "challenge.approvals.requested"
-    | "challenge.approval.recorded";
+    | "challenge.approval.recorded"
+    | "challenge.published";
   readonly outcome: "success";
   readonly correlationId: CorrelationId;
   readonly occurredAt: string;
@@ -87,6 +92,7 @@ type IdempotencyRecord = {
 type RepositoryState = {
   readonly challenges: Map<string, StoredChallenge>;
   readonly approvals: ChallengeApprovalResource[];
+  readonly publicProjections: ChallengePublicProjectionResource[];
   readonly idempotency: Map<string, IdempotencyRecord>;
   readonly auditEvents: ChallengeAuditRecord[];
   readonly outboxEvents: OutboxEvent[];
@@ -96,6 +102,7 @@ export type ChallengeRepositorySnapshot = {
   readonly challenges: readonly ChallengeResource[];
   readonly versions: readonly ChallengeResource[];
   readonly approvals: readonly ChallengeApprovalResource[];
+  readonly publicProjections: readonly ChallengePublicProjectionResource[];
   readonly auditEvents: readonly ChallengeAuditRecord[];
   readonly outboxEvents: readonly OutboxEvent[];
   readonly idempotencyEntryCount: number;
@@ -130,6 +137,7 @@ function copyState(state: RepositoryState): RepositoryState {
       [...state.challenges].map(([key, stored]) => [key, structuredClone(stored)] as const),
     ),
     approvals: structuredClone(state.approvals),
+    publicProjections: structuredClone(state.publicProjections),
     idempotency: new Map(
       [...state.idempotency].map(([key, record]) => [key, structuredClone(record)] as const),
     ),
@@ -142,6 +150,7 @@ export class InMemoryChallengeRepository implements ChallengePort {
   private state: RepositoryState = {
     challenges: new Map(),
     approvals: [],
+    publicProjections: [],
     idempotency: new Map(),
     auditEvents: [],
     outboxEvents: [],
@@ -310,6 +319,7 @@ export class InMemoryChallengeRepository implements ChallengePort {
       const resource: ChallengeResource = {
         id,
         current_version_id: parseChallengeVersionId(this.ids.next("chv")),
+        published_version_id: null,
         tenant_id: context.tenantId,
         workspace_id: context.workspaceId,
         stage: "draft",
@@ -599,6 +609,91 @@ export class InMemoryChallengeRepository implements ChallengePort {
     });
   }
 
+  async publish(
+    id: string,
+    body: PublishChallengeBody,
+    context: ChallengeCommandContext,
+  ): Promise<ChallengeMutationOutcome> {
+    const key = idempotencyKey(context, "challenge:publish");
+    const fingerprint = commandFingerprint({
+      command: "challenge:publish",
+      actorUserId: context.actorUserId,
+      workspaceId: context.workspaceId,
+      id,
+      body,
+    });
+
+    return this.transact((state) => {
+      const replay = this.replay<ChallengeMutationOutcome>(state, key, fingerprint);
+      if (replay) return replay;
+      const storedKey = scopeKey(context.tenantId, context.workspaceId, id);
+      const stored = state.challenges.get(storedKey);
+      if (!stored) throw notFound();
+      if (body.expected_version !== stored.current.version) {
+        throw staleVersion(stored.current.version);
+      }
+
+      const readiness = challengeReadiness(stored.current.content, stored.current.version);
+      const publicationReadiness = stored.current.publication_readiness;
+      if (
+        !canTransition(
+          challengeTransitions,
+          stored.current.stage,
+          "published",
+          context.role,
+          satisfiedTransitionPreconditions(stored.current.stage, readiness, publicationReadiness),
+        )
+      ) {
+        throw new ApiProblem(409, "INVALID_STATE", "Challenge cannot be published yet", {
+          currentState: stored.current.stage,
+          allowedTransitions: challengeTransitions
+            .filter(({ from }) => from === stored.current.stage)
+            .map(({ to }) => to),
+        });
+      }
+      if (!readiness.ready) {
+        throw new ApiProblem(422, "VALIDATION", "Challenge brief is not ready", {
+          fields: readiness.issues,
+          readiness,
+          currentVersion: stored.current.version,
+        });
+      }
+
+      const occurredAt = this.clock.now().toISOString();
+      const version = stored.current.version + 1;
+      const published: ChallengeResource = {
+        ...stored.current,
+        stage: "published",
+        published_version_id: stored.current.current_version_id,
+        version,
+        readiness: { ...readiness, evaluated_version: version },
+        updated_at: occurredAt,
+      };
+      // Only listable challenges enter the public table at all; an invite-only
+      // or NDA challenge publishes without a public row (mirrors the B4
+      // migration's visibility CHECK).
+      if (isPubliclyProjectable(published.content.visibility)) {
+        state.publicProjections.push(
+          challengePublicProjection(
+            published.id,
+            published.current_version_id,
+            published.content,
+            occurredAt,
+          ),
+        );
+      }
+      state.challenges.set(storedKey, { ...stored, current: published });
+      return this.recordMutation(
+        state,
+        published,
+        context,
+        "challenge.published",
+        ["await_proposals"],
+        { key, fingerprint },
+      );
+    });
+  }
+
   seed(resource: ChallengeResource) {
     this.state.challenges.set(scopeKey(resource.tenant_id, resource.workspace_id, resource.id), {
       current: structuredClone(resource),
@@ -612,6 +707,7 @@ export class InMemoryChallengeRepository implements ChallengePort {
       challenges: stored.map(({ current }) => structuredClone(current)),
       versions: stored.flatMap(({ versions }) => structuredClone(versions)),
       approvals: structuredClone(this.state.approvals),
+      publicProjections: structuredClone(this.state.publicProjections),
       auditEvents: structuredClone(this.state.auditEvents),
       outboxEvents: structuredClone(this.state.outboxEvents),
       idempotencyEntryCount: this.state.idempotency.size,

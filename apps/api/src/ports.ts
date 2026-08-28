@@ -9,6 +9,7 @@ import type {
   OidcAuthorizationStartBody,
   OidcAuthorizationStartResult,
   PatchChallengeBody,
+  PublishChallengeBody,
   RecordChallengeApprovalBody,
   SessionExchangeBody,
   SessionRefreshBody,
@@ -204,6 +205,18 @@ export interface ChallengePort {
     body: RecordChallengeApprovalBody,
     context: ChallengeCommandContext,
   ): Promise<MutationOutcome<ChallengeApprovalId, ChallengeApprovalNextAction>>;
+  /**
+   * B4's `approvals -> published` command. It is a first-class command rather
+   * than another `ChallengeTransitionCommand` because it does strictly more
+   * than move a stage: it pins `published_version_id` to the exact version the
+   * four gates cleared and writes the structurally separate public projection,
+   * both inside the transaction that records the receipt.
+   */
+  publish(
+    id: string,
+    body: PublishChallengeBody,
+    context: ChallengeCommandContext,
+  ): Promise<MutationOutcome<ChallengeId, ChallengeNextAction>>;
 }
 
 export type AccessDecisionRecord = {

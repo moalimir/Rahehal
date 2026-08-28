@@ -54,8 +54,11 @@ beforeAll(async () => {
     "0005_b1_authoritative_challenge_lifecycle",
     "0006_b2_challenge_approval_gates",
     "0007_b3_versioned_eligibility_rules",
+    "0008_b4_challenge_publication",
   ]);
 
+  const b4Down = await runMigrations(database, "down");
+  expect(b4Down.applied).toEqual(["0008_b4_challenge_publication"]);
   const b3Down = await runMigrations(database, "down");
   expect(b3Down.applied).toEqual(["0007_b3_versioned_eligibility_rules"]);
   const b2Down = await runMigrations(database, "down");
@@ -91,6 +94,7 @@ beforeAll(async () => {
     "0005_b1_authoritative_challenge_lifecycle",
     "0006_b2_challenge_approval_gates",
     "0007_b3_versioned_eligibility_rules",
+    "0008_b4_challenge_publication",
   ]);
   const noOpUp = await runMigrations(database, "up");
   expect(noOpUp.applied).toEqual([]);
@@ -111,6 +115,9 @@ afterAll(async () => {
 
 describe("A1a PostgreSQL foundation", () => {
   it("migrates every required table and records the checksum", async () => {
+    // One list in the query's own `ORDER BY table_name` order, migration
+    // ledger included -- a new table has to be named here, not absorbed by an
+    // index into a spliced array.
     const expectedTables = [
       "access_grant",
       "app_session",
@@ -118,6 +125,7 @@ describe("A1a PostgreSQL foundation", () => {
       "audit_event",
       "challenge",
       "challenge_approval",
+      "challenge_public_projection",
       "challenge_version",
       "eligibility_rule",
       "idempotency_key",
@@ -126,6 +134,7 @@ describe("A1a PostgreSQL foundation", () => {
       "mutation_receipt",
       "oidc_authorization_attempt",
       "outbox_event",
+      "schema_migration",
       "tenant",
       "workspace",
     ];
@@ -135,11 +144,7 @@ describe("A1a PostgreSQL foundation", () => {
       WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
       ORDER BY table_name
     `);
-    expect(tables.rows.map((row) => row.table_name)).toEqual([
-      ...expectedTables.slice(0, 14),
-      "schema_migration",
-      ...expectedTables.slice(14),
-    ]);
+    expect(tables.rows.map((row) => row.table_name)).toEqual(expectedTables);
 
     const ledger = await database.query<{ id: string; checksum: string }>(
       "SELECT id, checksum FROM schema_migration",
@@ -168,6 +173,10 @@ describe("A1a PostgreSQL foundation", () => {
       },
       {
         id: "0007_b3_versioned_eligibility_rules",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+      {
+        id: "0008_b4_challenge_publication",
         checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
       },
     ]);
@@ -445,6 +454,8 @@ describe("A1a PostgreSQL foundation", () => {
   });
 
   it("fails the A1b migration atomically for an orphaned existing session", async () => {
+    const b4Down = await runMigrations(database, "down");
+    expect(b4Down.applied).toEqual(["0008_b4_challenge_publication"]);
     const b3Down = await runMigrations(database, "down");
     expect(b3Down.applied).toEqual(["0007_b3_versioned_eligibility_rules"]);
     const b2Down = await runMigrations(database, "down");
@@ -508,6 +519,7 @@ describe("A1a PostgreSQL foundation", () => {
       "0005_b1_authoritative_challenge_lifecycle",
       "0006_b2_challenge_approval_gates",
       "0007_b3_versioned_eligibility_rules",
+      "0008_b4_challenge_publication",
     ]);
   });
 });

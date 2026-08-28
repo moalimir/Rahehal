@@ -1,6 +1,6 @@
 import type { ChallengeRecord } from "@/domain/challenge";
 import type { ApiReadiness } from "@rahhal/contracts";
-import type { ChallengeAuthoringStage } from "@rahhal/domain";
+import type { ChallengeManagedStage } from "@rahhal/domain";
 
 export type InitialChallengeInput = Pick<
   ChallengeRecord,
@@ -27,7 +27,7 @@ export type ChallengeResultMeta = {
   readonly server_time: string;
   readonly correlation_id: string;
   readonly readiness?: ApiReadiness;
-  readonly stage?: ChallengeAuthoringStage;
+  readonly stage?: ChallengeManagedStage;
 };
 
 export type ChallengeResult<Data> =

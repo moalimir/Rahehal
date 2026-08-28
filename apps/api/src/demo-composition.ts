@@ -32,6 +32,12 @@ export const demoApiCredentials = {
     workspaceId: parseWorkspaceId("wsp_org_alpha"),
     sessionId: parseSessionId("ses_approver_alpha"),
   },
+  publisher: {
+    accessToken: "demo-access-publisher-alpha-1",
+    refreshToken: "demo-refresh-publisher-alpha-1",
+    workspaceId: parseWorkspaceId("wsp_org_alpha"),
+    sessionId: parseSessionId("ses_publisher_alpha"),
+  },
   foreignOwner: {
     accessToken: "demo-access-owner-beta-00001",
     refreshToken: "demo-refresh-owner-beta-00001",
@@ -85,6 +91,13 @@ const approverUser: User = {
   id: parseUserId("usr_approver_alpha"),
   displayName: "تأییدکننده فنی آلفا",
   primaryEmail: "approver.alpha@example.test",
+  emailVerified: true,
+};
+
+const publisherUser: User = {
+  id: parseUserId("usr_publisher_alpha"),
+  displayName: "منتشرکننده آلفا",
+  primaryEmail: "publisher.alpha@example.test",
   emailVerified: true,
 };
 
@@ -177,6 +190,24 @@ function demoSeeds(now: string): readonly DemoIdentitySeed[] {
       refreshToken: demoApiCredentials.approver.refreshToken,
     },
     {
+      user: publisherUser,
+      workspace: alphaWorkspace,
+      membership: membership(
+        "mem_publisher_alpha",
+        publisherUser,
+        alphaWorkspace,
+        "org:publisher",
+        now,
+      ),
+      authorizationCode: "demo-oidc-code-publisher-alpha",
+      codeVerifier: "demo-code-verifier-publisher-alpha-0000000000000000",
+      redirectUri: demoApiCredentials.exchange.redirectUri,
+      oidcState: "demo-state-publisher-alpha",
+      sessionId: demoApiCredentials.publisher.sessionId,
+      accessToken: demoApiCredentials.publisher.accessToken,
+      refreshToken: demoApiCredentials.publisher.refreshToken,
+    },
+    {
       user: foreignOwnerUser,
       workspace: betaWorkspace,
       membership: membership("mem_owner_beta", foreignOwnerUser, betaWorkspace, "org:owner", now),
@@ -249,6 +280,7 @@ function foreignChallenge(now: string): ChallengeResource {
   return {
     id: demoForeignChallengeId,
     current_version_id: parseChallengeVersionId("chv_foreign_beta_001"),
+    published_version_id: null,
     tenant_id: betaWorkspace.tenantId,
     workspace_id: betaWorkspace.id,
     stage: "draft",

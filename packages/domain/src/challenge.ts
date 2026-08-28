@@ -27,6 +27,16 @@ export type ChallengeStage = (typeof challengeStages)[number];
 export const challengeAuthoringStages = ["draft", "triage", "formulation", "approvals"] as const;
 export type ChallengeAuthoringStage = (typeof challengeAuthoringStages)[number];
 
+/**
+ * The stages the organization-facing challenge API can load today: the four
+ * authoring stages plus `published`. Publication (B4) does not end the org's
+ * ability to read its own record, so the authoring resource has to survive the
+ * transition — but the boundary stays explicit rather than widening to the full
+ * eleven-stage lifecycle, which nothing downstream of `published` implements yet.
+ */
+export const challengeManagedStages = [...challengeAuthoringStages, "published"] as const;
+export type ChallengeManagedStage = (typeof challengeManagedStages)[number];
+
 export type Transition<State extends string> = {
   readonly from: State;
   readonly to: State;
@@ -413,6 +423,7 @@ export const challengeOutboxEventTypes = [
   "challenge.formulation.started",
   "challenge.approvals.requested",
   "challenge.approval.recorded",
+  "challenge.published",
 ] as const;
 export type ChallengeOutboxEventType = (typeof challengeOutboxEventTypes)[number];
 
@@ -479,4 +490,67 @@ export function evaluatePublicationReadiness(
   );
   const missing = publicationGates.filter((gate) => !satisfied.includes(gate));
   return { ready: missing.length === 0, satisfied, missing };
+}
+
+/**
+ * The `approvals -> published` transition's preconditions, keyed by the gate
+ * that attests each one. Nothing derives these names from the gate strings:
+ * `quality` attests `quality-passed`, not `quality-approved`, so a generated
+ * name would silently fail `canTransition` closed and make publication
+ * impossible for a reason no error message would explain.
+ */
+export const publicationGatePreconditions: Record<PublicationGate, string> = {
+  technical: "technical-approved",
+  legal: "legal-approved",
+  finance: "finance-approved",
+  quality: "quality-passed",
+};
+
+/**
+ * The exact, closed set of challenge content fields that may cross into the
+ * public projection (B4/B5). This is an allowlist by construction: a field
+ * added to `ChallengeDraftContent` is confidential until it is named here and
+ * given its own projection column, so the default for new content is "private".
+ *
+ * Deliberately excluded, and why: `summary`, `desiredOutcome`, `currentState`,
+ * `consequence`, `expectedOutput`, `successCriteria`, `inScope`, `constraints`,
+ * `organizationSupport`, and `previousAttempts` are the organization's internal
+ * problem narrative; `invitees` and `contact` are personal data; `legalNotes`
+ * and `accuracyConfirmed` are internal governance; `attachmentIds` reference
+ * private files that only an authorized signed read may reach.
+ */
+export const challengePublicProjectionFields = [
+  "title",
+  "category",
+  "location",
+  "publicSummary",
+  "outputType",
+  "sourcingModel",
+  "applicantScope",
+  "allowedApplicantTypes",
+  "workMode",
+  "proposalDeadline",
+  "preferredStartDate",
+  "budget",
+  "visibility",
+  "verificationRequired",
+  "ndaRequired",
+  "documentGateRequired",
+  "ipTerms",
+] as const satisfies readonly (keyof ChallengeDraftContent)[];
+export type ChallengePublicProjectionField = (typeof challengePublicProjectionFields)[number];
+
+/**
+ * Only `public` and `registered` challenges get a projection row at all. An
+ * `invite_only`/`nda` challenge is published without ever entering the public
+ * table, so discovery cannot leak it through a forgotten `WHERE` clause — the
+ * row simply does not exist. `registered` still needs the visibility column,
+ * since it must not reach anonymous readers.
+ */
+export type ProjectableVisibility = Extract<ChallengeVisibility, "public" | "registered">;
+
+export function isPubliclyProjectable(
+  visibility: ChallengeVisibility | null,
+): visibility is ProjectableVisibility {
+  return visibility === "public" || visibility === "registered";
 }

@@ -847,6 +847,377 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
     expect(after.rows[0]?.snapshot).toBe(before.rows[0]?.snapshot);
   });
 
+  /**
+   * The legal and finance gates are recorded by platform actors who hold no
+   * membership in the org workspace, so each needs its own user row; the
+   * adapter is given the role directly (app.ts owns the authorization path).
+   */
+  async function approveAllGates(
+    challenges: PostgresChallengeAdapter,
+    challengeId: string,
+    keyPrefix: string,
+    ordinal: number,
+  ): Promise<void> {
+    await database.query(`
+      INSERT INTO app_user (
+        id, display_name, primary_email, email_verified, primary_phone, phone_verified,
+        created_at, updated_at
+      ) VALUES
+        (
+          'usr_gate_legal_test', 'Test Legal Approver', 'gate-legal-test@synthetic.invalid',
+          true, NULL, false, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'
+        ),
+        (
+          'usr_gate_finance_test', 'Test Finance Approver', 'gate-finance-test@synthetic.invalid',
+          true, NULL, false, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'
+        )
+      ON CONFLICT (id) DO NOTHING
+    `);
+
+    const gates = [
+      ["technical", "org:approver_technical", ownerUserId],
+      ["legal", "platform:legal", parseUserId("usr_gate_legal_test")],
+      ["finance", "platform:finance", parseUserId("usr_gate_finance_test")],
+      ["quality", "platform:ops", parseUserId("usr_platform_ops")],
+    ] as const;
+    for (const [index, [gate, role, actorUserId]] of gates.entries()) {
+      await challenges.recordApproval(
+        challengeId,
+        { expected_version: 4, gate, decision: "approved", reason: `${gate} review complete.` },
+        context(`${keyPrefix}-${gate}`, ordinal + index, { role, actorUserId }),
+      );
+    }
+  }
+
+  async function publishableChallenge(
+    challenges: PostgresChallengeAdapter,
+    keyPrefix: string,
+    ordinal: number,
+  ): Promise<string> {
+    const challengeId = await advanceToApprovals(challenges, keyPrefix, ordinal);
+    await approveAllGates(challenges, challengeId, keyPrefix, ordinal + 4);
+    return challengeId;
+  }
+
+  it("publishes the approved version and its allowlisted projection in one transaction", async () => {
+    const challenges = adapter();
+    const challengeId = await publishableChallenge(challenges, "b4-publish", 200);
+    const approved = await challenges.getScoped(context("b4-publish-read", 210), challengeId);
+    const approvedVersionId = approved?.current_version_id;
+
+    const publishContext = context("b4-publish-command", 211, { role: "org:publisher" });
+    const published = await challenges.publish(
+      challengeId,
+      { expected_version: 4 },
+      publishContext,
+    );
+    expect(published).toMatchObject({
+      entityVersion: 5,
+      receipt: { next_actions: ["await_proposals"], idempotent: false },
+    });
+    const replay = await challenges.publish(challengeId, { expected_version: 4 }, publishContext);
+    expect(replay).toEqual({ ...published, receipt: { ...published.receipt, idempotent: true } });
+
+    const current = await challenges.getScoped(context("b4-publish-reread", 212), challengeId);
+    expect(current).toMatchObject({ stage: "published", version: 5 });
+    expect(current?.published_version_id).toBe(approvedVersionId);
+
+    const aggregate = await database.query<{
+      published_version_id: string;
+      locked_at: Date | null;
+    }>(
+      `
+        SELECT challenge.published_version_id, version.locked_at
+        FROM challenge
+        JOIN challenge_version AS version ON version.id = challenge.published_version_id
+        WHERE challenge.id = $1
+      `,
+      [challengeId],
+    );
+    expect(aggregate.rows[0]?.published_version_id).toBe(approvedVersionId);
+    // A published version is never left unlocked.
+    expect(aggregate.rows[0]?.locked_at).not.toBeNull();
+
+    // The projection's column set IS the allowlist: a confidential field added
+    // to the aggregate later has nowhere in this table to land.
+    const columns = await database.query<{ column_name: string }>(
+      `
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_name = 'challenge_public_projection'
+        ORDER BY column_name
+      `,
+    );
+    expect(columns.rows.map((row) => row.column_name)).toEqual([
+      "allowed_applicant_types",
+      "applicant_scope",
+      "budget_amount_minor",
+      "budget_currency",
+      "budget_status",
+      "category",
+      "challenge_id",
+      "challenge_version_id",
+      "document_gate_required",
+      "ip_terms",
+      "location",
+      "nda_required",
+      "output_type",
+      "preferred_start_date",
+      "proposal_deadline",
+      "public_summary",
+      "published_at",
+      "sourcing_model",
+      "tenant_id",
+      "title",
+      "verification_required",
+      "visibility",
+      "work_mode",
+    ]);
+
+    const projection = await database.query<{
+      challenge_version_id: string;
+      title: string;
+      public_summary: string;
+      visibility: string;
+      allowed_applicant_types: string[];
+      budget_amount_minor: string;
+      row: string;
+    }>(
+      `
+        SELECT
+          challenge_version_id, title, public_summary, visibility,
+          allowed_applicant_types, budget_amount_minor, to_jsonb(t)::text AS row
+        FROM challenge_public_projection AS t
+        WHERE challenge_id = $1
+      `,
+      [challengeId],
+    );
+    expect(projection.rowCount).toBe(1);
+    expect(projection.rows[0]).toMatchObject({
+      challenge_version_id: approvedVersionId,
+      title: "Test Challenge",
+      public_summary: "A public-safe summary.",
+      visibility: "registered",
+      allowed_applicant_types: ["individual", "expert-team", "company"],
+      budget_amount_minor: "100000000",
+    });
+    // Nothing confidential travelled with it.
+    for (const confidential of [
+      "A deterministic challenge draft for tests.",
+      "The current process is manual.",
+      "contact@example.test",
+      "+980000000000",
+    ]) {
+      expect(projection.rows[0]?.row).not.toContain(confidential);
+    }
+
+    const evidence = await database.query<{
+      audits: string;
+      receipts: string;
+      events: string;
+      replays: string;
+    }>(
+      `
+        SELECT
+          (SELECT count(*) FROM audit_event
+            WHERE target_id = $1 AND action = 'challenge.published') AS audits,
+          (SELECT count(*) FROM mutation_receipt
+            WHERE entity_type = 'challenge' AND entity_id = $1 AND entity_version = 5) AS receipts,
+          (SELECT count(*) FROM outbox_event
+            WHERE aggregate_id = $1 AND event_type = 'challenge.published') AS events,
+          (SELECT count(*) FROM idempotency_key
+            WHERE tenant_id = $2 AND idempotency_key = 'b4-publish-command') AS replays
+      `,
+      [challengeId, ownerTenantId],
+    );
+    expect(evidence.rows[0]).toEqual({
+      audits: "1",
+      receipts: "1",
+      events: "1",
+      replays: "1",
+    });
+
+    await expectDatabaseError(
+      database.query(`UPDATE challenge_public_projection SET title = 'x' WHERE challenge_id = $1`, [
+        challengeId,
+      ]),
+      "55000",
+    );
+    await expectDatabaseError(
+      database.query(`DELETE FROM challenge_public_projection WHERE challenge_id = $1`, [
+        challengeId,
+      ]),
+      "55000",
+    );
+  });
+
+  it("refuses to publish an under-approved version and writes nothing", async () => {
+    const challenges = adapter();
+    const challengeId = await advanceToApprovals(challenges, "b4-partial", 220);
+    // Three of four gates -- `quality` is deliberately never recorded.
+    for (const [index, [gate, role, actorUserId]] of (
+      [
+        ["technical", "org:approver_technical", ownerUserId],
+        ["legal", "org:approver_legal", parseUserId("usr_solver_alpha")],
+        ["finance", "org:approver_finance", parseUserId("usr_platform_ops")],
+      ] as const
+    ).entries()) {
+      await challenges.recordApproval(
+        challengeId,
+        { expected_version: 4, gate, decision: "approved", reason: "Partial approval." },
+        context(`b4-partial-${gate}`, 224 + index, { role, actorUserId }),
+      );
+    }
+
+    await expect(
+      challenges.publish(
+        challengeId,
+        { expected_version: 4 },
+        context("b4-partial-publish", 228, { role: "org:publisher" }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 409, code: "INVALID_STATE" });
+
+    const state = await database.query<{ stage: string; published_version_id: string | null }>(
+      "SELECT stage, published_version_id FROM challenge WHERE id = $1",
+      [challengeId],
+    );
+    expect(state.rows[0]).toEqual({ stage: "approvals", published_version_id: null });
+    const projections = await database.query(
+      "SELECT 1 FROM challenge_public_projection WHERE challenge_id = $1",
+      [challengeId],
+    );
+    expect(projections.rowCount).toBe(0);
+  });
+
+  it("serializes concurrent publish attempts into one published version", async () => {
+    const challenges = adapter();
+    const challengeId = await publishableChallenge(challenges, "b4-race", 240);
+
+    const attempt = (ordinal: number) =>
+      challenges.publish(
+        challengeId,
+        { expected_version: 4 },
+        context(`b4-race-publish-${ordinal}`, 250 + ordinal, { role: "org:publisher" }),
+      );
+    const results = await Promise.allSettled([attempt(1), attempt(2)]);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+
+    const counts = await database.query<{ projections: string; receipts: string }>(
+      `
+        SELECT
+          (SELECT count(*) FROM challenge_public_projection WHERE challenge_id = $1) AS projections,
+          (SELECT count(*) FROM mutation_receipt
+            WHERE entity_type = 'challenge' AND entity_id = $1 AND entity_version = 5) AS receipts
+      `,
+      [challengeId],
+    );
+    expect(counts.rows[0]).toEqual({ projections: "1", receipts: "1" });
+  });
+
+  it("rolls back the aggregate, projection, and evidence together on a failed publish", async () => {
+    const challenges = adapter();
+    const challengeId = await publishableChallenge(challenges, "b4-rollback", 260);
+    const snapshotQuery = `
+      SELECT jsonb_build_object(
+        'stage', (SELECT stage FROM challenge WHERE id = $1),
+        'published', (SELECT published_version_id FROM challenge WHERE id = $1),
+        'projections', (SELECT count(*) FROM challenge_public_projection WHERE challenge_id = $1),
+        'audits', (SELECT count(*) FROM audit_event
+          WHERE target_id = $1 AND action = 'challenge.published'),
+        'receipts', (SELECT count(*) FROM mutation_receipt
+          WHERE entity_id = $1 AND entity_version = 5),
+        'events', (SELECT count(*) FROM outbox_event
+          WHERE aggregate_id = $1 AND event_type = 'challenge.published'),
+        'replays', (SELECT count(*) FROM idempotency_key
+          WHERE tenant_id = $2 AND idempotency_key = 'b4-rollback-publish')
+      )::text AS snapshot
+    `;
+    const before = await database.query<{ snapshot: string }>(snapshotQuery, [
+      challengeId,
+      ownerTenantId,
+    ]);
+
+    const failing = adapter({
+      beforeCommit: () => {
+        throw new Error("forced B4 publish rollback");
+      },
+    });
+    await expect(
+      failing.publish(
+        challengeId,
+        { expected_version: 4 },
+        context("b4-rollback-publish", 270, { role: "org:publisher" }),
+      ),
+    ).rejects.toThrow("forced B4 publish rollback");
+
+    const after = await database.query<{ snapshot: string }>(snapshotQuery, [
+      challengeId,
+      ownerTenantId,
+    ]);
+    expect(after.rows[0]?.snapshot).toBe(before.rows[0]?.snapshot);
+  });
+
+  it("refuses a hand-written publication that the four gates never cleared", async () => {
+    const challenges = adapter();
+    const challengeId = await advanceToApprovals(challenges, "b4-forged", 280);
+    const current = await challenges.getScoped(context("b4-forged-read", 285), challengeId);
+
+    // Bypassing the adapter entirely: the database itself must reject a
+    // published_version_id that no set of four approved gates supports.
+    await expectDatabaseError(
+      database.query(
+        "UPDATE challenge SET stage = 'published', published_version_id = $2 WHERE id = $1",
+        [challengeId, current?.current_version_id],
+      ),
+      "23514",
+    );
+  });
+
+  it("publishes an NDA challenge without creating a public projection row", async () => {
+    const challenges = adapter();
+    const created = await challenges.create(
+      {
+        expected_version: 0,
+        draft: buildChallengeContentResource({ visibility: "nda", public_summary: "" }),
+      },
+      context("b4-nda-create", 300),
+    );
+    const challengeId = created.receipt.entity_id;
+    for (const [index, [command, version]] of (
+      [
+        ["request-triage", 1],
+        ["advance-formulation", 2],
+        ["request-approvals", 3],
+      ] as const
+    ).entries()) {
+      await challenges.transition(
+        challengeId,
+        command,
+        { expected_version: version },
+        context(`b4-nda-${command}`, 301 + index),
+      );
+    }
+    await approveAllGates(challenges, challengeId, "b4-nda", 310);
+
+    await challenges.publish(
+      challengeId,
+      { expected_version: 4 },
+      context("b4-nda-publish", 320, { role: "org:publisher" }),
+    );
+
+    const state = await database.query<{ stage: string; projections: string }>(
+      `
+        SELECT
+          challenge.stage,
+          (SELECT count(*) FROM challenge_public_projection WHERE challenge_id = $1) AS projections
+        FROM challenge
+        WHERE challenge.id = $1
+      `,
+      [challengeId],
+    );
+    expect(state.rows[0]).toEqual({ stage: "published", projections: "0" });
+  });
+
   it("rolls back aggregate, version, receipt, audit, outbox, and replay together", async () => {
     const before = await database.query<{ snapshot: string }>(`
       SELECT jsonb_build_object(

@@ -4,14 +4,15 @@ import type {
   ApprovalDecision,
   ChallengeApprovalId,
   ChallengeBudgetStatus,
-  ChallengeAuthoringStage,
   ChallengeDraftAuthoringStatus,
+  ChallengeManagedStage,
   ChallengeId,
   ChallengeIpTerms,
   ChallengeOutputType,
   ChallengeSourcingModel,
   ChallengeVersionId,
   ChallengeVisibility,
+  ProjectableVisibility,
   ChallengeWorkMode,
   Currency,
   FileId,
@@ -110,7 +111,8 @@ export type ChallengeResource = {
   readonly current_version_id: ChallengeVersionId;
   readonly tenant_id: TenantId;
   readonly workspace_id: WorkspaceId;
-  readonly stage: ChallengeAuthoringStage;
+  readonly stage: ChallengeManagedStage;
+  readonly published_version_id: ChallengeVersionId | null;
   readonly authoring_status: ChallengeDraftAuthoringStatus;
   readonly version: number;
   readonly content_version: number;
@@ -145,7 +147,45 @@ export type ChallengeNextAction =
   | "request_triage"
   | "advance_formulation"
   | "request_approvals"
-  | "await_approvals";
+  | "await_approvals"
+  | "await_proposals";
+
+/**
+ * Publishing carries no payload beyond the optimistic-concurrency envelope:
+ * every publishable fact is already locked into the approved version, so the
+ * command deliberately offers no field that could differ from what the four
+ * gates actually approved.
+ */
+export type PublishChallengeBody = VersionedCommand;
+
+/**
+ * The public face of a published challenge — the structurally separate
+ * projection written at publish time from `challengePublicProjectionFields`.
+ * It is a distinct resource, never `ChallengeResource` with fields removed at
+ * render time.
+ */
+export type ChallengePublicProjectionResource = {
+  readonly challenge_id: ChallengeId;
+  readonly challenge_version_id: ChallengeVersionId;
+  readonly title: string;
+  readonly category: string;
+  readonly location: string;
+  readonly public_summary: string;
+  readonly output_type: ChallengeOutputType;
+  readonly sourcing_model: ChallengeSourcingModel;
+  readonly applicant_scope: ApplicantScope;
+  readonly allowed_applicant_types: readonly ApplicantType[];
+  readonly work_mode: ChallengeWorkMode;
+  readonly proposal_deadline: string;
+  readonly preferred_start_date: string | null;
+  readonly budget: ChallengeBudgetResource;
+  readonly visibility: ProjectableVisibility;
+  readonly verification_required: boolean;
+  readonly nda_required: boolean;
+  readonly document_gate_required: boolean;
+  readonly ip_terms: ChallengeIpTerms;
+  readonly published_at: string;
+};
 
 export type ChallengeApprovalNextAction = "await_remaining_gates" | "ready_for_publish";
 

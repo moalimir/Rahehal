@@ -182,7 +182,7 @@ POST /challenges/{id}/decision:record          # evaluating → decided (authori
 
 ## 7. Events emitted (outbox → consumers)
 
-The executable schema-v1 worker allowlist is initially exact and intentionally small: `challenge.draft.created`, `challenge.draft.updated`, `session.exchanged`, `session.refreshed`, `session.revoked`, and `session.context.switched`. No `challenge.draft.saved`, generic `challenge.stage.changed`, or AI event is accepted. These walking-skeleton application audit codes cover draft/session effects that do not yet have canonical transition-table rows.
+The executable schema-v1 worker allowlist is exact and intentionally small. It is not maintained by hand: the worker derives its challenge half from `challengeOutboxEventTypes` in the domain, so an event a challenge adapter emits but the domain omits is dead-lettered as `UNSUPPORTED_EVENT_TYPE` rather than silently dropped. It currently admits `challenge.draft.created`, `challenge.draft.updated`, `challenge.triage.requested`, `challenge.formulation.started`, `challenge.approvals.requested`, `challenge.approval.recorded`, `challenge.published`, `session.exchanged`, `session.refreshed`, `session.revoked`, and `session.context.switched`. No `challenge.draft.saved`, generic `challenge.stage.changed`, or AI event is accepted. The `challenge.draft.*` codes are walking-skeleton application audit codes covering draft effects that have no canonical transition-table row; the lifecycle codes reuse the state machine's `audit` names verbatim.
 
 For the target lifecycle commands below, event names reuse the state machines' `audit` codes verbatim so audit and integration share one vocabulary:
 

@@ -11,6 +11,7 @@ import {
   type BrowserOidcAuthorizationStartSuccessEnvelope,
   openApiDocument,
   type CreateChallengeBody,
+  type ChallengeNextAction,
   type ChallengeTransitionBody,
   type MeResource,
   type MutationSuccessEnvelope,
@@ -26,7 +27,13 @@ import {
   type SwitchWorkspaceContextBody,
   type VersionedApiMeta,
 } from "@rahhal/contracts";
-import { gateApproverRoles, isGateApproverRole, isPlatformRole } from "@rahhal/domain";
+import {
+  gateApproverRoles,
+  isGateApproverRole,
+  isPlatformRole,
+  type ChallengeId,
+  type CorrelationId,
+} from "@rahhal/domain";
 import {
   authorizationFlowCookie,
   browserCookieNames,
@@ -177,6 +184,15 @@ const canReadChallenge = (access: WorkspaceAccess) => access.workspace.kind === 
 const canEditChallenge = (access: WorkspaceAccess) =>
   access.workspace.kind === "org" && (access.role === "org:owner" || access.role === "org:member");
 
+/**
+ * Publication is `org:publisher` only -- the one role on the
+ * `approvals -> published` transition. Deliberately not `canEditChallenge`:
+ * the actor who authored the brief must not also be the actor who releases it
+ * (70_SECURITY_AND_AUTHZ §6).
+ */
+const canPublishChallenge = (access: WorkspaceAccess) =>
+  access.workspace.kind === "org" && access.role === "org:publisher";
+
 function idempotencyCommand(request: FastifyRequest) {
   const idempotencyKey = requiredHeader(request, "Idempotency-Key");
   if (idempotencyKey.length < 8 || idempotencyKey.length > 200) {
@@ -271,12 +287,24 @@ const fastifyChallengeCommandPath = (path: string) =>
     `:challengeId(${challengeIdParamsSchema.properties.challengeId.pattern})`,
   );
 
-function registerChallengeTransition(
+/**
+ * One registration for every versioned challenge command that reads the record
+ * inside the authorized unit of work, audits reachability, then delegates to a
+ * port command. `allows` and `invoke` are parameters rather than a branch,
+ * because publication uses a different role guard and a different port command
+ * from the three stage transitions.
+ */
+function registerChallengeCommand(
   app: FastifyInstance,
   ports: ApiPorts,
   route: string,
-  command: ChallengeTransitionCommand,
   action: string,
+  allows: (access: WorkspaceAccess) => boolean,
+  invoke: (
+    id: string,
+    body: ChallengeTransitionBody,
+    context: ChallengeScope & { idempotencyKey: string; correlationId: CorrelationId },
+  ) => Promise<MutationOutcome<ChallengeId, ChallengeNextAction>>,
 ): void {
   app.post<{ Params: ChallengeIdParams; Body: ChallengeTransitionBody }>(
     fastifyChallengeCommandPath(route),
@@ -302,7 +330,7 @@ function registerChallengeTransition(
           action,
           entityType: "challenge",
           entityId: request.params.challengeId,
-          allows: canEditChallenge,
+          allows,
           deferSuccess: true,
         },
         async (access) => {
@@ -330,15 +358,10 @@ function registerChallengeTransition(
             entityType: "challenge",
             entityId: request.params.challengeId,
           });
-          const outcome = await ports.challenges.transition(
-            request.params.challengeId,
-            command,
-            request.body,
-            {
-              ...challengeScope(session, access),
-              ...idempotencyCommand(request),
-            },
-          );
+          const outcome = await invoke(request.params.challengeId, request.body, {
+            ...challengeScope(session, access),
+            ...idempotencyCommand(request),
+          });
           return mutationSuccess(outcome, request, ports);
         },
       );
@@ -925,28 +948,35 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
     },
   );
 
-  registerChallengeTransition(
-    app,
-    ports,
+  const registerTransition = (route: string, command: ChallengeTransitionCommand, action: string) =>
+    registerChallengeCommand(app, ports, route, action, canEditChallenge, (id, body, context) =>
+      ports.challenges.transition(id, command, body, context),
+    );
+
+  registerTransition(
     apiRoutes.requestChallengeTriage,
     "request-triage",
     "challenge:request-triage",
   );
-  registerChallengeTransition(
-    app,
-    ports,
+  registerTransition(
     apiRoutes.advanceChallengeFormulation,
     "advance-formulation",
     "challenge:advance-formulation",
   );
-  registerChallengeTransition(
-    app,
-    ports,
+  registerTransition(
     apiRoutes.requestChallengeApprovals,
     "request-approvals",
     "challenge:request-approvals",
   );
   registerRecordChallengeApproval(app, ports);
+  registerChallengeCommand(
+    app,
+    ports,
+    apiRoutes.publishChallenge,
+    "challenge:publish",
+    canPublishChallenge,
+    (id, body, context) => ports.challenges.publish(id, body, context),
+  );
 
   return app;
 }

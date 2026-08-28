@@ -2,13 +2,19 @@ import type {
   ApiReadiness,
   ChallengeDraftContentResource,
   ChallengeDraftPatch,
+  ChallengePublicProjectionResource,
+  PublicationReadinessResource,
 } from "@rahhal/contracts";
 import {
   applicantScopeForTypes,
   evaluateChallengeReadiness,
   isApplicantScope,
   isMoneyAmountMinor,
+  isPubliclyProjectable,
+  publicationGatePreconditions,
   type ChallengeDraftContent,
+  type ChallengeId,
+  type ChallengeVersionId,
 } from "@rahhal/domain";
 
 import { ApiProblem } from "./errors.js";
@@ -186,13 +192,82 @@ export function assertEligibilityRuleAttachable(
  * entity is modelled before a later milestone), so reaching the `triage` stage
  * is the only signal that exists for it; that is stated here rather than hidden
  * behind a precondition that appears to be enforced.
+ *
+ * The four `*-approved`/`quality-passed` preconditions on `approvals ->
+ * published` are attested by the recorded gates themselves (B2), and only ever
+ * by gates whose decision is `approved` — `publicationReadiness.satisfied`
+ * already excludes a recorded rejection.
  */
 export function satisfiedTransitionPreconditions(
   stage: string,
   readiness: ApiReadiness,
+  publicationReadiness?: PublicationReadinessResource,
 ): readonly string[] {
   return [
     ...(readiness.ready ? ["brief-valid", "formulation-complete"] : []),
     ...(stage === "triage" ? ["triage-passed"] : []),
+    ...(publicationReadiness?.satisfied ?? []).map((gate) => publicationGatePreconditions[gate]),
   ];
+}
+
+/**
+ * Projects one approved challenge version onto the public allowlist
+ * (`challengePublicProjectionFields`). Every field is named explicitly — there
+ * is no spread of the private content — so a confidential field added to the
+ * aggregate stays out of the public surface unless someone deliberately adds
+ * it here, to the contract type, to the JSON schema, and to a database column.
+ *
+ * The non-null assertions are not optimism: publication is gated on
+ * `evaluateChallengeReadiness`, which already requires every one of these
+ * fields. The throw exists so that a future readiness change that drops one of
+ * them fails loudly here instead of writing a half-empty public row.
+ */
+export function challengePublicProjection(
+  challengeId: ChallengeId,
+  challengeVersionId: ChallengeVersionId,
+  content: ChallengeDraftContentResource,
+  publishedAt: string,
+): ChallengePublicProjectionResource {
+  const {
+    output_type: outputType,
+    sourcing_model: sourcingModel,
+    applicant_scope: applicantScope,
+    work_mode: workMode,
+    proposal_deadline: proposalDeadline,
+    visibility,
+    ip_terms: ipTerms,
+  } = content;
+  if (
+    outputType === null ||
+    sourcingModel === null ||
+    applicantScope === null ||
+    workMode === null ||
+    proposalDeadline === null ||
+    ipTerms === null ||
+    !isPubliclyProjectable(visibility)
+  ) {
+    throw new Error("A publishable challenge version is missing a required public field");
+  }
+  return {
+    challenge_id: challengeId,
+    challenge_version_id: challengeVersionId,
+    title: content.title,
+    category: content.category,
+    location: content.location,
+    public_summary: content.public_summary,
+    output_type: outputType,
+    sourcing_model: sourcingModel,
+    applicant_scope: applicantScope,
+    allowed_applicant_types: content.allowed_applicant_types,
+    work_mode: workMode,
+    proposal_deadline: proposalDeadline,
+    preferred_start_date: content.preferred_start_date,
+    budget: content.budget,
+    visibility,
+    verification_required: content.verification_required,
+    nda_required: content.nda_required,
+    document_gate_required: content.document_gate_required,
+    ip_terms: ipTerms,
+    published_at: publishedAt,
+  };
 }

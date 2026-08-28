@@ -4,6 +4,7 @@ import {
   type MutationSuccessEnvelope,
   type SessionSuccessEnvelope,
   type SuccessEnvelope,
+  type ChallengeDraftContentResource,
   type ChallengeResource,
   type MeResource,
 } from "@rahhal/contracts";
@@ -206,7 +207,7 @@ describe("authoritative Fastify API foundation", () => {
     expect(firstBody.data.receipt.idempotent).toBe(false);
     expect(secondBody.data.receipt).toEqual({ ...firstBody.data.receipt, idempotent: true });
     expect(secondBody.data.tokens).toEqual(firstBody.data.tokens);
-    expect(composition.identity.snapshot().sessions).toHaveLength(7);
+    expect(composition.identity.snapshot().sessions).toHaveLength(8);
     expect(composition.identity.snapshot().auditEvents).toHaveLength(1);
     expect(composition.identity.snapshot().outboxEvents).toHaveLength(1);
   });
@@ -229,7 +230,7 @@ describe("authoritative Fastify API foundation", () => {
     expect(replayWithNewKey.statusCode).toBe(403);
     expect(replayWithNewKey.json<ErrorEnvelope>().error.code).toBe("NO_ACCESS");
     const snapshot = composition.identity.snapshot();
-    expect(snapshot.sessions).toHaveLength(7);
+    expect(snapshot.sessions).toHaveLength(8);
     expect(snapshot.auditEvents).toHaveLength(1);
     expect(snapshot.outboxEvents).toHaveLength(1);
     expect(snapshot.consumedOidcExchangeCount).toBe(1);
@@ -732,12 +733,15 @@ describe("authoritative Fastify API foundation", () => {
     ).toHaveLength(5);
   });
 
-  async function createChallengeAtApprovalsStage(keyPrefix: string): Promise<string> {
+  async function createChallengeAtApprovalsStage(
+    keyPrefix: string,
+    draft: ChallengeDraftContentResource = buildChallengeContentResource(),
+  ): Promise<string> {
     const created = await app.inject({
       method: "POST",
       url: apiRoutes.challenges,
       headers: ownerHeaders(`${keyPrefix}-create`),
-      payload: buildCreateChallengeBody({ draft: buildChallengeContentResource() }),
+      payload: buildCreateChallengeBody({ draft }),
     });
     const challengeId = created.json<MutationSuccessEnvelope>().data.entity_id;
     await app.inject({
@@ -930,6 +934,249 @@ describe("authoritative Fastify API foundation", () => {
     });
     expect(platformOpsAttempt.statusCode).toBe(404);
     expect(platformOpsAttempt.json<ErrorEnvelope>().error.code).toBe("NOT_FOUND");
+  });
+
+  /** Drives a challenge to `approvals` and clears all four gates. */
+  async function createFullyApprovedChallenge(
+    keyPrefix: string,
+    draft?: ChallengeDraftContentResource,
+  ): Promise<string> {
+    const challengeId = await createChallengeAtApprovalsStage(keyPrefix, draft);
+    const recordUrl = apiRoutes.recordChallengeApproval.replace("{challengeId}", challengeId);
+    const gates = [
+      ["technical", demoApiCredentials.approver],
+      ["legal", demoApiCredentials.platformLegal],
+      ["finance", demoApiCredentials.platformFinance],
+      ["quality", demoApiCredentials.platformOps],
+    ] as const;
+    for (const [gate, credential] of gates) {
+      const response = await app.inject({
+        method: "POST",
+        url: recordUrl,
+        headers: gateHeaders(credential, `${keyPrefix}-${gate}`),
+        payload: {
+          expected_version: 4,
+          gate,
+          decision: "approved",
+          reason: `تأیید دروازه ${gate}.`,
+        },
+      });
+      expect(response.statusCode).toBe(200);
+    }
+    return challengeId;
+  }
+
+  const publishUrl = (challengeId: string) =>
+    apiRoutes.publishChallenge.replace("{challengeId}", challengeId);
+
+  function publisherHeaders(idempotencyKey?: string) {
+    return {
+      authorization: `Bearer ${demoApiCredentials.publisher.accessToken}`,
+      "x-workspace-id": demoApiCredentials.publisher.workspaceId,
+      ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}),
+    };
+  }
+
+  it("publishes a fully approved version and writes only allowlisted public fields", async () => {
+    const challengeId = await createFullyApprovedChallenge(
+      "b4-publish",
+      // `legal_notes` is empty in the shared fixture; the leak assertion below
+      // is only meaningful when every confidential field carries real text.
+      buildChallengeContentResource({ legal_notes: "شرایط حقوقی داخلی و محرمانه." }),
+    );
+    const before = composition.challenges.snapshot();
+    const approvedVersionId = before.challenges.find(
+      ({ id }) => id === challengeId,
+    )?.current_version_id;
+
+    const published = await app.inject({
+      method: "POST",
+      url: publishUrl(challengeId),
+      headers: publisherHeaders("b4-publish-command-01"),
+      payload: { expected_version: 4 },
+    });
+    expect(published.statusCode).toBe(200);
+    const receipt = published.json<MutationSuccessEnvelope>();
+    expect(receipt.data.next_actions).toEqual(["await_proposals"]);
+    expect(receipt.meta.entity_version).toBe(5);
+
+    const read = await app.inject({
+      method: "GET",
+      url: `/api/v1/challenges/${challengeId}`,
+      headers: ownerHeaders(),
+    });
+    const resource = read.json<SuccessEnvelope<ChallengeResource>>().data;
+    expect(resource.stage).toBe("published");
+    // The published pointer is the exact version the four gates cleared.
+    expect(resource.published_version_id).toBe(approvedVersionId);
+
+    const snapshot = composition.challenges.snapshot();
+    const projections = snapshot.publicProjections.filter(
+      (projection) => projection.challenge_id === challengeId,
+    );
+    expect(projections).toHaveLength(1);
+
+    // The public row's field set is the allowlist and nothing else: every
+    // confidential content field is structurally absent, not blanked out.
+    const projection = projections[0];
+    expect(Object.keys(projection ?? {}).sort()).toEqual(
+      [
+        "allowed_applicant_types",
+        "applicant_scope",
+        "budget",
+        "category",
+        "challenge_id",
+        "challenge_version_id",
+        "document_gate_required",
+        "ip_terms",
+        "location",
+        "nda_required",
+        "output_type",
+        "preferred_start_date",
+        "proposal_deadline",
+        "public_summary",
+        "published_at",
+        "sourcing_model",
+        "title",
+        "verification_required",
+        "visibility",
+        "work_mode",
+      ].sort(),
+    );
+    const serialized = JSON.stringify(projection);
+    for (const confidential of [
+      resource.content.summary,
+      resource.content.current_state,
+      resource.content.desired_outcome,
+      resource.content.expected_output,
+      resource.content.legal_notes,
+      resource.content.contact.email,
+      resource.content.contact.phone,
+    ]) {
+      expect(confidential.length).toBeGreaterThan(0);
+      expect(serialized).not.toContain(confidential);
+    }
+
+    expect(
+      snapshot.auditEvents.filter(
+        (event) => event.entityId === challengeId && event.action === "challenge.published",
+      ),
+    ).toHaveLength(1);
+    expect(
+      snapshot.outboxEvents.filter(
+        (event) => event.aggregate_id === challengeId && event.event_type === "challenge.published",
+      ),
+    ).toHaveLength(1);
+    const emitted = [...new Set(snapshot.outboxEvents.map((event) => event.event_type))];
+    expect(
+      emitted.filter((type) => !(challengeOutboxEventTypes as readonly string[]).includes(type)),
+    ).toEqual([]);
+
+    // A replay is the same receipt and produces no second publication.
+    const replay = await app.inject({
+      method: "POST",
+      url: publishUrl(challengeId),
+      headers: publisherHeaders("b4-publish-command-01"),
+      payload: { expected_version: 4 },
+    });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json<MutationSuccessEnvelope>().data).toEqual({
+      ...receipt.data,
+      idempotent: true,
+    });
+    expect(composition.challenges.snapshot().publicProjections).toHaveLength(
+      snapshot.publicProjections.length,
+    );
+  });
+
+  it("refuses to publish an under-approved version and leaves no public row", async () => {
+    const challengeId = await createChallengeAtApprovalsStage("b4-partial");
+    // Three of four gates: `quality` is deliberately never recorded.
+    for (const [gate, credential] of [
+      ["technical", demoApiCredentials.approver],
+      ["legal", demoApiCredentials.platformLegal],
+      ["finance", demoApiCredentials.platformFinance],
+    ] as const) {
+      await app.inject({
+        method: "POST",
+        url: apiRoutes.recordChallengeApproval.replace("{challengeId}", challengeId),
+        headers: gateHeaders(credential, `b4-partial-${gate}`),
+        payload: { expected_version: 4, gate, decision: "approved", reason: "تأیید جزئی." },
+      });
+    }
+    const before = composition.challenges.snapshot();
+
+    const denied = await app.inject({
+      method: "POST",
+      url: publishUrl(challengeId),
+      headers: publisherHeaders("b4-partial-publish-01"),
+      payload: { expected_version: 4 },
+    });
+    expect(denied.statusCode).toBe(409);
+    expect(denied.json<ErrorEnvelope>().error).toMatchObject({
+      code: "INVALID_STATE",
+      current_state: "approvals",
+    });
+    expect(composition.challenges.snapshot()).toEqual(before);
+
+    // The outstanding gate is named on the record the caller already reads.
+    const read = await app.inject({
+      method: "GET",
+      url: `/api/v1/challenges/${challengeId}`,
+      headers: ownerHeaders(),
+    });
+    expect(
+      read.json<SuccessEnvelope<ChallengeResource>>().data.publication_readiness.missing,
+    ).toEqual(["quality"]);
+  });
+
+  it("denies publication to every role except the org publisher", async () => {
+    const challengeId = await createFullyApprovedChallenge("b4-role");
+    const before = composition.challenges.snapshot();
+
+    // The owner authored the brief; separation of duty keeps release out of
+    // the authoring role's hands even when every gate is green.
+    const ownerAttempt = await app.inject({
+      method: "POST",
+      url: publishUrl(challengeId),
+      headers: ownerHeaders("b4-role-owner-publish"),
+      payload: { expected_version: 4 },
+    });
+    expect(ownerAttempt.statusCode).toBe(403);
+    expect(ownerAttempt.json<ErrorEnvelope>().error.code).toBe("NO_ACCESS");
+
+    // The technical approver is likewise not a publisher.
+    const approverAttempt = await app.inject({
+      method: "POST",
+      url: publishUrl(challengeId),
+      headers: gateHeaders(demoApiCredentials.approver, "b4-role-approver-publish"),
+      payload: { expected_version: 4 },
+    });
+    expect(approverAttempt.statusCode).toBe(403);
+    expect(approverAttempt.json<ErrorEnvelope>().error.code).toBe("NO_ACCESS");
+
+    expect(composition.challenges.snapshot()).toEqual(before);
+  });
+
+  it("publishes an NDA-only challenge without ever entering the public table", async () => {
+    const ndaChallengeId = await createFullyApprovedChallenge(
+      "b4-nda",
+      buildChallengeContentResource({ visibility: "nda" }),
+    );
+
+    const published = await app.inject({
+      method: "POST",
+      url: publishUrl(ndaChallengeId),
+      headers: publisherHeaders("b4-nda-publish"),
+      payload: { expected_version: 4 },
+    });
+    expect(published.statusCode).toBe(200);
+
+    const snapshot = composition.challenges.snapshot();
+    expect(snapshot.challenges.find(({ id }) => id === ndaChallengeId)?.stage).toBe("published");
+    expect(
+      snapshot.publicProjections.filter((projection) => projection.challenge_id === ndaChallengeId),
+    ).toHaveLength(0);
   });
 
   it("revalidates session revocation inside the cross-tenant platform gate unit of work", async () => {
@@ -1328,6 +1575,7 @@ describe("authoritative Fastify API foundation", () => {
         transition: (id, command, body, context) =>
           challenges.transition(id, command, body, context),
         recordApproval: (id, body, context) => challenges.recordApproval(id, body, context),
+        publish: (id, body, context) => challenges.publish(id, body, context),
       },
     });
 
@@ -1614,6 +1862,7 @@ describe("in-memory challenge transaction", () => {
     expect(repository.snapshot()).toEqual({
       challenges: [],
       versions: [],
+      publicProjections: [],
       approvals: [],
       auditEvents: [],
       outboxEvents: [],

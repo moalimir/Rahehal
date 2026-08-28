@@ -12,6 +12,7 @@ export const apiRoutes = {
   advanceChallengeFormulation: "/api/v1/challenges/{challengeId}:advance-formulation",
   requestChallengeApprovals: "/api/v1/challenges/{challengeId}:request-approvals",
   recordChallengeApproval: "/api/v1/challenges/{challengeId}/approvals:record",
+  publishChallenge: "/api/v1/challenges/{challengeId}:publish",
 } as const;
 
 /**

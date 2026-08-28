@@ -311,6 +311,24 @@ export const openApiDocument = {
         },
       },
     },
+    [apiRoutes.publishChallenge]: {
+      post: {
+        operationId: "publishChallenge",
+        tags: ["Challenge"],
+        summary:
+          "Publish the fully approved version: lock it, set published_version_id, and write the public projection in one transaction",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, challengeIdParameter],
+        requestBody: { required: true, content: jsonContent("ChallengeTransitionBody") },
+        responses: {
+          "200": {
+            description: "A receipt for the approvals to published transition.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
   },
   components: {
     securitySchemes: {

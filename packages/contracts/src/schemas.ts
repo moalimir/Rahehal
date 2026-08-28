@@ -2,7 +2,7 @@ import {
   applicantScopes,
   applicantTypes,
   approvalDecisions,
-  challengeAuthoringStages,
+  challengeManagedStages,
   challengeBudgetStatuses,
   challengeDraftAuthoringStatuses,
   challengeIpTerms,
@@ -407,12 +407,72 @@ const publicationReadinessSchema = {
   },
 } as const;
 
+/**
+ * The published public projection's exact, closed field set. It is written out
+ * literally rather than picked from `challengeContentProperties`, so a new
+ * confidential content field cannot reach the public surface by inheriting a
+ * shared definition — B5's snapshot test asserts against this list.
+ */
+const challengePublicProjectionSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "challenge_id",
+    "challenge_version_id",
+    "title",
+    "category",
+    "location",
+    "public_summary",
+    "output_type",
+    "sourcing_model",
+    "applicant_scope",
+    "allowed_applicant_types",
+    "work_mode",
+    "proposal_deadline",
+    "preferred_start_date",
+    "budget",
+    "visibility",
+    "verification_required",
+    "nda_required",
+    "document_gate_required",
+    "ip_terms",
+    "published_at",
+  ],
+  properties: {
+    challenge_id: idSchema("chl"),
+    challenge_version_id: idSchema("chv"),
+    title: shortTextSchema,
+    category: shortTextSchema,
+    location: shortTextSchema,
+    public_summary: { type: "string", maxLength: 4_000 },
+    output_type: { type: "string", enum: challengeOutputTypes },
+    sourcing_model: { type: "string", enum: challengeSourcingModels },
+    applicant_scope: { type: "string", enum: applicantScopes },
+    allowed_applicant_types: {
+      type: "array",
+      uniqueItems: true,
+      items: { type: "string", enum: applicantTypes },
+    },
+    work_mode: { type: "string", enum: challengeWorkModes },
+    proposal_deadline: dateTimeSchema,
+    preferred_start_date: nullableDateTimeSchema,
+    budget: budgetSchema,
+    visibility: { type: "string", enum: ["public", "registered"] },
+    verification_required: { type: "boolean" },
+    nda_required: { type: "boolean" },
+    document_gate_required: { type: "boolean" },
+    ip_terms: { type: "string", enum: challengeIpTerms },
+    published_at: dateTimeSchema,
+  },
+} as const;
+
 const challengeResourceSchema = {
   type: "object",
   additionalProperties: false,
   required: [
     "id",
     "current_version_id",
+    "published_version_id",
     "tenant_id",
     "workspace_id",
     "stage",
@@ -430,9 +490,10 @@ const challengeResourceSchema = {
   properties: {
     id: idSchema("chl"),
     current_version_id: idSchema("chv"),
+    published_version_id: { anyOf: [idSchema("chv"), { type: "null" }] },
     tenant_id: idSchema("ten"),
     workspace_id: idSchema("wsp"),
-    stage: { type: "string", enum: challengeAuthoringStages },
+    stage: { type: "string", enum: challengeManagedStages },
     authoring_status: { type: "string", enum: challengeDraftAuthoringStatuses },
     version: { type: "integer", minimum: 1 },
     content_version: { type: "integer", minimum: 1 },
@@ -709,6 +770,7 @@ export const apiSchemas = {
     },
   },
   ChallengeApprovalResource: challengeApprovalResourceSchema,
+  ChallengePublicProjection: challengePublicProjectionSchema,
   PublicationReadiness: publicationReadinessSchema,
   RecordChallengeApprovalBody: {
     type: "object",
