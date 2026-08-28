@@ -75,7 +75,11 @@ test.describe("A3 connected challenge slice", () => {
     expect(recordUrl).toContain("id=chl_");
 
     // A reload proves the draft came back from PostgreSQL, not from the browser.
+    // The wizard deep-links to the step named in the URL (here step 2, per the
+    // intake page's own redirect), so step 1's title field is reached by
+    // navigating the stepper, not by reloading alone.
     await page.reload();
+    await page.getByRole("button", { name: /تعریف مسئله/ }).click();
     await expect(page.locator(`input[value="${title}"]`).first()).toBeVisible();
   });
 

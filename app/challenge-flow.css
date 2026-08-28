@@ -539,6 +539,10 @@
   height: 1px;
   background: var(--challenge-border);
   content: "";
+  /* Purely decorative: it reaches into the neighboring step's column (the li
+     is `overflow: visible`), and without this it intercepts clicks meant for
+     that step's button instead of letting them pass through. */
+  pointer-events: none;
 }
 
 .challenge-stepper button,

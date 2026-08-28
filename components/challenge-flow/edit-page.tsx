@@ -17,7 +17,11 @@ import {
 import { SaveIndicator, WizardStepper } from "@/components/challenge-flow/wizard";
 import { useChallengeRecord } from "@/components/challenge-flow/hooks";
 import { isDraftStatus } from "@/domain/challenge";
-import { navigateChallenge, readStandalonePath } from "@/lib/challenges/navigation";
+import {
+  connectedChallengeHref,
+  navigateChallenge,
+  readStandalonePath,
+} from "@/lib/challenges/navigation";
 import { validateStep, wizardSteps, type WizardStep } from "@/lib/challenges/validation";
 
 function stepFromLocation(fallback: WizardStep): WizardStep {
@@ -60,7 +64,7 @@ export function ChallengeEditPage({ id }: { id: string }) {
       }));
       const path = `/app/org/challenges/${record.id}/edit?step=${next}`;
       if (document.documentElement.dataset.challengeStandalone === "true") navigateChallenge(path);
-      else window.history.pushState(null, "", path);
+      else window.history.pushState(null, "", connectedChallengeHref(path));
       window.scrollTo({ top: 0, behavior: "smooth" });
     },
     [record, updateRecord],

@@ -25,6 +25,13 @@ export function NetworkOrganizationLogin() {
     }
   };
 
+  const loading = runtime.sessionStatus === "loading";
+  const buttonLabel = busy
+    ? "در حال انتقال…"
+    : loading
+      ? "در حال بررسی نشست…"
+      : "ورود با ارائه‌دهنده هویت محلی";
+
   return (
     <div className="organization-auth-page organization-auth-page--login" data-runtime="network">
       <header className="organization-auth-header">
@@ -36,38 +43,45 @@ export function NetworkOrganizationLogin() {
       <main className="organization-auth-main" id="main-content">
         <section className="organization-auth-form-panel">
           <div className="organization-auth-card organization-auth-card--login">
-            <span className="organization-auth-badge">محیط محلی متصل</span>
+            <span className="organization-auth-badge">پنل سازمانی</span>
             <h1>ورود به حساب سازمانی</h1>
-            <p>ورود با OIDC محلی انجام می‌شود؛ نشست، عضویت و فضای کاری را سرور بررسی می‌کند.</p>
+            <p>برای مدیریت چالش‌ها و بررسی راه‌حل‌های دریافتی وارد حساب سازمانی خود شوید.</p>
+
             {error && (
-              <div className="form-message form-message--error" role="alert">
+              <p className="organization-auth-message is-error" role="alert">
                 {error}
-              </div>
+              </p>
             )}
+
             {runtime.sessionStatus === "authenticated" ? (
-              <Link className="button button--primary" href="/app/org/challenges/new">
+              <Link className="organization-auth-submit" href="/app/org/challenges/new">
                 ادامه به ثبت مسئله
               </Link>
             ) : (
               <button
                 type="button"
-                className="button button--primary"
-                disabled={busy || runtime.sessionStatus === "loading"}
+                className="organization-auth-submit"
+                disabled={busy || loading}
                 onClick={() => void start()}
               >
-                {busy ? "در حال انتقال…" : "ورود با ارائه‌دهنده هویت محلی"}
+                {buttonLabel}
               </button>
             )}
-            <p className="organization-auth-help">
-              حساب مصنوعی: <bdi dir="ltr">owner-alpha@synthetic.invalid</bdi> · گذرواژه:{" "}
-              <bdi dir="ltr">rahhal-local-owner</bdi>
-            </p>
+
+            <div className="organization-auth-dev-note">
+              <strong>محیط توسعه محلی</strong>
+              این نمونه به پایگاه‌داده و ارائه‌دهنده هویت محلی متصل است. برای ورود می‌توانید از حساب
+              مصنوعی زیر استفاده کنید — ایمیل: <code dir="ltr">
+                owner-alpha@synthetic.invalid
+              </code>{" "}
+              · گذرواژه: <code dir="ltr">rahhal-local-owner</code>
+            </div>
           </div>
         </section>
         <aside
           className="organization-auth-visual organization-auth-visual--login"
           role="img"
-          aria-label="ورود امن سازمانی به محیط محلی راه‌حل"
+          aria-label="تیم متخصصان سازمانی در فضای صنعتی؛ چالش واقعی، راه‌حل اثرگذار"
         />
       </main>
     </div>
