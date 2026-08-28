@@ -48,7 +48,7 @@ npm run docker:logs
 npm run docker:down
 ```
 
-`docker:build` refreshes changed targets. `docker:up` waits for Dex and PostgreSQL, runs the guarded one-shot migration/seed container, then starts the PostgreSQL-composed API and waits for HTTP health. `docker:smoke` creates a challenge with the synthetic session, restarts the API container, and reads the same record back. Dex exposes one synthetic local login (`owner-alpha@synthetic.invalid` / `rahhal-local-owner`) and an exact `http://localhost:3000/auth/callback` redirect; A3 will connect that callback to the web. The images run as unprivileged users on read-only root filesystems with all Linux capabilities dropped; writable temporary space is bounded `tmpfs`. Published ports bind to `127.0.0.1`, not the LAN. Do not weaken those defaults to simulate a server.
+`docker:build` refreshes changed targets. `docker:up` waits for Dex and PostgreSQL, runs the guarded one-shot migration/seed container, then starts the PostgreSQL-composed API and waits for HTTP health. `docker:smoke` creates a challenge with the synthetic session, restarts the API container, and reads the same record back. Dex exposes one synthetic local login (`owner-alpha@synthetic.invalid` / `rahhal-local-owner`) and an exact `http://localhost:3000/auth/browser/callback` redirect, which A3 connects to the web through the same-origin browser-session routes. The images run as unprivileged users on read-only root filesystems with all Linux capabilities dropped; writable temporary space is bounded `tmpfs`. Published ports bind to `127.0.0.1`, not the LAN. Do not weaken those defaults to simulate a server.
 
 The stack is intentionally incomplete: A1a supplies pinned PostgreSQL and the base schema; A1b supplies PostgreSQL session/workspace authorization and a transaction-scoped unit of work; A1c adds the authoritative challenge adapter and explicit PostgreSQL API composition; A2 adds local standards-compatible OIDC plus revocable opaque application sessions. The managed production IdP, MFA/step-up, web network gateway, RLS, and abuse controls remain later gates. The worker and browser remain demo authority, and no application event crosses from the API process to the worker yet. Add the web gateway, object storage, scanning, or telemetry only in the roadmap increment that supplies its negative tests, health behavior, and recovery procedure.
 
@@ -82,6 +82,34 @@ issuer/audience/nonce/PKCE validation, verified-contact denial, one-time consump
 expiry. Stop PostgreSQL without deleting its named volume with
 `npm run db:down`. `npm run db:migrate:down` reverts one migration; run it only against the database
 whose rollback you intend to test.
+
+> The PostgreSQL suite talks to `127.0.0.1:5433` directly, while Compose publishes
+> `${RAHHAL_POSTGRES_PORT:-5433}`. If `.env` overrides that port the two endpoints diverge, and a run
+> pointed at the wrong one fails in confusing ways rather than loudly — check which database you are
+> connected to before trusting an empty result.
+
+### Connected browser acceptance (A3)
+
+The demo browser gate (`npm run test:browser`) exercises the static export only. The connected suite
+proves the A3 boundary — sign-in, workspace activation, and challenge create/read/save through the
+API and PostgreSQL — and needs the whole stack running first:
+
+```bash
+npm run docker:up
+npm run build:web:network
+RAHHAL_CONNECTED_E2E=1 npm run test:browser:connected
+```
+
+Without `RAHHAL_CONNECTED_E2E=1` the suite skips, so it never blocks the demo gate. It always skips
+Playwright's own `webServer`, because that starts the demo runtime rather than the connected one.
+It also covers the two negative paths at this boundary: a revoked session failing the next command,
+and a missing or foreign record id resolving to an explicit empty state and a non-enumerating
+`NOT_FOUND` rather than a look-alike sample.
+
+The authorization redirect sends the browser to the Dex issuer at `dex.localhost:5556`. Compose maps
+that name only inside the `api` container; on the host, Chromium resolves `*.localhost` to loopback
+per RFC 6761, so the flow works there. Other browsers, and any host-side tooling that has to reach
+the issuer, need an explicit `/etc/hosts` entry.
 
 ### From Mac to the eventual server
 
