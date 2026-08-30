@@ -109,7 +109,7 @@ Rate-limited requests return `429` with `Retry-After`. All errors carry `correla
 
 ## 5. MVP slice endpoints
 
-The published B2 OpenAPI increment has exactly **13 paths / 14 operations**: the A2 identity/context and challenge draft operations, B1's three lifecycle commands, and B2's approval-record command. Every implemented write carries `expected_version` and `Idempotency-Key`; protected challenge writes additionally require `X-Workspace-Id`. B3 adds no endpoint: challenge create/save now accepts `verification_required` and `document_gate_required` beside the existing `allowed_applicant_types`, `nda_required`, and `proposal_deadline`, and PostgreSQL snapshots those values against the exact challenge version. The remaining endpoint inventory below is the approved MVP target, not a claim that those routes already exist. PostgreSQL mode validates signed issuer/audience/nonce, exact state/redirect, S256 PKCE, the existing `(issuer, subject)` link, and a verified matching contact before issuing digest-only app credentials. RLS and the managed production IdP remain later gates.
+The completed Phase-2 OpenAPI has exactly **23 paths / 24 operations**: the Phase-1 identity/context and challenge-draft operations, B1 lifecycle commands, B2 approval recording, B4 publication, B5 public reads, B6 live-call controls, and the B8 platform queue/brief. Every implemented write carries `expected_version` and `Idempotency-Key`; protected challenge writes additionally require `X-Workspace-Id`. B3 adds no endpoint: challenge create/save accepts `verification_required` and `document_gate_required` beside `allowed_applicant_types`, `nda_required`, and `proposal_deadline`, and PostgreSQL snapshots those values against the exact challenge version. In the inventory below, entries labelled future are not part of the current contract. PostgreSQL mode validates signed issuer/audience/nonce, exact state/redirect, S256 PKCE, the existing `(issuer, subject)` link, and a verified matching contact before issuing digest-only app credentials. RLS and the managed production IdP remain later gates.
 
 ### 5.1 Identity & context
 
@@ -126,7 +126,7 @@ POST /me/context:switch            # set active workspace (validated vs membersh
 
 ```
 POST /challenges                              # create draft            → chl_*
-GET  /challenges/{id}                          # private aggregate (member-scoped)
+GET  /challenges/{id}                          # full private aggregate (owning org workspace only)
 PATCH /challenges/{id}                         # autosave draft (expected_version)
 POST /challenges/{id}:request-triage           # draft → triage        (pre: brief-valid)
 POST /challenges/{id}:advance-formulation      # triage → formulation
@@ -138,11 +138,20 @@ POST /challenges/{id}:pause                    # delivered (B6): hidden from dis
 POST /challenges/{id}:resume                   # delivered (B6)
 POST /challenges/{id}:close                    # delivered (B6): terminal
 POST /challenges/{id}:cancel                   # delivered (B6): terminal
-POST /challenges/{id}:amend                    # deferred: material amendment needs a re-approval decision
+POST /challenges/{id}:amend                    # future exception path: requires new version + re-approval + proposal policy
 GET  /challenges/{id}/versions                 # immutable history
 ```
 
-### 5.3 Public discovery (unauthenticated, projection-backed)
+### 5.3 Platform publication work (standing authority, purpose-scoped)
+
+```
+GET /platform/challenge-approvals                       # active platform role's pending gate, bounded to 50 rows
+GET /platform/challenges/{id}/approval-brief            # approvals-stage allowlist; target org workspace in X-Workspace-Id
+```
+
+The queue derives its gate from the active `platform:ops`/`platform:finance`/`platform:legal` role and excludes versions whose gate is already occupied or on which the current actor already recorded another gate. The brief is not a stripped `ChallengeResource`: its closed contract omits contact data, invitees, attachment ids, tenant/creator ids, and other approvers' user ids. Unknown, wrong-stage, and unreachable records return the same typed `NOT_FOUND`.
+
+### 5.4 Public discovery (unauthenticated, projection-backed)
 
 ```
 GET  /public/challenges?category=&cursor=      # delivered (B5): from challenge_public_projection only; keyset cursor, server-fixed page size
@@ -151,7 +160,7 @@ GET  /public/challenges?q=                     # deferred: free-text search land
 GET  /public/organizations/{id}                # deferred: verified vs user-supplied vs demo clearly typed
 ```
 
-### 5.4 Solver, eligibility & proposal
+### 5.5 Solver, eligibility & proposal
 
 ```
 GET  /opportunities?…&cursor=                  # searchable published challenges for active workspace
@@ -167,7 +176,7 @@ POST /proposals/{id}:withdraw
 GET  /proposals/{id}/versions                  # immutable history + diffs (changedFields)
 ```
 
-### 5.5 Review, COI & decision
+### 5.6 Review, COI & decision
 
 ```
 GET  /assignments?state=&cursor=               # reviewer's assignments (scoped)
