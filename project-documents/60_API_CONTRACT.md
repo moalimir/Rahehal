@@ -133,16 +133,22 @@ POST /challenges/{id}:advance-formulation      # triage → formulation
 POST /challenges/{id}:request-approvals        # formulation → approvals (pre: formulation-complete; locks the version)
 POST /challenges/{id}/approvals:record         # per-gate approval (technical/legal/finance/quality)
 POST /challenges/{id}:publish                  # approvals → published  (pre: 3 approvals + quality; atomic version lock + projection + outbox)
-POST /challenges/{id}:close                    # controlled close/pause/cancel
+POST /challenges/{id}:extend-deadline          # delivered (B6): forward-only, reason required, server time decides
+POST /challenges/{id}:pause                    # delivered (B6): hidden from discovery, record preserved
+POST /challenges/{id}:resume                   # delivered (B6)
+POST /challenges/{id}:close                    # delivered (B6): terminal
+POST /challenges/{id}:cancel                   # delivered (B6): terminal
+POST /challenges/{id}:amend                    # deferred: material amendment needs a re-approval decision
 GET  /challenges/{id}/versions                 # immutable history
 ```
 
 ### 5.3 Public discovery (unauthenticated, projection-backed)
 
 ```
-GET  /public/challenges?category=&q=&cursor=   # from challenge_public_projection only
-GET  /public/challenges/{id}                    # published fields only; confidential never present
-GET  /public/organizations/{id}                 # verified vs user-supplied vs demo clearly typed
+GET  /public/challenges?category=&cursor=      # delivered (B5): from challenge_public_projection only; keyset cursor, server-fixed page size
+GET  /public/challenges/{id}                   # delivered (B5): allowlisted projection fields only; non-enumerating NOT_FOUND
+GET  /public/challenges?q=                     # deferred: free-text search lands with the discovery UI
+GET  /public/organizations/{id}                # deferred: verified vs user-supplied vs demo clearly typed
 ```
 
 ### 5.4 Solver, eligibility & proposal
@@ -177,7 +183,7 @@ POST /challenges/{id}/decision:record          # evaluating → decided (authori
 ## 6. Read projections & anonymity
 
 - Organization review views honor reviewer anonymity and policy timing (FR-REV-007): reviewer identity and other reviewers' scores are withheld until policy allows; enforced in the _projection query_, not the client.
-- Public projections are separate resources (`/public/*`) served from `challenge_public_projection`; the private aggregate is never used to render public pages (prevents confidential-field leakage — Phase-2 exit gate).
+- Public projections are separate resources (`/public/*`) served from `challenge_public_projection`; the private aggregate is never used to render public pages (prevents confidential-field leakage — Phase-2 exit gate). B5 enforces this through a distinct `PublicChallengePort` whose PostgreSQL adapter selects an explicit column list from the projection table and joins nothing else; a native test renames `challenge`/`challenge_version`/`challenge_approval` out of reach and proves both public reads still succeed. The audience (`anonymous` vs `registered`) is derived server-side from session presence, never from a client parameter, and a stale credential degrades to `anonymous` rather than failing the request.
 - Field-level access (e.g. confidential proposal fields to a reviewer) is evaluated independently from page access (70 §3).
 
 ## 7. Events emitted (outbox → consumers)
