@@ -1604,6 +1604,36 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
     expect(after.rows[0]?.snapshot).toBe(before.rows[0]?.snapshot);
   });
 
+  it("backfills publication state for challenges published before migration 0009", async () => {
+    const challenges = adapter();
+    const challengeId = await publishedChallenge(
+      challenges,
+      "b6-backfill",
+      600,
+      buildChallengeContentResource({ visibility: "public" }),
+    );
+
+    // Roll 0009 off and back on with a *published* challenge already present.
+    // The suite normally migrates an empty database, so the backfill path --
+    // and the ordering bug where the pairing constraint was added before it --
+    // is invisible without this.
+    const down = await runMigrations(database, "down");
+    expect(down.applied).toEqual(["0009_b6_publication_lifecycle"]);
+    const up = await runMigrations(database, "up");
+    expect(up.applied).toEqual(["0009_b6_publication_lifecycle"]);
+
+    const restored = await database.query<{
+      publication_state: string;
+      proposal_deadline_at: Date;
+    }>("SELECT publication_state, proposal_deadline_at FROM challenge WHERE id = $1", [
+      challengeId,
+    ]);
+    expect(restored.rows[0]?.publication_state).toBe("open");
+    expect(restored.rows[0]?.proposal_deadline_at).toEqual(
+      new Date("2030-02-01T00:00:00.000Z"),
+    );
+  });
+
   it("rolls back aggregate, version, receipt, audit, outbox, and replay together", async () => {
     const before = await database.query<{ snapshot: string }>(`
       SELECT jsonb_build_object(

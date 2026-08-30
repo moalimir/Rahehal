@@ -9,8 +9,21 @@
 ALTER TABLE challenge
   ADD COLUMN publication_state text
     CHECK (publication_state IN ('open', 'paused', 'closed', 'cancelled')),
-  ADD COLUMN proposal_deadline_at timestamptz,
-  -- Both are meaningless before publication and required after it.
+  ADD COLUMN proposal_deadline_at timestamptz;
+
+-- Backfill BEFORE the pairing constraint. Challenges published under 0008
+-- already exist, and adding the constraint first would reject every one of
+-- them: they are open calls whose deadline is the one their approved version
+-- carries.
+UPDATE challenge
+SET publication_state = 'open',
+    proposal_deadline_at = (version.content ->> 'proposal_deadline')::timestamptz
+FROM challenge_version AS version
+WHERE version.id = challenge.published_version_id
+  AND challenge.published_version_id IS NOT NULL;
+
+-- Both columns are meaningless before publication and required after it.
+ALTER TABLE challenge
   ADD CONSTRAINT challenge_publication_state_ck CHECK (
     (published_version_id IS NULL AND publication_state IS NULL AND proposal_deadline_at IS NULL)
     OR (published_version_id IS NOT NULL AND publication_state IS NOT NULL
@@ -82,12 +95,3 @@ $$;
 CREATE TRIGGER challenge_public_projection_protected
 BEFORE UPDATE OR DELETE ON challenge_public_projection
 FOR EACH ROW EXECUTE FUNCTION protect_challenge_public_projection();
-
--- Existing published challenges predate these columns: they are open calls
--- whose deadline is the one their approved version carries.
-UPDATE challenge
-SET publication_state = 'open',
-    proposal_deadline_at = (version.content ->> 'proposal_deadline')::timestamptz
-FROM challenge_version AS version
-WHERE version.id = challenge.published_version_id
-  AND challenge.published_version_id IS NOT NULL;
