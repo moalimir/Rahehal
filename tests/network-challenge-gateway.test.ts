@@ -121,6 +121,88 @@ describe("A3 network challenge gateway", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("publishes through the server command and reflects the published stage", async () => {
+    const challengeId = parseChallengeId("chl_b4_gateway_publish");
+    const approved = buildChallengeResource({
+      id: challengeId,
+      workspace_id: workspaceId,
+      stage: "approvals",
+      version: 4,
+    });
+    const published = buildChallengeResource({
+      id: challengeId,
+      workspace_id: workspaceId,
+      stage: "published",
+      published_version_id: approved.current_version_id,
+      version: 5,
+    });
+    const responses = [
+      jsonResponse({ ok: true, data: approved, meta } satisfies ChallengeSuccessEnvelope),
+      jsonResponse(buildMutationSuccess({ entity_id: challengeId, next_actions: [] }, meta)),
+      jsonResponse({ ok: true, data: published, meta } satisfies ChallengeSuccessEnvelope),
+    ];
+    const fetchMock = vi.fn<GatewayFetch>(async () => responses.shift() ?? jsonResponse({}, 500));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("crypto", { randomUUID: () => "00000000-0000-4000-8000-000000000002" });
+
+    const gateway = createNetworkChallengeGateway({ activeWorkspaceId: () => workspaceId });
+    // The gateway only knows the version it last read, so the record has to be
+    // loaded before the command -- exactly as the UI does it.
+    await gateway.queries.get(challengeId);
+    const result = await gateway.commands.publish(challengeId);
+
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.data.status).toBe("published");
+
+    const [url, init] = fetchMock.mock.calls[1] ?? [];
+    expect(url).toBe(`/api/v1/challenges/${challengeId}:publish`);
+    expect(init?.method).toBe("POST");
+    // The command carries the version it read, so a concurrent edit is a
+    // server-side conflict rather than a silent overwrite.
+    expect(JSON.parse(String(init?.body))).toEqual({ expected_version: 4 });
+    const headers = init?.headers as Record<string, string>;
+    expect(headers["x-workspace-id"]).toBe(workspaceId);
+    expect(headers["idempotency-key"]).toBeTruthy();
+  });
+
+  it("surfaces a refused publish as a typed error and never publishes locally", async () => {
+    const challengeId = parseChallengeId("chl_b4_gateway_refused");
+    const approved = buildChallengeResource({
+      id: challengeId,
+      workspace_id: workspaceId,
+      stage: "approvals",
+      version: 4,
+    });
+    const responses = [
+      jsonResponse({ ok: true, data: approved, meta } satisfies ChallengeSuccessEnvelope),
+      // Under-approved, or the actor is not org:publisher -- either way the
+      // server refuses and the browser must not invent a published state.
+      jsonResponse(buildErrorEnvelope({ code: "INVALID_STATE" }, meta), 409),
+    ];
+    const fetchMock = vi.fn<GatewayFetch>(async () => responses.shift() ?? jsonResponse({}, 500));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("crypto", { randomUUID: () => "00000000-0000-4000-8000-000000000003" });
+
+    const gateway = createNetworkChallengeGateway({ activeWorkspaceId: () => workspaceId });
+    await gateway.queries.get(challengeId);
+    const result = await gateway.commands.publish(challengeId);
+
+    expect(result).toMatchObject({ ok: false, error: { code: "INVALID_STATE" } });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses to publish without an active workspace and never calls the API", async () => {
+    const fetchMock = vi.fn<GatewayFetch>();
+    vi.stubGlobal("fetch", fetchMock);
+    const gateway = createNetworkChallengeGateway({ activeWorkspaceId: () => null });
+
+    await expect(gateway.commands.publish("chl_b4_no_workspace")).resolves.toMatchObject({
+      ok: false,
+      error: { code: "CONFLICT" },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("fails closed when no active workspace or list contract exists", async () => {
     const fetchMock = vi.fn<GatewayFetch>();
     vi.stubGlobal("fetch", fetchMock);

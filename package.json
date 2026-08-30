@@ -76,7 +76,8 @@
     "analyze:bundle": "node scripts/run-bundle-analysis.mjs",
     "check:budgets": "node scripts/check-performance-budgets.mjs",
     "css:prune-legacy": "node scripts/prune-legacy-shell-css.mjs",
-    "test:browser:connected": "PLAYWRIGHT_SKIP_WEBSERVER=1 playwright test playwright/connected.pw.ts --project=desktop-1280x800"
+    "test:browser:connected": "PLAYWRIGHT_SKIP_WEBSERVER=1 playwright test playwright/connected.pw.ts --project=desktop-1280x800",
+    "test:browser:b7": "PLAYWRIGHT_SKIP_WEBSERVER=1 playwright test playwright/b7.pw.ts --project=desktop-1280x800"
   },
   "dependencies": {
     "next": "16.3.1",

@@ -2522,3 +2522,48 @@
     flex-direction: column;
   }
 }
+
+/* B7 publication gates. Deliberately minimal: the CSS budget has ~3KB of
+   headroom, so this reuses existing tokens rather than introducing a scale. */
+.challenge-gate-list {
+  display: grid;
+  gap: 0.5rem;
+  margin: 1rem 0;
+  padding: 0;
+  list-style: none;
+}
+.challenge-gate-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--line, #e5e7eb);
+  border-radius: 0.75rem;
+}
+.challenge-gate-row__name {
+  font-weight: 600;
+}
+.challenge-gate-row__state small {
+  display: block;
+  opacity: 0.75;
+}
+.challenge-gate-row__state[data-decision="pending"] {
+  opacity: 0.7;
+}
+.challenge-gate-form {
+  display: grid;
+  gap: 0.5rem;
+  margin-block: 1rem;
+}
+.challenge-gate-form textarea {
+  min-block-size: 5rem;
+}
+.challenge-gate-publish {
+  display: grid;
+  gap: 0.5rem;
+}
+.challenge-disabled-reason {
+  opacity: 0.8;
+}

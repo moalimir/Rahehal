@@ -21,6 +21,8 @@ import {
 import type { ChallengeGateway } from "@/lib/challenges/gateway";
 import { createNetworkChallengeGateway } from "@/lib/challenges/adapters/network";
 import { demoChallengeGateway } from "@/lib/challenges/runtime";
+import { createNetworkChallengeGovernanceGateway } from "@/lib/challenges/adapters/network-governance";
+import type { ChallengeGovernanceGateway } from "@/lib/challenges/governance";
 import { idempotencyKey, requestApi } from "@/lib/api/http";
 import { webRuntimeMode, type WebRuntimeMode } from "@/lib/runtime/mode";
 
@@ -29,6 +31,8 @@ export type NetworkSessionStatus = "demo" | "loading" | "anonymous" | "authentic
 type WebRuntimeContextValue = {
   readonly mode: WebRuntimeMode;
   readonly challengeGateway: ChallengeGateway;
+  /** Null in demo mode: attributed publication gates exist only server-side. */
+  readonly governanceGateway: ChallengeGovernanceGateway | null;
   readonly sessionStatus: NetworkSessionStatus;
   readonly me: MeResource | null;
   readonly sessionVersion: number | null;
@@ -44,6 +48,7 @@ const WebRuntimeContext = createContext<WebRuntimeContextValue | null>(null);
 const standaloneDemoRuntime: WebRuntimeContextValue = {
   mode: "demo",
   challengeGateway: demoChallengeGateway,
+  governanceGateway: null,
   sessionStatus: "demo",
   me: null,
   sessionVersion: null,
@@ -65,15 +70,19 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
   const commandKeysRef = useRef(new Map<string, string>());
   // The gateway reads the active workspace at request time, never at render time,
   // so the mutable scope and the gateway that closes over it are created together.
-  const [{ scope, challengeGateway }] = useState(() => {
+  const [{ scope, challengeGateway, governanceGateway }] = useState(() => {
     const workspaceScope: { activeWorkspaceId: string | null } = { activeWorkspaceId: null };
+    const activeWorkspaceId = () => workspaceScope.activeWorkspaceId;
     return {
       scope: workspaceScope,
       challengeGateway: network
-        ? createNetworkChallengeGateway({
-            activeWorkspaceId: () => workspaceScope.activeWorkspaceId,
-          })
+        ? createNetworkChallengeGateway({ activeWorkspaceId })
         : demoChallengeGateway,
+      // The demo store has no attributed-gate model, so governance is
+      // deliberately unavailable there rather than simulated.
+      governanceGateway: network
+        ? createNetworkChallengeGovernanceGateway({ activeWorkspaceId })
+        : null,
     };
   });
 
@@ -158,6 +167,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     () => ({
       mode: webRuntimeMode,
       challengeGateway,
+      governanceGateway,
       sessionStatus,
       me,
       sessionVersion,
@@ -169,6 +179,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     }),
     [
       challengeGateway,
+      governanceGateway,
       me,
       refreshMe,
       sessionError,
@@ -198,4 +209,14 @@ export function useWebRuntime(): WebRuntimeContextValue {
 
 export function useChallengeGateway(): ChallengeGateway {
   return useWebRuntime().challengeGateway;
+}
+
+/**
+ * Null in demo mode. Callers must render an explicit unavailable state rather
+ * than falling back to a local store: attributed publication gates and the
+ * publish transaction are server authority, and simulating either in the
+ * browser is exactly the fallback AGENTS.md forbids.
+ */
+export function useChallengeGovernance(): ChallengeGovernanceGateway | null {
+  return useWebRuntime().governanceGateway;
 }

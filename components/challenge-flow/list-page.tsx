@@ -11,8 +11,8 @@ import {
   type ChallengeStatus,
 } from "@/domain/challenge";
 import { useChallengeList } from "@/components/challenge-flow/hooks";
+import { useChallengeGateway } from "@/components/runtime-provider";
 import { formatDateTime } from "@/lib/challenges/model";
-import { demoChallengeGateway } from "@/lib/challenges/runtime";
 
 type TabId = "all" | "draft" | "under_review" | "published";
 
@@ -36,6 +36,7 @@ function primaryAction(record: ChallengeRecord) {
 }
 
 export function ChallengeListPage() {
+  const challengeGateway = useChallengeGateway();
   const { records, refresh, loadError } = useChallengeList();
   const [tab, setTab] = useState<TabId>("all");
   const [query, setQuery] = useState("");
@@ -255,7 +256,7 @@ export function ChallengeListPage() {
           if (deleteTarget) {
             const id = deleteTarget.id;
             setDeleteTarget(null);
-            const result = await demoChallengeGateway.commands.delete(id);
+            const result = await challengeGateway.commands.delete(id);
             if (!result.ok) {
               setToast(result.error.message);
               return;

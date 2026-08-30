@@ -18,6 +18,7 @@ import {
   OrganizationWorkspaceExperience,
 } from "@/components/organization-workspace";
 import { ConfirmDialog, ReceiptPanel, StateNotice } from "@/components/internal/shared";
+import { useChallengeGateway } from "@/components/runtime-provider";
 import { ConfiguredRoleShell, OrganizationShell } from "@/components/role-shells";
 import { SolverDashboardExperience } from "@/components/solver-dashboard";
 import { SolverProposalDetail } from "@/components/solver-proposals-list";
@@ -38,7 +39,6 @@ import {
 } from "@/lib/services/internal-service";
 import { isQaHarnessEnabled } from "@/lib/qa-harness";
 import { canAccessInternalRole, readDemoSession, type DemoSession } from "@/lib/auth/session";
-import { demoChallengeGateway } from "@/lib/challenges/runtime";
 import { isRecordReady } from "@/lib/challenges/validation";
 import { directOfferById, proposalById, readSolverState } from "@/lib/solver/repository";
 
@@ -227,6 +227,9 @@ function InternalExperience({
   route: InternalRoute;
   solverSpace?: SolverSpace;
 }) {
+  // The runtime provider picks demo or network persistence; this component
+  // must not choose between them (AGENTS.md: components consume gateways).
+  const challengeGateway = useChallengeGateway();
   const qaHarnessEnabled =
     typeof window !== "undefined" ? isQaHarnessEnabled(window.location) : false;
   const [uiState, setUiState] = useState<DemoUiState>("default");
@@ -254,7 +257,7 @@ function InternalExperience({
       try {
         const publicationId = route.path.match(/^\/app\/ops\/publication\/(CH-[^/]+)$/)?.[1];
         const publicationResult = publicationId
-          ? await demoChallengeGateway.queries.get(publicationId)
+          ? await challengeGateway.queries.get(publicationId)
           : null;
         if (publicationResult && !publicationResult.ok) {
           throw new InternalServiceError(
@@ -287,7 +290,7 @@ function InternalExperience({
           mode,
         );
         if (publicationId && publicationRecord?.status === "under_review") {
-          const publication = await demoChallengeGateway.commands.publish(publicationId);
+          const publication = await challengeGateway.commands.publish(publicationId);
           if (!publication.ok) {
             throw new InternalServiceError(
               publication.error.message,
@@ -308,7 +311,7 @@ function InternalExperience({
         setBusy(false);
       }
     },
-    [route.path, route.role, uiState],
+    [challengeGateway, route.path, route.role, uiState],
   );
 
   const handleAction: ActionHandler = (label, options) => {

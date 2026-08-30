@@ -4,6 +4,8 @@ import { ChallengeFlowApp } from "@/components/challenge-flow/challenge-flow-app
 import { InternalApp } from "@/components/internal/internal-app";
 import { PortalPage } from "@/components/portal-page";
 import { ChallengeDiscoveryApp } from "@/components/challenge-discovery";
+import { PublicChallengeRecordRoute } from "@/components/public-challenge-record";
+import { PUBLIC_CHALLENGE_RECORD_PATH } from "@/lib/challenges/navigation";
 import { LegacyRedirect } from "@/components/legacy-redirect";
 import { LegacyUnavailable } from "@/components/route-fallbacks";
 import {
@@ -29,6 +31,7 @@ export function generateStaticParams() {
     ...challengeFlowStaticPaths,
     ...legacyRouteEntries.map((entry) => entry.source),
     "/challenges",
+    PUBLIC_CHALLENGE_RECORD_PATH,
     ...challenges.flatMap((challenge) => [
       `/challenges/${challenge.slug}`,
       `/challenges/${challenge.id}`,
@@ -83,6 +86,9 @@ export default async function RoutedPage({ params }: { params: Promise<{ slug: s
   if (legacy?.kind === "redirect") return <LegacyRedirect target={legacy.target} />;
   if (legacy?.kind === "unavailable") return <LegacyUnavailable resolution={legacy} />;
   if (path === "/challenges") return <ChallengeDiscoveryApp publicMode />;
+  // Connected builds address a published challenge by query, like the org
+  // record path does: server ids cannot be pre-generated at build time.
+  if (path === PUBLIC_CHALLENGE_RECORD_PATH) return <PublicChallengeRecordRoute />;
   if (path.startsWith("/challenges/")) {
     return (
       <ChallengeDiscoveryApp challengeKey={path.split("/").filter(Boolean).at(-1)} publicMode />

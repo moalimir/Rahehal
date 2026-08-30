@@ -49,9 +49,11 @@ function inferLastStep(content: ChallengeDraftContentResource): 1 | 2 | 3 | 4 {
 export function challengeResourceToRecord(resource: ChallengeResource): ChallengeRecord {
   const content = resource.content;
   const status: ChallengeRecord["status"] =
-    resource.stage === "triage" || resource.stage === "approvals"
-      ? "under_review"
-      : resource.authoring_status;
+    resource.stage === "published"
+      ? "published"
+      : resource.stage === "triage" || resource.stage === "approvals"
+        ? "under_review"
+        : resource.authoring_status;
   return {
     ...emptyChallenge(resource.id, resource.created_at),
     id: resource.id,
@@ -330,11 +332,33 @@ export function createNetworkChallengeGateway(
         if (loaded.ok) pendingKeys.delete(fingerprint);
         return loaded;
       },
-      async publish() {
-        return localFailure(
-          "INVALID_STATE",
-          "انتشار پرونده از فاز ۲ و پس از تصویب‌ها فعال می‌شود.",
+      /**
+       * B4's publish command. The server owns every precondition -- stage,
+       * the four approval gates, and the `org:publisher` role -- so this only
+       * carries the version it last read and surfaces the typed refusal.
+       * Publishing is irreversible, so its idempotency key is reused across
+       * retries of the same version rather than regenerated.
+       */
+      async publish(id) {
+        const resource = resources.get(id);
+        if (!resource) return localFailure("CONFLICT", "نسخه سرور را دوباره دریافت کنید.");
+        const headers = workspaceHeaders();
+        if (!headers) return localFailure("NO_ACCESS", "ابتدا یک فضای کاری سازمانی انتخاب کنید.");
+        const fingerprint = `publish:${id}:${resource.version}`;
+        const key = pendingKeys.get(fingerprint) ?? idempotencyKey("web-challenge-publish");
+        pendingKeys.set(fingerprint, key);
+        const result = await requestApi<MutationSuccessEnvelope>(
+          `/api/v1/challenges/${encodeURIComponent(id)}:publish`,
+          {
+            method: "POST",
+            headers: { ...headers, "idempotency-key": key },
+            body: JSON.stringify({ expected_version: resource.version }),
+          },
         );
+        if (!result.ok) return failure(result);
+        const loaded = await get(id);
+        if (loaded.ok) pendingKeys.delete(fingerprint);
+        return loaded;
       },
     },
   };

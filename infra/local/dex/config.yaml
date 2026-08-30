@@ -25,3 +25,23 @@ staticPasswords:
     hash: $2y$12$8Slc7htGDKSPQU9UTXDEVOCw8KIAXk0lO7ZRufTPnRNKW6frPWP7q
     username: local-owner
     userID: owner-alpha
+  - email: platform-ops@synthetic.invalid
+    hash: $2y$12$8Slc7htGDKSPQU9UTXDEVOCw8KIAXk0lO7ZRufTPnRNKW6frPWP7q
+    username: local-platform-ops
+    userID: platform-ops
+  - email: approver-alpha@synthetic.invalid
+    hash: $2y$12$8Slc7htGDKSPQU9UTXDEVOCw8KIAXk0lO7ZRufTPnRNKW6frPWP7q
+    username: local-approver-alpha
+    userID: approver-alpha
+  - email: publisher-alpha@synthetic.invalid
+    hash: $2y$12$8Slc7htGDKSPQU9UTXDEVOCw8KIAXk0lO7ZRufTPnRNKW6frPWP7q
+    username: local-publisher-alpha
+    userID: publisher-alpha
+  - email: platform-finance@synthetic.invalid
+    hash: $2y$12$8Slc7htGDKSPQU9UTXDEVOCw8KIAXk0lO7ZRufTPnRNKW6frPWP7q
+    username: local-platform-finance
+    userID: platform-finance
+  - email: platform-legal@synthetic.invalid
+    hash: $2y$12$8Slc7htGDKSPQU9UTXDEVOCw8KIAXk0lO7ZRufTPnRNKW6frPWP7q
+    username: local-platform-legal
+    userID: platform-legal

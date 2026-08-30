@@ -7,6 +7,7 @@ import { ChallengeEditPage } from "@/components/challenge-flow/edit-page";
 import { ChallengeIntakePage } from "@/components/challenge-flow/intake-page";
 import { ChallengeListPage } from "@/components/challenge-flow/list-page";
 import { ChallengePreviewPage } from "@/components/challenge-flow/preview-page";
+import { ChallengeGovernancePage } from "@/components/challenge-flow/governance-page";
 import { ChallengeSubmittedPage } from "@/components/challenge-flow/submitted-page";
 import { LegacyRedirect } from "@/components/legacy-redirect";
 import { OrganizationShell } from "@/components/role-shells";
@@ -16,7 +17,19 @@ import { useWebRuntime } from "@/components/runtime-provider";
 import { ChallengeShell } from "@/components/challenge-flow/shell";
 import { isNetworkWebRuntime } from "@/lib/runtime/mode";
 
-function ConnectedChallengeBoundary({ children }: { children: ReactNode }) {
+function ConnectedChallengeBoundary({
+  children,
+  allowWithoutOrgWorkspace = false,
+}: {
+  children: ReactNode;
+  /**
+   * A platform gate approver holds no org membership and has nothing to choose
+   * in the workspace chooser, so it would be trapped there. Set when the route
+   * names the owning workspace explicitly (B8a); the server still decides
+   * whether that standing authority actually reaches the record.
+   */
+  allowWithoutOrgWorkspace?: boolean;
+}) {
   const runtime = useWebRuntime();
   const [switchError, setSwitchError] = useState("");
   const [switching, setSwitching] = useState(false);
@@ -73,7 +86,7 @@ function ConnectedChallengeBoundary({ children }: { children: ReactNode }) {
   const active = runtime.me?.active_context;
   const organizationWorkspaces =
     runtime.me?.workspaces.filter((workspace) => workspace.kind === "org") ?? [];
-  if (!active || active.workspace_kind !== "org") {
+  if (!allowWithoutOrgWorkspace && (!active || active.workspace_kind !== "org")) {
     return (
       <ChallengeShell
         title="انتخاب فضای کاری"
@@ -165,6 +178,8 @@ export function ChallengeFlowApp({ route: initialRoute }: { route: ChallengeFlow
       <ChallengePreviewPage id={route.id} />
     ) : route.kind === "submitted" ? (
       <ChallengeSubmittedPage id={route.id} />
+    ) : route.kind === "governance" ? (
+      <ChallengeGovernancePage id={route.id} targetWorkspaceId={route.workspaceId} />
     ) : (
       <ChallengeDetailPage id={route.id} />
     );
@@ -181,7 +196,11 @@ export function ChallengeFlowApp({ route: initialRoute }: { route: ChallengeFlow
       }}
     >
       <OrganizationShell currentPath={route.path}>
-        <ConnectedChallengeBoundary>{content}</ConnectedChallengeBoundary>
+        <ConnectedChallengeBoundary
+          allowWithoutOrgWorkspace={route.kind === "governance" && Boolean(route.workspaceId)}
+        >
+          {content}
+        </ConnectedChallengeBoundary>
       </OrganizationShell>
     </div>
   );
