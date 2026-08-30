@@ -53,8 +53,11 @@ beforeAll(async () => {
     "0008_b4_challenge_publication",
     "0009_b6_publication_lifecycle",
     "0010_phase2_closure",
+    "0011_c_proposal_foundation",
   ]);
 
+  const proposalDown = await runMigrations(database, "down");
+  expect(proposalDown.applied).toEqual(["0011_c_proposal_foundation"]);
   const phase2Down = await runMigrations(database, "down");
   expect(phase2Down.applied).toEqual(["0010_phase2_closure"]);
   const b6Down = await runMigrations(database, "down");
@@ -99,6 +102,7 @@ beforeAll(async () => {
     "0008_b4_challenge_publication",
     "0009_b6_publication_lifecycle",
     "0010_phase2_closure",
+    "0011_c_proposal_foundation",
   ]);
   const noOpUp = await runMigrations(database, "up");
   expect(noOpUp.applied).toEqual([]);
@@ -138,6 +142,8 @@ describe("A1a PostgreSQL foundation", () => {
       "mutation_receipt",
       "oidc_authorization_attempt",
       "outbox_event",
+      "proposal",
+      "proposal_version",
       "schema_migration",
       "tenant",
       "workspace",
@@ -189,6 +195,10 @@ describe("A1a PostgreSQL foundation", () => {
       },
       {
         id: "0010_phase2_closure",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+      {
+        id: "0011_c_proposal_foundation",
         checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
       },
     ]);
@@ -468,6 +478,8 @@ describe("A1a PostgreSQL foundation", () => {
   });
 
   it("fails the A1b migration atomically for an orphaned existing session", async () => {
+    const proposalDown = await runMigrations(database, "down");
+    expect(proposalDown.applied).toEqual(["0011_c_proposal_foundation"]);
     const phase2Down = await runMigrations(database, "down");
     expect(phase2Down.applied).toEqual(["0010_phase2_closure"]);
     const b6Down = await runMigrations(database, "down");
@@ -540,6 +552,7 @@ describe("A1a PostgreSQL foundation", () => {
       "0008_b4_challenge_publication",
       "0009_b6_publication_lifecycle",
       "0010_phase2_closure",
+      "0011_c_proposal_foundation",
     ]);
   });
 });

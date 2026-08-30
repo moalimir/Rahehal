@@ -13,6 +13,13 @@ import type {
   OidcAuthorizationStartBody,
   OidcAuthorizationStartResult,
   ChallengePublicationStateBody,
+  CreateProposalBody,
+  EligibilityDecisionResource,
+  PatchProposalBody,
+  ProposalNextAction,
+  ProposalResource,
+  SubmitProposalBody,
+  WithdrawProposalBody,
   ExtendChallengeDeadlineBody,
   PatchChallengeBody,
   PublicAudience,
@@ -30,6 +37,7 @@ import type {
   EntityId,
   Membership,
   CorrelationId,
+  ProposalId,
   SessionId,
   TenantId,
   User,
@@ -262,6 +270,44 @@ export interface ChallengePort {
 export interface PublicChallengePort {
   list(audience: PublicAudience, query: PublicChallengeQuery): Promise<ChallengePublicPage>;
   get(audience: PublicAudience, id: string): Promise<ChallengePublicProjectionResource | null>;
+}
+
+/**
+ * Phase 3. `evaluateEligibility` is a query, not a command: it writes nothing
+ * and is safe to call repeatedly. It is a separate port from `ProposalPort`
+ * because C1 must answer for a solver who has no proposal yet — that is the
+ * whole point of checking eligibility before drafting.
+ */
+export interface EligibilityPort {
+  evaluate(scope: ChallengeScope, challengeId: string): Promise<EligibilityDecisionResource | null>;
+}
+
+/**
+ * Phase 3's proposal aggregate. Same command shape as `ChallengePort`:
+ * `expected_version` on every mutation, an idempotency key per command, and a
+ * typed receipt whose evidence commits in the same transaction as the change.
+ */
+export interface ProposalPort {
+  create(
+    body: CreateProposalBody,
+    context: ChallengeCommandContext,
+  ): Promise<MutationOutcome<ProposalId, ProposalNextAction>>;
+  getScoped(scope: ChallengeScope, id: string): Promise<ProposalResource | null>;
+  patch(
+    id: string,
+    body: PatchProposalBody,
+    context: ChallengeCommandContext,
+  ): Promise<MutationOutcome<ProposalId, ProposalNextAction>>;
+  submit(
+    id: string,
+    body: SubmitProposalBody,
+    context: ChallengeCommandContext,
+  ): Promise<MutationOutcome<ProposalId, ProposalNextAction>>;
+  withdraw(
+    id: string,
+    body: WithdrawProposalBody,
+    context: ChallengeCommandContext,
+  ): Promise<MutationOutcome<ProposalId, ProposalNextAction>>;
 }
 
 export type AccessDecisionRecord = {

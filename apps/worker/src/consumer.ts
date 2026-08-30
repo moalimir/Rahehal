@@ -1,5 +1,5 @@
 import { isOutboxEvent, type OutboxEvent } from "@rahhal/contracts";
-import { challengeOutboxEventTypes } from "@rahhal/domain";
+import { challengeOutboxEventTypes, proposalOutboxEventTypes } from "@rahhal/domain";
 import type {
   DeliveryLedger,
   OutboxClaim,
@@ -13,6 +13,7 @@ import type {
 // event cannot be emitted by the API without the worker routing it.
 export const supportedOutboxEventTypes = [
   ...challengeOutboxEventTypes,
+  ...proposalOutboxEventTypes,
   "session.exchanged",
   "session.refreshed",
   "session.revoked",

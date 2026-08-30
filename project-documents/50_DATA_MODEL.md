@@ -79,6 +79,8 @@ B5 delivers the public read path over this table: a separate `PublicChallengePor
 
 The remaining schema sections describe later migrations and must not be treated as already present after A1a.
 
+Migration `0011` lands the Phase-3 foundation: `proposal` and `proposal_version`, in the A1c shape — a mutable aggregate carrying lifecycle state and an optimistic-concurrency counter, plus append-only versions holding content. `proposal.owner_workspace_id` is always the **solver's** workspace; a host organization reaches a proposal through cross-tenant collaboration, never ownership. `content_hash` is stored per version so a submitted proposal can be proved byte-for-byte later (FR-SOL-006), and `base_version_id` is a composite foreign key back to the same proposal, so a revision cannot cite a version belonging to someone else's. The one-active-proposal invariant is a **partial** unique index excluding `withdrawn`, so withdrawing does not permanently consume a solver's single slot on a challenge. A trigger permits exactly one mutation to a version — unlocked to locked, touching nothing else — and a second trigger refuses any proposal against a challenge that was never published, or created while the call is not `open`. Both restate command-layer rules in the database so a direct SQL write cannot bypass them.
+
 ```sql
 CREATE TABLE proposal (
   id            text PRIMARY KEY,            -- prp_*

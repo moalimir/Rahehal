@@ -1679,12 +1679,18 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
     // The suite normally migrates an empty database, so the backfill path --
     // and the ordering bug where the pairing constraint was added before it --
     // is invisible without this.
+    const proposalDown = await runMigrations(database, "down");
+    expect(proposalDown.applied).toEqual(["0011_c_proposal_foundation"]);
     const closureDown = await runMigrations(database, "down");
     expect(closureDown.applied).toEqual(["0010_phase2_closure"]);
     const down = await runMigrations(database, "down");
     expect(down.applied).toEqual(["0009_b6_publication_lifecycle"]);
     const up = await runMigrations(database, "up");
-    expect(up.applied).toEqual(["0009_b6_publication_lifecycle", "0010_phase2_closure"]);
+    expect(up.applied).toEqual([
+      "0009_b6_publication_lifecycle",
+      "0010_phase2_closure",
+      "0011_c_proposal_foundation",
+    ]);
 
     const restored = await database.query<{
       publication_state: string;

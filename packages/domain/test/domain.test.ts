@@ -1,6 +1,13 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
+  canAuthorProposal,
+  evaluateProposalEligibility,
+  proposalTransitions,
+  proposalVersionLockingStates,
+  parseWorkspaceId,
+  type EligibilityApplicant,
+  type EligibilityRuleSnapshot,
   InvalidIdentifierError,
   applicantScopeForTypes,
   applicantScopeMatchesTypes,
@@ -254,5 +261,124 @@ describe("canonical domain primitives", () => {
     expect(isPlatformRole("platform:legal")).toBe(true);
     expect(isPlatformRole("org:approver_legal")).toBe(false);
     expect(isPlatformRole("individual")).toBe(false);
+  });
+});
+
+describe("C1 proposal eligibility", () => {
+  const openRule: EligibilityRuleSnapshot = {
+    challengeVersionId: "chv_published_0001",
+    allowedApplicantTypes: ["individual", "expert-team"],
+    verificationRequired: false,
+    ndaRequired: false,
+    documentGateRequired: false,
+    proposalDeadline: "2030-01-01T00:00:00.000Z",
+    state: "open",
+  };
+  const applicant: EligibilityApplicant = {
+    workspaceId: parseWorkspaceId("wsp_team_alpha"),
+    applicantType: "expert-team",
+    verified: false,
+    ndaAccepted: false,
+    requiredDocumentsProvided: false,
+  };
+  const now = new Date("2026-08-30T12:00:00.000Z");
+
+  it("names the exact challenge version it judged", () => {
+    const decision = evaluateProposalEligibility(openRule, applicant, now);
+    // A solver must be able to tell which published terms the answer refers to,
+    // so the decision cites its rule version rather than "the current rules".
+    expect(decision.evaluatedAgainstVersionId).toBe("chv_published_0001");
+    expect(decision.status).toBe("eligible");
+  });
+
+  it("separates a structural refusal from a gate the solver can still clear", () => {
+    const wrongType = evaluateProposalEligibility(
+      openRule,
+      { ...applicant, applicantType: "lab" },
+      now,
+    );
+    expect(wrongType.status).toBe("ineligible");
+    expect(wrongType.reasons.map((reason) => reason.code)).toEqual(["applicant_type_not_allowed"]);
+    expect(wrongType.nextActions).toEqual([]);
+
+    const needsGates = evaluateProposalEligibility(
+      { ...openRule, verificationRequired: true, ndaRequired: true },
+      applicant,
+      now,
+    );
+    // Fixable, so it must not read as a permanent refusal, and must say what
+    // to do rather than returning a generic "not eligible".
+    expect(needsGates.status).toBe("needs_action");
+    expect(needsGates.reasons.map((reason) => reason.code)).toEqual([
+      "verification_required",
+      "nda_required",
+    ]);
+    expect(needsGates.nextActions).toEqual(["verify_workspace", "accept_nda"]);
+  });
+
+  it("decides deadlines and paused calls by server time, before any gate", () => {
+    const expired = evaluateProposalEligibility(
+      { ...openRule, proposalDeadline: "2026-08-30T11:59:59.000Z" },
+      applicant,
+      now,
+    );
+    expect(expired.status).toBe("ineligible");
+    expect(expired.reasons[0]?.code).toBe("deadline_passed");
+
+    const paused = evaluateProposalEligibility({ ...openRule, state: "paused" }, applicant, now);
+    expect(paused.reasons[0]?.code).toBe("call_not_open");
+
+    // An unknown applicant type is refused rather than defaulting to allowed.
+    const unknown = evaluateProposalEligibility(
+      openRule,
+      { ...applicant, applicantType: null },
+      now,
+    );
+    expect(unknown.reasons[0]?.code).toBe("applicant_type_unknown");
+  });
+
+  it("never advertises a rule version it did not evaluate", () => {
+    const decision = evaluateProposalEligibility(
+      { ...openRule, challengeVersionId: "chv_published_0002", state: "closed" },
+      applicant,
+      now,
+    );
+    expect(decision.evaluatedAgainstVersionId).toBe("chv_published_0002");
+  });
+});
+
+describe("Phase 3 proposal lifecycle", () => {
+  it("locks a version on every transition that hands content to someone else", () => {
+    for (const state of proposalVersionLockingStates) {
+      const rule = proposalTransitions.find((transition) => transition.to === state);
+      expect(rule, `${state} needs a transition`).toBeDefined();
+      expect(rule?.sideEffects).toContain("lock-proposal-version");
+    }
+  });
+
+  it("keeps decision-owned states out of Phase 3's transition table", () => {
+    // `selected`/`rejected` come from Phase 4's recorded decision. Listing a
+    // transition nothing enforces would be worse than listing none.
+    const reachable = proposalTransitions.map((transition) => transition.to);
+    expect(reachable).not.toContain("selected");
+    expect(reachable).not.toContain("rejected");
+  });
+
+  it("only lets authoring roles move a proposal the solver owns", () => {
+    const submit = proposalTransitions.find((transition) => transition.to === "submitted");
+    expect(submit?.roles).toEqual([
+      "team:owner",
+      "team:admin",
+      "team:proposal-manager",
+      "individual",
+    ]);
+    expect(canAuthorProposal("team:viewer")).toBe(false);
+    expect(canAuthorProposal("team:contributor")).toBe(false);
+    expect(canAuthorProposal("individual")).toBe(true);
+  });
+
+  it("requires a base version before a revision may be resubmitted", () => {
+    const resubmit = proposalTransitions.find((transition) => transition.to === "resubmitted");
+    expect(resubmit?.preconditions).toContain("base-version-cited");
   });
 });
