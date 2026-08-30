@@ -15,7 +15,7 @@
     "db:seed": "tsx src/postgres/seed-cli.ts",
     "dev": "tsx watch src/server.ts",
     "start": "node dist/server.js",
-    "test:postgres": "vitest run test/postgres-*.test.ts",
+    "test:postgres": "node --env-file-if-exists=../../.env ../../node_modules/.bin/vitest run test/postgres-*.test.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --exclude 'test/postgres-*.test.ts'"
   },

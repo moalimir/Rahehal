@@ -7,6 +7,7 @@ import { parseCorrelationId, parseSessionId } from "@rahhal/domain";
 import { buildApi } from "../src/app.js";
 import { PostgresAccessDecisionAudit } from "../src/postgres/access-decision-audit.js";
 import { PostgresChallengeAdapter } from "../src/postgres/challenges.js";
+import { PostgresPublicChallengeAdapter } from "../src/postgres/public-challenges.js";
 import { PostgresIdentityWorkspaceAdapter } from "../src/postgres/identity-workspace.js";
 import { runMigrations } from "../src/postgres/migrations.js";
 import { PostgresOidcAuthorizationAdapter } from "../src/postgres/oidc-authorization.js";
@@ -15,12 +16,9 @@ import { PostgresUnitOfWork } from "../src/postgres/unit-of-work.js";
 import { commandFingerprint, MonotonicIdFactory, RandomIdFactory } from "../src/primitives.js";
 import { HmacSessionCredentialIssuer } from "../src/session-credentials.js";
 import { FakeOidcProvider } from "./support/fake-oidc-provider.js";
+import { testDatabaseAdminUrl } from "./support/database.js";
 
-const defaultAdminUrl = "postgresql://rahhal:rahhal-local-only@127.0.0.1:5433/postgres";
-const adminUrl = new URL(process.env.RAHHAL_TEST_DATABASE_ADMIN_URL ?? defaultAdminUrl);
-if (!["127.0.0.1", "localhost", "::1"].includes(adminUrl.hostname)) {
-  throw new Error("OIDC integration tests refuse to create databases on a non-loopback host");
-}
+const adminUrl = testDatabaseAdminUrl();
 
 const testDatabaseName = `rahhal_a2_oidc_${process.pid}_${Date.now()}`;
 const testDatabaseUrl = new URL(adminUrl);
@@ -131,6 +129,7 @@ beforeAll(async () => {
       workspaces: identity,
       authority: identity,
       challenges: new PostgresChallengeAdapter(unitOfWork, clock, ids),
+      publicChallenges: new PostgresPublicChallengeAdapter(unitOfWork),
       decisionAudit: audit,
       clock,
       ids,

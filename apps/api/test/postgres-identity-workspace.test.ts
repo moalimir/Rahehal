@@ -18,17 +18,13 @@ import {
 import { runMigrations } from "../src/postgres/migrations.js";
 import { seedSyntheticData } from "../src/postgres/seeds.js";
 import { PostgresUnitOfWork } from "../src/postgres/unit-of-work.js";
+import { testDatabaseAdminUrl } from "./support/database.js";
 import {
   LocalTestOidcExchangeAdapter,
   LocalTestSessionCredentialIssuer,
 } from "./support/local-test-identity.js";
 
-const defaultAdminUrl = "postgresql://rahhal:rahhal-local-only@127.0.0.1:5433/postgres";
-const adminUrl = new URL(process.env.RAHHAL_TEST_DATABASE_ADMIN_URL ?? defaultAdminUrl);
-
-if (!["127.0.0.1", "localhost", "[::1]"].includes(adminUrl.hostname)) {
-  throw new Error("PostgreSQL identity tests refuse to create databases on a non-loopback host");
-}
+const adminUrl = testDatabaseAdminUrl();
 
 const testDatabaseName = `rahhal_a1b_test_${process.pid}_${Date.now()}`;
 const testDatabaseUrl = new URL(adminUrl);
