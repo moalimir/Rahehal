@@ -30,7 +30,7 @@ services:
     stop_grace_period: 10s
 
   postgres:
-    image: postgres:16.15-alpine3.24
+    image: postgres:16.15-alpine3.24@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685
     environment:
       POSTGRES_DB: rahhal
       POSTGRES_USER: rahhal
@@ -79,7 +79,7 @@ services:
           "CMD",
           "node",
           "-e",
-          "fetch('http://127.0.0.1:3000/').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))",
+          "fetch('http://127.0.0.1:3000/').then(async (response) => { await response.body?.cancel(); if (!response.ok) process.exit(1); }).catch(() => process.exit(1))",
         ]
       interval: 10s
       timeout: 3s
@@ -175,7 +175,7 @@ services:
           "CMD",
           "node",
           "-e",
-          "fetch('http://127.0.0.1:3001/api/v1/openapi.json').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))",
+          "fetch('http://127.0.0.1:3001/api/v1/openapi.json').then(async (response) => { await response.body?.cancel(); if (!response.ok) process.exit(1); }).catch(() => process.exit(1))",
         ]
       interval: 10s
       timeout: 3s

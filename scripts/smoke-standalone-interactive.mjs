@@ -267,7 +267,7 @@ solverRegisterLink.dispatchEvent(
   new dom.window.MouseEvent("click", { bubbles: true, cancelable: true }),
 );
 await waitFor(() => dom.window.document.querySelector(".solver-registration-page--step-1"));
-if (!dom.window.document.querySelector("h1")?.textContent?.includes("ثبت‌نام حل‌کننده"))
+if (!dom.window.document.querySelector("h1")?.textContent?.includes("ثبت‌نام فرد یا تیم"))
   throw new Error("مرحله ایجاد هویت انسانی حل‌کننده نمایش داده نشد.");
 
 dom.window.location.hash = "/auth/solver/register/account";
