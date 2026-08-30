@@ -1,4 +1,6 @@
 import type {
+  ChallengeApprovalBriefContentResource,
+  ChallengeApprovalBriefResource,
   ChallengeApprovalNextAction,
   ChallengeApprovalResource,
   ChallengeNextAction,
@@ -11,6 +13,7 @@ import type {
   ExtendChallengeDeadlineBody,
   MutationReceipt,
   OutboxEvent,
+  PlatformChallengeApprovalQueueResource,
   PatchChallengeBody,
   PublicAudience,
   PublicChallengeQuery,
@@ -21,9 +24,11 @@ import {
   canTransition,
   challengeTransitions,
   evaluatePublicationReadiness,
+  gateApproverRoles,
   isAggregateVersion,
   canChangePublicationState,
   isGateApproverRole,
+  isPlatformRole,
   isPubliclyProjectable,
   parseAuditEventId,
   parseChallengeApprovalId,
@@ -31,6 +36,7 @@ import {
   parseChallengeVersionId,
   parsePrefixedId,
   parseReceiptId,
+  publicationGates,
   type AuditEventId,
   type ChallengeApprovalId,
   type ChallengeId,
@@ -38,6 +44,8 @@ import {
   type TenantId,
   type UserId,
   type WorkspaceId,
+  type PublicationGate,
+  type WorkspaceRole,
 } from "@rahhal/domain";
 import {
   assertEligibilityRuleAttachable,
@@ -91,6 +99,7 @@ export type ChallengeAuditRecord = {
   readonly outcome: "success";
   readonly correlationId: CorrelationId;
   readonly occurredAt: string;
+  readonly reason?: string;
 };
 
 type StoredChallenge = {
@@ -149,6 +158,11 @@ function scopeKey(tenantId: TenantId, workspaceId: WorkspaceId, challengeId: str
 
 function idempotencyKey(context: ChallengeCommandContext, command: string) {
   return `${context.tenantId}\u0000${command}\u0000${context.idempotencyKey}`;
+}
+
+function platformGateForRole(role: WorkspaceRole): PublicationGate | null {
+  if (!isPlatformRole(role)) return null;
+  return publicationGates.find((gate) => gateApproverRoles[gate].includes(role)) ?? null;
 }
 
 function copyState(state: RepositoryState): RepositoryState {
@@ -211,6 +225,7 @@ export class InMemoryChallengeRepository implements ChallengePort, PublicChallen
     action: ChallengeAuditRecord["action"],
     nextActions: readonly ChallengeNextAction[],
     idempotency: { key: string; fingerprint: string },
+    reason?: string,
   ): ChallengeMutationOutcome {
     const timestamp = this.clock.now().toISOString();
     const auditId = parseAuditEventId(this.ids.next("aud"));
@@ -237,6 +252,7 @@ export class InMemoryChallengeRepository implements ChallengePort, PublicChallen
       outcome: "success",
       correlationId: context.correlationId,
       occurredAt: timestamp,
+      ...(reason === undefined ? {} : { reason }),
     });
     state.outboxEvents.push({
       event_id: parsePrefixedId(this.ids.next("evt"), "evt"),
@@ -378,6 +394,67 @@ export class InMemoryChallengeRepository implements ChallengePort, PublicChallen
   async getScoped(scope: ChallengeScope, id: string) {
     const stored = this.state.challenges.get(scopeKey(scope.tenantId, scope.workspaceId, id));
     return stored ? structuredClone(stored.current) : null;
+  }
+
+  async getApprovalBrief(
+    scope: ChallengeScope,
+    id: string,
+  ): Promise<ChallengeApprovalBriefResource | null> {
+    if (!platformGateForRole(scope.role)) throw forbidden();
+    const stored = this.state.challenges.get(scopeKey(scope.tenantId, scope.workspaceId, id));
+    if (!stored || stored.current.stage !== "approvals") return null;
+    const current = withApprovals(stored.current, this.state.approvals);
+    const { contact, invitees, attachment_ids: attachmentIds, ...content } = current.content;
+    void contact;
+    void invitees;
+    void attachmentIds;
+    return structuredClone({
+      id: current.id,
+      current_version_id: current.current_version_id,
+      workspace_id: current.workspace_id,
+      stage: "approvals" as const,
+      version: current.version,
+      content: content satisfies ChallengeApprovalBriefContentResource,
+      approvals: current.approvals.map((approval) => ({
+        gate: approval.gate,
+        decision: approval.decision,
+        reason: approval.reason,
+        recorded_by_role: approval.recorded_by_role,
+        recorded_at: approval.recorded_at,
+        recorded_by_current_actor: approval.recorded_by === scope.actorUserId,
+      })),
+      publication_readiness: current.publication_readiness,
+      updated_at: current.updated_at,
+    });
+  }
+
+  async listApprovalQueue(scope: ChallengeScope): Promise<PlatformChallengeApprovalQueueResource> {
+    const gate = platformGateForRole(scope.role);
+    if (!gate) throw forbidden();
+    const items = [...this.state.challenges.values()]
+      .map((stored) => withApprovals(stored.current, this.state.approvals))
+      .filter((challenge) => challenge.stage === "approvals")
+      .filter((challenge) => !challenge.approvals.some((approval) => approval.gate === gate))
+      .filter(
+        (challenge) =>
+          !challenge.approvals.some((approval) => approval.recorded_by === scope.actorUserId),
+      )
+      .sort(
+        (left, right) =>
+          left.updated_at.localeCompare(right.updated_at) || left.id.localeCompare(right.id),
+      )
+      .slice(0, 50)
+      .map((challenge) => ({
+        challenge_id: challenge.id,
+        current_version_id: challenge.current_version_id,
+        workspace_id: challenge.workspace_id,
+        version: challenge.version,
+        title: challenge.content.title,
+        category: challenge.content.category,
+        gate,
+        updated_at: challenge.updated_at,
+      }));
+    return { items: structuredClone(items) };
   }
 
   async patch(
@@ -808,6 +885,7 @@ export class InMemoryChallengeRepository implements ChallengePort, PublicChallen
         "challenge.deadline.extended",
         ["await_proposals"],
         { key, fingerprint },
+        body.reason,
       );
     });
   }
@@ -877,10 +955,15 @@ export class InMemoryChallengeRepository implements ChallengePort, PublicChallen
       state.publicProjections = state.publicProjections.map((row) =>
         row.challenge_id === updated.id ? { ...row, state: definition.to } : row,
       );
-      return this.recordMutation(state, updated, context, definition.action, definition.next, {
-        key,
-        fingerprint,
-      });
+      return this.recordMutation(
+        state,
+        updated,
+        context,
+        definition.action,
+        definition.next,
+        { key, fingerprint },
+        body.reason,
+      );
     });
   }
 

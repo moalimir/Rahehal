@@ -36,6 +36,13 @@ const identities = {
   publisher: "publisher-alpha@synthetic.invalid",
 } as const;
 
+const gateLabels = {
+  technical: "تأیید فنی",
+  legal: "تأیید حقوقی",
+  finance: "تأیید مالی",
+  quality: "دروازه کیفیت",
+} as const;
+
 const readyContent = {
   title: "کاهش مصرف آب در خط رنگ",
   summary: "مصرف آب در خط رنگ بالاتر از استاندارد داخلی است.",
@@ -117,6 +124,13 @@ async function activateWorkspace(page: Page) {
   await expect(chooser).toBeHidden();
 }
 
+async function activatePlatformWorkspace(page: Page) {
+  const chooser = page.getByRole("heading", { name: "فضای کاری راه‌حل را فعال کنید" });
+  await expect(chooser).toBeVisible();
+  await page.locator("button.challenge-button--primary").first().click();
+  await expect(chooser).toBeHidden();
+}
+
 async function signOut(page: Page) {
   await page.context().clearCookies();
 }
@@ -168,10 +182,8 @@ test.describe("B7 governed challenge journey", () => {
     expect(earlyPublish.status).toBe(409);
 
     // Four gates, four distinct actors. legal/finance/quality are platform
-    // roles with no membership in wsp_org_alpha: this is the cross-tenant path.
-    // Four gates, four distinct actors. legal/finance/quality are platform
-    // roles with no membership in wsp_org_alpha: they reach the record through
-    // standing platform authority, naming the owning workspace in the URL.
+    // roles with no membership in wsp_org_alpha: they start from their own
+    // role-scoped queue and open the allowlisted cross-tenant approval brief.
     const gates = [
       [identities.technical, "technical", true],
       [identities.legal, "legal", false],
@@ -181,21 +193,22 @@ test.describe("B7 governed challenge journey", () => {
     for (const [email, gate, orgSide] of gates) {
       await signOut(page);
       await signIn(page, email);
-      if (orgSide) await activateWorkspace(page);
+      if (orgSide) {
+        await activateWorkspace(page);
+        await page.goto(`/app/org/challenges/record/governance/?id=${challengeId}`);
+      } else {
+        await page.goto("/app/ops/publication");
+        await activatePlatformWorkspace(page);
+        await page.locator(`a[href*="id=${challengeId}"]`).click();
+      }
 
-      // B8a implements the platform read and the governance page accepts
-      // `?workspace=`, but the local Docker images cannot currently be
-      // rebuilt (BuildKit reports every stage CACHED despite changed sources),
-      // so the running stack predates it. Until the image refreshes, the three
-      // platform gates are issued as authenticated `fetch` calls from inside
-      // the signed-in page: same session cookie, same cross-tenant path.
-      const recorded = await api(
-        page,
-        "POST",
-        `/api/v1/challenges/${challengeId}/approvals:record`,
-        { expected_version: 4, gate, decision: "approved", reason: `تأیید دروازه ${gate}.` },
-      );
-      expect(recorded.status, `${gate} gate should be recorded`).toBe(200);
+      const reason = page.getByLabel(/دلیل ثبت/);
+      await expect(reason).toBeVisible();
+      await reason.fill(`تأیید دروازه ${gate}.`);
+      await page.getByRole("button", { name: new RegExp(`ثبت`) }).click();
+      const gateRow = page.getByRole("listitem").filter({ hasText: gateLabels[gate] });
+      await expect(gateRow.locator('[data-decision="approved"]')).toContainText("تأییدشده");
+      await expect(reason).toBeHidden();
 
       if (gate === "technical") {
         // Separation of duty: one actor may not hold two required gates on the

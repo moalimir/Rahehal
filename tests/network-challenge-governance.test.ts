@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ChallengeSuccessEnvelope } from "@rahhal/contracts";
+import type {
+  ChallengeApprovalBriefSuccessEnvelope,
+  ChallengeSuccessEnvelope,
+  PlatformChallengeApprovalQueueSuccessEnvelope,
+} from "@rahhal/contracts";
 import {
   buildApiMeta,
   buildChallengeResource,
@@ -33,6 +37,25 @@ function approvalsStage() {
     stage: "approvals",
     version: 4,
   });
+}
+
+function approvalBrief() {
+  const resource = approvalsStage();
+  const { contact, invitees, attachment_ids: attachmentIds, ...content } = resource.content;
+  void contact;
+  void invitees;
+  void attachmentIds;
+  return {
+    id: resource.id,
+    current_version_id: resource.current_version_id,
+    workspace_id: resource.workspace_id,
+    stage: "approvals" as const,
+    version: resource.version,
+    content,
+    approvals: [],
+    publication_readiness: resource.publication_readiness,
+    updated_at: resource.updated_at,
+  };
 }
 
 afterEach(() => {
@@ -138,6 +161,53 @@ describe("B7 network challenge governance gateway", () => {
     const [url, init] = fetchMock.mock.calls[1] ?? [];
     expect(url).toBe(`/api/v1/challenges/${challengeId}:publish`);
     expect(JSON.parse(String(init?.body))).toEqual({ expected_version: 4 });
+  });
+
+  it("uses the platform brief route and lists the active role's queue", async () => {
+    const queue = {
+      items: [
+        {
+          challenge_id: challengeId,
+          current_version_id: approvalsStage().current_version_id,
+          workspace_id: workspaceId,
+          version: 4,
+          title: "چالش آزمون",
+          category: "operations",
+          gate: "quality" as const,
+          updated_at: "2026-08-29T10:00:00.000Z",
+        },
+      ],
+    };
+    const responses = [
+      jsonResponse({
+        ok: true,
+        data: approvalBrief(),
+        meta,
+      } satisfies ChallengeApprovalBriefSuccessEnvelope),
+      jsonResponse({
+        ok: true,
+        data: queue,
+        meta,
+      } satisfies PlatformChallengeApprovalQueueSuccessEnvelope),
+    ];
+    const fetchMock = vi.fn<GatewayFetch>(async () => responses.shift() ?? jsonResponse({}, 500));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const gateway = createNetworkChallengeGovernanceGateway({
+      activeWorkspaceId: () => parseWorkspaceId("wsp_platform_main"),
+    });
+    const brief = await gateway.read(challengeId, workspaceId);
+    const listed = await gateway.listPendingApprovals();
+
+    expect(brief.ok && brief.data.content).not.toHaveProperty("contact");
+    expect(listed.ok && listed.data.items[0]?.gate).toBe("quality");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      `/api/v1/platform/challenges/${challengeId}/approval-brief`,
+    );
+    expect(
+      (fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string>)["x-workspace-id"],
+    ).toBe(workspaceId);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/v1/platform/challenge-approvals");
   });
 
   it("refuses to command a record it has not read, and without a workspace", async () => {

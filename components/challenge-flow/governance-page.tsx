@@ -1,11 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { ChallengeApprovalResource, ChallengeResource } from "@rahhal/contracts";
+import type {
+  ChallengeApprovalResource,
+  ChallengeApprovalSummaryResource,
+} from "@rahhal/contracts";
 import { gateApproverRoles, publicationGates, type PublicationGate } from "@rahhal/domain";
 import { ChallengeLoadErrorState, ChallengeShell } from "@/components/challenge-flow/shell";
 import { Toast } from "@/components/challenge-flow/fields";
 import { useChallengeGovernance, useWebRuntime } from "@/components/runtime-provider";
+import type { ChallengeGovernanceResource } from "@/lib/challenges/governance";
 
 const gateLabels: Record<PublicationGate, string> = {
   technical: "تأیید فنی",
@@ -31,7 +35,7 @@ function GateRow({
   approval,
 }: {
   gate: PublicationGate;
-  approval: ChallengeApprovalResource | undefined;
+  approval: ChallengeApprovalResource | ChallengeApprovalSummaryResource | undefined;
 }) {
   return (
     <li className="challenge-gate-row">
@@ -39,7 +43,7 @@ function GateRow({
       {approval ? (
         <span className="challenge-gate-row__state" data-decision={approval.decision}>
           {approval.decision === "approved" ? "تأییدشده" : "ردشده"} ·{" "}
-          <bdi>{approval.recorded_by}</bdi>
+          <bdi>{"recorded_by" in approval ? approval.recorded_by : approval.recorded_by_role}</bdi>
           <small>{approval.reason}</small>
         </span>
       ) : (
@@ -61,7 +65,7 @@ export function ChallengeGovernancePage({
 }) {
   const governance = useChallengeGovernance();
   const { me } = useWebRuntime();
-  const [resource, setResource] = useState<ChallengeResource | null>(null);
+  const [resource, setResource] = useState<ChallengeGovernanceResource | null>(null);
   const [loadError, setLoadError] = useState("");
   const [toast, setToast] = useState("");
   const [busy, setBusy] = useState(false);
@@ -120,7 +124,9 @@ export function ChallengeGovernancePage({
   const recorded = new Map(resource.approvals.map((approval) => [approval.gate, approval]));
   const readiness = resource.publication_readiness;
   const alreadyRecordedByActor = resource.approvals.some(
-    (approval) => approval.recorded_by === me?.user.id,
+    (approval) =>
+      ("recorded_by" in approval && approval.recorded_by === me?.user.id) ||
+      ("recorded_by_current_actor" in approval && approval.recorded_by_current_actor),
   );
   const canRecord =
     Boolean(actorGate) &&
@@ -147,6 +153,29 @@ export function ChallengeGovernancePage({
       description="هر دروازه به یک تأییدکننده متمایز نسبت داده می‌شود و روی همین نسخه ثبت می‌ماند."
       id={resource.id}
     >
+      <section className="challenge-review-brief" aria-labelledby="challenge-review-brief-title">
+        <h2 id="challenge-review-brief-title">{resource.content.title}</h2>
+        <p>{resource.content.summary}</p>
+        <dl>
+          <div>
+            <dt>نتیجه مورد انتظار</dt>
+            <dd>{resource.content.desired_outcome}</dd>
+          </div>
+          <div>
+            <dt>دامنه</dt>
+            <dd>{resource.content.in_scope}</dd>
+          </div>
+          <div>
+            <dt>محدودیت‌ها</dt>
+            <dd>{resource.content.constraints || "ثبت نشده"}</dd>
+          </div>
+          <div>
+            <dt>شرایط حقوقی</dt>
+            <dd>{resource.content.legal_notes || "ثبت نشده"}</dd>
+          </div>
+        </dl>
+      </section>
+
       <ul className="challenge-gate-list" aria-label="وضعیت دروازه‌های انتشار">
         {publicationGates.map((gate) => (
           <GateRow key={gate} gate={gate} approval={recorded.get(gate)} />

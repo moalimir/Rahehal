@@ -1,5 +1,7 @@
 import type {
+  ChallengeApprovalBriefResource,
   ChallengeApprovalNextAction,
+  PlatformChallengeApprovalQueueResource,
   ChallengePublicPage,
   ChallengePublicProjectionResource,
   ChallengeResource,
@@ -202,6 +204,11 @@ export interface ChallengePort {
     context: ChallengeCommandContext,
   ): Promise<MutationOutcome<ChallengeId, ChallengeNextAction>>;
   getScoped(scope: ChallengeScope, id: string): Promise<ChallengeResource | null>;
+  getApprovalBrief(
+    scope: ChallengeScope,
+    id: string,
+  ): Promise<ChallengeApprovalBriefResource | null>;
+  listApprovalQueue(scope: ChallengeScope): Promise<PlatformChallengeApprovalQueueResource>;
   patch(
     id: string,
     body: PatchChallengeBody,

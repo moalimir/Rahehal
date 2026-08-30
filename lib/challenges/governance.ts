@@ -1,4 +1,8 @@
-import type { ChallengeResource } from "@rahhal/contracts";
+import type {
+  ChallengeApprovalBriefResource,
+  ChallengeResource,
+  PlatformChallengeApprovalQueueResource,
+} from "@rahhal/contracts";
 import type { ApprovalDecision, PublicationGate } from "@rahhal/domain";
 
 import type { ChallengeResult } from "@/lib/challenges/gateway";
@@ -20,6 +24,8 @@ export type RecordApprovalInput = {
   readonly reason: string;
 };
 
+export type ChallengeGovernanceResource = ChallengeResource | ChallengeApprovalBriefResource;
+
 export interface ChallengeGovernanceGateway {
   /**
    * `targetWorkspaceId` addresses the workspace that owns the challenge. Org
@@ -28,11 +34,15 @@ export interface ChallengeGovernanceGateway {
    * name the target explicitly — that is the request shape the server's
    * standing-authority path expects.
    */
-  read(id: string, targetWorkspaceId?: string): Promise<ChallengeResult<ChallengeResource>>;
+  read(
+    id: string,
+    targetWorkspaceId?: string,
+  ): Promise<ChallengeResult<ChallengeGovernanceResource>>;
+  listPendingApprovals(): Promise<ChallengeResult<PlatformChallengeApprovalQueueResource>>;
   recordApproval(
     id: string,
     input: RecordApprovalInput,
     targetWorkspaceId?: string,
-  ): Promise<ChallengeResult<ChallengeResource>>;
-  publish(id: string): Promise<ChallengeResult<ChallengeResource>>;
+  ): Promise<ChallengeResult<ChallengeGovernanceResource>>;
+  publish(id: string): Promise<ChallengeResult<ChallengeGovernanceResource>>;
 }

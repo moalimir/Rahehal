@@ -311,6 +311,42 @@ export const openApiDocument = {
         },
       },
     },
+    [apiRoutes.platformChallengeApprovalQueue]: {
+      get: {
+        operationId: "listPlatformChallengeApprovals",
+        tags: ["Challenge"],
+        summary: "List approval-stage challenges awaiting the active platform role's gate",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader],
+        responses: {
+          "200": {
+            description: "The role-scoped platform approval queue.",
+            content: jsonContent("PlatformChallengeApprovalQueueSuccessEnvelope"),
+          },
+          "403": protectedCommandErrors["403"],
+          "404": protectedCommandErrors["404"],
+          "503": protectedCommandErrors["503"],
+        },
+      },
+    },
+    [apiRoutes.platformChallengeApprovalBrief]: {
+      get: {
+        operationId: "getPlatformChallengeApprovalBrief",
+        tags: ["Challenge"],
+        summary: "Read an allowlisted approval brief through standing platform authority",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, challengeIdParameter],
+        responses: {
+          "200": {
+            description: "The allowlisted approval brief for the locked version.",
+            content: jsonContent("ChallengeApprovalBriefSuccessEnvelope"),
+          },
+          "403": protectedCommandErrors["403"],
+          "404": protectedCommandErrors["404"],
+          "503": protectedCommandErrors["503"],
+        },
+      },
+    },
     [apiRoutes.extendChallengeDeadline]: {
       post: {
         operationId: "extendChallengeDeadline",

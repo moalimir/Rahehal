@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ChallengeDiscoveryApp } from "@/components/challenge-discovery";
 import { Icon } from "@/components/icons";
 import { LegacyRedirect } from "@/components/legacy-redirect";
+import { PlatformApprovalQueue } from "@/components/platform-approval-queue";
 import {
   LegacyUnavailable,
   PermissionDenied,
@@ -38,6 +39,7 @@ import {
   type ServiceMode,
 } from "@/lib/services/internal-service";
 import { isQaHarnessEnabled } from "@/lib/qa-harness";
+import { isNetworkWebRuntime } from "@/lib/runtime/mode";
 import { canAccessInternalRole, readDemoSession, type DemoSession } from "@/lib/auth/session";
 import { isRecordReady } from "@/lib/challenges/validation";
 import { directOfferById, proposalById, readSolverState } from "@/lib/solver/repository";
@@ -107,6 +109,13 @@ export function InternalApp({ route }: { route: InternalRoute }) {
   }, [route.role]);
   if (legacy?.kind === "redirect") return <LegacyRedirect target={legacy.target} />;
   if (legacy?.kind === "unavailable") return <LegacyUnavailable resolution={legacy} />;
+  if (isNetworkWebRuntime && route.path === "/app/ops/publication") {
+    return (
+      <ConfiguredRoleShell role="ops" currentPath={route.path}>
+        <PlatformApprovalQueue />
+      </ConfiguredRoleShell>
+    );
+  }
   if (session === undefined) return <RouteResolving />;
   const sharedRoute =
     /^\/app\/(?:search|tasks|calendar|messages|notifications|documents|help|account)(?:\/|$)/.test(

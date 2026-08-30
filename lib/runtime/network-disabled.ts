@@ -2,11 +2,9 @@
  * Build-time stand-in for the connected-runtime modules.
  *
  * The demo build is a static export with no API behind it, so `next.config.ts`
- * aliases `@/lib/api/http` and `@/lib/challenges/adapters/network` to this file.
- * That keeps the network gateway, the browser-session client, and the API route
- * surface out of the demo bundle entirely rather than shipping them as dead
- * weight (they are ~3 KB of the static JavaScript budget, and the demo artifact
- * should not advertise the authoritative API surface at all).
+ * aliases the API client, connected challenge adapters, and platform approval
+ * queue to this file. That keeps the connected UI, gateways, browser-session
+ * client, and API route surface out of the demo bundle.
  *
  * Nothing here is reachable: every caller is behind `webRuntimeMode === "network"`,
  * which is `false` in exactly the builds that use this alias. The throws exist so
@@ -33,4 +31,19 @@ export function idempotencyKey(): never {
 /** Stands in for `@/lib/challenges/adapters/network`. */
 export function createNetworkChallengeGateway(): never {
   return unreachable("createNetworkChallengeGateway");
+}
+
+/** Stands in for `@/lib/challenges/adapters/network-governance`. */
+export function createNetworkChallengeGovernanceGateway(): never {
+  return unreachable("createNetworkChallengeGovernanceGateway");
+}
+
+/** Stands in for `@/lib/challenges/adapters/network-public-challenges`. */
+export function readPublicChallenge(): never {
+  return unreachable("readPublicChallenge");
+}
+
+/** Stands in for `@/components/platform-approval-queue`. */
+export function PlatformApprovalQueue(): never {
+  return unreachable("PlatformApprovalQueue");
 }

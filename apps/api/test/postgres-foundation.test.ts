@@ -52,8 +52,11 @@ beforeAll(async () => {
     "0007_b3_versioned_eligibility_rules",
     "0008_b4_challenge_publication",
     "0009_b6_publication_lifecycle",
+    "0010_phase2_closure",
   ]);
 
+  const phase2Down = await runMigrations(database, "down");
+  expect(phase2Down.applied).toEqual(["0010_phase2_closure"]);
   const b6Down = await runMigrations(database, "down");
   expect(b6Down.applied).toEqual(["0009_b6_publication_lifecycle"]);
   const b4Down = await runMigrations(database, "down");
@@ -95,6 +98,7 @@ beforeAll(async () => {
     "0007_b3_versioned_eligibility_rules",
     "0008_b4_challenge_publication",
     "0009_b6_publication_lifecycle",
+    "0010_phase2_closure",
   ]);
   const noOpUp = await runMigrations(database, "up");
   expect(noOpUp.applied).toEqual([]);
@@ -181,6 +185,10 @@ describe("A1a PostgreSQL foundation", () => {
       },
       {
         id: "0009_b6_publication_lifecycle",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+      {
+        id: "0010_phase2_closure",
         checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
       },
     ]);
@@ -460,6 +468,8 @@ describe("A1a PostgreSQL foundation", () => {
   });
 
   it("fails the A1b migration atomically for an orphaned existing session", async () => {
+    const phase2Down = await runMigrations(database, "down");
+    expect(phase2Down.applied).toEqual(["0010_phase2_closure"]);
     const b6Down = await runMigrations(database, "down");
     expect(b6Down.applied).toEqual(["0009_b6_publication_lifecycle"]);
     const b4Down = await runMigrations(database, "down");
@@ -529,6 +539,7 @@ describe("A1a PostgreSQL foundation", () => {
       "0007_b3_versioned_eligibility_rules",
       "0008_b4_challenge_publication",
       "0009_b6_publication_lifecycle",
+      "0010_phase2_closure",
     ]);
   });
 });

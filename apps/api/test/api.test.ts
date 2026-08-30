@@ -5,6 +5,8 @@ import {
   type SessionSuccessEnvelope,
   type SuccessEnvelope,
   type ChallengeDraftContentResource,
+  type ChallengeApprovalBriefResource,
+  type PlatformChallengeApprovalQueueResource,
   type ChallengePublicPage,
   type ChallengePublicProjectionResource,
   type ChallengeResource,
@@ -1382,22 +1384,50 @@ describe("authoritative Fastify API foundation", () => {
     expect(corrupt.json<ErrorEnvelope>().error.code).toBe("VALIDATION");
   });
 
-  it("lets a platform gate approver read the version it is being asked to approve", async () => {
+  it("gives platform gate approvers an allowlisted brief, never the org aggregate", async () => {
     const challengeId = await createChallengeAtApprovalsStage("b8a-read");
+    const technical = await app.inject({
+      method: "POST",
+      url: apiRoutes.recordChallengeApproval.replace("{challengeId}", challengeId),
+      headers: gateHeaders(demoApiCredentials.approver, "b8a-technical"),
+      payload: {
+        expected_version: 4,
+        gate: "technical",
+        decision: "approved",
+        reason: "بررسی فنی انجام شد.",
+      },
+    });
+    expect(technical.statusCode).toBe(200);
 
-    // Before B8a this was NOT_FOUND: ops holds no membership in wsp_org_alpha,
-    // so it recorded the quality gate on a document it could not open.
-    const opsRead = await app.inject({
+    const privateRead = await app.inject({
       method: "GET",
       url: `/api/v1/challenges/${challengeId}`,
       headers: gateHeaders(demoApiCredentials.platformOps),
     });
+    expect(privateRead.statusCode).toBe(404);
+
+    const opsRead = await app.inject({
+      method: "GET",
+      url: apiRoutes.platformChallengeApprovalBrief.replace("{challengeId}", challengeId),
+      headers: gateHeaders(demoApiCredentials.platformOps),
+    });
     expect(opsRead.statusCode).toBe(200);
-    const resource = opsRead.json<SuccessEnvelope<ChallengeResource>>().data;
+    const resource = opsRead.json<SuccessEnvelope<ChallengeApprovalBriefResource>>().data;
     expect(resource.id).toBe(challengeId);
     expect(resource.stage).toBe("approvals");
-    // It must see the gates it is joining, not a stripped record.
     expect(resource.publication_readiness.missing).toContain("quality");
+    expect(resource.content.title).not.toBe("");
+    expect(resource.content).not.toHaveProperty("contact");
+    expect(resource.content).not.toHaveProperty("invitees");
+    expect(resource.content).not.toHaveProperty("attachment_ids");
+    expect(resource).not.toHaveProperty("tenant_id");
+    expect(resource).not.toHaveProperty("created_by");
+    expect(resource.approvals[0]).toMatchObject({
+      gate: "technical",
+      recorded_by_role: "org:approver_technical",
+      recorded_by_current_actor: false,
+    });
+    expect(resource.approvals[0]).not.toHaveProperty("recorded_by");
 
     for (const credential of [
       demoApiCredentials.platformLegal,
@@ -1405,11 +1435,34 @@ describe("authoritative Fastify API foundation", () => {
     ]) {
       const response = await app.inject({
         method: "GET",
-        url: `/api/v1/challenges/${challengeId}`,
+        url: apiRoutes.platformChallengeApprovalBrief.replace("{challengeId}", challengeId),
         headers: gateHeaders(credential),
       });
       expect(response.statusCode).toBe(200);
     }
+  });
+
+  it("lists only approval work for the active platform role", async () => {
+    const challengeId = await createChallengeAtApprovalsStage("b8b-queue");
+    const response = await app.inject({
+      method: "GET",
+      url: apiRoutes.platformChallengeApprovalQueue,
+      headers: gateHeaders(
+        demoApiCredentials.platformOps,
+        undefined,
+        demoApiCredentials.platformOps.workspaceId,
+      ),
+    });
+    expect(response.statusCode).toBe(200);
+    const queue = response.json<SuccessEnvelope<PlatformChallengeApprovalQueueResource>>().data;
+    expect(queue.items).toContainEqual(
+      expect.objectContaining({
+        challenge_id: challengeId,
+        workspace_id: demoApiCredentials.owner.workspaceId,
+        gate: "quality",
+      }),
+    );
+    expect(JSON.stringify(queue)).not.toContain("contact");
   });
 
   it("keeps the platform read inside the approvals window and off other stages", async () => {
@@ -1425,7 +1478,7 @@ describe("authoritative Fastify API foundation", () => {
 
     const draftRead = await app.inject({
       method: "GET",
-      url: `/api/v1/challenges/${draftId}`,
+      url: apiRoutes.platformChallengeApprovalBrief.replace("{challengeId}", draftId),
       headers: gateHeaders(demoApiCredentials.platformOps),
     });
     expect(draftRead.statusCode).toBe(404);
@@ -1434,7 +1487,10 @@ describe("authoritative Fastify API foundation", () => {
     // An unknown id answers identically, so the two are indistinguishable.
     const unknownRead = await app.inject({
       method: "GET",
-      url: `/api/v1/challenges/${parseChallengeId("chl_absent_00000002")}`,
+      url: apiRoutes.platformChallengeApprovalBrief.replace(
+        "{challengeId}",
+        parseChallengeId("chl_absent_00000002"),
+      ),
       headers: gateHeaders(demoApiCredentials.platformOps),
     });
     expect(unknownRead.statusCode).toBe(404);
@@ -1450,7 +1506,7 @@ describe("authoritative Fastify API foundation", () => {
     // no membership in wsp_org_alpha either.
     const foreign = await app.inject({
       method: "GET",
-      url: `/api/v1/challenges/${challengeId}`,
+      url: apiRoutes.platformChallengeApprovalBrief.replace("{challengeId}", challengeId),
       headers: gateHeaders(demoApiCredentials.foreignOwner),
     });
     expect(foreign.statusCode).toBe(404);
@@ -1573,6 +1629,15 @@ describe("authoritative Fastify API foundation", () => {
     expect(
       emitted.filter((type) => !(challengeOutboxEventTypes as readonly string[]).includes(type)),
     ).toEqual([]);
+    const lifecycleAudits = composition.challenges
+      .snapshot()
+      .auditEvents.filter((event) => event.entityId === challengeId);
+    expect(lifecycleAudits.find((event) => event.action === "challenge.paused")?.reason).toBe(
+      "توقف موقت.",
+    );
+    expect(
+      lifecycleAudits.find((event) => event.action === "challenge.deadline.extended")?.reason,
+    ).toBe("تمدید مهلت.");
   });
 
   it("revalidates session revocation inside the cross-tenant platform gate unit of work", async () => {
@@ -1967,6 +2032,8 @@ describe("authoritative Fastify API foundation", () => {
           return challenges.create(body, context);
         },
         getScoped: (scope, id) => challenges.getScoped(scope, id),
+        getApprovalBrief: (scope, id) => challenges.getApprovalBrief(scope, id),
+        listApprovalQueue: (scope) => challenges.listApprovalQueue(scope),
         patch: (id, body, context) => challenges.patch(id, body, context),
         transition: (id, command, body, context) =>
           challenges.transition(id, command, body, context),

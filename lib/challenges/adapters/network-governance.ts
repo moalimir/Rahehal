@@ -1,13 +1,18 @@
 import type {
+  ChallengeApprovalBriefSuccessEnvelope,
   ChallengeSuccessEnvelope,
-  ChallengeResource,
   ErrorEnvelope,
   MutationSuccessEnvelope,
+  PlatformChallengeApprovalQueueSuccessEnvelope,
 } from "@rahhal/contracts";
 import { apiRoutes } from "@rahhal/contracts";
 
 import type { ChallengeGatewayErrorCode, ChallengeResult } from "@/lib/challenges/gateway";
-import type { ChallengeGovernanceGateway, RecordApprovalInput } from "@/lib/challenges/governance";
+import type {
+  ChallengeGovernanceGateway,
+  ChallengeGovernanceResource,
+  RecordApprovalInput,
+} from "@/lib/challenges/governance";
 import { idempotencyKey, requestApi } from "@/lib/api/http";
 
 type NetworkGovernanceOptions = {
@@ -56,13 +61,15 @@ export function createNetworkChallengeGovernanceGateway(
   const read = async (
     id: string,
     targetWorkspaceId?: string,
-  ): Promise<ChallengeResult<ChallengeResource>> => {
+  ): Promise<ChallengeResult<ChallengeGovernanceResource>> => {
     const headers = workspaceHeaders(targetWorkspaceId);
     if (!headers) return localFailure("NO_ACCESS", "ابتدا یک فضای کاری فعال انتخاب کنید.");
-    const result = await requestApi<ChallengeSuccessEnvelope>(
-      `/api/v1/challenges/${encodeURIComponent(id)}`,
-      { headers },
-    );
+    const path = targetWorkspaceId
+      ? apiRoutes.platformChallengeApprovalBrief.replace("{challengeId}", encodeURIComponent(id))
+      : `/api/v1/challenges/${encodeURIComponent(id)}`;
+    const result = targetWorkspaceId
+      ? await requestApi<ChallengeApprovalBriefSuccessEnvelope>(path, { headers })
+      : await requestApi<ChallengeSuccessEnvelope>(path, { headers });
     if (!result.ok) return failure(result);
     versions.set(id, result.data.version);
     return { ok: true, data: result.data, meta: result.meta };
@@ -74,7 +81,7 @@ export function createNetworkChallengeGovernanceGateway(
     body: Record<string, unknown>,
     label: string,
     targetWorkspaceId?: string,
-  ): Promise<ChallengeResult<ChallengeResource>> => {
+  ): Promise<ChallengeResult<ChallengeGovernanceResource>> => {
     const expectedVersion = versions.get(id);
     if (expectedVersion === undefined) {
       return localFailure("CONFLICT", "ابتدا نسخه به‌روز پرونده را دریافت کنید.");
@@ -97,6 +104,16 @@ export function createNetworkChallengeGovernanceGateway(
 
   return {
     read,
+    async listPendingApprovals() {
+      const headers = workspaceHeaders();
+      if (!headers) return localFailure("NO_ACCESS", "ابتدا فضای کاری راه‌حل را فعال کنید.");
+      const result = await requestApi<PlatformChallengeApprovalQueueSuccessEnvelope>(
+        apiRoutes.platformChallengeApprovalQueue,
+        { headers },
+      );
+      if (!result.ok) return failure(result);
+      return { ok: true, data: result.data, meta: result.meta };
+    },
     async recordApproval(id, input: RecordApprovalInput, targetWorkspaceId?: string) {
       return command(
         id,

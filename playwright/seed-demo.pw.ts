@@ -142,11 +142,19 @@ test.describe("demo fixture", () => {
     await make("Triage — awaiting screening", brief({ title: "پایش هوشمند مصرف انرژی" }), 1);
     await make("Formulation — being sharpened", brief({ title: "بهینه‌سازی زنجیره سرد" }), 2);
 
-    const partial = await make("Approvals — 2 of 4 gates", brief({ title: "کاهش توقف خط نورد" }), 3);
+    const partial = await make(
+      "Approvals — 2 of 4 gates",
+      brief({ title: "کاهش توقف خط نورد" }),
+      3,
+    );
     const openCall = await make("Published — open", brief({ title: "بازیابی آب فرایندی" }), 3);
     const paused = await make("Published — paused", brief({ title: "پایش خوردگی مخازن" }), 3);
     const closedCall = await make("Published — closed", brief({ title: "کاهش مصرف بخار" }), 3);
-    const extended = await make("Published — deadline extended", brief({ title: "تشخیص نشتی هوای فشرده" }), 3);
+    const extended = await make(
+      "Published — deadline extended",
+      brief({ title: "تشخیص نشتی هوای فشرده" }),
+      3,
+    );
     const confidential = await make(
       "Published — NDA only, never public",
       brief({ title: "فرمولاسیون محرمانه پوشش", visibility: "nda", public_summary: "" }),
@@ -197,29 +205,34 @@ test.describe("demo fixture", () => {
     }
 
     expect(
-      (await api(page, "POST", `/api/v1/challenges/${paused}:pause`, {
-        expected_version: 5,
-        reason: "متوقف شده برای بازبینی دستی دامنه.",
-      })).status,
+      (
+        await api(page, "POST", `/api/v1/challenges/${paused}:pause`, {
+          expected_version: 5,
+          reason: "متوقف شده برای بازبینی دستی دامنه.",
+        })
+      ).status,
     ).toBe(200);
 
     expect(
-      (await api(page, "POST", `/api/v1/challenges/${closedCall}:close`, {
-        expected_version: 5,
-        reason: "مهلت به پایان رسید و فراخوان بسته شد.",
-      })).status,
+      (
+        await api(page, "POST", `/api/v1/challenges/${closedCall}:close`, {
+          expected_version: 5,
+          reason: "مهلت به پایان رسید و فراخوان بسته شد.",
+        })
+      ).status,
     ).toBe(200);
 
     expect(
-      (await api(page, "POST", `/api/v1/challenges/${extended}:extend-deadline`, {
-        expected_version: 5,
-        proposal_deadline: "2030-06-01T00:00:00.000Z",
-        reason: "تمدید به درخواست حل‌کنندگان بالقوه.",
-      })).status,
+      (
+        await api(page, "POST", `/api/v1/challenges/${extended}:extend-deadline`, {
+          expected_version: 5,
+          proposal_deadline: "2030-06-01T00:00:00.000Z",
+          reason: "تمدید به درخواست حل‌کنندگان بالقوه.",
+        })
+      ).status,
     ).toBe(200);
 
     for (const row of created) {
-      // eslint-disable-next-line no-console
       console.log(`${row.id}  ${row.label}`);
     }
   });

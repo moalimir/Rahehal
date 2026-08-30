@@ -933,67 +933,6 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
         ports.decisionAudit,
         ports.clock,
       );
-      const workspaceId = requiredHeader(request, "X-Workspace-Id");
-
-      // `viaPlatformAuthority` cannot be inferred from `access`: the platform
-      // path resolves access to the *target* org workspace, so its `kind` is
-      // "org" on both routes. Only the caller knows which authority was used.
-      const readOnAccess = (viaPlatformAuthority: boolean) => async (access: WorkspaceAccess) => {
-        const resource = await ports.challenges.getScoped(
-          challengeScope(session, access),
-          request.params.challengeId,
-        );
-        // A platform gate approver reaches only what its authority covers: a
-        // challenge actually awaiting approvals. Outside that stage the answer
-        // is the same NOT_FOUND an unrelated org would get, so the read cannot
-        // be used to enumerate another tenant's pipeline.
-        const reachable = resource && (!viaPlatformAuthority || resource.stage === "approvals");
-        if (!reachable) {
-          await ports.decisionAudit.record({
-            outcome: "denied",
-            actorUserId: session.userId,
-            tenantId: access.tenantId,
-            workspaceId: access.workspaceId,
-            action: "challenge:read",
-            entityType: "challenge",
-            entityId: request.params.challengeId,
-            reason: "record_unreachable",
-            correlationId: correlationId(request),
-            occurredAt: ports.clock.now().toISOString(),
-          });
-          throw notFound();
-        }
-        await recordWorkspaceAccessSuccess(request, ports, session, access, {
-          action: "challenge:read",
-          entityType: "challenge",
-          entityId: request.params.challengeId,
-        });
-        return versionedSuccess(resource, request, ports, resource.version);
-      };
-
-      /**
-       * B8a. A platform gate approver holds no membership in the org's
-       * workspace, so `runAuthorizedWorkspace` can never authorize the read —
-       * and without a read, the quality/legal/finance gates are approvals of a
-       * brief the approver cannot open. Same standing-authority path B2
-       * already uses for the write (ADR-0015), applied to the read it needs.
-       */
-      if (session.activeWorkspaceId !== workspaceId) {
-        return ports.authority.runAuthorizedPlatformRole(
-          session,
-          platformGateApproverRoles,
-          workspaceId,
-          {
-            action: "challenge:read",
-            correlationId: correlationId(request),
-            entityType: "challenge",
-            entityId: request.params.challengeId,
-            deferSuccess: true,
-          },
-          readOnAccess(true),
-        );
-      }
-
       return runAuthorizedWorkspace(
         request,
         ports,
@@ -1005,7 +944,115 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
           allows: canReadChallenge,
           deferSuccess: true,
         },
-        readOnAccess(false),
+        async (access) => {
+          const resource = await ports.challenges.getScoped(
+            challengeScope(session, access),
+            request.params.challengeId,
+          );
+          if (!resource) {
+            await ports.decisionAudit.record({
+              outcome: "denied",
+              actorUserId: session.userId,
+              tenantId: access.tenantId,
+              workspaceId: access.workspaceId,
+              action: "challenge:read",
+              entityType: "challenge",
+              entityId: request.params.challengeId,
+              reason: "record_unreachable",
+              correlationId: correlationId(request),
+              occurredAt: ports.clock.now().toISOString(),
+            });
+            throw notFound();
+          }
+          await recordWorkspaceAccessSuccess(request, ports, session, access, {
+            action: "challenge:read",
+            entityType: "challenge",
+            entityId: request.params.challengeId,
+          });
+          return versionedSuccess(resource, request, ports, resource.version);
+        },
+      );
+    },
+  );
+
+  app.get(
+    apiRoutes.platformChallengeApprovalQueue,
+    {
+      schema: {
+        response: {
+          200: apiSchemas.PlatformChallengeApprovalQueueSuccessEnvelope,
+          ...apiErrorResponses,
+        },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "challenge:list-platform-approvals",
+          entityType: "challenge",
+          allows: (access) =>
+            access.workspace.kind === "platform" &&
+            platformGateApproverRoles.some((role) => role === access.role),
+        },
+        async (access) =>
+          success(
+            await ports.challenges.listApprovalQueue(challengeScope(session, access)),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.get<{ Params: ChallengeIdParams }>(
+    "/api/v1/platform/challenges/:challengeId/approval-brief",
+    {
+      schema: {
+        params: challengeIdParamsSchema,
+        response: { 200: apiSchemas.ChallengeApprovalBriefSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const targetWorkspaceId = requiredHeader(request, "X-Workspace-Id");
+      return ports.authority.runAuthorizedPlatformRole(
+        session,
+        platformGateApproverRoles,
+        targetWorkspaceId,
+        {
+          action: "challenge:read-approval-brief",
+          correlationId: correlationId(request),
+          entityType: "challenge",
+          entityId: request.params.challengeId,
+          deferSuccess: true,
+        },
+        async (access) => {
+          const resource = await ports.challenges.getApprovalBrief(
+            challengeScope(session, access),
+            request.params.challengeId,
+          );
+          if (!resource) throw notFound();
+          await recordWorkspaceAccessSuccess(request, ports, session, access, {
+            action: "challenge:read-approval-brief",
+            entityType: "challenge",
+            entityId: request.params.challengeId,
+          });
+          return versionedSuccess(resource, request, ports, resource.version);
+        },
       );
     },
   );

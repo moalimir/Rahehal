@@ -102,6 +102,25 @@ export type ChallengeApprovalResource = {
   readonly recorded_at: string;
 };
 
+/**
+ * The content a standing platform gate approver may review. Contact details,
+ * invitees, and private file identifiers are deliberately absent.
+ */
+export type ChallengeApprovalBriefContentResource = Omit<
+  ChallengeDraftContentResource,
+  "contact" | "invitees" | "attachment_ids"
+>;
+
+/** Platform-facing approval evidence without another user's stable identifier. */
+export type ChallengeApprovalSummaryResource = {
+  readonly gate: PublicationGate;
+  readonly decision: ApprovalDecision;
+  readonly reason: string;
+  readonly recorded_by_role: WorkspaceRole;
+  readonly recorded_at: string;
+  readonly recorded_by_current_actor: boolean;
+};
+
 export type PublicationReadinessResource = {
   readonly ready: boolean;
   readonly satisfied: readonly PublicationGate[];
@@ -128,6 +147,34 @@ export type ChallengeResource = {
   readonly created_by: UserId;
   readonly created_at: string;
   readonly updated_at: string;
+};
+
+/** A structurally separate, allowlisted read model for platform approval work. */
+export type ChallengeApprovalBriefResource = {
+  readonly id: ChallengeId;
+  readonly current_version_id: ChallengeVersionId;
+  readonly workspace_id: WorkspaceId;
+  readonly stage: "approvals";
+  readonly version: number;
+  readonly content: ChallengeApprovalBriefContentResource;
+  readonly approvals: readonly ChallengeApprovalSummaryResource[];
+  readonly publication_readiness: PublicationReadinessResource;
+  readonly updated_at: string;
+};
+
+export type PlatformChallengeApprovalQueueItem = {
+  readonly challenge_id: ChallengeId;
+  readonly current_version_id: ChallengeVersionId;
+  readonly workspace_id: WorkspaceId;
+  readonly version: number;
+  readonly title: string;
+  readonly category: string;
+  readonly gate: PublicationGate;
+  readonly updated_at: string;
+};
+
+export type PlatformChallengeApprovalQueueResource = {
+  readonly items: readonly PlatformChallengeApprovalQueueItem[];
 };
 
 export type CreateChallengeBody = {
@@ -216,6 +263,13 @@ export type ChallengeSuccessEnvelope = {
   readonly data: ChallengeResource;
   readonly meta: VersionedApiMeta;
 };
+export type ChallengeApprovalBriefSuccessEnvelope = {
+  readonly ok: true;
+  readonly data: ChallengeApprovalBriefResource;
+  readonly meta: VersionedApiMeta;
+};
+export type PlatformChallengeApprovalQueueSuccessEnvelope =
+  SuccessEnvelope<PlatformChallengeApprovalQueueResource>;
 export type ChallengeMutationSuccessEnvelope = MutationSuccessEnvelope<
   ChallengeId,
   ChallengeNextAction

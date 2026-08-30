@@ -70,6 +70,8 @@ describe("authoritative API contracts", () => {
         apiRoutes.requestChallengeTriage,
         apiRoutes.advanceChallengeFormulation,
         apiRoutes.requestChallengeApprovals,
+        apiRoutes.platformChallengeApprovalQueue,
+        apiRoutes.platformChallengeApprovalBrief,
       ]),
     );
 
@@ -81,6 +83,15 @@ describe("authoritative API contracts", () => {
     expect(apiSchemas.ChallengeResource.required).toEqual(
       expect.arrayContaining(["version", "content_version", "readiness"]),
     );
+  });
+
+  it("keeps the platform approval brief structurally narrower than the org aggregate", () => {
+    const properties = Object.keys(apiSchemas.ChallengeApprovalBrief.properties.content.properties);
+    expect(properties).not.toContain("contact");
+    expect(properties).not.toContain("invitees");
+    expect(properties).not.toContain("attachment_ids");
+    expect(apiSchemas.ChallengeApprovalBrief.properties).not.toHaveProperty("tenant_id");
+    expect(apiSchemas.ChallengeApprovalBrief.properties).not.toHaveProperty("created_by");
   });
 
   it("keeps transport contracts language-neutral", () => {

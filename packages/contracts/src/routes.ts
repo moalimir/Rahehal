@@ -12,6 +12,8 @@ export const apiRoutes = {
   advanceChallengeFormulation: "/api/v1/challenges/{challengeId}:advance-formulation",
   requestChallengeApprovals: "/api/v1/challenges/{challengeId}:request-approvals",
   recordChallengeApproval: "/api/v1/challenges/{challengeId}/approvals:record",
+  platformChallengeApprovalQueue: "/api/v1/platform/challenge-approvals",
+  platformChallengeApprovalBrief: "/api/v1/platform/challenges/{challengeId}/approval-brief",
   publishChallenge: "/api/v1/challenges/{challengeId}:publish",
   extendChallengeDeadline: "/api/v1/challenges/{challengeId}:extend-deadline",
   pauseChallenge: "/api/v1/challenges/{challengeId}:pause",

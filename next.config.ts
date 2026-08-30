@@ -53,7 +53,7 @@ const nextConfig: NextConfig = {
     if (!networkRuntime) {
       config.plugins.push(
         new webpack.NormalModuleReplacementPlugin(
-          /^@\/lib\/(?:api\/http|challenges\/adapters\/network)$/,
+          /^@\/(?:components\/platform-approval-queue|lib\/(?:api\/http|challenges\/adapters\/network(?:-governance|-public-challenges)?))$/,
           path.join(projectRoot, "lib/runtime/network-disabled.ts"),
         ),
       );

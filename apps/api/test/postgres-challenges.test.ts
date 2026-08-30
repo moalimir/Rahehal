@@ -851,6 +851,42 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
     expect(after.rows[0]?.snapshot).toBe(before.rows[0]?.snapshot);
   });
 
+  it("projects a platform approval brief and role-scoped queue without private fields", async () => {
+    const challenges = adapter();
+    const challengeId = await advanceToApprovals(challenges, "b8-platform-read", 150);
+    await challenges.recordApproval(
+      challengeId,
+      {
+        expected_version: 4,
+        gate: "technical",
+        decision: "approved",
+        reason: "Technical review complete.",
+      },
+      context("b8-platform-technical", 154, { role: "org:approver_technical" }),
+    );
+    const platformScope = context("b8-platform-scope", 155, {
+      role: "platform:ops",
+      actorUserId: parseUserId("usr_platform_ops"),
+    });
+
+    const brief = await challenges.getApprovalBrief(platformScope, challengeId);
+    expect(brief).toMatchObject({ id: challengeId, stage: "approvals", version: 4 });
+    expect(brief?.content).not.toHaveProperty("contact");
+    expect(brief?.content).not.toHaveProperty("invitees");
+    expect(brief?.content).not.toHaveProperty("attachment_ids");
+    expect(brief?.approvals[0]).toMatchObject({
+      gate: "technical",
+      recorded_by_role: "org:approver_technical",
+      recorded_by_current_actor: false,
+    });
+    expect(brief?.approvals[0]).not.toHaveProperty("recorded_by");
+
+    const queue = await challenges.listApprovalQueue(platformScope);
+    expect(queue.items).toContainEqual(
+      expect.objectContaining({ challenge_id: challengeId, gate: "quality" }),
+    );
+  });
+
   /**
    * The legal and finance gates are recorded by platform actors who hold no
    * membership in the org workspace, so each needs its own user row; the
@@ -1462,6 +1498,23 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
       challengeId,
     ]);
 
+    // A direct projection write is not an alternate lifecycle command: the
+    // mutable fields must already match the authoritative aggregate.
+    await expectDatabaseError(
+      database.query(
+        "UPDATE challenge_public_projection SET state = 'paused' WHERE challenge_id = $1",
+        [challengeId],
+      ),
+      "23514",
+    );
+    await expectDatabaseError(
+      database.query(
+        "UPDATE challenge_public_projection SET proposal_deadline = '2031-01-01T00:00:00Z' WHERE challenge_id = $1",
+        [challengeId],
+      ),
+      "23514",
+    );
+
     await challenges.changePublicationState(
       challengeId,
       "pause",
@@ -1474,6 +1527,15 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
     // ...but still resolvable by direct link, showing why it stopped.
     const detail = await catalogue.get("anonymous", challengeId);
     expect(detail?.state).toBe("paused");
+    const pauseAudit = await database.query<{ reason: string }>(
+      `
+        SELECT metadata ->> 'reason' AS reason
+        FROM audit_event
+        WHERE target_id = $1 AND action = 'challenge.paused'
+      `,
+      [challengeId],
+    );
+    expect(pauseAudit.rows[0]?.reason).toBe("توقف موقت برای بازبینی.");
 
     await challenges.changePublicationState(
       challengeId,
@@ -1613,14 +1675,16 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
       buildChallengeContentResource({ visibility: "public" }),
     );
 
-    // Roll 0009 off and back on with a *published* challenge already present.
+    // Roll 0010 and 0009 off, then back on, with a *published* challenge already present.
     // The suite normally migrates an empty database, so the backfill path --
     // and the ordering bug where the pairing constraint was added before it --
     // is invisible without this.
+    const closureDown = await runMigrations(database, "down");
+    expect(closureDown.applied).toEqual(["0010_phase2_closure"]);
     const down = await runMigrations(database, "down");
     expect(down.applied).toEqual(["0009_b6_publication_lifecycle"]);
     const up = await runMigrations(database, "up");
-    expect(up.applied).toEqual(["0009_b6_publication_lifecycle"]);
+    expect(up.applied).toEqual(["0009_b6_publication_lifecycle", "0010_phase2_closure"]);
 
     const restored = await database.query<{
       publication_state: string;
@@ -1629,9 +1693,7 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
       challengeId,
     ]);
     expect(restored.rows[0]?.publication_state).toBe("open");
-    expect(restored.rows[0]?.proposal_deadline_at).toEqual(
-      new Date("2030-02-01T00:00:00.000Z"),
-    );
+    expect(restored.rows[0]?.proposal_deadline_at).toEqual(new Date("2030-02-01T00:00:00.000Z"));
   });
 
   it("rolls back aggregate, version, receipt, audit, outbox, and replay together", async () => {

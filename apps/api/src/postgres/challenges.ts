@@ -1,6 +1,9 @@
 import type {
+  ChallengeApprovalBriefContentResource,
+  ChallengeApprovalBriefResource,
   ChallengeApprovalNextAction,
   ChallengeApprovalResource,
+  ChallengeApprovalSummaryResource,
   ChallengeDraftContentResource,
   ChallengeNextAction,
   ChallengeResource,
@@ -9,6 +12,8 @@ import type {
   CreateChallengeBody,
   ExtendChallengeDeadlineBody,
   MutationReceipt,
+  PlatformChallengeApprovalQueueItem,
+  PlatformChallengeApprovalQueueResource,
   PatchChallengeBody,
   PublishChallengeBody,
   RecordChallengeApprovalBody,
@@ -18,15 +23,18 @@ import {
   canChangePublicationState,
   canTransition,
   challengeManagedStages,
+  gateApproverRoles,
   isChallengePublicationState,
   challengeTransitions,
   evaluatePublicationReadiness,
   isAggregateVersion,
   isChallengeDraftAuthoringStatus,
   isGateApproverRole,
+  isPlatformRole,
   isPublicationGate,
   isPubliclyProjectable,
   isWorkspaceRole,
+  publicationGates,
   parseAuditEventId,
   parseChallengeApprovalId,
   parseChallengeId,
@@ -39,6 +47,8 @@ import {
   type ApprovalDecision,
   type ChallengeApprovalId,
   type ChallengeId,
+  type PublicationGate,
+  type WorkspaceRole,
 } from "@rahhal/domain";
 import type { PoolClient } from "pg";
 
@@ -143,6 +153,35 @@ type ChallengeApprovalRow = {
   readonly recorded_at: Date;
 };
 
+type ChallengeApprovalBriefRow = {
+  readonly id: string;
+  readonly current_version_id: string;
+  readonly workspace_id: string;
+  readonly stage: string;
+  readonly lock_version: number;
+  readonly content: unknown;
+  readonly updated_at: Date;
+};
+
+type ChallengeApprovalSummaryRow = {
+  readonly gate: string;
+  readonly decision: string;
+  readonly reason: string;
+  readonly recorded_by_role: string;
+  readonly recorded_at: Date;
+  readonly recorded_by_current_actor: boolean;
+};
+
+type PlatformChallengeApprovalQueueRow = {
+  readonly challenge_id: string;
+  readonly current_version_id: string;
+  readonly workspace_id: string;
+  readonly lock_version: number;
+  readonly title: string;
+  readonly category: string;
+  readonly updated_at: Date;
+};
+
 type CachedChallengeApprovalMutation = {
   readonly entity_id: string;
   readonly entity_version: number;
@@ -231,6 +270,32 @@ function challengeApprovalResource(row: ChallengeApprovalRow): ChallengeApproval
     recorded_by: parseUserId(row.recorded_by_user_id),
     recorded_by_role: row.recorded_by_role,
     recorded_at: timestamp(row.recorded_at),
+  };
+}
+
+function platformGateForRole(role: WorkspaceRole): PublicationGate | null {
+  if (!isPlatformRole(role)) return null;
+  return publicationGates.find((gate) => gateApproverRoles[gate].includes(role)) ?? null;
+}
+
+function challengeApprovalSummary(
+  row: ChallengeApprovalSummaryRow,
+): ChallengeApprovalSummaryResource {
+  if (!isPublicationGate(row.gate))
+    throw new Error("Database returned an invalid publication gate");
+  if (!approvalDecisions.includes(row.decision as ApprovalDecision)) {
+    throw new Error("Database returned an invalid approval decision");
+  }
+  if (!isWorkspaceRole(row.recorded_by_role)) {
+    throw new Error("Database returned an invalid approval role");
+  }
+  return {
+    gate: row.gate,
+    decision: row.decision as ApprovalDecision,
+    reason: row.reason,
+    recorded_by_role: row.recorded_by_role,
+    recorded_at: timestamp(row.recorded_at),
+    recorded_by_current_actor: row.recorded_by_current_actor,
   };
 }
 
@@ -399,6 +464,7 @@ export class PostgresChallengeAdapter implements ChallengePort {
     action: ChallengeEvidenceAction,
     nextActions: readonly ChallengeNextAction[],
     requestHash: string,
+    reason?: string,
   ): Promise<ChallengeMutationOutcome> {
     const occurredAt = this.clock.now().toISOString();
     const auditId = parseAuditEventId(this.ids.next("aud"));
@@ -420,7 +486,9 @@ export class PostgresChallengeAdapter implements ChallengePort {
           action, outcome, reason_code, target_type, target_id, metadata, occurred_at
         ) VALUES (
           $1, $2, $3, $4, 'user', $5, $6, 'success', 'MUTATION_COMMITTED',
-          'challenge', $7, jsonb_build_object('entity_version', $8::bigint), $9
+          'challenge', $7,
+          jsonb_strip_nulls(jsonb_build_object('entity_version', $8::bigint, 'reason', $9::text)),
+          $10
         )
       `,
       [
@@ -432,6 +500,7 @@ export class PostgresChallengeAdapter implements ChallengePort {
         action,
         resource.id,
         resource.version,
+        reason ?? null,
         occurredAt,
       ],
     );
@@ -679,6 +748,26 @@ export class PostgresChallengeAdapter implements ChallengePort {
     };
   }
 
+  private async approvalSummariesForVersion(
+    client: PoolClient,
+    versionId: string,
+    actorUserId: string,
+  ): Promise<ChallengeApprovalSummaryResource[]> {
+    const result = await client.query<ChallengeApprovalSummaryRow>(
+      `
+        SELECT
+          gate, decision, reason, recorded_by_role, recorded_at,
+          recorded_by_user_id = $2 AS recorded_by_current_actor
+        FROM challenge_approval
+        WHERE challenge_version_id = $1
+        ORDER BY gate
+        FOR SHARE
+      `,
+      [versionId, actorUserId],
+    );
+    return result.rows.map(challengeApprovalSummary);
+  }
+
   async create(
     body: CreateChallengeBody,
     context: ChallengeCommandContext,
@@ -776,6 +865,140 @@ export class PostgresChallengeAdapter implements ChallengePort {
     return this.unitOfWork.run(() =>
       this.findScoped(this.unitOfWork.currentClient(), scope, id, false),
     );
+  }
+
+  async getApprovalBrief(
+    scope: ChallengeScope,
+    id: string,
+  ): Promise<ChallengeApprovalBriefResource | null> {
+    if (!platformGateForRole(scope.role)) throw forbidden();
+    return this.unitOfWork.run(async () => {
+      const client = this.unitOfWork.currentClient();
+      const result = await client.query<ChallengeApprovalBriefRow>(
+        `
+          SELECT
+            challenge.id,
+            challenge.current_version_id,
+            challenge.workspace_id,
+            challenge.stage,
+            challenge.lock_version,
+            jsonb_build_object(
+              'title', version.content -> 'title',
+              'summary', version.content -> 'summary',
+              'category', version.content -> 'category',
+              'location', version.content -> 'location',
+              'desired_outcome', version.content -> 'desired_outcome',
+              'current_state', version.content -> 'current_state',
+              'consequence', version.content -> 'consequence',
+              'expected_output', version.content -> 'expected_output',
+              'success_criteria', version.content -> 'success_criteria',
+              'in_scope', version.content -> 'in_scope',
+              'constraints', version.content -> 'constraints',
+              'organization_support', version.content -> 'organization_support',
+              'previous_attempts', version.content -> 'previous_attempts',
+              'output_type', version.content -> 'output_type',
+              'sourcing_model', version.content -> 'sourcing_model',
+              'applicant_scope', version.content -> 'applicant_scope',
+              'allowed_applicant_types', version.content -> 'allowed_applicant_types',
+              'work_mode', version.content -> 'work_mode',
+              'proposal_deadline', version.content -> 'proposal_deadline',
+              'preferred_start_date', version.content -> 'preferred_start_date',
+              'budget', version.content -> 'budget',
+              'visibility', version.content -> 'visibility',
+              'public_summary', version.content -> 'public_summary',
+              'verification_required', COALESCE(version.content -> 'verification_required', 'false'),
+              'nda_required', version.content -> 'nda_required',
+              'document_gate_required', COALESCE(version.content -> 'document_gate_required', 'false'),
+              'ip_terms', version.content -> 'ip_terms',
+              'accuracy_confirmed', version.content -> 'accuracy_confirmed',
+              'legal_notes', version.content -> 'legal_notes'
+            ) AS content,
+            challenge.updated_at
+          FROM challenge
+          JOIN challenge_version AS version
+            ON version.id = challenge.current_version_id
+           AND version.challenge_id = challenge.id
+          WHERE challenge.tenant_id = $1
+            AND challenge.workspace_id = $2
+            AND challenge.id = $3
+            AND challenge.stage = 'approvals'
+          FOR SHARE OF challenge, version
+        `,
+        [scope.tenantId, scope.workspaceId, id],
+      );
+      const row = result.rows[0];
+      if (!row) return null;
+      if (row.stage !== "approvals") throw new Error("Approval brief loaded outside approvals");
+      if (typeof row.content !== "object" || row.content === null || Array.isArray(row.content)) {
+        throw new Error("Database returned invalid approval brief content");
+      }
+      const approvals = await this.approvalSummariesForVersion(
+        client,
+        row.current_version_id,
+        scope.actorUserId,
+      );
+      return {
+        id: parseChallengeId(row.id),
+        current_version_id: parseChallengeVersionId(row.current_version_id),
+        workspace_id: parseWorkspaceId(row.workspace_id),
+        stage: "approvals",
+        version: challengeVersion(row.lock_version),
+        content: structuredClone(row.content) as ChallengeApprovalBriefContentResource,
+        approvals,
+        publication_readiness: evaluatePublicationReadiness(approvals),
+        updated_at: timestamp(row.updated_at),
+      };
+    });
+  }
+
+  async listApprovalQueue(scope: ChallengeScope): Promise<PlatformChallengeApprovalQueueResource> {
+    const gate = platformGateForRole(scope.role);
+    if (!gate) throw forbidden();
+    return this.unitOfWork.run(async () => {
+      const result = await this.unitOfWork.currentClient().query<PlatformChallengeApprovalQueueRow>(
+        `
+          SELECT
+            challenge.id AS challenge_id,
+            challenge.current_version_id,
+            challenge.workspace_id,
+            challenge.lock_version,
+            version.content ->> 'title' AS title,
+            version.content ->> 'category' AS category,
+            challenge.updated_at
+          FROM challenge
+          JOIN challenge_version AS version
+            ON version.id = challenge.current_version_id
+           AND version.challenge_id = challenge.id
+          WHERE challenge.stage = 'approvals'
+            AND NOT EXISTS (
+              SELECT 1
+              FROM challenge_approval
+              WHERE challenge_version_id = challenge.current_version_id
+                AND gate = $1
+            )
+            AND NOT EXISTS (
+              SELECT 1
+              FROM challenge_approval
+              WHERE challenge_version_id = challenge.current_version_id
+                AND recorded_by_user_id = $2
+            )
+          ORDER BY challenge.updated_at, challenge.id
+          LIMIT 50
+        `,
+        [gate, scope.actorUserId],
+      );
+      const items: PlatformChallengeApprovalQueueItem[] = result.rows.map((row) => ({
+        challenge_id: parseChallengeId(row.challenge_id),
+        current_version_id: parseChallengeVersionId(row.current_version_id),
+        workspace_id: parseWorkspaceId(row.workspace_id),
+        version: challengeVersion(row.lock_version),
+        title: row.title,
+        category: row.category,
+        gate,
+        updated_at: timestamp(row.updated_at),
+      }));
+      return { items };
+    });
   }
 
   async patch(
@@ -1217,6 +1440,7 @@ export class PostgresChallengeAdapter implements ChallengePort {
         "challenge.published",
         ["await_proposals"],
         requestHash,
+        body.reason,
       );
     });
   }
@@ -1420,6 +1644,7 @@ export class PostgresChallengeAdapter implements ChallengePort {
         definition.action,
         definition.next,
         requestHash,
+        body.reason,
       );
     });
   }
