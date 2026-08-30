@@ -1,5 +1,7 @@
 import type {
   ChallengeApprovalNextAction,
+  ChallengePublicPage,
+  ChallengePublicProjectionResource,
   ChallengeResource,
   ChallengeNextAction,
   ChallengeTransitionBody,
@@ -8,7 +10,11 @@ import type {
   MutationReceipt,
   OidcAuthorizationStartBody,
   OidcAuthorizationStartResult,
+  ChallengePublicationStateBody,
+  ExtendChallengeDeadlineBody,
   PatchChallengeBody,
+  PublicAudience,
+  PublicChallengeQuery,
   PublishChallengeBody,
   RecordChallengeApprovalBody,
   SessionExchangeBody,
@@ -183,6 +189,13 @@ export type ChallengeTransitionCommand =
   | "advance-formulation"
   | "request-approvals";
 
+/**
+ * B6's publication-lifecycle commands. They move `publication_state` on an
+ * already-published challenge; they never touch the approved version, because
+ * the four gates approved that exact content.
+ */
+export type ChallengePublicationCommand = "pause" | "resume" | "close" | "cancel";
+
 export interface ChallengePort {
   create(
     body: CreateChallengeBody,
@@ -217,6 +230,31 @@ export interface ChallengePort {
     body: PublishChallengeBody,
     context: ChallengeCommandContext,
   ): Promise<MutationOutcome<ChallengeId, ChallengeNextAction>>;
+  extendDeadline(
+    id: string,
+    body: ExtendChallengeDeadlineBody,
+    context: ChallengeCommandContext,
+  ): Promise<MutationOutcome<ChallengeId, ChallengeNextAction>>;
+  changePublicationState(
+    id: string,
+    command: ChallengePublicationCommand,
+    body: ChallengePublicationStateBody,
+    context: ChallengeCommandContext,
+  ): Promise<MutationOutcome<ChallengeId, ChallengeNextAction>>;
+}
+
+/**
+ * The public read surface, deliberately a separate port from `ChallengePort`.
+ * Its implementations may only reach `challenge_public_projection`; they hold
+ * no reference to the private aggregate, so an unauthenticated path cannot
+ * read one even by mistake (70_SECURITY_AND_AUTHZ, load-bearing constraint 7).
+ *
+ * `audience` is decided by the server from the presence of a valid session,
+ * never by a client-supplied parameter.
+ */
+export interface PublicChallengePort {
+  list(audience: PublicAudience, query: PublicChallengeQuery): Promise<ChallengePublicPage>;
+  get(audience: PublicAudience, id: string): Promise<ChallengePublicProjectionResource | null>;
 }
 
 export type AccessDecisionRecord = {
@@ -242,6 +280,7 @@ export type ApiPorts = {
   readonly workspaces: WorkspacePort;
   readonly authority: WorkspaceAuthorityUnitOfWorkPort;
   readonly challenges: ChallengePort;
+  readonly publicChallenges: PublicChallengePort;
   readonly decisionAudit: AccessDecisionAuditPort;
   readonly clock: Clock;
   readonly ids: IdFactory;

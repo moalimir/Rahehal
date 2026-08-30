@@ -2,13 +2,18 @@ import type {
   ChallengeApprovalNextAction,
   ChallengeApprovalResource,
   ChallengeNextAction,
+  ChallengePublicationStateBody,
+  ChallengePublicPage,
   ChallengePublicProjectionResource,
   ChallengeResource,
   ChallengeTransitionBody,
   CreateChallengeBody,
+  ExtendChallengeDeadlineBody,
   MutationReceipt,
   OutboxEvent,
   PatchChallengeBody,
+  PublicAudience,
+  PublicChallengeQuery,
   PublishChallengeBody,
   RecordChallengeApprovalBody,
 } from "@rahhal/contracts";
@@ -17,6 +22,7 @@ import {
   challengeTransitions,
   evaluatePublicationReadiness,
   isAggregateVersion,
+  canChangePublicationState,
   isGateApproverRole,
   isPubliclyProjectable,
   parseAuditEventId,
@@ -43,14 +49,23 @@ import {
 } from "./challenge-draft.js";
 import { ApiProblem, forbidden, idempotencyConflict, notFound, staleVersion } from "./errors.js";
 import { commandFingerprint } from "./primitives.js";
+import {
+  comparePublicChallenges,
+  decodePublicChallengeCursor,
+  encodePublicChallengeCursor,
+  publicChallengePageSize,
+  visibleVisibilities,
+} from "./public-catalogue.js";
 import type {
   ChallengeCommandContext,
   ChallengePort,
+  ChallengePublicationCommand,
   ChallengeScope,
   ChallengeTransitionCommand,
   Clock,
   IdFactory,
   MutationOutcome,
+  PublicChallengePort,
 } from "./ports.js";
 
 export type ChallengeAuditRecord = {
@@ -67,7 +82,12 @@ export type ChallengeAuditRecord = {
     | "challenge.formulation.started"
     | "challenge.approvals.requested"
     | "challenge.approval.recorded"
-    | "challenge.published";
+    | "challenge.published"
+    | "challenge.deadline.extended"
+    | "challenge.paused"
+    | "challenge.resumed"
+    | "challenge.closed"
+    | "challenge.cancelled";
   readonly outcome: "success";
   readonly correlationId: CorrelationId;
   readonly occurredAt: string;
@@ -92,7 +112,7 @@ type IdempotencyRecord = {
 type RepositoryState = {
   readonly challenges: Map<string, StoredChallenge>;
   readonly approvals: ChallengeApprovalResource[];
-  readonly publicProjections: ChallengePublicProjectionResource[];
+  publicProjections: ChallengePublicProjectionResource[];
   readonly idempotency: Map<string, IdempotencyRecord>;
   readonly auditEvents: ChallengeAuditRecord[];
   readonly outboxEvents: OutboxEvent[];
@@ -146,7 +166,7 @@ function copyState(state: RepositoryState): RepositoryState {
   };
 }
 
-export class InMemoryChallengeRepository implements ChallengePort {
+export class InMemoryChallengeRepository implements ChallengePort, PublicChallengePort {
   private state: RepositoryState = {
     challenges: new Map(),
     approvals: [],
@@ -320,6 +340,8 @@ export class InMemoryChallengeRepository implements ChallengePort {
         id,
         current_version_id: parseChallengeVersionId(this.ids.next("chv")),
         published_version_id: null,
+        publication_state: null,
+        proposal_deadline_at: null,
         tenant_id: context.tenantId,
         workspace_id: context.workspaceId,
         stage: "draft",
@@ -665,6 +687,8 @@ export class InMemoryChallengeRepository implements ChallengePort {
         ...stored.current,
         stage: "published",
         published_version_id: stored.current.current_version_id,
+        publication_state: "open",
+        proposal_deadline_at: stored.current.content.proposal_deadline,
         version,
         readiness: { ...readiness, evaluated_version: version },
         updated_at: occurredAt,
@@ -679,6 +703,7 @@ export class InMemoryChallengeRepository implements ChallengePort {
             published.current_version_id,
             published.content,
             occurredAt,
+            "open",
           ),
         );
       }
@@ -692,6 +717,211 @@ export class InMemoryChallengeRepository implements ChallengePort {
         { key, fingerprint },
       );
     });
+  }
+
+  /**
+   * B6. Extends the proposal deadline on a published, still-open call.
+   *
+   * It updates the challenge and its public projection, never the approved
+   * version: the four gates approved that exact content, and rewriting it to
+   * carry a later date would silently re-state what they signed off.
+   */
+  async extendDeadline(
+    id: string,
+    body: ExtendChallengeDeadlineBody,
+    context: ChallengeCommandContext,
+  ): Promise<ChallengeMutationOutcome> {
+    const key = idempotencyKey(context, "challenge:extend-deadline");
+    const fingerprint = commandFingerprint({
+      command: "challenge:extend-deadline",
+      actorUserId: context.actorUserId,
+      workspaceId: context.workspaceId,
+      id,
+      body,
+    });
+    return this.transact((state) => {
+      const replay = this.replay<ChallengeMutationOutcome>(state, key, fingerprint);
+      if (replay) return replay;
+      const storedKey = scopeKey(context.tenantId, context.workspaceId, id);
+      const stored = state.challenges.get(storedKey);
+      if (!stored) throw notFound();
+      if (body.expected_version !== stored.current.version) {
+        throw staleVersion(stored.current.version);
+      }
+      // Defense in depth: app.ts authorizes the publisher before this is
+      // reached, but the adapter never trusts that alone -- the same rule B2's
+      // gate recording and B4's publish already follow.
+      if (context.role !== "org:publisher") throw forbidden();
+      const current = stored.current;
+      if (current.publication_state !== "open" || current.proposal_deadline_at === null) {
+        throw new ApiProblem(409, "INVALID_STATE", "Only an open published call can be extended", {
+          currentState: current.publication_state ?? current.stage,
+        });
+      }
+      const now = this.clock.now();
+      const next = Date.parse(body.proposal_deadline);
+      // Server time decides, never the caller's clock, and a deadline only
+      // moves forward: shortening it would retract time solvers already saw.
+      if (!Number.isFinite(next) || next <= now.getTime()) {
+        throw new ApiProblem(422, "VALIDATION", "A new deadline must be in the future", {
+          fields: [
+            {
+              path: "/proposal_deadline",
+              code: "future",
+              message: "The new proposal deadline must be later than server time",
+            },
+          ],
+        });
+      }
+      if (next <= Date.parse(current.proposal_deadline_at)) {
+        throw new ApiProblem(422, "VALIDATION", "A deadline can only be extended", {
+          fields: [
+            {
+              path: "/proposal_deadline",
+              code: "future",
+              message: "The new proposal deadline must be later than the current one",
+            },
+          ],
+        });
+      }
+
+      const occurredAt = now.toISOString();
+      const updated: ChallengeResource = {
+        ...current,
+        version: current.version + 1,
+        proposal_deadline_at: body.proposal_deadline,
+        updated_at: occurredAt,
+      };
+      state.challenges.set(storedKey, { ...stored, current: updated });
+      const projection = state.publicProjections.find((row) => row.challenge_id === updated.id);
+      if (projection) {
+        state.publicProjections = state.publicProjections.map((row) =>
+          row.challenge_id === updated.id
+            ? { ...row, proposal_deadline: body.proposal_deadline }
+            : row,
+        );
+      }
+      return this.recordMutation(
+        state,
+        updated,
+        context,
+        "challenge.deadline.extended",
+        ["await_proposals"],
+        { key, fingerprint },
+      );
+    });
+  }
+
+  /**
+   * B6. Pause, resume, close, cancel. `closed`/`cancelled` are terminal, so a
+   * reopened call is a new challenge rather than a state flip -- 95 §2 answers
+   * that cancelling closes in-flight proposals with notice, which no later
+   * "reopen" could undo.
+   */
+  async changePublicationState(
+    id: string,
+    command: ChallengePublicationCommand,
+    body: ChallengePublicationStateBody,
+    context: ChallengeCommandContext,
+  ): Promise<ChallengeMutationOutcome> {
+    const definitions = {
+      pause: { to: "paused", action: "challenge.paused", next: ["await_resume"] },
+      resume: { to: "open", action: "challenge.resumed", next: ["await_proposals"] },
+      close: { to: "closed", action: "challenge.closed", next: ["closed"] },
+      cancel: { to: "cancelled", action: "challenge.cancelled", next: ["closed"] },
+    } as const;
+    const definition = definitions[command];
+    const key = idempotencyKey(context, `challenge:${command}`);
+    const fingerprint = commandFingerprint({
+      command: `challenge:${command}`,
+      actorUserId: context.actorUserId,
+      workspaceId: context.workspaceId,
+      id,
+      body,
+    });
+
+    return this.transact((state) => {
+      const replay = this.replay<ChallengeMutationOutcome>(state, key, fingerprint);
+      if (replay) return replay;
+      const storedKey = scopeKey(context.tenantId, context.workspaceId, id);
+      const stored = state.challenges.get(storedKey);
+      if (!stored) throw notFound();
+      if (body.expected_version !== stored.current.version) {
+        throw staleVersion(stored.current.version);
+      }
+      // Defense in depth: app.ts authorizes the publisher before this is
+      // reached, but the adapter never trusts that alone -- the same rule B2's
+      // gate recording and B4's publish already follow.
+      if (context.role !== "org:publisher") throw forbidden();
+      const current = stored.current;
+      if (
+        current.publication_state === null ||
+        !canChangePublicationState(current.publication_state, definition.to)
+      ) {
+        throw new ApiProblem(409, "INVALID_STATE", "Publication state change is not allowed", {
+          currentState: current.publication_state ?? current.stage,
+        });
+      }
+
+      const occurredAt = this.clock.now().toISOString();
+      const updated: ChallengeResource = {
+        ...current,
+        version: current.version + 1,
+        publication_state: definition.to,
+        updated_at: occurredAt,
+      };
+      state.challenges.set(storedKey, { ...stored, current: updated });
+      // Discovery reads the projection, so the call disappears from the public
+      // catalogue the moment it stops being open -- without deleting the row
+      // anyone already holding a link needs.
+      state.publicProjections = state.publicProjections.map((row) =>
+        row.challenge_id === updated.id ? { ...row, state: definition.to } : row,
+      );
+      return this.recordMutation(state, updated, context, definition.action, definition.next, {
+        key,
+        fingerprint,
+      });
+    });
+  }
+
+  /**
+   * The public read path. It reads `publicProjections` and nothing else --
+   * the same restriction the PostgreSQL adapter gets from only ever
+   * selecting from `challenge_public_projection`.
+   */
+  async list(audience: PublicAudience, query: PublicChallengeQuery): Promise<ChallengePublicPage> {
+    const cursor = decodePublicChallengeCursor(query.cursor);
+    const visible = visibleVisibilities(audience);
+    const ordered = this.state.publicProjections
+      // Only an open call is listed; a paused or closed one keeps its record
+      // and still resolves by direct link.
+      .filter((row) => row.state === "open")
+      .filter((row) => visible.includes(row.visibility))
+      .filter((row) => query.category === undefined || row.category === query.category)
+      .sort(comparePublicChallenges);
+    const afterCursor = cursor
+      ? ordered.filter((row) => comparePublicChallenges(cursor, row) < 0)
+      : ordered;
+    // One extra row decides whether another page exists without a second query.
+    const page = afterCursor.slice(0, publicChallengePageSize + 1);
+    const items = page.slice(0, publicChallengePageSize);
+    const last = items.at(-1);
+    return {
+      items: structuredClone(items),
+      next_cursor:
+        page.length > publicChallengePageSize && last ? encodePublicChallengeCursor(last) : null,
+    };
+  }
+
+  async get(
+    audience: PublicAudience,
+    id: string,
+  ): Promise<ChallengePublicProjectionResource | null> {
+    const visible = visibleVisibilities(audience);
+    const row = this.state.publicProjections.find(
+      (projection) => projection.challenge_id === id && visible.includes(projection.visibility),
+    );
+    return row ? structuredClone(row) : null;
   }
 
   seed(resource: ChallengeResource) {

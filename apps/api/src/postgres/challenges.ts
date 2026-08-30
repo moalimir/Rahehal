@@ -5,7 +5,9 @@ import type {
   ChallengeNextAction,
   ChallengeResource,
   ChallengeTransitionBody,
+  ChallengePublicationStateBody,
   CreateChallengeBody,
+  ExtendChallengeDeadlineBody,
   MutationReceipt,
   PatchChallengeBody,
   PublishChallengeBody,
@@ -13,8 +15,10 @@ import type {
 } from "@rahhal/contracts";
 import {
   approvalDecisions,
+  canChangePublicationState,
   canTransition,
   challengeManagedStages,
+  isChallengePublicationState,
   challengeTransitions,
   evaluatePublicationReadiness,
   isAggregateVersion,
@@ -51,6 +55,7 @@ import { commandFingerprint } from "../primitives.js";
 import type {
   ChallengeCommandContext,
   ChallengePort,
+  ChallengePublicationCommand,
   ChallengeScope,
   ChallengeTransitionCommand,
   Clock,
@@ -63,6 +68,8 @@ type ChallengeRow = {
   readonly id: string;
   readonly current_version_id: string;
   readonly published_version_id: string | null;
+  readonly publication_state: string | null;
+  readonly proposal_deadline_at: Date | null;
   readonly tenant_id: string;
   readonly workspace_id: string;
   readonly stage: string;
@@ -101,7 +108,12 @@ type ChallengeEvidenceAction =
   | "challenge.triage.requested"
   | "challenge.formulation.started"
   | "challenge.approvals.requested"
-  | "challenge.published";
+  | "challenge.published"
+  | "challenge.deadline.extended"
+  | "challenge.paused"
+  | "challenge.resumed"
+  | "challenge.closed"
+  | "challenge.cancelled";
 
 const challengeNextActions = [
   "edit",
@@ -110,6 +122,8 @@ const challengeNextActions = [
   "request_approvals",
   "await_approvals",
   "await_proposals",
+  "await_resume",
+  "closed",
 ] as const satisfies readonly ChallengeNextAction[];
 
 const challengeApprovalNextActions = [
@@ -173,6 +187,8 @@ function challengeResource(
     current_version_id: parseChallengeVersionId(row.current_version_id),
     published_version_id:
       row.published_version_id === null ? null : parseChallengeVersionId(row.published_version_id),
+    publication_state: publicationState(row.publication_state),
+    proposal_deadline_at: row.proposal_deadline_at?.toISOString() ?? null,
     tenant_id: parseTenantId(row.tenant_id),
     workspace_id: parseWorkspaceId(row.workspace_id),
     stage: row.stage as ChallengeResource["stage"],
@@ -185,6 +201,14 @@ function challengeResource(
     created_at: timestamp(row.created_at),
     updated_at: timestamp(row.updated_at),
   };
+}
+
+function publicationState(value: string | null) {
+  if (value === null) return null;
+  if (!isChallengePublicationState(value)) {
+    throw new Error("Database returned an invalid publication state");
+  }
+  return value;
 }
 
 function challengeApprovalResource(row: ChallengeApprovalRow): ChallengeApprovalResource {
@@ -621,6 +645,8 @@ export class PostgresChallengeAdapter implements ChallengePort {
           challenge.id,
           challenge.current_version_id,
           challenge.published_version_id,
+          challenge.publication_state,
+          challenge.proposal_deadline_at,
           challenge.tenant_id,
           challenge.workspace_id,
           challenge.stage,
@@ -719,6 +745,8 @@ export class PostgresChallengeAdapter implements ChallengePort {
         id: challengeId,
         current_version_id: versionId,
         published_version_id: null,
+        publication_state: null,
+        proposal_deadline_at: null,
         tenant_id: context.tenantId,
         workspace_id: context.workspaceId,
         stage: "draft",
@@ -1091,6 +1119,11 @@ export class PostgresChallengeAdapter implements ChallengePort {
           UPDATE challenge
           SET stage = 'published',
               published_version_id = $4,
+              publication_state = 'open',
+              proposal_deadline_at = (
+                SELECT (content ->> 'proposal_deadline')::timestamptz
+                FROM challenge_version WHERE id = $4
+              ),
               lock_version = $5,
               updated_at = $6
           WHERE tenant_id = $1
@@ -1119,6 +1152,7 @@ export class PostgresChallengeAdapter implements ChallengePort {
           current.current_version_id,
           current.content,
           occurredAt,
+          "open",
         );
         const projectionInsert = await client.query(
           `
@@ -1128,10 +1162,10 @@ export class PostgresChallengeAdapter implements ChallengePort {
               allowed_applicant_types, work_mode, proposal_deadline, preferred_start_date,
               budget_status, budget_amount_minor, budget_currency, visibility,
               verification_required, nda_required, document_gate_required, ip_terms,
-              published_at
+              state, published_at
             ) VALUES (
               $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::text[], $12, $13, $14,
-              $15, $16, $17, $18, $19, $20, $21, $22, $23
+              $15, $16, $17, $18, $19, $20, $21, $22, $23, $24
             )
           `,
           [
@@ -1157,6 +1191,7 @@ export class PostgresChallengeAdapter implements ChallengePort {
             projection.nda_required,
             projection.document_gate_required,
             projection.ip_terms,
+            projection.state,
             projection.published_at,
           ],
         );
@@ -1169,6 +1204,8 @@ export class PostgresChallengeAdapter implements ChallengePort {
         ...current,
         stage: "published",
         published_version_id: current.current_version_id,
+        publication_state: "open",
+        proposal_deadline_at: current.content.proposal_deadline,
         version,
         readiness: { ...readiness, evaluated_version: version },
         updated_at: occurredAt,
@@ -1179,6 +1216,209 @@ export class PostgresChallengeAdapter implements ChallengePort {
         context,
         "challenge.published",
         ["await_proposals"],
+        requestHash,
+      );
+    });
+  }
+
+  /**
+   * B6. Extends the proposal deadline of an open published call.
+   *
+   * The approved version is never touched: the four gates approved that exact
+   * content, and rewriting it to carry a later date would silently restate
+   * what they signed off. The live deadline lives on the aggregate and is
+   * mirrored into the public projection.
+   */
+  async extendDeadline(
+    id: string,
+    body: ExtendChallengeDeadlineBody,
+    context: ChallengeCommandContext,
+  ): Promise<ChallengeMutationOutcome> {
+    const requestHash = commandFingerprint({
+      action: "challenge.extend-deadline",
+      actorUserId: context.actorUserId,
+      workspaceId: context.workspaceId,
+      id,
+      body,
+    });
+    return this.unitOfWork.run(async () => {
+      const client = this.unitOfWork.currentClient();
+      await this.lockIdempotencyKey(client, context);
+      const replay = await this.loadReplay(client, context, requestHash);
+      if (replay) return this.outcome(replay, true);
+
+      const current = await this.findScoped(client, context, id, true);
+      if (!current) throw notFound();
+      // Defense in depth: app.ts authorizes the publisher before this is
+      // reached, but the adapter never trusts that alone -- the same rule B2's
+      // gate recording and B4's publish already follow.
+      if (context.role !== "org:publisher") throw forbidden();
+      if (body.expected_version !== current.version) throw staleVersion(current.version);
+      if (current.publication_state !== "open" || current.proposal_deadline_at === null) {
+        throw new ApiProblem(409, "INVALID_STATE", "Only an open published call can be extended", {
+          currentState: current.publication_state ?? current.stage,
+        });
+      }
+
+      const now = this.clock.now();
+      const next = Date.parse(body.proposal_deadline);
+      // Server time decides the race, never the caller's clock.
+      if (!Number.isFinite(next) || next <= now.getTime()) {
+        throw new ApiProblem(422, "VALIDATION", "A new deadline must be in the future", {
+          fields: [
+            {
+              path: "/proposal_deadline",
+              code: "future",
+              message: "The new proposal deadline must be later than server time",
+            },
+          ],
+        });
+      }
+      if (next <= Date.parse(current.proposal_deadline_at)) {
+        throw new ApiProblem(422, "VALIDATION", "A deadline can only be extended", {
+          fields: [
+            {
+              path: "/proposal_deadline",
+              code: "future",
+              message: "The new proposal deadline must be later than the current one",
+            },
+          ],
+        });
+      }
+
+      const occurredAt = now.toISOString();
+      const version = current.version + 1;
+      const updated = await client.query(
+        `
+          UPDATE challenge
+          SET proposal_deadline_at = $4, lock_version = $5, updated_at = $6
+          WHERE tenant_id = $1 AND workspace_id = $2 AND id = $3 AND lock_version = $7
+            AND publication_state = 'open'
+        `,
+        [
+          context.tenantId,
+          context.workspaceId,
+          current.id,
+          body.proposal_deadline,
+          version,
+          occurredAt,
+          current.version,
+        ],
+      );
+      if (updated.rowCount !== 1) {
+        throw new Error("Challenge deadline extension did not affect exactly one aggregate");
+      }
+      // Zero rows is legitimate: an invite-only or NDA call has no public row.
+      await client.query(
+        "UPDATE challenge_public_projection SET proposal_deadline = $2 WHERE challenge_id = $1",
+        [current.id, body.proposal_deadline],
+      );
+
+      const resource: ChallengeResource = {
+        ...current,
+        version,
+        proposal_deadline_at: body.proposal_deadline,
+        updated_at: occurredAt,
+      };
+      return this.recordMutation(
+        client,
+        resource,
+        context,
+        "challenge.deadline.extended",
+        ["await_proposals"],
+        requestHash,
+      );
+    });
+  }
+
+  /**
+   * B6. Pause, resume, close, cancel. Discovery reads the projection, so the
+   * call leaves the public catalogue the moment it stops being open -- without
+   * deleting the row that anyone already holding a link still needs.
+   */
+  async changePublicationState(
+    id: string,
+    command: ChallengePublicationCommand,
+    body: ChallengePublicationStateBody,
+    context: ChallengeCommandContext,
+  ): Promise<ChallengeMutationOutcome> {
+    const definitions = {
+      pause: { to: "paused", action: "challenge.paused", next: ["await_resume"] },
+      resume: { to: "open", action: "challenge.resumed", next: ["await_proposals"] },
+      close: { to: "closed", action: "challenge.closed", next: ["closed"] },
+      cancel: { to: "cancelled", action: "challenge.cancelled", next: ["closed"] },
+    } as const;
+    const definition = definitions[command];
+    const requestHash = commandFingerprint({
+      action: `challenge.${command}`,
+      actorUserId: context.actorUserId,
+      workspaceId: context.workspaceId,
+      id,
+      body,
+    });
+
+    return this.unitOfWork.run(async () => {
+      const client = this.unitOfWork.currentClient();
+      await this.lockIdempotencyKey(client, context);
+      const replay = await this.loadReplay(client, context, requestHash);
+      if (replay) return this.outcome(replay, true);
+
+      const current = await this.findScoped(client, context, id, true);
+      if (!current) throw notFound();
+      // Defense in depth: app.ts authorizes the publisher before this is
+      // reached, but the adapter never trusts that alone -- the same rule B2's
+      // gate recording and B4's publish already follow.
+      if (context.role !== "org:publisher") throw forbidden();
+      if (body.expected_version !== current.version) throw staleVersion(current.version);
+      if (
+        current.publication_state === null ||
+        !canChangePublicationState(current.publication_state, definition.to)
+      ) {
+        throw new ApiProblem(409, "INVALID_STATE", "Publication state change is not allowed", {
+          currentState: current.publication_state ?? current.stage,
+        });
+      }
+
+      const occurredAt = this.clock.now().toISOString();
+      const version = current.version + 1;
+      const updated = await client.query(
+        `
+          UPDATE challenge
+          SET publication_state = $4, lock_version = $5, updated_at = $6
+          WHERE tenant_id = $1 AND workspace_id = $2 AND id = $3 AND lock_version = $7
+            AND publication_state = $8
+        `,
+        [
+          context.tenantId,
+          context.workspaceId,
+          current.id,
+          definition.to,
+          version,
+          occurredAt,
+          current.version,
+          current.publication_state,
+        ],
+      );
+      if (updated.rowCount !== 1) {
+        throw new Error("Challenge publication state change did not affect exactly one aggregate");
+      }
+      await client.query(
+        "UPDATE challenge_public_projection SET state = $2 WHERE challenge_id = $1",
+        [current.id, definition.to],
+      );
+
+      const resource: ChallengeResource = {
+        ...current,
+        version,
+        publication_state: definition.to,
+        updated_at: occurredAt,
+      };
+      return this.recordMutation(
+        client,
+        resource,
+        context,
+        definition.action,
+        definition.next,
         requestHash,
       );
     });

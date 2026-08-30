@@ -157,6 +157,8 @@ export function buildChallengeResource(
     id: deterministicId(idPrefixes.challenge),
     current_version_id: deterministicId(idPrefixes.challengeVersion),
     published_version_id: null,
+    publication_state: null,
+    proposal_deadline_at: null,
     tenant_id: deterministicId(idPrefixes.tenant),
     workspace_id: deterministicId(idPrefixes.workspace),
     stage: "draft",

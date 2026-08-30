@@ -281,6 +281,8 @@ function foreignChallenge(now: string): ChallengeResource {
     id: demoForeignChallengeId,
     current_version_id: parseChallengeVersionId("chv_foreign_beta_001"),
     published_version_id: null,
+    publication_state: null,
+    proposal_deadline_at: null,
     tenant_id: betaWorkspace.tenantId,
     workspace_id: betaWorkspace.id,
     stage: "draft",
@@ -383,6 +385,9 @@ export function createDemoApiComposition(options: {
       workspaces: identity,
       authority: identity,
       challenges,
+      // The in-memory repository owns the projection rows, so it serves the
+      // public port too; the routes still only ever see `PublicChallengePort`.
+      publicChallenges: challenges,
       decisionAudit,
       clock,
       ids,

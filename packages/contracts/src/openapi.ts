@@ -311,6 +311,138 @@ export const openApiDocument = {
         },
       },
     },
+    [apiRoutes.extendChallengeDeadline]: {
+      post: {
+        operationId: "extendChallengeDeadline",
+        tags: ["Challenge"],
+        summary: "Extend an open call's proposal deadline; never rewrites the approved version",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, challengeIdParameter],
+        requestBody: { required: true, content: jsonContent("ExtendChallengeDeadlineBody") },
+        responses: {
+          "200": {
+            description: "A receipt for the publication-lifecycle change.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.pauseChallenge]: {
+      post: {
+        operationId: "pauseChallenge",
+        tags: ["Challenge"],
+        summary: "Pause a published call: hidden from discovery, record preserved",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, challengeIdParameter],
+        requestBody: { required: true, content: jsonContent("ChallengePublicationStateBody") },
+        responses: {
+          "200": {
+            description: "A receipt for the publication-lifecycle change.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.resumeChallenge]: {
+      post: {
+        operationId: "resumeChallenge",
+        tags: ["Challenge"],
+        summary: "Resume a paused call",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, challengeIdParameter],
+        requestBody: { required: true, content: jsonContent("ChallengePublicationStateBody") },
+        responses: {
+          "200": {
+            description: "A receipt for the publication-lifecycle change.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.closeChallenge]: {
+      post: {
+        operationId: "closeChallenge",
+        tags: ["Challenge"],
+        summary: "Close a published call to further proposals (terminal)",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, challengeIdParameter],
+        requestBody: { required: true, content: jsonContent("ChallengePublicationStateBody") },
+        responses: {
+          "200": {
+            description: "A receipt for the publication-lifecycle change.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.cancelChallenge]: {
+      post: {
+        operationId: "cancelChallenge",
+        tags: ["Challenge"],
+        summary: "Cancel a published call (terminal)",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, challengeIdParameter],
+        requestBody: { required: true, content: jsonContent("ChallengePublicationStateBody") },
+        responses: {
+          "200": {
+            description: "A receipt for the publication-lifecycle change.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.publicChallenges]: {
+      get: {
+        operationId: "listPublicChallenges",
+        tags: ["Public"],
+        summary:
+          "List published challenges from the public projection only; `registered` rows require a session",
+        parameters: [
+          {
+            name: "category",
+            in: "query",
+            required: false,
+            schema: { type: "string", minLength: 1, maxLength: 500 },
+          },
+          {
+            name: "cursor",
+            in: "query",
+            required: false,
+            schema: { type: "string", minLength: 1, maxLength: 200 },
+          },
+        ],
+        responses: {
+          "200": {
+            description: "One page of public challenge projections.",
+            content: jsonContent("ChallengePublicPageSuccessEnvelope"),
+          },
+        },
+      },
+    },
+    [apiRoutes.publicChallengeById]: {
+      get: {
+        operationId: "getPublicChallenge",
+        tags: ["Public"],
+        summary:
+          "Read one published challenge's public projection; unknown, unpublished, and confidential challenges are indistinguishable",
+        parameters: [challengeIdParameter],
+        responses: {
+          "200": {
+            description: "The published challenge's public projection.",
+            content: jsonContent("ChallengePublicSuccessEnvelope"),
+          },
+          "404": {
+            description: "No public projection is readable for this id.",
+            content: jsonContent("ErrorEnvelope"),
+          },
+        },
+      },
+    },
     [apiRoutes.publishChallenge]: {
       post: {
         operationId: "publishChallenge",

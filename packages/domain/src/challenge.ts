@@ -424,6 +424,11 @@ export const challengeOutboxEventTypes = [
   "challenge.approvals.requested",
   "challenge.approval.recorded",
   "challenge.published",
+  "challenge.deadline.extended",
+  "challenge.paused",
+  "challenge.resumed",
+  "challenge.closed",
+  "challenge.cancelled",
 ] as const;
 export type ChallengeOutboxEventType = (typeof challengeOutboxEventTypes)[number];
 
@@ -553,4 +558,49 @@ export function isPubliclyProjectable(
   visibility: ChallengeVisibility | null,
 ): visibility is ProjectableVisibility {
   return visibility === "public" || visibility === "registered";
+}
+
+/**
+ * The lifecycle of an *already published* challenge, kept separate from the
+ * eleven canonical stages. `published` is still the stage; these say whether
+ * the call is currently accepting proposals. Modelling them as stages would
+ * mean inventing `paused` in `20_CANONICAL_MODEL` §8, and pausing is not a
+ * lifecycle step — it is a reversible property of a published call.
+ */
+export const challengePublicationStates = ["open", "paused", "closed", "cancelled"] as const;
+export type ChallengePublicationState = (typeof challengePublicationStates)[number];
+
+export function isChallengePublicationState(value: unknown): value is ChallengePublicationState {
+  return challengePublicationStates.includes(value as ChallengePublicationState);
+}
+
+/**
+ * Allowed publication-state moves. `closed` and `cancelled` are terminal on
+ * purpose: 95 §2 answers that a cancelled call closes in-flight proposals with
+ * notice, which is not something a later "reopen" could undo. Reopening is a
+ * new challenge, not a state flip.
+ *
+ * `paused -> open` exists because without it a pause is indistinguishable from
+ * a close, and 95 §2 lists them as different answers to different situations.
+ */
+export const challengePublicationTransitions: Record<
+  ChallengePublicationState,
+  readonly ChallengePublicationState[]
+> = {
+  open: ["paused", "closed", "cancelled"],
+  paused: ["open", "closed", "cancelled"],
+  closed: [],
+  cancelled: [],
+};
+
+export function canChangePublicationState(
+  from: ChallengePublicationState,
+  to: ChallengePublicationState,
+): boolean {
+  return challengePublicationTransitions[from].includes(to);
+}
+
+/** Only an `open` call is listed in discovery; the rest keep their record. */
+export function isDiscoverablePublicationState(state: ChallengePublicationState): boolean {
+  return state === "open";
 }

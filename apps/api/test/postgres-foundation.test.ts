@@ -3,13 +3,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { runMigrations } from "../src/postgres/migrations.js";
 import { seedSyntheticData } from "../src/postgres/seeds.js";
+import { testDatabaseAdminUrl } from "./support/database.js";
 
-const defaultAdminUrl = "postgresql://rahhal:rahhal-local-only@127.0.0.1:5433/postgres";
-const adminUrl = new URL(process.env.RAHHAL_TEST_DATABASE_ADMIN_URL ?? defaultAdminUrl);
-
-if (!["127.0.0.1", "localhost", "::1"].includes(adminUrl.hostname)) {
-  throw new Error("PostgreSQL foundation tests refuse to create databases on a non-loopback host");
-}
+const adminUrl = testDatabaseAdminUrl();
 
 const testDatabaseName = `rahhal_a1a_test_${process.pid}_${Date.now()}`;
 const testDatabaseUrl = new URL(adminUrl);
@@ -55,8 +51,11 @@ beforeAll(async () => {
     "0006_b2_challenge_approval_gates",
     "0007_b3_versioned_eligibility_rules",
     "0008_b4_challenge_publication",
+    "0009_b6_publication_lifecycle",
   ]);
 
+  const b6Down = await runMigrations(database, "down");
+  expect(b6Down.applied).toEqual(["0009_b6_publication_lifecycle"]);
   const b4Down = await runMigrations(database, "down");
   expect(b4Down.applied).toEqual(["0008_b4_challenge_publication"]);
   const b3Down = await runMigrations(database, "down");
@@ -95,6 +94,7 @@ beforeAll(async () => {
     "0006_b2_challenge_approval_gates",
     "0007_b3_versioned_eligibility_rules",
     "0008_b4_challenge_publication",
+    "0009_b6_publication_lifecycle",
   ]);
   const noOpUp = await runMigrations(database, "up");
   expect(noOpUp.applied).toEqual([]);
@@ -179,6 +179,10 @@ describe("A1a PostgreSQL foundation", () => {
         id: "0008_b4_challenge_publication",
         checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
       },
+      {
+        id: "0009_b6_publication_lifecycle",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
     ]);
   });
 
@@ -207,7 +211,9 @@ describe("A1a PostgreSQL foundation", () => {
     `);
     expect(counts.rows[0]).toEqual({
       tenants: "4",
-      users: "3",
+      // 3 baseline + the 4 B7 governance identities (distinct approvers,
+      // publisher, platform finance/legal) the Phase-2 exit gate requires.
+      users: "7",
       workspaces: "5",
       challenges: "1",
       challenge_versions: "1",
@@ -454,6 +460,8 @@ describe("A1a PostgreSQL foundation", () => {
   });
 
   it("fails the A1b migration atomically for an orphaned existing session", async () => {
+    const b6Down = await runMigrations(database, "down");
+    expect(b6Down.applied).toEqual(["0009_b6_publication_lifecycle"]);
     const b4Down = await runMigrations(database, "down");
     expect(b4Down.applied).toEqual(["0008_b4_challenge_publication"]);
     const b3Down = await runMigrations(database, "down");
@@ -520,6 +528,7 @@ describe("A1a PostgreSQL foundation", () => {
       "0006_b2_challenge_approval_gates",
       "0007_b3_versioned_eligibility_rules",
       "0008_b4_challenge_publication",
+      "0009_b6_publication_lifecycle",
     ]);
   });
 });

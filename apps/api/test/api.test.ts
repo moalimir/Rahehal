@@ -5,6 +5,8 @@ import {
   type SessionSuccessEnvelope,
   type SuccessEnvelope,
   type ChallengeDraftContentResource,
+  type ChallengePublicPage,
+  type ChallengePublicProjectionResource,
   type ChallengeResource,
   type MeResource,
 } from "@rahhal/contracts";
@@ -1037,6 +1039,7 @@ describe("authoritative Fastify API foundation", () => {
         "public_summary",
         "published_at",
         "sourcing_model",
+        "state",
         "title",
         "verification_required",
         "visibility",
@@ -1177,6 +1180,399 @@ describe("authoritative Fastify API foundation", () => {
     expect(
       snapshot.publicProjections.filter((projection) => projection.challenge_id === ndaChallengeId),
     ).toHaveLength(0);
+  });
+
+  /** Drives one challenge all the way to `published`. */
+  async function publishChallenge(
+    keyPrefix: string,
+    draft?: ChallengeDraftContentResource,
+  ): Promise<string> {
+    const challengeId = await createFullyApprovedChallenge(keyPrefix, draft);
+    const published = await app.inject({
+      method: "POST",
+      url: publishUrl(challengeId),
+      headers: publisherHeaders(`${keyPrefix}-publish`),
+      payload: { expected_version: 4 },
+    });
+    expect(published.statusCode).toBe(200);
+    return challengeId;
+  }
+
+  const publicChallengeUrl = (challengeId: string) =>
+    apiRoutes.publicChallengeById.replace("{challengeId}", challengeId);
+
+  it("serves public discovery from the projection with no confidential field", async () => {
+    const challengeId = await publishChallenge(
+      "b5-public",
+      buildChallengeContentResource({
+        visibility: "public",
+        legal_notes: "یادداشت حقوقی محرمانه.",
+      }),
+    );
+
+    const list = await app.inject({ method: "GET", url: apiRoutes.publicChallenges });
+    expect(list.statusCode).toBe(200);
+    const page = list.json<SuccessEnvelope<ChallengePublicPage>>().data;
+    const item = page.items.find((row) => row.challenge_id === challengeId);
+    expect(item).toBeDefined();
+    expect(page.next_cursor).toBeNull();
+
+    const detail = await app.inject({ method: "GET", url: publicChallengeUrl(challengeId) });
+    expect(detail.statusCode).toBe(200);
+    const projection = detail.json<SuccessEnvelope<ChallengePublicProjectionResource>>().data;
+
+    // The response's field set is the allowlist exactly -- a confidential
+    // field added to the aggregate cannot arrive here by accident.
+    expect(Object.keys(projection).sort()).toEqual(
+      [
+        "allowed_applicant_types",
+        "applicant_scope",
+        "budget",
+        "category",
+        "challenge_id",
+        "challenge_version_id",
+        "document_gate_required",
+        "ip_terms",
+        "location",
+        "nda_required",
+        "output_type",
+        "preferred_start_date",
+        "proposal_deadline",
+        "public_summary",
+        "published_at",
+        "sourcing_model",
+        "state",
+        "title",
+        "verification_required",
+        "visibility",
+        "work_mode",
+      ].sort(),
+    );
+    expect(item).toEqual(projection);
+
+    // Nothing the private record holds appears anywhere in the public payload.
+    const serialized = detail.payload;
+    for (const confidential of [
+      "A deterministic challenge draft for tests.",
+      "The current process is manual.",
+      "یادداشت حقوقی محرمانه.",
+      "contact@example.test",
+      "+980000000000",
+    ]) {
+      expect(serialized).not.toContain(confidential);
+    }
+    // The public envelope carries no aggregate version either.
+    expect(detail.json<SuccessEnvelope<unknown>>().meta).not.toHaveProperty("entity_version");
+  });
+
+  it("hides a registered-only challenge from anonymous readers and shows it to a session", async () => {
+    const registeredId = await publishChallenge(
+      "b5-registered",
+      buildChallengeContentResource({ visibility: "registered" }),
+    );
+
+    const anonymousList = await app.inject({ method: "GET", url: apiRoutes.publicChallenges });
+    expect(
+      anonymousList
+        .json<SuccessEnvelope<ChallengePublicPage>>()
+        .data.items.map((row) => row.challenge_id),
+    ).not.toContain(registeredId);
+
+    // The detail denial is a plain NOT_FOUND, identical to an unknown id, so
+    // an anonymous scan cannot learn that this challenge exists.
+    const anonymousDetail = await app.inject({
+      method: "GET",
+      url: publicChallengeUrl(registeredId),
+    });
+    expect(anonymousDetail.statusCode).toBe(404);
+    expect(anonymousDetail.json<ErrorEnvelope>().error.code).toBe("NOT_FOUND");
+
+    const signedIn = await app.inject({
+      method: "GET",
+      url: publicChallengeUrl(registeredId),
+      headers: { authorization: `Bearer ${demoApiCredentials.owner.accessToken}` },
+    });
+    expect(signedIn.statusCode).toBe(200);
+    expect(
+      signedIn.json<SuccessEnvelope<ChallengePublicProjectionResource>>().data.challenge_id,
+    ).toBe(registeredId);
+  });
+
+  it("never exposes an unpublished, confidential, or unknown challenge", async () => {
+    // Approved but not yet published.
+    const unpublishedId = await createFullyApprovedChallenge("b5-unpublished");
+    // Published, but NDA-only: it has no projection row at all.
+    const ndaId = await publishChallenge(
+      "b5-nda",
+      buildChallengeContentResource({ visibility: "nda" }),
+    );
+
+    for (const challengeId of [unpublishedId, ndaId, parseChallengeId("chl_absent_00000001")]) {
+      const response = await app.inject({
+        method: "GET",
+        url: publicChallengeUrl(challengeId),
+        // Even a fully authenticated org owner gets nothing from the public
+        // surface: reaching a private record is the authoring API's job.
+        headers: { authorization: `Bearer ${demoApiCredentials.owner.accessToken}` },
+      });
+      expect(response.statusCode).toBe(404);
+      expect(response.json<ErrorEnvelope>().error.code).toBe("NOT_FOUND");
+    }
+
+    const list = await app.inject({
+      method: "GET",
+      url: apiRoutes.publicChallenges,
+      headers: { authorization: `Bearer ${demoApiCredentials.owner.accessToken}` },
+    });
+    const ids = list
+      .json<SuccessEnvelope<ChallengePublicPage>>()
+      .data.items.map((row) => row.challenge_id);
+    expect(ids).not.toContain(unpublishedId);
+    expect(ids).not.toContain(ndaId);
+  });
+
+  it("degrades an unusable credential to the anonymous audience instead of failing", async () => {
+    const registeredId = await publishChallenge(
+      "b5-degrade",
+      buildChallengeContentResource({ visibility: "registered" }),
+    );
+
+    for (const authorization of ["Bearer not-a-real-token", "Basic abc", ""]) {
+      const response = await app.inject({
+        method: "GET",
+        url: apiRoutes.publicChallenges,
+        ...(authorization ? { headers: { authorization } } : {}),
+      });
+      // A public catalogue must answer, not 403, on a stale or malformed
+      // credential -- but the degraded answer still withholds registered rows.
+      expect(response.statusCode).toBe(200);
+      expect(
+        response
+          .json<SuccessEnvelope<ChallengePublicPage>>()
+          .data.items.map((row) => row.challenge_id),
+      ).not.toContain(registeredId);
+    }
+  });
+
+  it("filters by category and rejects a corrupt cursor", async () => {
+    const matching = await publishChallenge(
+      "b5-cat-match",
+      buildChallengeContentResource({ visibility: "public", category: "logistics" }),
+    );
+    const other = await publishChallenge(
+      "b5-cat-other",
+      buildChallengeContentResource({ visibility: "public", category: "operations" }),
+    );
+
+    const filtered = await app.inject({
+      method: "GET",
+      url: `${apiRoutes.publicChallenges}?category=logistics`,
+    });
+    const ids = filtered
+      .json<SuccessEnvelope<ChallengePublicPage>>()
+      .data.items.map((row) => row.challenge_id);
+    expect(ids).toContain(matching);
+    expect(ids).not.toContain(other);
+
+    const corrupt = await app.inject({
+      method: "GET",
+      url: `${apiRoutes.publicChallenges}?cursor=not-a-cursor`,
+    });
+    expect(corrupt.statusCode).toBe(422);
+    expect(corrupt.json<ErrorEnvelope>().error.code).toBe("VALIDATION");
+  });
+
+  it("lets a platform gate approver read the version it is being asked to approve", async () => {
+    const challengeId = await createChallengeAtApprovalsStage("b8a-read");
+
+    // Before B8a this was NOT_FOUND: ops holds no membership in wsp_org_alpha,
+    // so it recorded the quality gate on a document it could not open.
+    const opsRead = await app.inject({
+      method: "GET",
+      url: `/api/v1/challenges/${challengeId}`,
+      headers: gateHeaders(demoApiCredentials.platformOps),
+    });
+    expect(opsRead.statusCode).toBe(200);
+    const resource = opsRead.json<SuccessEnvelope<ChallengeResource>>().data;
+    expect(resource.id).toBe(challengeId);
+    expect(resource.stage).toBe("approvals");
+    // It must see the gates it is joining, not a stripped record.
+    expect(resource.publication_readiness.missing).toContain("quality");
+
+    for (const credential of [
+      demoApiCredentials.platformLegal,
+      demoApiCredentials.platformFinance,
+    ]) {
+      const response = await app.inject({
+        method: "GET",
+        url: `/api/v1/challenges/${challengeId}`,
+        headers: gateHeaders(credential),
+      });
+      expect(response.statusCode).toBe(200);
+    }
+  });
+
+  it("keeps the platform read inside the approvals window and off other stages", async () => {
+    // Created but never advanced: no gate authority applies, so ops must not
+    // be able to read it -- and the denial must not reveal that it exists.
+    const created = await app.inject({
+      method: "POST",
+      url: apiRoutes.challenges,
+      headers: ownerHeaders("b8a-draft-create"),
+      payload: buildCreateChallengeBody({ draft: buildChallengeContentResource() }),
+    });
+    const draftId = created.json<MutationSuccessEnvelope>().data.entity_id;
+
+    const draftRead = await app.inject({
+      method: "GET",
+      url: `/api/v1/challenges/${draftId}`,
+      headers: gateHeaders(demoApiCredentials.platformOps),
+    });
+    expect(draftRead.statusCode).toBe(404);
+    expect(draftRead.json<ErrorEnvelope>().error.code).toBe("NOT_FOUND");
+
+    // An unknown id answers identically, so the two are indistinguishable.
+    const unknownRead = await app.inject({
+      method: "GET",
+      url: `/api/v1/challenges/${parseChallengeId("chl_absent_00000002")}`,
+      headers: gateHeaders(demoApiCredentials.platformOps),
+    });
+    expect(unknownRead.statusCode).toBe(404);
+    expect(unknownRead.json<ErrorEnvelope>().error.code).toBe(
+      draftRead.json<ErrorEnvelope>().error.code,
+    );
+  });
+
+  it("denies the cross-tenant read to a foreign org and to a gateless platform role", async () => {
+    const challengeId = await createChallengeAtApprovalsStage("b8a-denied");
+
+    // Another organization is not a platform role: no standing authority, and
+    // no membership in wsp_org_alpha either.
+    const foreign = await app.inject({
+      method: "GET",
+      url: `/api/v1/challenges/${challengeId}`,
+      headers: gateHeaders(demoApiCredentials.foreignOwner),
+    });
+    expect(foreign.statusCode).toBe(404);
+    expect(foreign.json<ErrorEnvelope>().error.code).toBe("NOT_FOUND");
+  });
+
+  it("runs the publication lifecycle through the publisher only, and hides a paused call", async () => {
+    const challengeId = await publishChallenge(
+      "b6-lifecycle",
+      buildChallengeContentResource({ visibility: "public" }),
+    );
+    const listed = async () => {
+      const response = await app.inject({ method: "GET", url: apiRoutes.publicChallenges });
+      return response
+        .json<SuccessEnvelope<ChallengePublicPage>>()
+        .data.items.map((row) => row.challenge_id);
+    };
+    expect(await listed()).toContain(challengeId);
+
+    // The org owner authored the brief; changing a live call's terms is a
+    // release decision, so it is the publisher's alone.
+    const ownerPause = await app.inject({
+      method: "POST",
+      url: apiRoutes.pauseChallenge.replace("{challengeId}", challengeId),
+      headers: ownerHeaders("b6-owner-pause"),
+      payload: { expected_version: 5, reason: "تلاش مالک." },
+    });
+    expect(ownerPause.statusCode).toBe(403);
+    expect(await listed()).toContain(challengeId);
+
+    const paused = await app.inject({
+      method: "POST",
+      url: apiRoutes.pauseChallenge.replace("{challengeId}", challengeId),
+      headers: publisherHeaders("b6-publisher-pause"),
+      payload: { expected_version: 5, reason: "توقف موقت." },
+    });
+    expect(paused.statusCode).toBe(200);
+    expect(paused.json<MutationSuccessEnvelope>().data.next_actions).toEqual(["await_resume"]);
+    expect(await listed()).not.toContain(challengeId);
+
+    // A paused call keeps its record for anyone already holding the link.
+    const detail = await app.inject({
+      method: "GET",
+      url: apiRoutes.publicChallengeById.replace("{challengeId}", challengeId),
+    });
+    expect(detail.statusCode).toBe(200);
+    expect(detail.json<SuccessEnvelope<ChallengePublicProjectionResource>>().data.state).toBe(
+      "paused",
+    );
+
+    // Extending is refused while paused: only an open call has a live deadline.
+    const extendPaused = await app.inject({
+      method: "POST",
+      url: apiRoutes.extendChallengeDeadline.replace("{challengeId}", challengeId),
+      headers: publisherHeaders("b6-extend-paused"),
+      payload: {
+        expected_version: 6,
+        proposal_deadline: "2031-01-01T00:00:00.000Z",
+        reason: "تمدید در حالت توقف.",
+      },
+    });
+    expect(extendPaused.statusCode).toBe(409);
+
+    const resumed = await app.inject({
+      method: "POST",
+      url: apiRoutes.resumeChallenge.replace("{challengeId}", challengeId),
+      headers: publisherHeaders("b6-publisher-resume"),
+      payload: { expected_version: 6, reason: "ادامه فراخوان." },
+    });
+    expect(resumed.statusCode).toBe(200);
+    expect(await listed()).toContain(challengeId);
+
+    const extended = await app.inject({
+      method: "POST",
+      url: apiRoutes.extendChallengeDeadline.replace("{challengeId}", challengeId),
+      headers: publisherHeaders("b6-extend-open"),
+      payload: {
+        expected_version: 7,
+        proposal_deadline: "2031-01-01T00:00:00.000Z",
+        reason: "تمدید مهلت.",
+      },
+    });
+    expect(extended.statusCode).toBe(200);
+
+    // Shortening is refused; a deadline solvers already saw only moves forward.
+    const shortened = await app.inject({
+      method: "POST",
+      url: apiRoutes.extendChallengeDeadline.replace("{challengeId}", challengeId),
+      headers: publisherHeaders("b6-extend-back"),
+      payload: {
+        expected_version: 8,
+        proposal_deadline: "2030-02-01T00:00:00.000Z",
+        reason: "کوتاه‌کردن مهلت.",
+      },
+    });
+    expect(shortened.statusCode).toBe(422);
+
+    const cancelled = await app.inject({
+      method: "POST",
+      url: apiRoutes.cancelChallenge.replace("{challengeId}", challengeId),
+      headers: publisherHeaders("b6-publisher-cancel"),
+      payload: { expected_version: 8, reason: "لغو با اطلاع‌رسانی." },
+    });
+    expect(cancelled.statusCode).toBe(200);
+    expect(cancelled.json<MutationSuccessEnvelope>().data.next_actions).toEqual(["closed"]);
+
+    // Terminal: a cancelled call cannot be resumed.
+    const reopened = await app.inject({
+      method: "POST",
+      url: apiRoutes.resumeChallenge.replace("{challengeId}", challengeId),
+      headers: publisherHeaders("b6-publisher-reopen"),
+      payload: { expected_version: 9, reason: "تلاش بازگشایی." },
+    });
+    expect(reopened.statusCode).toBe(409);
+
+    // Every lifecycle event stays inside the worker's supported set.
+    const emitted = [
+      ...new Set(composition.challenges.snapshot().outboxEvents.map((event) => event.event_type)),
+    ];
+    expect(
+      emitted.filter((type) => !(challengeOutboxEventTypes as readonly string[]).includes(type)),
+    ).toEqual([]);
   });
 
   it("revalidates session revocation inside the cross-tenant platform gate unit of work", async () => {
@@ -1576,6 +1972,9 @@ describe("authoritative Fastify API foundation", () => {
           challenges.transition(id, command, body, context),
         recordApproval: (id, body, context) => challenges.recordApproval(id, body, context),
         publish: (id, body, context) => challenges.publish(id, body, context),
+        extendDeadline: (id, body, context) => challenges.extendDeadline(id, body, context),
+        changePublicationState: (id, command, body, context) =>
+          challenges.changePublicationState(id, command, body, context),
       },
     });
 

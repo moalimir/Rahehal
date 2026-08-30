@@ -2,6 +2,7 @@ import { Client, Pool } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import type {
+  ChallengeDraftContentResource,
   ChallengeResource,
   MutationSuccessEnvelope,
   SuccessEnvelope,
@@ -20,17 +21,15 @@ import { buildApi } from "../src/app.js";
 import { MonotonicIdFactory } from "../src/primitives.js";
 import { createRuntimeApiComposition } from "../src/runtime-composition.js";
 import { PostgresChallengeAdapter } from "../src/postgres/challenges.js";
+import { PostgresPublicChallengeAdapter } from "../src/postgres/public-challenges.js";
 import { credentialDigest } from "../src/postgres/identity-workspace.js";
 import { runMigrations } from "../src/postgres/migrations.js";
 import { seedSyntheticData } from "../src/postgres/seeds.js";
+import { encodePublicChallengeCursor } from "../src/public-catalogue.js";
 import { PostgresUnitOfWork } from "../src/postgres/unit-of-work.js";
+import { testDatabaseAdminUrl } from "./support/database.js";
 
-const defaultAdminUrl = "postgresql://rahhal:rahhal-local-only@127.0.0.1:5433/postgres";
-const adminUrl = new URL(process.env.RAHHAL_TEST_DATABASE_ADMIN_URL ?? defaultAdminUrl);
-
-if (!["127.0.0.1", "localhost", "[::1]"].includes(adminUrl.hostname)) {
-  throw new Error("PostgreSQL challenge tests refuse to create databases on a non-loopback host");
-}
+const adminUrl = testDatabaseAdminUrl();
 
 const testDatabaseName = `rahhal_a1c_test_${process.pid}_${Date.now()}`;
 const testDatabaseUrl = new URL(adminUrl);
@@ -77,6 +76,10 @@ function context(
     correlationId: parseCorrelationId(`cor_a1c_${ordinal.toString().padStart(4, "0")}`),
     ...overrides,
   };
+}
+
+function publicAdapter() {
+  return new PostgresPublicChallengeAdapter(new PostgresUnitOfWork(database));
 }
 
 function adapter(options: { readonly beforeCommit?: () => void } = {}) {
@@ -546,9 +549,10 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
     challenges: PostgresChallengeAdapter,
     keyPrefix: string,
     ordinal: number,
+    draft: ChallengeDraftContentResource = buildChallengeContentResource(),
   ): Promise<string> {
     const created = await challenges.create(
-      { expected_version: 0, draft: buildChallengeContentResource() },
+      { expected_version: 0, draft },
       context(`${keyPrefix}-create`, ordinal),
     );
     const challengeId = created.receipt.entity_id;
@@ -893,9 +897,25 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
     challenges: PostgresChallengeAdapter,
     keyPrefix: string,
     ordinal: number,
+    draft?: ChallengeDraftContentResource,
   ): Promise<string> {
-    const challengeId = await advanceToApprovals(challenges, keyPrefix, ordinal);
+    const challengeId = await advanceToApprovals(challenges, keyPrefix, ordinal, draft);
     await approveAllGates(challenges, challengeId, keyPrefix, ordinal + 4);
+    return challengeId;
+  }
+
+  async function publishedChallenge(
+    challenges: PostgresChallengeAdapter,
+    keyPrefix: string,
+    ordinal: number,
+    draft?: ChallengeDraftContentResource,
+  ): Promise<string> {
+    const challengeId = await publishableChallenge(challenges, keyPrefix, ordinal, draft);
+    await challenges.publish(
+      challengeId,
+      { expected_version: 4 },
+      context(`${keyPrefix}-publish`, ordinal + 8, { role: "org:publisher" }),
+    );
     return challengeId;
   }
 
@@ -967,6 +987,7 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
       "public_summary",
       "published_at",
       "sourcing_model",
+      "state",
       "tenant_id",
       "title",
       "verification_required",
@@ -1216,6 +1237,371 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
       [challengeId],
     );
     expect(state.rows[0]).toEqual({ stage: "published", projections: "0" });
+  });
+
+  it("answers public discovery without reading the private aggregate at all", async () => {
+    const challenges = adapter();
+    const challengeId = await publishedChallenge(
+      challenges,
+      "b5-isolated",
+      400,
+      buildChallengeContentResource({ visibility: "public" }),
+    );
+
+    // The structural proof: take the private tables out of reach by name. Any
+    // query in the public adapter that touched `challenge`, `challenge_version`,
+    // or `challenge_approval` would now fail with `undefined_table` (42P01)
+    // instead of returning rows. Renaming keeps the projection's foreign keys
+    // intact, because they follow the table's identity, not its name.
+    const hidden = [
+      ["challenge", "challenge_out_of_reach"],
+      ["challenge_version", "challenge_version_out_of_reach"],
+      ["challenge_approval", "challenge_approval_out_of_reach"],
+    ] as const;
+
+    let detail: Awaited<ReturnType<PostgresPublicChallengeAdapter["get"]>> = null;
+    try {
+      for (const [from, to] of hidden) {
+        await database.query(`ALTER TABLE ${from} RENAME TO ${to}`);
+      }
+      const catalogue = publicAdapter();
+      const page = await catalogue.list("anonymous", {});
+      expect(page.items.map((row) => row.challenge_id)).toEqual([challengeId]);
+      detail = await catalogue.get("anonymous", challengeId);
+    } finally {
+      // The names must come back even when an assertion above fails, or the
+      // next test's migration rollback cannot find the tables it drops.
+      for (const [from, to] of hidden) {
+        await database.query(`ALTER TABLE IF EXISTS ${to} RENAME TO ${from}`);
+      }
+    }
+
+    expect(detail).toMatchObject({
+      challenge_id: challengeId,
+      title: "Test Challenge",
+      public_summary: "A public-safe summary.",
+      visibility: "public",
+    });
+    // And the projection it returned carries only allowlisted fields.
+    expect(Object.keys(detail ?? {}).sort()).toEqual(
+      [
+        "allowed_applicant_types",
+        "applicant_scope",
+        "budget",
+        "category",
+        "challenge_id",
+        "challenge_version_id",
+        "document_gate_required",
+        "ip_terms",
+        "location",
+        "nda_required",
+        "output_type",
+        "preferred_start_date",
+        "proposal_deadline",
+        "public_summary",
+        "published_at",
+        "sourcing_model",
+        "state",
+        "title",
+        "verification_required",
+        "visibility",
+        "work_mode",
+      ].sort(),
+    );
+  });
+
+  it("withholds registered challenges from the anonymous audience", async () => {
+    const challenges = adapter();
+    const openId = await publishedChallenge(
+      challenges,
+      "b5-open",
+      420,
+      buildChallengeContentResource({ visibility: "public" }),
+    );
+    const gatedId = await publishedChallenge(
+      challenges,
+      "b5-gated",
+      440,
+      buildChallengeContentResource({ visibility: "registered" }),
+    );
+
+    const catalogue = publicAdapter();
+    const anonymous = await catalogue.list("anonymous", {});
+    expect(anonymous.items.map((row) => row.challenge_id)).toEqual([openId]);
+    await expect(catalogue.get("anonymous", gatedId)).resolves.toBeNull();
+
+    const registered = await catalogue.list("registered", {});
+    expect(registered.items.map((row) => row.challenge_id).sort()).toEqual(
+      [openId, gatedId].sort(),
+    );
+    await expect(catalogue.get("registered", gatedId)).resolves.not.toBeNull();
+  });
+
+  it("pages the catalogue by keyset cursor and filters by category", async () => {
+    const challenges = adapter();
+    // Distinct deadlines give the ordering something to sort by; the newest
+    // deadline must come first.
+    const oldest = await publishedChallenge(
+      challenges,
+      "b5-page-oldest",
+      460,
+      buildChallengeContentResource({
+        visibility: "public",
+        category: "logistics",
+        proposal_deadline: "2030-01-01T00:00:00.000Z",
+      }),
+    );
+    const middle = await publishedChallenge(
+      challenges,
+      "b5-page-middle",
+      480,
+      buildChallengeContentResource({
+        visibility: "public",
+        category: "logistics",
+        proposal_deadline: "2030-06-01T00:00:00.000Z",
+      }),
+    );
+    const newest = await publishedChallenge(
+      challenges,
+      "b5-page-newest",
+      500,
+      buildChallengeContentResource({
+        visibility: "public",
+        category: "operations",
+        proposal_deadline: "2030-12-01T00:00:00.000Z",
+      }),
+    );
+
+    const catalogue = publicAdapter();
+    const first = await catalogue.list("anonymous", {});
+    expect(first.items.map((row) => row.challenge_id)).toEqual([newest, middle, oldest]);
+    // A single page holds all three, so there is nothing left to continue from.
+    expect(first.next_cursor).toBeNull();
+
+    // Continuing from the newest row yields exactly the rows after it.
+    const afterNewest = await catalogue.list("anonymous", {
+      cursor: encodePublicChallengeCursor(first.items[0]!),
+    });
+    expect(afterNewest.items.map((row) => row.challenge_id)).toEqual([middle, oldest]);
+
+    const logistics = await catalogue.list("anonymous", { category: "logistics" });
+    expect(logistics.items.map((row) => row.challenge_id)).toEqual([middle, oldest]);
+
+    await expect(catalogue.list("anonymous", { cursor: "%%%not-base64%%%" })).rejects.toMatchObject(
+      {
+        statusCode: 422,
+        code: "VALIDATION",
+      },
+    );
+  });
+
+  it("extends a deadline forward without touching the approved version", async () => {
+    const challenges = adapter();
+    const challengeId = await publishedChallenge(
+      challenges,
+      "b6-extend",
+      600,
+      buildChallengeContentResource({ visibility: "public" }),
+    );
+    const before = await challenges.getScoped(context("b6-extend-read", 610), challengeId);
+    const approvedVersionId = before?.published_version_id;
+    expect(before?.publication_state).toBe("open");
+
+    const extended = await challenges.extendDeadline(
+      challengeId,
+      { expected_version: 5, proposal_deadline: "2031-06-01T00:00:00.000Z", reason: "تمدید مهلت." },
+      context("b6-extend-command", 611, { role: "org:publisher" }),
+    );
+    expect(extended.entityVersion).toBe(6);
+
+    const after = await challenges.getScoped(context("b6-extend-reread", 612), challengeId);
+    expect(after?.proposal_deadline_at).toBe("2031-06-01T00:00:00.000Z");
+    // The approved version is untouched: the gates approved that content.
+    expect(after?.published_version_id).toBe(approvedVersionId);
+    expect(after?.content.proposal_deadline).toBe(before?.content.proposal_deadline);
+
+    const projection = await database.query<{ proposal_deadline: Date }>(
+      "SELECT proposal_deadline FROM challenge_public_projection WHERE challenge_id = $1",
+      [challengeId],
+    );
+    expect(projection.rows[0]?.proposal_deadline).toEqual(new Date("2031-06-01T00:00:00.000Z"));
+
+    // Backwards is refused by the command...
+    await expect(
+      challenges.extendDeadline(
+        challengeId,
+        {
+          expected_version: 6,
+          proposal_deadline: "2030-01-01T00:00:00.000Z",
+          reason: "کوتاه‌کردن مهلت.",
+        },
+        context("b6-extend-backwards", 613, { role: "org:publisher" }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 422, code: "VALIDATION" });
+
+    // ...and by the database, so a direct write cannot shorten it either.
+    await expectDatabaseError(
+      database.query("UPDATE challenge SET proposal_deadline_at = $2 WHERE id = $1", [
+        challengeId,
+        "2030-01-01T00:00:00.000Z",
+      ]),
+      "23514",
+    );
+  });
+
+  it("hides a paused call from discovery, keeps its record, and resumes it", async () => {
+    const challenges = adapter();
+    const challengeId = await publishedChallenge(
+      challenges,
+      "b6-pause",
+      620,
+      buildChallengeContentResource({ visibility: "public" }),
+    );
+    const catalogue = publicAdapter();
+    expect((await catalogue.list("anonymous", {})).items.map((r) => r.challenge_id)).toEqual([
+      challengeId,
+    ]);
+
+    await challenges.changePublicationState(
+      challengeId,
+      "pause",
+      { expected_version: 5, reason: "توقف موقت برای بازبینی." },
+      context("b6-pause-command", 621, { role: "org:publisher" }),
+    );
+
+    // Gone from the listing...
+    expect((await catalogue.list("anonymous", {})).items).toHaveLength(0);
+    // ...but still resolvable by direct link, showing why it stopped.
+    const detail = await catalogue.get("anonymous", challengeId);
+    expect(detail?.state).toBe("paused");
+
+    await challenges.changePublicationState(
+      challengeId,
+      "resume",
+      { expected_version: 6, reason: "ادامه فراخوان." },
+      context("b6-resume-command", 622, { role: "org:publisher" }),
+    );
+    expect((await catalogue.list("anonymous", {})).items.map((r) => r.challenge_id)).toEqual([
+      challengeId,
+    ]);
+  });
+
+  it("treats closed and cancelled as terminal in the command and in the database", async () => {
+    const challenges = adapter();
+    const challengeId = await publishedChallenge(
+      challenges,
+      "b6-terminal",
+      640,
+      buildChallengeContentResource({ visibility: "public" }),
+    );
+
+    await challenges.changePublicationState(
+      challengeId,
+      "cancel",
+      { expected_version: 5, reason: "لغو فراخوان با اطلاع‌رسانی." },
+      context("b6-cancel-command", 641, { role: "org:publisher" }),
+    );
+
+    await expect(
+      challenges.changePublicationState(
+        challengeId,
+        "resume",
+        { expected_version: 6, reason: "تلاش برای بازگشایی." },
+        context("b6-reopen-command", 642, { role: "org:publisher" }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 409, code: "INVALID_STATE" });
+
+    // Reopening a cancelled call is a new challenge, not a state flip -- the
+    // database refuses it even outside the command.
+    await expectDatabaseError(
+      database.query("UPDATE challenge SET publication_state = 'open' WHERE id = $1", [
+        challengeId,
+      ]),
+      "23514",
+    );
+
+    const catalogue = publicAdapter();
+    expect((await catalogue.list("anonymous", {})).items).toHaveLength(0);
+    expect((await catalogue.get("anonymous", challengeId))?.state).toBe("cancelled");
+  });
+
+  it("refuses a lifecycle command from a non-publisher role at the adapter", async () => {
+    const challenges = adapter();
+    const challengeId = await publishedChallenge(
+      challenges,
+      "b6-role",
+      680,
+      buildChallengeContentResource({ visibility: "public" }),
+    );
+
+    // app.ts already gates this on `org:publisher`; the adapter must not rely
+    // on that alone, the same way B2's gate recording and B4's publish do not.
+    for (const role of ["org:owner", "org:member", "platform:ops"] as const) {
+      await expect(
+        challenges.changePublicationState(
+          challengeId,
+          "pause",
+          { expected_version: 5, reason: "نقش نامعتبر." },
+          context(`b6-role-${role.replace(/[^a-z]/g, "")}`, 681, { role }),
+        ),
+      ).rejects.toMatchObject({ statusCode: 403, code: "NO_ACCESS" });
+      await expect(
+        challenges.extendDeadline(
+          challengeId,
+          {
+            expected_version: 5,
+            proposal_deadline: "2031-06-01T00:00:00.000Z",
+            reason: "نقش نامعتبر.",
+          },
+          context(`b6-role-x-${role.replace(/[^a-z]/g, "")}`, 682, { role }),
+        ),
+      ).rejects.toMatchObject({ statusCode: 403, code: "NO_ACCESS" });
+    }
+
+    const state = await database.query<{ publication_state: string }>(
+      "SELECT publication_state FROM challenge WHERE id = $1",
+      [challengeId],
+    );
+    expect(state.rows[0]?.publication_state).toBe("open");
+  });
+
+  it("rolls back every lifecycle row when the commit fails", async () => {
+    const challenges = adapter();
+    const challengeId = await publishedChallenge(
+      challenges,
+      "b6-rollback",
+      660,
+      buildChallengeContentResource({ visibility: "public" }),
+    );
+    const snapshotQuery = `
+      SELECT jsonb_build_object(
+        'state', (SELECT publication_state FROM challenge WHERE id = $1),
+        'deadline', (SELECT proposal_deadline_at FROM challenge WHERE id = $1),
+        'projection', (SELECT state FROM challenge_public_projection WHERE challenge_id = $1),
+        'audits', (SELECT count(*) FROM audit_event
+          WHERE target_id = $1 AND action = 'challenge.paused'),
+        'events', (SELECT count(*) FROM outbox_event
+          WHERE aggregate_id = $1 AND event_type = 'challenge.paused')
+      )::text AS snapshot
+    `;
+    const before = await database.query<{ snapshot: string }>(snapshotQuery, [challengeId]);
+
+    const failing = adapter({
+      beforeCommit: () => {
+        throw new Error("forced B6 pause rollback");
+      },
+    });
+    await expect(
+      failing.changePublicationState(
+        challengeId,
+        "pause",
+        { expected_version: 5, reason: "باید برگردد." },
+        context("b6-rollback-pause", 670, { role: "org:publisher" }),
+      ),
+    ).rejects.toThrow("forced B6 pause rollback");
+
+    const after = await database.query<{ snapshot: string }>(snapshotQuery, [challengeId]);
+    expect(after.rows[0]?.snapshot).toBe(before.rows[0]?.snapshot);
   });
 
   it("rolls back aggregate, version, receipt, audit, outbox, and replay together", async () => {

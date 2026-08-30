@@ -17,7 +17,11 @@ import {
   type MutationSuccessEnvelope,
   type OidcAuthorizationStartBody,
   type OidcAuthorizationStartSuccessEnvelope,
+  type ChallengePublicationStateBody,
+  type ExtendChallengeDeadlineBody,
   type PatchChallengeBody,
+  type PublicAudience,
+  type PublicChallengeQuery,
   type RecordChallengeApprovalBody,
   type SessionExchangeBody,
   type SessionRefreshBody,
@@ -116,6 +120,21 @@ function versionedSuccess<T>(
   };
 }
 
+/**
+ * The unversioned envelope. Public projections carry no aggregate version --
+ * exposing one would leak how often a private record has been edited.
+ */
+function success<T>(data: T, request: FastifyRequest, ports: ApiPorts): SuccessEnvelope<T> {
+  return {
+    ok: true,
+    data,
+    meta: {
+      server_time: ports.clock.now().toISOString(),
+      correlation_id: correlationId(request),
+    },
+  };
+}
+
 function mutationSuccess<TargetId extends string, NextAction extends string>(
   outcome: MutationOutcome<TargetId, NextAction>,
   request: FastifyRequest,
@@ -180,6 +199,15 @@ function challengeScope(session: AuthenticatedSession, access: WorkspaceAccess):
 }
 
 const canReadChallenge = (access: WorkspaceAccess) => access.workspace.kind === "org";
+
+/**
+ * Every platform role that owns at least one publication gate, derived from
+ * `gateApproverRoles` rather than restated, so a gate added later cannot leave
+ * its approver without the read that makes the gate meaningful.
+ */
+const platformGateApproverRoles = [...new Set(Object.values(gateApproverRoles).flat())].filter(
+  isPlatformRole,
+);
 
 const canEditChallenge = (access: WorkspaceAccess) =>
   access.workspace.kind === "org" && (access.role === "org:owner" || access.role === "org:member");
@@ -305,13 +333,14 @@ function registerChallengeCommand(
     body: ChallengeTransitionBody,
     context: ChallengeScope & { idempotencyKey: string; correlationId: CorrelationId },
   ) => Promise<MutationOutcome<ChallengeId, ChallengeNextAction>>,
+  bodySchema: (typeof apiSchemas)[keyof typeof apiSchemas] = apiSchemas.ChallengeTransitionBody,
 ): void {
   app.post<{ Params: ChallengeIdParams; Body: ChallengeTransitionBody }>(
     fastifyChallengeCommandPath(route),
     {
       schema: {
         params: challengeIdParamsSchema,
-        body: apiSchemas.ChallengeTransitionBody,
+        body: bodySchema,
         response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
       },
     },
@@ -524,6 +553,66 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
       .status(problem.statusCode)
       .send(errorEnvelope(problem, correlationId(request), ports.clock.now().toISOString()));
   });
+
+  /**
+   * Public discovery (B5). These are the only unauthenticated data routes:
+   * they read `ports.publicChallenges`, which can only reach the public
+   * projection, and never `ports.challenges`.
+   *
+   * A caller with a valid session sees `registered` challenges too. An
+   * absent, malformed, expired, or revoked credential degrades to the
+   * anonymous audience rather than failing the request -- a public catalogue
+   * that 403s on a stale cookie is broken, and the degraded view still
+   * cannot reveal a `registered` row.
+   */
+  const publicAudience = async (request: FastifyRequest): Promise<PublicAudience> => {
+    try {
+      const session = await ports.sessions.authenticate(bearerToken(request));
+      return session ? "registered" : "anonymous";
+    } catch {
+      return "anonymous";
+    }
+  };
+
+  app.get<{ Querystring: PublicChallengeQuery }>(
+    apiRoutes.publicChallenges,
+    {
+      schema: {
+        querystring: apiSchemas.PublicChallengeQuery,
+        response: {
+          200: apiSchemas.ChallengePublicPageSuccessEnvelope,
+          ...apiErrorResponses,
+        },
+      },
+    },
+    async (request) => {
+      const page = await ports.publicChallenges.list(await publicAudience(request), request.query);
+      return success(page, request, ports);
+    },
+  );
+
+  app.get<{ Params: ChallengeIdParams }>(
+    "/api/v1/public/challenges/:challengeId",
+    {
+      schema: {
+        params: challengeIdParamsSchema,
+        response: {
+          200: apiSchemas.ChallengePublicSuccessEnvelope,
+          ...apiErrorResponses,
+        },
+      },
+    },
+    async (request) => {
+      const projection = await ports.publicChallenges.get(
+        await publicAudience(request),
+        request.params.challengeId,
+      );
+      // Unknown, still-private, confidential, and session-gated challenges are
+      // all one answer, so the catalogue cannot be used to enumerate them.
+      if (!projection) throw notFound();
+      return success(projection, request, ports);
+    },
+  );
 
   app.get(apiRoutes.openApi, async (_request, reply) => {
     void reply.header("cache-control", "no-store");
@@ -844,6 +933,67 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
         ports.decisionAudit,
         ports.clock,
       );
+      const workspaceId = requiredHeader(request, "X-Workspace-Id");
+
+      // `viaPlatformAuthority` cannot be inferred from `access`: the platform
+      // path resolves access to the *target* org workspace, so its `kind` is
+      // "org" on both routes. Only the caller knows which authority was used.
+      const readOnAccess = (viaPlatformAuthority: boolean) => async (access: WorkspaceAccess) => {
+        const resource = await ports.challenges.getScoped(
+          challengeScope(session, access),
+          request.params.challengeId,
+        );
+        // A platform gate approver reaches only what its authority covers: a
+        // challenge actually awaiting approvals. Outside that stage the answer
+        // is the same NOT_FOUND an unrelated org would get, so the read cannot
+        // be used to enumerate another tenant's pipeline.
+        const reachable = resource && (!viaPlatformAuthority || resource.stage === "approvals");
+        if (!reachable) {
+          await ports.decisionAudit.record({
+            outcome: "denied",
+            actorUserId: session.userId,
+            tenantId: access.tenantId,
+            workspaceId: access.workspaceId,
+            action: "challenge:read",
+            entityType: "challenge",
+            entityId: request.params.challengeId,
+            reason: "record_unreachable",
+            correlationId: correlationId(request),
+            occurredAt: ports.clock.now().toISOString(),
+          });
+          throw notFound();
+        }
+        await recordWorkspaceAccessSuccess(request, ports, session, access, {
+          action: "challenge:read",
+          entityType: "challenge",
+          entityId: request.params.challengeId,
+        });
+        return versionedSuccess(resource, request, ports, resource.version);
+      };
+
+      /**
+       * B8a. A platform gate approver holds no membership in the org's
+       * workspace, so `runAuthorizedWorkspace` can never authorize the read —
+       * and without a read, the quality/legal/finance gates are approvals of a
+       * brief the approver cannot open. Same standing-authority path B2
+       * already uses for the write (ADR-0015), applied to the read it needs.
+       */
+      if (session.activeWorkspaceId !== workspaceId) {
+        return ports.authority.runAuthorizedPlatformRole(
+          session,
+          platformGateApproverRoles,
+          workspaceId,
+          {
+            action: "challenge:read",
+            correlationId: correlationId(request),
+            entityType: "challenge",
+            entityId: request.params.challengeId,
+            deferSuccess: true,
+          },
+          readOnAccess(true),
+        );
+      }
+
       return runAuthorizedWorkspace(
         request,
         ports,
@@ -855,33 +1005,7 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
           allows: canReadChallenge,
           deferSuccess: true,
         },
-        async (access) => {
-          const resource = await ports.challenges.getScoped(
-            challengeScope(session, access),
-            request.params.challengeId,
-          );
-          if (!resource) {
-            await ports.decisionAudit.record({
-              outcome: "denied",
-              actorUserId: session.userId,
-              tenantId: access.tenantId,
-              workspaceId: access.workspaceId,
-              action: "challenge:read",
-              entityType: "challenge",
-              entityId: request.params.challengeId,
-              reason: "record_unreachable",
-              correlationId: correlationId(request),
-              occurredAt: ports.clock.now().toISOString(),
-            });
-            throw notFound();
-          }
-          await recordWorkspaceAccessSuccess(request, ports, session, access, {
-            action: "challenge:read",
-            entityType: "challenge",
-            entityId: request.params.challengeId,
-          });
-          return versionedSuccess(resource, request, ports, resource.version);
-        },
+        readOnAccess(false),
       );
     },
   );
@@ -969,6 +1093,44 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
     "challenge:request-approvals",
   );
   registerRecordChallengeApproval(app, ports);
+  /**
+   * B6 publication lifecycle. Same `org:publisher` authority as publication:
+   * extending, pausing or cancelling a live call changes what solvers were
+   * already told, which is a release decision, not an authoring one.
+   */
+  registerChallengeCommand(
+    app,
+    ports,
+    apiRoutes.extendChallengeDeadline,
+    "challenge:extend-deadline",
+    canPublishChallenge,
+    (id, body, context) =>
+      ports.challenges.extendDeadline(id, body as ExtendChallengeDeadlineBody, context),
+    apiSchemas.ExtendChallengeDeadlineBody,
+  );
+  for (const [route, command, action] of [
+    [apiRoutes.pauseChallenge, "pause", "challenge:pause"],
+    [apiRoutes.resumeChallenge, "resume", "challenge:resume"],
+    [apiRoutes.closeChallenge, "close", "challenge:close"],
+    [apiRoutes.cancelChallenge, "cancel", "challenge:cancel"],
+  ] as const) {
+    registerChallengeCommand(
+      app,
+      ports,
+      route,
+      action,
+      canPublishChallenge,
+      (id, body, context) =>
+        ports.challenges.changePublicationState(
+          id,
+          command,
+          body as ChallengePublicationStateBody,
+          context,
+        ),
+      apiSchemas.ChallengePublicationStateBody,
+    );
+  }
+
   registerChallengeCommand(
     app,
     ports,

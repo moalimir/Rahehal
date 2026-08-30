@@ -6,6 +6,7 @@ import type {
   ChallengeBudgetStatus,
   ChallengeDraftAuthoringStatus,
   ChallengeManagedStage,
+  ChallengePublicationState,
   ChallengeId,
   ChallengeIpTerms,
   ChallengeOutputType,
@@ -25,6 +26,7 @@ import type {
 
 import type {
   ApiReadiness,
+  SuccessEnvelope,
   MutationSuccessEnvelope,
   VersionedApiMeta,
   VersionedCommand,
@@ -113,6 +115,9 @@ export type ChallengeResource = {
   readonly workspace_id: WorkspaceId;
   readonly stage: ChallengeManagedStage;
   readonly published_version_id: ChallengeVersionId | null;
+  /** Null until the challenge is published (B6). */
+  readonly publication_state: ChallengePublicationState | null;
+  readonly proposal_deadline_at: string | null;
   readonly authoring_status: ChallengeDraftAuthoringStatus;
   readonly version: number;
   readonly content_version: number;
@@ -142,13 +147,29 @@ export type RecordChallengeApprovalBody = VersionedCommand & {
   readonly reason: string;
 };
 
+/**
+ * B6's publication-lifecycle commands. Every one carries a required structured
+ * reason: unlike routine publication, each of these overrides or curtails what
+ * solvers were already told, so "why" is the whole record.
+ */
+export type ExtendChallengeDeadlineBody = VersionedCommand & {
+  readonly proposal_deadline: string;
+  readonly reason: string;
+};
+
+export type ChallengePublicationStateBody = VersionedCommand & {
+  readonly reason: string;
+};
+
 export type ChallengeNextAction =
   | "edit"
   | "request_triage"
   | "advance_formulation"
   | "request_approvals"
   | "await_approvals"
-  | "await_proposals";
+  | "await_proposals"
+  | "await_resume"
+  | "closed";
 
 /**
  * Publishing carries no payload beyond the optimistic-concurrency envelope:
@@ -184,6 +205,7 @@ export type ChallengePublicProjectionResource = {
   readonly nda_required: boolean;
   readonly document_gate_required: boolean;
   readonly ip_terms: ChallengeIpTerms;
+  readonly state: ChallengePublicationState;
   readonly published_at: string;
 };
 
@@ -206,3 +228,30 @@ export type ChallengeApprovalMutationSuccessEnvelope = MutationSuccessEnvelope<
 export function hasChallengeDraftChanges(patch: ChallengeDraftPatch): boolean {
   return Object.keys(patch).length > 0;
 }
+
+/**
+ * One page of the public challenge catalogue (B5). The cursor is opaque to
+ * callers: it encodes the keyset position of the last row, so a challenge
+ * published mid-scan cannot silently shift a page boundary the way an
+ * offset would.
+ */
+export type ChallengePublicPage = {
+  readonly items: readonly ChallengePublicProjectionResource[];
+  readonly next_cursor: string | null;
+};
+
+/**
+ * What a public reader is allowed to see, decided by whether the request
+ * carries a valid session — never by a client-supplied flag. Anonymous
+ * readers see `public` rows only; `registered` rows additionally require an
+ * authenticated caller.
+ */
+export type PublicAudience = "anonymous" | "registered";
+
+export type PublicChallengeQuery = {
+  readonly category?: string;
+  readonly cursor?: string;
+};
+
+export type ChallengePublicPageSuccessEnvelope = SuccessEnvelope<ChallengePublicPage>;
+export type ChallengePublicSuccessEnvelope = SuccessEnvelope<ChallengePublicProjectionResource>;

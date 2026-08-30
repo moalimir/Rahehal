@@ -13,6 +13,13 @@ export const apiRoutes = {
   requestChallengeApprovals: "/api/v1/challenges/{challengeId}:request-approvals",
   recordChallengeApproval: "/api/v1/challenges/{challengeId}/approvals:record",
   publishChallenge: "/api/v1/challenges/{challengeId}:publish",
+  extendChallengeDeadline: "/api/v1/challenges/{challengeId}:extend-deadline",
+  pauseChallenge: "/api/v1/challenges/{challengeId}:pause",
+  resumeChallenge: "/api/v1/challenges/{challengeId}:resume",
+  closeChallenge: "/api/v1/challenges/{challengeId}:close",
+  cancelChallenge: "/api/v1/challenges/{challengeId}:cancel",
+  publicChallenges: "/api/v1/public/challenges",
+  publicChallengeById: "/api/v1/public/challenges/{challengeId}",
 } as const;
 
 /**

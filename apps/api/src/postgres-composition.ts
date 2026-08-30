@@ -13,6 +13,7 @@ import { PostgresAccessDecisionAudit } from "./postgres/access-decision-audit.js
 import { PostgresChallengeAdapter } from "./postgres/challenges.js";
 import { databasePoolConfig } from "./postgres/config.js";
 import { PostgresIdentityWorkspaceAdapter } from "./postgres/identity-workspace.js";
+import { PostgresPublicChallengeAdapter } from "./postgres/public-challenges.js";
 import {
   oidcRuntimeSettings,
   PostgresOidcAuthorizationAdapter,
@@ -20,7 +21,8 @@ import {
 import { PostgresUnitOfWork } from "./postgres/unit-of-work.js";
 import { HmacSessionCredentialIssuer } from "./session-credentials.js";
 
-const requiredMigration = "0007_b3_versioned_eligibility_rules";
+// B4's publish transaction and B5's public read both need the projection table.
+const requiredMigration = "0008_b4_challenge_publication";
 
 type OidcAdapter = OidcExchangePort & OidcAuthorizationPort;
 
@@ -95,6 +97,7 @@ export async function createPostgresApiComposition(
     decisionAudit,
   );
   const challenges = new PostgresChallengeAdapter(unitOfWork, clock, ids);
+  const publicChallenges = new PostgresPublicChallengeAdapter(unitOfWork);
 
   return {
     pool,
@@ -105,6 +108,7 @@ export async function createPostgresApiComposition(
       workspaces: identity,
       authority: identity,
       challenges,
+      publicChallenges,
       decisionAudit,
       clock,
       ids,

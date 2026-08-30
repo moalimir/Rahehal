@@ -14,6 +14,7 @@ import {
   publicationGatePreconditions,
   type ChallengeDraftContent,
   type ChallengeId,
+  type ChallengePublicationState,
   type ChallengeVersionId,
 } from "@rahhal/domain";
 
@@ -227,6 +228,7 @@ export function challengePublicProjection(
   challengeVersionId: ChallengeVersionId,
   content: ChallengeDraftContentResource,
   publishedAt: string,
+  state: ChallengePublicationState,
 ): ChallengePublicProjectionResource {
   const {
     output_type: outputType,
@@ -268,6 +270,7 @@ export function challengePublicProjection(
     nda_required: content.nda_required,
     document_gate_required: content.document_gate_required,
     ip_terms: ipTerms,
+    state,
     published_at: publishedAt,
   };
 }
