@@ -13,11 +13,13 @@
   },
   "packageManager": "npm@11.13.0",
   "scripts": {
-    "dev": "npm run build:packages && next dev",
-    "dev:web": "npm run build:packages && next dev",
+    "dev": "npm run build:packages && next dev --webpack",
+    "dev:web": "npm run build:packages && next dev --webpack",
+    "dev:web:network": "npm run build:packages && RAHHAL_WEB_RUNTIME=network next dev --webpack",
     "dev:api": "npm run build:packages && npm run dev --workspace @rahhal/api",
     "dev:worker": "npm run build:packages && npm run dev --workspace @rahhal/worker",
     "docker:config": "docker compose config --quiet",
+    "docker:env:init": "node scripts/create-local-env.mjs",
     "docker:build": "docker compose build",
     "docker:up": "docker compose up --detach --wait",
     "docker:smoke": "node scripts/smoke-docker.mjs",
@@ -30,6 +32,7 @@
     "db:seed": "npm run db:seed --workspace @rahhal/api",
     "build": "npm run build:packages && npm run build:web:app && npm run build:services",
     "build:web": "npm run build:packages && npm run build:web:app",
+    "build:web:network": "npm run build:packages && RAHHAL_WEB_RUNTIME=network next build --webpack",
     "build:web:app": "next build --webpack && node scripts/build-offline-bundle.mjs",
     "build:packages": "npm run build --workspace @rahhal/domain && npm run build --workspace @rahhal/contracts && npm run build --workspace @rahhal/testkit",
     "build:services": "npm run build --workspace @rahhal/api && npm run build --workspace @rahhal/worker",
@@ -72,7 +75,10 @@
     "analyze:build": "node scripts/analyze-build-assets.mjs",
     "analyze:bundle": "node scripts/run-bundle-analysis.mjs",
     "check:budgets": "node scripts/check-performance-budgets.mjs",
-    "css:prune-legacy": "node scripts/prune-legacy-shell-css.mjs"
+    "css:prune-legacy": "node scripts/prune-legacy-shell-css.mjs",
+    "test:browser:connected": "PLAYWRIGHT_SKIP_WEBSERVER=1 playwright test playwright/connected.pw.ts --project=desktop-1280x800",
+    "test:browser:b7": "PLAYWRIGHT_SKIP_WEBSERVER=1 playwright test playwright/b7.pw.ts --project=desktop-1280x800",
+    "seed:demo": "PLAYWRIGHT_SKIP_WEBSERVER=1 playwright test playwright/seed-demo.pw.ts --project=desktop-1280x800 --reporter=list"
   },
   "dependencies": {
     "next": "16.3.1",

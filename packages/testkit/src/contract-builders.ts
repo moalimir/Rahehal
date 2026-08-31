@@ -1,5 +1,6 @@
 import type {
   ApiError,
+  ChallengeApprovalResource,
   ChallengeDraftContentResource,
   ChallengeResource,
   CreateChallengeBody,
@@ -121,20 +122,22 @@ export function buildChallengeContentResource(
     applicant_scope: "both",
     allowed_applicant_types: ["individual", "expert-team", "company"],
     work_mode: "hybrid",
-    proposal_deadline: "2026-02-01T00:00:00.000Z",
-    preferred_start_date: "2026-03-01T00:00:00.000Z",
+    proposal_deadline: "2030-02-01T00:00:00.000Z",
+    preferred_start_date: "2030-03-01T00:00:00.000Z",
     budget: { status: "fixed", amount_minor: 100_000_000, currency: "IRR" },
     invitees: [],
     visibility: "registered",
     public_summary: "A public-safe summary.",
+    verification_required: false,
     nda_required: false,
+    document_gate_required: false,
     ip_terms: "solver_license",
     contact: {
       name: "Test Contact",
       email: "contact@example.test",
       phone: "+980000000000",
     },
-    accuracy_confirmed: false,
+    accuracy_confirmed: true,
     legal_notes: "",
     attachment_ids: [],
     ...overrides,
@@ -153,16 +156,44 @@ export function buildChallengeResource(
   return {
     id: deterministicId(idPrefixes.challenge),
     current_version_id: deterministicId(idPrefixes.challengeVersion),
+    published_version_id: null,
+    publication_state: null,
+    proposal_deadline_at: null,
     tenant_id: deterministicId(idPrefixes.tenant),
     workspace_id: deterministicId(idPrefixes.workspace),
     stage: "draft",
     authoring_status: "draft",
     version: 1,
+    content_version: 1,
+    readiness: { ready: true, evaluated_version: 1, issues: [] },
     content: buildChallengeContentResource(contentOverrides),
+    approvals: [],
+    publication_readiness: {
+      ready: false,
+      satisfied: [],
+      missing: ["technical", "legal", "finance", "quality"],
+    },
     created_by: deterministicId(idPrefixes.user),
     created_at: fixedTimestamp,
     updated_at: fixedTimestamp,
     ...aggregateOverrides,
+  };
+}
+
+export function buildChallengeApprovalResource(
+  overrides: Partial<ChallengeApprovalResource> = {},
+): ChallengeApprovalResource {
+  return {
+    id: deterministicId(idPrefixes.challengeApproval),
+    challenge_id: deterministicId(idPrefixes.challenge),
+    challenge_version_id: deterministicId(idPrefixes.challengeVersion),
+    gate: "technical",
+    decision: "approved",
+    reason: "پروفایل فنی و امکان‌سنجی بررسی و تأیید شد.",
+    recorded_by: deterministicId(idPrefixes.user),
+    recorded_by_role: "org:approver_technical",
+    recorded_at: fixedTimestamp,
+    ...overrides,
   };
 }
 

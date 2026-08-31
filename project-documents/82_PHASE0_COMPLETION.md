@@ -13,8 +13,8 @@ Installed and verified locally on 2026-08-23 (macOS arm64, Node 24.16.0 / npm 11
 | `npm run typecheck`                                                | ✅ pass                                                                                                                                     |
 | `npm run lint`                                                     | ✅ pass (`--max-warnings=0`)                                                                                                                |
 | `npm run format:check`                                             | ✅ pass                                                                                                                                     |
-| `npm test`                                                         | ✅ **45 files, 307 tests** pass across web, API, worker, and shared packages                                                                |
-| `npm run build`                                                    | ✅ **506 HTML outputs** (505 route indexes + `404.html`), offline bundle regenerated, **no manual retry**                                   |
+| `npm test`                                                         | ✅ **49 files, 354 tests** pass across web, API, worker, and shared packages                                                                |
+| `npm run build`                                                    | ✅ **513 HTML files / 512 unique route outputs**, offline bundle regenerated, **no manual retry**                                           |
 | `verify:routes` / `verify:links` / `test:smoke` / `verify:offline` | ✅ all pass                                                                                                                                 |
 | `test:standalone-interactive`                                      | ✅ **now passes** — was a harness bug (T-C), fixed in `scripts/smoke-standalone-interactive.mjs`; the offline bundle renders correctly      |
 | `test:browser` (Playwright, real Chromium)                         | ✅ **66 passed across 7 viewports; 4 intentional non-mobile skips; 0 failures**                                                             |
@@ -22,22 +22,22 @@ Installed and verified locally on 2026-08-23 (macOS arm64, Node 24.16.0 / npm 11
 
 ## 2. Deliverable status
 
-| #   | Phase-0 deliverable                                  | Status                          | Notes                                                                          |
-| --- | ---------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------ |
-| 1   | Resolve P0 decisions with named owners               | ✅ (defaults) / ⬚ (sign-off)    | [25_DECISIONS.md](25_DECISIONS.md) Part B                                      |
-| 2   | Adopt and converge the canonical model               | ✅                              | ADR-0001; X-02/X-03/X-04 executable, including challenge-store v9 migration    |
-| 3   | Open ADRs (ADR-0001…0014)                            | ✅                              | [25_DECISIONS.md](25_DECISIONS.md) Part A                                      |
-| 4   | Pin Node/npm runtime                                 | ✅                              | `.nvmrc`, `.node-version`, `engines`, `packageManager`                         |
-| 5   | Deterministic optional-dep (Sharp/libvips) install   | ✅ **verified**                 | libvips present, build clean                                                   |
-| 6   | Environment contract                                 | ✅                              | `.env.example`                                                                 |
-| 7   | `SECURITY.md`, `LICENSE`, `CONTRIBUTING.md`          | ✅                              | CODEOWNERS/PR-template omitted (lean agentic workflow)                         |
-| 8   | CI running every release gate                        | ✅ defined / 🟡 first Linux run | `.github/workflows/ci.yml`                                                     |
-| 9   | Contribution / handoff guide                         | ✅                              | `CONTRIBUTING.md`                                                              |
-| 10  | Offline bundle regenerates + standalone smoke passes | ✅ **verified**                 | smoke fixed (T-C); regenerated `index.html` committed and verified             |
-| 11  | Restore/rebaseline perf budgets                      | ✅                              | rebaselined per DEC-2026-009; payload reduction moves to the hardening gate    |
-| 12  | Browser behavior + visual baseline                   | ✅ behavior / 🟡 visual         | behavior green in real Chromium; visual Golden Master needs human review (T-E) |
-| 13  | Reproducible green frontend                          | ✅ **verified**                 | see §1                                                                         |
-| 14  | Local Docker web/API/worker integration              | ✅ **verified**                 | Compose health + smoke; Docker-served browser behavior 66/66 pass              |
+| #   | Phase-0 deliverable                                  | Status                          | Notes                                                                                |
+| --- | ---------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------ |
+| 1   | Resolve P0 decisions with named owners               | ✅ (defaults) / ⬚ (sign-off)    | [25_DECISIONS.md](25_DECISIONS.md) Part B                                            |
+| 2   | Adopt and converge the canonical model               | ✅                              | ADR-0001; X-02/X-03/X-04 executable, including challenge-store v9 migration          |
+| 3   | Open ADRs (ADR-0001…0014)                            | ✅                              | [25_DECISIONS.md](25_DECISIONS.md) Part A                                            |
+| 4   | Pin Node/npm runtime                                 | ✅                              | `.nvmrc`, `.node-version`, `engines`, `packageManager`                               |
+| 5   | Deterministic optional-dep (Sharp/libvips) install   | ✅ **verified**                 | libvips present, build clean                                                         |
+| 6   | Environment contract                                 | ✅                              | `.env.example`                                                                       |
+| 7   | `SECURITY.md`, `LICENSE`, `CONTRIBUTING.md`          | ✅                              | CODEOWNERS/PR-template omitted (lean agentic workflow)                               |
+| 8   | CI running every release gate                        | ✅ defined / 🟡 first Linux run | `.github/workflows/ci.yml`                                                           |
+| 9   | Contribution / handoff guide                         | ✅                              | `CONTRIBUTING.md`                                                                    |
+| 10  | Offline bundle regenerates + standalone smoke passes | ✅ **verified**                 | smoke fixed (T-C); regenerated `index.html` committed and verified                   |
+| 11  | Restore/rebaseline perf budgets                      | ✅                              | rebaselined per DEC-2026-009; payload reduction moves to the hardening gate          |
+| 12  | Browser behavior + visual baseline                   | ✅ behavior / 🟡 visual         | behavior green in real Chromium; visual Golden Master needs human review (T-E)       |
+| 13  | Reproducible green frontend                          | ✅ **verified**                 | see §1                                                                               |
+| 14  | Local Docker web/API/worker integration              | ✅ **verified**                 | Compose health + restart-persistence smoke; connected A3 and B7 suites pass 3/3 each |
 
 ## 3. Remaining tasks
 
@@ -66,6 +66,16 @@ Debugged this session: **T-A, T-B, T-C, T-D, and the behavior half of T-E are do
 
 ## 5. Verdict
 
-The **decisions half is complete** and the **repository baseline is verified working on this machine**: install (R-10 fixed), typecheck/lint/format/tests, production build (506 pages), all static gates, the offline standalone smoke (T-C bug fixed), and the **real-browser behavior suite (66 passed, 4 intentional non-mobile skips, 0 failures)** are green. The localhost-only Docker web/API/worker stack is also healthy: container smoke passes, the API returns typed `NOT_FOUND`, and the same browser suite passes against the Nginx-served export. The first full clean multi-stage container build still needs a network-capable Linux CI run because this Mac's always-on WireGuard path intermittently times out registry TLS.
+The **decisions half is complete** and the **repository baseline is verified working on this machine**: install (R-10 fixed), typecheck/lint/format/tests, production build, static/offline gates, and real-browser behavior are green. The localhost-only Docker stack is healthy and now has a clean native `linux/arm64` multi-stage rebuild from the pinned base; Linux CI is still required as the independent `linux/amd64` confirmation.
 
-**The remaining work is human review and external confirmation:** the visual Golden Master (**T-E**), owner sign-offs / placeholder replacements (**T-F/T-G**), and the first Linux CI run. None blocks starting Phase 1.
+**The remaining baseline work is human review and external confirmation:** the visual Golden Master (**T-E**), owner sign-offs / placeholder replacements (**T-F/T-G**), and the first Linux CI run. None blocks the implemented local delivery phases.
+
+## 6. Phase-1/2 execution checkpoint (2026-08-30)
+
+Phase 1 (A1a–A3) and the MVP-first Phase 2 (B1–B8) are implemented locally. The connected browser is server-authoritative for challenge draft create/read/save, readiness transitions, attributed publication gates, publish, reasoned live-call management, and public catalogue/detail. Platform legal/finance/ops use a role-scoped queue plus an allowlisted approval brief; the full org aggregate remains same-workspace only.
+
+Clean native `linux/arm64` API/web/worker images were rebuilt from the pinned Node 22 base on Docker Desktop, `database-setup` applied migration `0010_phase2_closure`, every service became healthy, and `docker:smoke` proved PostgreSQL persistence across API restart. The connected web image was rebuilt again on 2026-08-31 with the B5/B6 UI closure; `test:browser:connected` and the expanded `test:browser:b7` each pass 3/3. The B7 flow now publishes, pauses, resumes, extends the deadline, discovers the call in the public catalogue, and opens its allowlisted detail. The earlier stall was isolated to Docker Desktop's credential helper, not WireGuard routing or stale BuildKit sources; no overlay image or cache/volume deletion was used.
+
+The final local gate passes 50 Vitest files / 361 tests, 5 PostgreSQL files / 62 tests, 66 applicable demo-browser checks (4 viewport-specific skips), all eight performance budgets, and the route/link/offline/standalone checks. The static JavaScript artifact is 1,814,689 bytes against the accepted engineering ceiling of 1,819,000; connected-only B5/B6 components are excluded from that demo bundle.
+
+This does not claim production readiness. Managed OIDC, MFA/step-up, RLS, private files, abuse controls, authoritative worker delivery, backups/restore, observability, and server deployment remain later roadmap gates. Phase 3 may begin from the completed local Phase-1/2 boundary; post-publish material amendment and publication override stay separate future exception paths.

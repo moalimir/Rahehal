@@ -6,11 +6,23 @@ import Fastify, {
 import {
   apiRoutes,
   apiSchemas,
+  browserSessionRoutes,
+  type BrowserOidcAuthorizationStartBody,
+  type BrowserOidcAuthorizationStartSuccessEnvelope,
   openApiDocument,
   type CreateChallengeBody,
+  type ChallengeNextAction,
+  type ChallengeTransitionBody,
   type MeResource,
   type MutationSuccessEnvelope,
+  type OidcAuthorizationStartBody,
+  type OidcAuthorizationStartSuccessEnvelope,
+  type ChallengePublicationStateBody,
+  type ExtendChallengeDeadlineBody,
   type PatchChallengeBody,
+  type PublicAudience,
+  type PublicChallengeQuery,
+  type RecordChallengeApprovalBody,
   type SessionExchangeBody,
   type SessionRefreshBody,
   type SessionRevokeBody,
@@ -19,16 +31,40 @@ import {
   type SwitchWorkspaceContextBody,
   type VersionedApiMeta,
 } from "@rahhal/contracts";
+import {
+  gateApproverRoles,
+  isGateApproverRole,
+  isPlatformRole,
+  type ChallengeId,
+  type CorrelationId,
+} from "@rahhal/domain";
+import {
+  authorizationFlowCookie,
+  browserCookieNames,
+  clearBrowserAuthorizationFlowCookie,
+  clearBrowserSessionCookies,
+  decodeBrowserAuthorizationFlow,
+  parseCookies,
+  sessionCookies,
+  type BrowserSessionRuntimeSettings,
+} from "./browser-session.js";
 import { ApiProblem, errorEnvelope, notFound } from "./errors.js";
 import type {
   ApiPorts,
   AuthenticatedSession,
   ChallengeScope,
+  ChallengeTransitionCommand,
   MutationOutcome,
   WorkspaceAccess,
   WorkspaceAuthorization,
 } from "./ports.js";
-import { correlationId, bearerToken, requireSession, requiredHeader } from "./primitives.js";
+import {
+  commandFingerprint,
+  correlationId,
+  bearerToken,
+  requireSession,
+  requiredHeader,
+} from "./primitives.js";
 
 const challengeIdParamsSchema = {
   type: "object",
@@ -43,6 +79,15 @@ const challengeIdParamsSchema = {
 } as const;
 
 type ChallengeIdParams = { challengeId: string };
+
+type BrowserOidcCallbackQuery = {
+  readonly code: string;
+  readonly state: string;
+};
+
+export type ApiRuntimeOptions = {
+  readonly browserSession?: BrowserSessionRuntimeSettings;
+};
 
 const apiErrorResponses = {
   403: apiSchemas.ErrorEnvelope,
@@ -71,6 +116,21 @@ function versionedSuccess<T>(
       server_time: ports.clock.now().toISOString(),
       correlation_id: correlationId(request),
       entity_version: entityVersion,
+    },
+  };
+}
+
+/**
+ * The unversioned envelope. Public projections carry no aggregate version --
+ * exposing one would leak how often a private record has been edited.
+ */
+function success<T>(data: T, request: FastifyRequest, ports: ApiPorts): SuccessEnvelope<T> {
+  return {
+    ok: true,
+    data,
+    meta: {
+      server_time: ports.clock.now().toISOString(),
+      correlation_id: correlationId(request),
     },
   };
 }
@@ -140,8 +200,26 @@ function challengeScope(session: AuthenticatedSession, access: WorkspaceAccess):
 
 const canReadChallenge = (access: WorkspaceAccess) => access.workspace.kind === "org";
 
+/**
+ * Every platform role that owns at least one publication gate, derived from
+ * `gateApproverRoles` rather than restated, so a gate added later cannot leave
+ * its approver without the read that makes the gate meaningful.
+ */
+const platformGateApproverRoles = [...new Set(Object.values(gateApproverRoles).flat())].filter(
+  isPlatformRole,
+);
+
 const canEditChallenge = (access: WorkspaceAccess) =>
   access.workspace.kind === "org" && (access.role === "org:owner" || access.role === "org:member");
+
+/**
+ * Publication is `org:publisher` only -- the one role on the
+ * `approvals -> published` transition. Deliberately not `canEditChallenge`:
+ * the actor who authored the brief must not also be the actor who releases it
+ * (70_SECURITY_AND_AUTHZ §6).
+ */
+const canPublishChallenge = (access: WorkspaceAccess) =>
+  access.workspace.kind === "org" && access.role === "org:publisher";
 
 function idempotencyCommand(request: FastifyRequest) {
   const idempotencyKey = requiredHeader(request, "Idempotency-Key");
@@ -231,11 +309,228 @@ async function revokeSession(request: FastifyRequest, ports: ApiPorts, body: Ses
 // escape preserves the literal command separators in the published API paths.
 const fastifyLiteralPath = (path: string) => path.replaceAll(":", "::");
 
-export function buildApi(ports: ApiPorts): FastifyInstance {
-  const app = Fastify({ logger: false, ajv: { customOptions: { removeAdditional: false } } });
+const fastifyChallengeCommandPath = (path: string) =>
+  fastifyLiteralPath(path).replace(
+    "{challengeId}",
+    `:challengeId(${challengeIdParamsSchema.properties.challengeId.pattern})`,
+  );
 
-  app.addHook("onRequest", async (_request, reply) => {
+/**
+ * One registration for every versioned challenge command that reads the record
+ * inside the authorized unit of work, audits reachability, then delegates to a
+ * port command. `allows` and `invoke` are parameters rather than a branch,
+ * because publication uses a different role guard and a different port command
+ * from the three stage transitions.
+ */
+function registerChallengeCommand(
+  app: FastifyInstance,
+  ports: ApiPorts,
+  route: string,
+  action: string,
+  allows: (access: WorkspaceAccess) => boolean,
+  invoke: (
+    id: string,
+    body: ChallengeTransitionBody,
+    context: ChallengeScope & { idempotencyKey: string; correlationId: CorrelationId },
+  ) => Promise<MutationOutcome<ChallengeId, ChallengeNextAction>>,
+  bodySchema: (typeof apiSchemas)[keyof typeof apiSchemas] = apiSchemas.ChallengeTransitionBody,
+): void {
+  app.post<{ Params: ChallengeIdParams; Body: ChallengeTransitionBody }>(
+    fastifyChallengeCommandPath(route),
+    {
+      schema: {
+        params: challengeIdParamsSchema,
+        body: bodySchema,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request): Promise<MutationSuccessEnvelope> => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action,
+          entityType: "challenge",
+          entityId: request.params.challengeId,
+          allows,
+          deferSuccess: true,
+        },
+        async (access) => {
+          const visible = await ports.challenges.getScoped(
+            challengeScope(session, access),
+            request.params.challengeId,
+          );
+          if (!visible) {
+            await ports.decisionAudit.record({
+              outcome: "denied",
+              actorUserId: session.userId,
+              tenantId: access.tenantId,
+              workspaceId: access.workspaceId,
+              action,
+              entityType: "challenge",
+              entityId: request.params.challengeId,
+              reason: "record_unreachable",
+              correlationId: correlationId(request),
+              occurredAt: ports.clock.now().toISOString(),
+            });
+            throw notFound();
+          }
+          await recordWorkspaceAccessSuccess(request, ports, session, access, {
+            action,
+            entityType: "challenge",
+            entityId: request.params.challengeId,
+          });
+          const outcome = await invoke(request.params.challengeId, request.body, {
+            ...challengeScope(session, access),
+            ...idempotencyCommand(request),
+          });
+          return mutationSuccess(outcome, request, ports);
+        },
+      );
+    },
+  );
+}
+
+/**
+ * Records one publication gate. Unlike every other challenge route, the
+ * eligible actor is not always a member of the challenge's own workspace:
+ * platform:legal/finance/ops hold standing authority over specific gates
+ * (gateApproverRoles) but no membership in the org's workspace, so their
+ * session is never "active" there. `session.activeWorkspaceId` tells us
+ * upfront which case this is -- no try-the-org-path-then-catch fallback,
+ * since a caught 404 from runAuthorizedWorkspace can't be told apart from
+ * "challenge not found in this (correct) workspace".
+ */
+function registerRecordChallengeApproval(app: FastifyInstance, ports: ApiPorts): void {
+  const action = "challenge:record-approval";
+
+  app.post<{ Params: ChallengeIdParams; Body: RecordChallengeApprovalBody }>(
+    fastifyChallengeCommandPath(apiRoutes.recordChallengeApproval),
+    {
+      schema: {
+        params: challengeIdParamsSchema,
+        body: apiSchemas.RecordChallengeApprovalBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request): Promise<MutationSuccessEnvelope> => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const workspaceId = requiredHeader(request, "X-Workspace-Id");
+      const gate = request.body.gate;
+
+      const recordOnAccess = async (access: WorkspaceAccess) => {
+        const visible = await ports.challenges.getScoped(
+          challengeScope(session, access),
+          request.params.challengeId,
+        );
+        if (!visible) {
+          await ports.decisionAudit.record({
+            outcome: "denied",
+            actorUserId: session.userId,
+            tenantId: access.tenantId,
+            workspaceId: access.workspaceId,
+            action,
+            entityType: "challenge",
+            entityId: request.params.challengeId,
+            reason: "record_unreachable",
+            correlationId: correlationId(request),
+            occurredAt: ports.clock.now().toISOString(),
+          });
+          throw notFound();
+        }
+        await recordWorkspaceAccessSuccess(request, ports, session, access, {
+          action,
+          entityType: "challenge",
+          entityId: request.params.challengeId,
+        });
+        const outcome = await ports.challenges.recordApproval(
+          request.params.challengeId,
+          request.body,
+          { ...challengeScope(session, access), ...idempotencyCommand(request) },
+        );
+        return mutationSuccess(outcome, request, ports);
+      };
+
+      if (session.activeWorkspaceId !== workspaceId) {
+        return ports.authority.runAuthorizedPlatformRole(
+          session,
+          gateApproverRoles[gate].filter(isPlatformRole),
+          workspaceId,
+          {
+            action,
+            correlationId: correlationId(request),
+            entityType: "challenge",
+            entityId: request.params.challengeId,
+            allows: (access) => isGateApproverRole(gate, access.role),
+            deferSuccess: true,
+          },
+          recordOnAccess,
+        );
+      }
+
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action,
+          entityType: "challenge",
+          entityId: request.params.challengeId,
+          allows: (access) => isGateApproverRole(gate, access.role),
+          deferSuccess: true,
+        },
+        recordOnAccess,
+      );
+    },
+  );
+}
+
+function requireBrowserOrigin(request: FastifyRequest, settings: BrowserSessionRuntimeSettings) {
+  const origin = request.headers.origin;
+  const fetchSite = request.headers["sec-fetch-site"];
+  if (
+    origin !== settings.origin ||
+    (typeof fetchSite === "string" && fetchSite !== "same-origin")
+  ) {
+    throw new ApiProblem(403, "NO_ACCESS", "A same-origin browser request is required");
+  }
+}
+
+export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): FastifyInstance {
+  const app = Fastify({ logger: false, ajv: { customOptions: { removeAdditional: false } } });
+  const cookieAuthenticatedRequests = new WeakSet<FastifyRequest>();
+
+  app.addHook("onRequest", async (request, reply) => {
     void reply.header("cache-control", "no-store");
+    if (options.browserSession && !request.headers.authorization) {
+      const accessToken = parseCookies(request.headers.cookie).get(browserCookieNames.access);
+      if (accessToken) {
+        request.headers.authorization = `Bearer ${accessToken}`;
+        cookieAuthenticatedRequests.add(request);
+      }
+    }
+  });
+
+  app.addHook("preValidation", async (request) => {
+    if (
+      options.browserSession &&
+      cookieAuthenticatedRequests.has(request) &&
+      !["GET", "HEAD", "OPTIONS"].includes(request.method)
+    ) {
+      requireBrowserOrigin(request, options.browserSession);
+    }
   });
 
   app.setErrorHandler((error, request, reply) => {
@@ -259,10 +554,237 @@ export function buildApi(ports: ApiPorts): FastifyInstance {
       .send(errorEnvelope(problem, correlationId(request), ports.clock.now().toISOString()));
   });
 
+  /**
+   * Public discovery (B5). These are the only unauthenticated data routes:
+   * they read `ports.publicChallenges`, which can only reach the public
+   * projection, and never `ports.challenges`.
+   *
+   * A caller with a valid session sees `registered` challenges too. An
+   * absent, malformed, expired, or revoked credential degrades to the
+   * anonymous audience rather than failing the request -- a public catalogue
+   * that 403s on a stale cookie is broken, and the degraded view still
+   * cannot reveal a `registered` row.
+   */
+  const publicAudience = async (request: FastifyRequest): Promise<PublicAudience> => {
+    try {
+      const session = await ports.sessions.authenticate(bearerToken(request));
+      return session ? "registered" : "anonymous";
+    } catch {
+      return "anonymous";
+    }
+  };
+
+  app.get<{ Querystring: PublicChallengeQuery }>(
+    apiRoutes.publicChallenges,
+    {
+      schema: {
+        querystring: apiSchemas.PublicChallengeQuery,
+        response: {
+          200: apiSchemas.ChallengePublicPageSuccessEnvelope,
+          ...apiErrorResponses,
+        },
+      },
+    },
+    async (request) => {
+      const page = await ports.publicChallenges.list(await publicAudience(request), request.query);
+      return success(page, request, ports);
+    },
+  );
+
+  app.get<{ Params: ChallengeIdParams }>(
+    "/api/v1/public/challenges/:challengeId",
+    {
+      schema: {
+        params: challengeIdParamsSchema,
+        response: {
+          200: apiSchemas.ChallengePublicSuccessEnvelope,
+          ...apiErrorResponses,
+        },
+      },
+    },
+    async (request) => {
+      const projection = await ports.publicChallenges.get(
+        await publicAudience(request),
+        request.params.challengeId,
+      );
+      // Unknown, still-private, confidential, and session-gated challenges are
+      // all one answer, so the catalogue cannot be used to enumerate them.
+      if (!projection) throw notFound();
+      return success(projection, request, ports);
+    },
+  );
+
   app.get(apiRoutes.openApi, async (_request, reply) => {
     void reply.header("cache-control", "no-store");
     return openApiDocument;
   });
+
+  if (options.browserSession) {
+    const settings = options.browserSession;
+
+    app.post<{ Body: BrowserOidcAuthorizationStartBody }>(
+      fastifyLiteralPath(browserSessionRoutes.oidcAuthorizationStart),
+      {
+        schema: {
+          body: {
+            type: "object",
+            additionalProperties: false,
+            required: ["expected_version"],
+            properties: { expected_version: { const: 0 } },
+          },
+          response: {
+            200: {
+              type: "object",
+              additionalProperties: false,
+              required: ["ok", "data", "meta"],
+              properties: {
+                ok: { const: true },
+                data: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["authorization_url", "expires_at"],
+                  properties: {
+                    authorization_url: { type: "string", format: "uri", maxLength: 4_096 },
+                    expires_at: { type: "string", format: "date-time" },
+                  },
+                },
+                meta: apiSchemas.ApiMeta,
+              },
+            },
+            ...apiErrorResponses,
+          },
+        },
+      },
+      async (request, reply): Promise<BrowserOidcAuthorizationStartSuccessEnvelope> => {
+        requireBrowserOrigin(request, settings);
+        const result = await ports.oidcAuthorization.start(
+          { expected_version: request.body.expected_version, redirect_uri: settings.redirectUri },
+          idempotencyCommand(request),
+        );
+        void reply.header(
+          "set-cookie",
+          authorizationFlowCookie(
+            {
+              state: result.state,
+              codeVerifier: result.code_verifier,
+              expiresAt: result.expires_at,
+            },
+            settings,
+            ports.clock.now(),
+          ),
+        );
+        return {
+          ok: true,
+          data: {
+            authorization_url: result.authorization_url,
+            expires_at: result.expires_at,
+          },
+          meta: {
+            server_time: ports.clock.now().toISOString(),
+            correlation_id: correlationId(request),
+          },
+        };
+      },
+    );
+
+    app.get<{ Querystring: BrowserOidcCallbackQuery }>(
+      browserSessionRoutes.oidcCallback,
+      {
+        schema: {
+          querystring: {
+            type: "object",
+            additionalProperties: false,
+            required: ["code", "state"],
+            properties: {
+              code: { type: "string", minLength: 1, maxLength: 4_096 },
+              state: { type: "string", minLength: 32, maxLength: 1_024 },
+            },
+          },
+        },
+      },
+      async (request, reply) => {
+        const fail = () => {
+          void reply
+            .code(303)
+            .header("set-cookie", clearBrowserAuthorizationFlowCookie(settings))
+            .header("location", "/auth/organization/login?authError=callback_failed")
+            .send();
+        };
+        const flowValue = parseCookies(request.headers.cookie).get(browserCookieNames.flow);
+        const flow = flowValue ? decodeBrowserAuthorizationFlow(flowValue) : null;
+        if (
+          !flow ||
+          flow.state !== request.query.state ||
+          Date.parse(flow.expiresAt) <= ports.clock.now().getTime()
+        ) {
+          return fail();
+        }
+
+        try {
+          const outcome = await ports.sessions.exchange(
+            {
+              expected_version: 0,
+              authorization_code: request.query.code,
+              code_verifier: flow.codeVerifier,
+              redirect_uri: settings.redirectUri,
+              state: request.query.state,
+            },
+            {
+              idempotencyKey: `browser-exchange-${commandFingerprint({
+                code: request.query.code,
+                state: request.query.state,
+              })}`,
+              correlationId: correlationId(request),
+            },
+          );
+          void reply
+            .code(303)
+            .header("set-cookie", [
+              ...sessionCookies(outcome.tokens, settings, ports.clock.now()),
+              clearBrowserAuthorizationFlowCookie(settings),
+            ])
+            .header("location", "/app/org/challenges/new")
+            .send();
+        } catch {
+          return fail();
+        }
+      },
+    );
+
+    app.post(fastifyLiteralPath(browserSessionRoutes.sessionRevoke), async (request, reply) => {
+      requireBrowserOrigin(request, settings);
+      try {
+        const accessToken = bearerToken(request);
+        const session = await ports.sessions.authenticate(accessToken);
+        if (!session) throw new ApiProblem(403, "NO_ACCESS", "Authentication required");
+        const outcome = await revokeSession(request, ports, {
+          expected_version: session.version,
+          session_id: session.id,
+        });
+        return mutationSuccess(outcome, request, ports);
+      } finally {
+        void reply.header("set-cookie", clearBrowserSessionCookies(settings));
+      }
+    });
+  }
+
+  app.post<{ Body: OidcAuthorizationStartBody }>(
+    fastifyLiteralPath(apiRoutes.oidcAuthorizationStart),
+    {
+      schema: {
+        body: apiSchemas.OidcAuthorizationStartBody,
+        response: { 200: apiSchemas.OidcAuthorizationStartSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request): Promise<OidcAuthorizationStartSuccessEnvelope> => ({
+      ok: true,
+      data: await ports.oidcAuthorization.start(request.body, idempotencyCommand(request)),
+      meta: {
+        server_time: ports.clock.now().toISOString(),
+        correlation_id: correlationId(request),
+      },
+    }),
+  );
 
   app.post<{ Body: SessionExchangeBody }>(
     fastifyLiteralPath(apiRoutes.sessionExchange),
@@ -453,6 +975,88 @@ export function buildApi(ports: ApiPorts): FastifyInstance {
     },
   );
 
+  app.get(
+    apiRoutes.platformChallengeApprovalQueue,
+    {
+      schema: {
+        response: {
+          200: apiSchemas.PlatformChallengeApprovalQueueSuccessEnvelope,
+          ...apiErrorResponses,
+        },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "challenge:list-platform-approvals",
+          entityType: "challenge",
+          allows: (access) =>
+            access.workspace.kind === "platform" &&
+            platformGateApproverRoles.some((role) => role === access.role),
+        },
+        async (access) =>
+          success(
+            await ports.challenges.listApprovalQueue(challengeScope(session, access)),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.get<{ Params: ChallengeIdParams }>(
+    "/api/v1/platform/challenges/:challengeId/approval-brief",
+    {
+      schema: {
+        params: challengeIdParamsSchema,
+        response: { 200: apiSchemas.ChallengeApprovalBriefSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const targetWorkspaceId = requiredHeader(request, "X-Workspace-Id");
+      return ports.authority.runAuthorizedPlatformRole(
+        session,
+        platformGateApproverRoles,
+        targetWorkspaceId,
+        {
+          action: "challenge:read-approval-brief",
+          correlationId: correlationId(request),
+          entityType: "challenge",
+          entityId: request.params.challengeId,
+          deferSuccess: true,
+        },
+        async (access) => {
+          const resource = await ports.challenges.getApprovalBrief(
+            challengeScope(session, access),
+            request.params.challengeId,
+          );
+          if (!resource) throw notFound();
+          await recordWorkspaceAccessSuccess(request, ports, session, access, {
+            action: "challenge:read-approval-brief",
+            entityType: "challenge",
+            entityId: request.params.challengeId,
+          });
+          return versionedSuccess(resource, request, ports, resource.version);
+        },
+      );
+    },
+  );
+
   app.patch<{ Params: ChallengeIdParams; Body: PatchChallengeBody }>(
     "/api/v1/challenges/:challengeId",
     {
@@ -513,6 +1117,74 @@ export function buildApi(ports: ApiPorts): FastifyInstance {
         },
       );
     },
+  );
+
+  const registerTransition = (route: string, command: ChallengeTransitionCommand, action: string) =>
+    registerChallengeCommand(app, ports, route, action, canEditChallenge, (id, body, context) =>
+      ports.challenges.transition(id, command, body, context),
+    );
+
+  registerTransition(
+    apiRoutes.requestChallengeTriage,
+    "request-triage",
+    "challenge:request-triage",
+  );
+  registerTransition(
+    apiRoutes.advanceChallengeFormulation,
+    "advance-formulation",
+    "challenge:advance-formulation",
+  );
+  registerTransition(
+    apiRoutes.requestChallengeApprovals,
+    "request-approvals",
+    "challenge:request-approvals",
+  );
+  registerRecordChallengeApproval(app, ports);
+  /**
+   * B6 publication lifecycle. Same `org:publisher` authority as publication:
+   * extending, pausing or cancelling a live call changes what solvers were
+   * already told, which is a release decision, not an authoring one.
+   */
+  registerChallengeCommand(
+    app,
+    ports,
+    apiRoutes.extendChallengeDeadline,
+    "challenge:extend-deadline",
+    canPublishChallenge,
+    (id, body, context) =>
+      ports.challenges.extendDeadline(id, body as ExtendChallengeDeadlineBody, context),
+    apiSchemas.ExtendChallengeDeadlineBody,
+  );
+  for (const [route, command, action] of [
+    [apiRoutes.pauseChallenge, "pause", "challenge:pause"],
+    [apiRoutes.resumeChallenge, "resume", "challenge:resume"],
+    [apiRoutes.closeChallenge, "close", "challenge:close"],
+    [apiRoutes.cancelChallenge, "cancel", "challenge:cancel"],
+  ] as const) {
+    registerChallengeCommand(
+      app,
+      ports,
+      route,
+      action,
+      canPublishChallenge,
+      (id, body, context) =>
+        ports.challenges.changePublicationState(
+          id,
+          command,
+          body as ChallengePublicationStateBody,
+          context,
+        ),
+      apiSchemas.ChallengePublicationStateBody,
+    );
+  }
+
+  registerChallengeCommand(
+    app,
+    ports,
+    apiRoutes.publishChallenge,
+    "challenge:publish",
+    canPublishChallenge,
+    (id, body, context) => ports.challenges.publish(id, body, context),
   );
 
   return app;

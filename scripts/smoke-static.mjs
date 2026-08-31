@@ -10,7 +10,7 @@ const checks = [
   ["/auth/organization/login/", "ورود به حساب سازمانی", "ورود به حساب سازمانی"],
   ["/auth/organization/register/representative/", "ایجاد حساب سازمانی", "اطلاعات نماینده"],
   ["/auth/organization/register/company/", "اطلاعات سازمان", "مرحله ۲ از ۲"],
-  ["/auth/solver/register/type/", "ثبت‌نام حل‌کننده", "ثبت‌نام حل‌کننده"],
+  ["/auth/solver/register/type/", "ثبت‌نام فرد یا تیم", "ثبت‌نام فرد یا تیم"],
   ["/auth/solver/register/account/", "اطلاعات حساب", "اطلاعات حساب"],
   ["/auth/solver/register/profile/", "پروفایل تخصصی", "پروفایل و رزومه"],
   ["/auth/login/", "ورود حل‌کننده", "ورود حل‌کننده"],

@@ -6,8 +6,9 @@ discovery, proposal, review, contract, pilot, delivery, payment, and impact.
 The repository currently contains the advanced static/offline web prototype,
 the first executable API/worker/domain/contract/testkit workspaces, the A1a
 PostgreSQL schema foundation, A1b's PostgreSQL session/workspace boundary, and
-A1c's authoritative challenge-draft adapter. Local Compose now runs the API in
-explicit PostgreSQL mode; the static web and worker remain demo-only boundaries.
+A1c's authoritative challenge-draft adapter, and A2's provider-neutral OIDC
+authorization-code + PKCE boundary. Local Compose runs PostgreSQL, the API, and a
+synthetic Dex identity provider; the static web and worker remain demo-only boundaries.
 
 ## Technology
 
@@ -15,6 +16,7 @@ explicit PostgreSQL mode; the static web and worker remain demo-only boundaries.
 - React 19 and strict TypeScript
 - npm workspaces with Fastify 5 API and Node worker applications
 - PostgreSQL 16 with checksummed reversible SQL migrations and synthetic seeds
+- `openid-client` 6.8.7 with a digest-pinned Dex 2.45.1 local test provider
 - Shared domain primitives, OpenAPI 3.1 contracts, and deterministic test builders
 - Tailwind CSS 3 plus project CSS and local Estedad fonts
 - Vitest, Testing Library, JSDOM, ESLint, and Prettier
@@ -47,15 +49,18 @@ RAHHAL_API_MODE=demo npm run dev:api
 RAHHAL_WORKER_MODE=demo npm run dev:worker
 ```
 
-For the database-backed API, first migrate and seed local PostgreSQL, then run:
+For the database-backed API, first migrate and seed local PostgreSQL, export the A2 identity settings
+documented in `.env.example`, then run:
 
 ```bash
 RAHHAL_API_MODE=postgres npm run dev:api
 ```
 
-API mode is mandatory and has no implicit fallback. PostgreSQL mode serves the seeded digest-only
-local session but intentionally rejects OIDC exchange/credential issuance until A2. Both A1c
-PostgreSQL composition and demo mode refuse production until that identity boundary exists.
+API mode is mandatory and has no implicit fallback. PostgreSQL mode requires the A2 issuer, exact
+redirect allowlist, independent OIDC-flow secret, and session-credential secret. It validates OIDC
+issuer, audience, signature, nonce, state, PKCE, and verified contact before issuing an opaque,
+digest-only application session. The local Dex composition refuses production; selecting and
+operating the managed production IdP remains a pre-pilot gate.
 
 Build and serve the static export:
 
@@ -85,6 +90,7 @@ Docker Desktop packages the current boundaries into Linux containers: an Nginx-s
 export, the compiled Fastify API, and the compiled worker. Start Docker Desktop, then run:
 
 ```bash
+npm run docker:env:init
 npm run docker:config
 npm run docker:build
 npm run docker:up
@@ -93,6 +99,8 @@ npm run docker:smoke
 
 Open `http://localhost:3000`; the OpenAPI document is at
 `http://localhost:3001/api/v1/openapi.json`; PostgreSQL is host-local on port `5433`.
+Dex is loopback-only at `http://dex.localhost:5556/dex`. Its sole synthetic login is
+`owner-alpha@synthetic.invalid` / `rahhal-local-owner`; never reuse either outside this stack.
 Follow logs or stop the stack with:
 
 ```bash
@@ -100,7 +108,9 @@ npm run docker:logs
 npm run docker:down
 ```
 
-`RAHHAL_WEB_PORT`, `RAHHAL_API_PORT`, and `RAHHAL_POSTGRES_PORT` override localhost ports.
+`docker:env:init` creates an ignored mode-0600 `.env` with independent random OIDC-flow and
+session-credential secrets and refuses to overwrite an existing file. `RAHHAL_WEB_PORT`,
+`RAHHAL_API_PORT`, and `RAHHAL_POSTGRES_PORT` override localhost ports.
 `RAHHAL_POSTGRES_PASSWORD` changes the synthetic local-only database credential. `docker:build`
 refreshes application images; `docker:up` starts them, runs a guarded one-shot migration/seed job,
 and pulls pinned PostgreSQL when absent. The
@@ -130,11 +140,12 @@ must never be used as real identities, credentials, or production data.
 > development (`npm run dev`) or the non-container release gates.
 
 This is a portable **local integration baseline**, not production deployment. PostgreSQL has the A1a
-tables and A1b identity transaction boundary. A1c adds scoped challenge create/read/save, immutable
+tables, A1b identity transaction boundary, and A2 one-time authorization-attempt ledger. A1c adds scoped challenge create/read/save, immutable
 versions, durable receipts, and atomic audit/outbox/idempotency evidence. The API container selects
 PostgreSQL explicitly and the Docker smoke recreates an API process before reading its newly created
-challenge. The worker and web remain demo-only; real OIDC, durable outbox claiming, RLS, and private object storage
-remain later roadmap increments. The same Dockerfile will later be built for the selected server
+challenge. A2 adds real local OIDC login and revocable app sessions; the worker and web remain
+demo-only, while managed production identity, MFA/step-up, durable outbox claiming, RLS, and private
+object storage remain later roadmap increments. The same Dockerfile will later be built for the selected server
 architecture and promoted through real environments.
 
 ## Quality checks

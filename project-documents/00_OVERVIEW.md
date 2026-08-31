@@ -1,7 +1,7 @@
 # Rahhal / راه‌حل — Consolidated Product & Backend Blueprint
 
-**Version:** 3.1 (status refresh) **Original audit snapshot:** 2026-08-20 **Implementation status verified:** 2026-08-23 **Application version:** `2.9.0`
-**Evidence base:** source code, route registries, domain types, state machines, tests, and a fresh static export. Audit findings date to 2026-08-20; implementation-status notes and release-gate counts were re-verified on 2026-08-23.
+**Version:** 3.2 (status refresh) **Original audit snapshot:** 2026-08-20 **Implementation status verified:** 2026-08-27 **Application version:** `2.9.0`
+**Evidence base:** source code, route registries, domain types, state machines, tests, and a fresh static export. Audit findings date to 2026-08-20; release-gate counts were re-verified on 2026-08-23; A1a/A1b/A1c PostgreSQL foundation notes were re-verified on 2026-08-27 (see [70_SECURITY_AND_AUTHZ](70_SECURITY_AND_AUTHZ.md) "Current executable proof").
 **Structure:** This is the authoritative, consolidated blueprint (docs 00–80). Four v1 reference docs are retained in the same folder as supporting detail — [15_PRODUCT_REQUIREMENTS](15_PRODUCT_REQUIREMENTS.md) (FR/NFR/acceptance catalog), [85_DEVELOPMENT_GUIDE](85_DEVELOPMENT_GUIDE.md), [90_REQUIREMENTS_TRACEABILITY](90_REQUIREMENTS_TRACEABILITY.md), and [95_RISKS_AND_OPEN_QUESTIONS](95_RISKS_AND_OPEN_QUESTIONS.md). Where a reference doc disagrees with 00–80 on terminology, entity identity, states, roles, or permissions, **this consolidated set wins** — those disagreements are exactly the contradictions it resolves (see [30_CONSISTENCY_AUDIT](30_CONSISTENCY_AUDIT.md)).
 
 ---

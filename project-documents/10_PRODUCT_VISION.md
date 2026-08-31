@@ -87,7 +87,7 @@ This is the matrix the UI, API, and permissions all derive from. Rows are canoni
 The prototype already _shows_ all eleven stages. The vision is realized not by adding stages but by making **one thin vertical slice authoritative**, then widening:
 
 > **Slice 1 (MVP):** publish challenge → eligible proposal (locked version) → COI + rubric review → reasoned decision → durable audit.
-> **Slice 2:** contract → pilot → deliverable acceptance → gated payment → reconciliation.
-> **Slice 3:** impact measurement, disputes, case-study consent, and scale.
+> **Slice 2:** contract → pilot → deliverable acceptance → gated payment → reconciliation → disputes → case closure, impact evidence, and case-study consent.
+> **Slice 3:** the pre-pilot hardening gate, then a controlled real-user pilot cohort — and scale beyond it.
 
 Depth first, breadth second — see [80_DELIVERY_ROADMAP](80_DELIVERY_ROADMAP.md).

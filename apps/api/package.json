@@ -15,14 +15,15 @@
     "db:seed": "tsx src/postgres/seed-cli.ts",
     "dev": "tsx watch src/server.ts",
     "start": "node dist/server.js",
-    "test:postgres": "vitest run test/postgres-*.test.ts",
+    "test:postgres": "node --env-file-if-exists=../../.env ../../node_modules/.bin/vitest run test/postgres-*.test.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --exclude test/postgres-*.test.ts"
+    "test": "vitest run --exclude 'test/postgres-*.test.ts'"
   },
   "dependencies": {
     "@rahhal/contracts": "0.1.0",
     "@rahhal/domain": "0.1.0",
     "fastify": "5.11.3",
+    "openid-client": "6.8.7",
     "pg": "8.23.0"
   },
   "devDependencies": {

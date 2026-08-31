@@ -29,6 +29,8 @@ import {
 } from "@/components/portal/auth-experiences";
 import { OnboardingExperience } from "@/components/portal/onboarding-experience";
 import { SolverRegistrationExperience } from "@/components/portal/registration-experiences";
+import { NetworkOrganizationLogin } from "@/components/portal/network-organization-login";
+import { isNetworkWebRuntime } from "@/lib/runtime/mode";
 
 const sideNavigation: Record<Exclude<RoleSpace, "public">, Array<[string, string]>> = {
   solver: [
@@ -212,6 +214,9 @@ function PublicRoute({ definition }: { definition: RouteDefinition }) {
     );
   }
   if (isOrganizationAuth) {
+    if (isNetworkWebRuntime && definition.path === "/auth/organization/login") {
+      return <NetworkOrganizationLogin />;
+    }
     return <OrganizationAuthExperience definition={definition} />;
   }
   if (isSolverLogin) {

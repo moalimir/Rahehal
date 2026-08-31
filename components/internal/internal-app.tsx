@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ChallengeDiscoveryApp } from "@/components/challenge-discovery";
 import { Icon } from "@/components/icons";
 import { LegacyRedirect } from "@/components/legacy-redirect";
+import { PlatformApprovalQueue } from "@/components/platform-approval-queue";
 import {
   LegacyUnavailable,
   PermissionDenied,
@@ -18,6 +19,7 @@ import {
   OrganizationWorkspaceExperience,
 } from "@/components/organization-workspace";
 import { ConfirmDialog, ReceiptPanel, StateNotice } from "@/components/internal/shared";
+import { useChallengeGateway } from "@/components/runtime-provider";
 import { ConfiguredRoleShell, OrganizationShell } from "@/components/role-shells";
 import { SolverDashboardExperience } from "@/components/solver-dashboard";
 import { SolverProposalDetail } from "@/components/solver-proposals-list";
@@ -37,8 +39,8 @@ import {
   type ServiceMode,
 } from "@/lib/services/internal-service";
 import { isQaHarnessEnabled } from "@/lib/qa-harness";
+import { isNetworkWebRuntime } from "@/lib/runtime/mode";
 import { canAccessInternalRole, readDemoSession, type DemoSession } from "@/lib/auth/session";
-import { demoChallengeGateway } from "@/lib/challenges/runtime";
 import { isRecordReady } from "@/lib/challenges/validation";
 import { directOfferById, proposalById, readSolverState } from "@/lib/solver/repository";
 
@@ -107,6 +109,13 @@ export function InternalApp({ route }: { route: InternalRoute }) {
   }, [route.role]);
   if (legacy?.kind === "redirect") return <LegacyRedirect target={legacy.target} />;
   if (legacy?.kind === "unavailable") return <LegacyUnavailable resolution={legacy} />;
+  if (isNetworkWebRuntime && route.path === "/app/ops/publication") {
+    return (
+      <ConfiguredRoleShell role="ops" currentPath={route.path}>
+        <PlatformApprovalQueue />
+      </ConfiguredRoleShell>
+    );
+  }
   if (session === undefined) return <RouteResolving />;
   const sharedRoute =
     /^\/app\/(?:search|tasks|calendar|messages|notifications|documents|help|account)(?:\/|$)/.test(
@@ -227,6 +236,9 @@ function InternalExperience({
   route: InternalRoute;
   solverSpace?: SolverSpace;
 }) {
+  // The runtime provider picks demo or network persistence; this component
+  // must not choose between them (AGENTS.md: components consume gateways).
+  const challengeGateway = useChallengeGateway();
   const qaHarnessEnabled =
     typeof window !== "undefined" ? isQaHarnessEnabled(window.location) : false;
   const [uiState, setUiState] = useState<DemoUiState>("default");
@@ -254,7 +266,7 @@ function InternalExperience({
       try {
         const publicationId = route.path.match(/^\/app\/ops\/publication\/(CH-[^/]+)$/)?.[1];
         const publicationResult = publicationId
-          ? await demoChallengeGateway.queries.get(publicationId)
+          ? await challengeGateway.queries.get(publicationId)
           : null;
         if (publicationResult && !publicationResult.ok) {
           throw new InternalServiceError(
@@ -287,7 +299,7 @@ function InternalExperience({
           mode,
         );
         if (publicationId && publicationRecord?.status === "under_review") {
-          const publication = await demoChallengeGateway.commands.publish(publicationId);
+          const publication = await challengeGateway.commands.publish(publicationId);
           if (!publication.ok) {
             throw new InternalServiceError(
               publication.error.message,
@@ -308,7 +320,7 @@ function InternalExperience({
         setBusy(false);
       }
     },
-    [route.path, route.role, uiState],
+    [challengeGateway, route.path, route.role, uiState],
   );
 
   const handleAction: ActionHandler = (label, options) => {

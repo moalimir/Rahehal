@@ -78,8 +78,18 @@ INSERT INTO identity_link (
     'solver-alpha',
     '2026-01-01T00:00:00Z',
     '2026-01-01T00:00:00Z'
+  ),
+  (
+    'idl_owner_alpha_local_oidc',
+    'usr_owner_alpha',
+    'http://dex.localhost:5556/dex',
+    'Cgtvd25lci1hbHBoYRIFbG9jYWw',
+    '2026-01-01T00:00:00Z',
+    NULL
   )
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT (id) DO UPDATE
+SET issuer = EXCLUDED.issuer,
+    subject = EXCLUDED.subject;
 
 INSERT INTO workspace (
   id,
@@ -401,4 +411,58 @@ INSERT INTO idempotency_key (
   '2026-01-01T00:00:00Z',
   '2030-01-01T00:00:00Z'
 )
+ON CONFLICT (id) DO NOTHING;
+
+-- B7 governance identities. The Phase-2 exit gate needs four *distinct*
+-- approvers plus a separate publisher, because separation of duty forbids one
+-- actor recording two gates on a version. Every identity is synthetic and
+-- local-only: `@synthetic.invalid` is a reserved, unroutable domain and the
+-- password hash is the shared local Dex fixture in infra/local/dex/config.yaml.
+INSERT INTO app_user (
+  id, display_name, primary_email, email_verified, primary_phone, phone_verified,
+  created_at, updated_at
+) VALUES
+  ('usr_approver_alpha', 'Synthetic Technical Approver', 'approver-alpha@synthetic.invalid',
+   true, NULL, false, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'),
+  ('usr_publisher_alpha', 'Synthetic Organization Publisher', 'publisher-alpha@synthetic.invalid',
+   true, NULL, false, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'),
+  ('usr_platform_finance', 'Synthetic Platform Finance', 'platform-finance@synthetic.invalid',
+   true, NULL, false, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'),
+  ('usr_platform_legal', 'Synthetic Platform Legal', 'platform-legal@synthetic.invalid',
+   true, NULL, false, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')
+ON CONFLICT (id) DO NOTHING;
+
+-- Dex subjects are protobuf(userID, connectorID) base64url-encoded, matching
+-- `idl_owner_alpha_local_oidc` above. `usr_platform_ops` already existed but
+-- had no Dex link, so it could not sign in to record the quality gate.
+INSERT INTO identity_link (id, user_id, issuer, subject, created_at, last_authenticated_at) VALUES
+  ('idl_platform_ops_local_oidc', 'usr_platform_ops',
+   'http://dex.localhost:5556/dex', 'CgxwbGF0Zm9ybS1vcHMSBWxvY2Fs', '2026-01-01T00:00:00Z', NULL),
+  ('idl_approver_alpha_local_oidc', 'usr_approver_alpha',
+   'http://dex.localhost:5556/dex', 'Cg5hcHByb3Zlci1hbHBoYRIFbG9jYWw', '2026-01-01T00:00:00Z', NULL),
+  ('idl_publisher_alpha_local_oidc', 'usr_publisher_alpha',
+   'http://dex.localhost:5556/dex', 'Cg9wdWJsaXNoZXItYWxwaGESBWxvY2Fs', '2026-01-01T00:00:00Z', NULL),
+  ('idl_platform_finance_local_oidc', 'usr_platform_finance',
+   'http://dex.localhost:5556/dex', 'ChBwbGF0Zm9ybS1maW5hbmNlEgVsb2NhbA', '2026-01-01T00:00:00Z', NULL),
+  ('idl_platform_legal_local_oidc', 'usr_platform_legal',
+   'http://dex.localhost:5556/dex', 'Cg5wbGF0Zm9ybS1sZWdhbBIFbG9jYWw', '2026-01-01T00:00:00Z', NULL)
+ON CONFLICT (id) DO UPDATE
+SET issuer = EXCLUDED.issuer,
+    subject = EXCLUDED.subject;
+
+INSERT INTO membership (
+  id, tenant_id, workspace_id, workspace_kind, user_id, role, state, created_at, updated_at
+) VALUES
+  ('mem_approver_alpha', 'ten_org_alpha', 'wsp_org_alpha', 'org',
+   'usr_approver_alpha', 'org:approver_technical', 'active',
+   '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'),
+  ('mem_publisher_alpha', 'ten_org_alpha', 'wsp_org_alpha', 'org',
+   'usr_publisher_alpha', 'org:publisher', 'active',
+   '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'),
+  ('mem_platform_finance', 'ten_platform', 'wsp_platform_main', 'platform',
+   'usr_platform_finance', 'platform:finance', 'active',
+   '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'),
+  ('mem_platform_legal', 'ten_platform', 'wsp_platform_main', 'platform',
+   'usr_platform_legal', 'platform:legal', 'active',
+   '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')
 ON CONFLICT (id) DO NOTHING;

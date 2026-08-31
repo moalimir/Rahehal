@@ -10622,6 +10622,29 @@ bdi {
   background: #eaf9f4;
   color: #087454;
 }
+.organization-auth-dev-note {
+  margin: 26px 0 0;
+  padding: 13px 15px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-background);
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.85;
+}
+.organization-auth-dev-note strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--color-text);
+  font-weight: 650;
+}
+.organization-auth-dev-note code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  font-size: 12px;
+}
 .organization-logo-upload {
   grid-column: 1 / -1;
   display: grid;

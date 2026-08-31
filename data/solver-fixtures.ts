@@ -84,6 +84,18 @@ const submittedContent: ProposalContent = {
   attachmentNames: ["water-pilot-evidence.pdf"],
 };
 
+/**
+ * Direct-offer deadlines are anchored to the wall clock, not to the fixture
+ * clock below. `submitOfferResponse` expires an offer against real `Date.now()`
+ * (`lib/solver/repository/commands.ts`), so an absolute deadline written
+ * relative to a frozen fixture date is a time bomb: these offers were authored
+ * as open, and silently became expired once real time passed them. Offsets keep
+ * the original ordering (OFF-218 before OFF-226 before OFF-241).
+ */
+function offerDeadlineInDays(days: number): string {
+  return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+}
+
 export function createCanonicalSolverState(now = "2026-08-17T09:00:00.000Z"): SolverState {
   return {
     version: 5,
@@ -631,7 +643,7 @@ export function createCanonicalSolverState(now = "2026-08-17T09:00:00.000Z"): So
           "ظرفیت همکاری اعلام‌شده",
         ],
         requestedDocuments: ["رزومه", "نمونه تجربه مرتبط"],
-        deadline: "2026-08-29T20:30:00.000Z",
+        deadline: offerDeadlineInDays(12),
         state: "received",
         updatedAt: now,
       },
@@ -644,7 +656,7 @@ export function createCanonicalSolverState(now = "2026-08-17T09:00:00.000Z"): So
         summary: "دعوت تیم برای تدوین پاسخ فنی و مالی.",
         invitationReasons: ["توانمندی تیم در طراحی مکانیک", "سابقه پایلوت صنعتی"],
         requestedDocuments: ["رزومه تیم", "برنامه زمان‌بندی"],
-        deadline: "2026-08-27T20:30:00.000Z",
+        deadline: offerDeadlineInDays(10),
         state: "viewed",
         viewedAt: "2026-08-16T09:00:00.000Z",
         updatedAt: now,
@@ -658,7 +670,7 @@ export function createCanonicalSolverState(now = "2026-08-17T09:00:00.000Z"): So
         summary: "دعوت آزمایشگاه برای بررسی نمونه و ارائه پاسخ.",
         invitationReasons: ["تجهیزات آزمایشگاهی مرتبط", "تجربه شیمی آب"],
         requestedDocuments: ["فهرست تجهیزات"],
-        deadline: "2026-09-04T20:30:00.000Z",
+        deadline: offerDeadlineInDays(18),
         state: "received",
         updatedAt: now,
       },

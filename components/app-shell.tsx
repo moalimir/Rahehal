@@ -43,7 +43,7 @@ export type AppWorkspaceOption = {
   id: string;
   label: string;
   description: string;
-  space: "individual" | "team";
+  space: "individual" | "team" | "org" | "platform";
 };
 
 function normalizedPath(path: string): string {
@@ -82,6 +82,7 @@ export function RoleAppShell({
   onWorkspaceChange,
   quickLinks,
   unreadCount = 0,
+  onSignOut,
 }: {
   role: AppShellRole;
   navigation: AppNavigationItem[];
@@ -97,6 +98,7 @@ export function RoleAppShell({
   onWorkspaceChange?: (workspaceId: string) => void;
   quickLinks?: { opportunities: string; notifications: string; profile: string };
   unreadCount?: number;
+  onSignOut?: () => void;
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const opener = useRef<HTMLButtonElement>(null);
@@ -191,6 +193,11 @@ export function RoleAppShell({
               <Icon name="shield" />
               <span>راهنما و پشتیبانی</span>
             </Link>
+            {onSignOut && (
+              <button type="button" className="text-button" onClick={onSignOut}>
+                خروج از نشست
+              </button>
+            )}
             <div className="unified-sidebar__account">
               <PersonAvatar name={account.userName} className="unified-avatar" />
               <div>
@@ -225,7 +232,7 @@ export function RoleAppShell({
             <Icon name="menu" />
           </button>
 
-          {role === "solver" && workspaceOptions?.length && onWorkspaceChange ? (
+          {workspaceOptions?.length && onWorkspaceChange ? (
             <label className="unified-space-switcher unified-space-switcher--select">
               <span>فضای کاری فعال</span>
               <select

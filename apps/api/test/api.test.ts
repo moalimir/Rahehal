@@ -4,10 +4,16 @@ import {
   type MutationSuccessEnvelope,
   type SessionSuccessEnvelope,
   type SuccessEnvelope,
+  type ChallengeDraftContentResource,
+  type ChallengeApprovalBriefResource,
+  type PlatformChallengeApprovalQueueResource,
+  type ChallengePublicPage,
+  type ChallengePublicProjectionResource,
   type ChallengeResource,
   type MeResource,
 } from "@rahhal/contracts";
 import {
+  challengeOutboxEventTypes,
   idPrefixes,
   parseChallengeId,
   parseTenantId,
@@ -16,6 +22,7 @@ import {
 } from "@rahhal/domain";
 import {
   buildCreateChallengeBody,
+  buildChallengeContentResource,
   buildChallengeResource,
   buildPatchChallengeBody,
   buildSessionExchangeBody,
@@ -52,6 +59,25 @@ function ownerHeaders(idempotencyKey?: string) {
   return {
     authorization: `Bearer ${demoApiCredentials.owner.accessToken}`,
     "x-workspace-id": demoApiCredentials.owner.workspaceId,
+    ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}),
+  };
+}
+
+/**
+ * Builds headers for a gate-recording request against the alpha org's
+ * challenge. Platform actors (platformOps/platformFinance/platformLegal)
+ * are never members of wsp_org_alpha, so their session stays active in
+ * their own platform workspace -- the request still targets wsp_org_alpha
+ * via X-Workspace-Id, exactly modeling the B2 cross-tenant path.
+ */
+function gateHeaders(
+  credential: { readonly accessToken: string },
+  idempotencyKey?: string,
+  targetWorkspaceId: string = demoApiCredentials.owner.workspaceId,
+) {
+  return {
+    authorization: `Bearer ${credential.accessToken}`,
+    "x-workspace-id": targetWorkspaceId,
     ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}),
   };
 }
@@ -185,7 +211,7 @@ describe("authoritative Fastify API foundation", () => {
     expect(firstBody.data.receipt.idempotent).toBe(false);
     expect(secondBody.data.receipt).toEqual({ ...firstBody.data.receipt, idempotent: true });
     expect(secondBody.data.tokens).toEqual(firstBody.data.tokens);
-    expect(composition.identity.snapshot().sessions).toHaveLength(4);
+    expect(composition.identity.snapshot().sessions).toHaveLength(8);
     expect(composition.identity.snapshot().auditEvents).toHaveLength(1);
     expect(composition.identity.snapshot().outboxEvents).toHaveLength(1);
   });
@@ -208,7 +234,7 @@ describe("authoritative Fastify API foundation", () => {
     expect(replayWithNewKey.statusCode).toBe(403);
     expect(replayWithNewKey.json<ErrorEnvelope>().error.code).toBe("NO_ACCESS");
     const snapshot = composition.identity.snapshot();
-    expect(snapshot.sessions).toHaveLength(4);
+    expect(snapshot.sessions).toHaveLength(8);
     expect(snapshot.auditEvents).toHaveLength(1);
     expect(snapshot.outboxEvents).toHaveLength(1);
     expect(snapshot.consumedOidcExchangeCount).toBe(1);
@@ -568,6 +594,1090 @@ describe("authoritative Fastify API foundation", () => {
     );
   });
 
+  it("returns the same authoritative readiness issues from draft read and triage submit", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: apiRoutes.challenges,
+      headers: ownerHeaders("b1-readiness-create-01"),
+      payload: buildCreateChallengeBody({ draft: { title: "کوتاه" } }),
+    });
+    const challengeId = created.json<MutationSuccessEnvelope>().data.entity_id;
+    const read = await app.inject({
+      method: "GET",
+      url: `/api/v1/challenges/${challengeId}`,
+      headers: ownerHeaders(),
+    });
+    const resource = read.json<SuccessEnvelope<ChallengeResource>>().data;
+
+    const submitted = await app.inject({
+      method: "POST",
+      url: apiRoutes.requestChallengeTriage.replace("{challengeId}", challengeId),
+      headers: ownerHeaders("b1-readiness-submit-01"),
+      payload: { expected_version: resource.version },
+    });
+    const failure = submitted.json<ErrorEnvelope>();
+
+    expect(resource.readiness.ready).toBe(false);
+    expect(submitted.statusCode).toBe(422);
+    expect(failure.error).toMatchObject({
+      code: "VALIDATION",
+      current_version: resource.version,
+      readiness: resource.readiness,
+      fields: resource.readiness.issues,
+    });
+    expect(composition.challenges.snapshot().auditEvents).toHaveLength(1);
+  });
+
+  it("rejects an expired eligibility deadline before creating a challenge version", async () => {
+    const versionsBefore = composition.challenges.snapshot().versions.length;
+    const response = await app.inject({
+      method: "POST",
+      url: apiRoutes.challenges,
+      headers: ownerHeaders("b3-expired-rule-create-01"),
+      payload: buildCreateChallengeBody({
+        draft: { proposal_deadline: "2025-12-31T23:59:59.000Z" },
+      }),
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json<ErrorEnvelope>().error).toMatchObject({
+      code: "VALIDATION",
+      fields: [expect.objectContaining({ path: "/content/proposal_deadline", code: "future" })],
+    });
+    expect(composition.challenges.snapshot().versions).toHaveLength(versionsBefore);
+  });
+
+  it("advances only along the canonical B1 lifecycle with versioned atomic receipts", async () => {
+    const content = buildChallengeContentResource();
+    const created = await app.inject({
+      method: "POST",
+      url: apiRoutes.challenges,
+      headers: ownerHeaders("b1-lifecycle-create-01"),
+      payload: buildCreateChallengeBody({ draft: content }),
+    });
+    const challengeId = created.json<MutationSuccessEnvelope>().data.entity_id;
+
+    const skipped = await app.inject({
+      method: "POST",
+      url: apiRoutes.requestChallengeApprovals.replace("{challengeId}", challengeId),
+      headers: ownerHeaders("b1-lifecycle-skip-01"),
+      payload: { expected_version: 1 },
+    });
+    expect(skipped.statusCode).toBe(409);
+    expect(skipped.json<ErrorEnvelope>().error).toMatchObject({
+      code: "INVALID_STATE",
+      current_state: "draft",
+      allowed_transitions: ["triage"],
+    });
+
+    const triageRequest = {
+      method: "POST" as const,
+      url: apiRoutes.requestChallengeTriage.replace("{challengeId}", challengeId),
+      headers: ownerHeaders("b1-lifecycle-triage-01"),
+      payload: { expected_version: 1 },
+    };
+    const triage = await app.inject(triageRequest);
+    const triageReplay = await app.inject(triageRequest);
+    expect(triage.statusCode).toBe(200);
+    expect(triage.json<MutationSuccessEnvelope>()).toMatchObject({
+      data: { idempotent: false, next_actions: ["advance_formulation"] },
+      meta: { entity_version: 2 },
+    });
+    expect(triageReplay.json<MutationSuccessEnvelope>()).toMatchObject({
+      data: { idempotent: true },
+      meta: { entity_version: 2 },
+    });
+
+    const formulation = await app.inject({
+      method: "POST",
+      url: apiRoutes.advanceChallengeFormulation.replace("{challengeId}", challengeId),
+      headers: ownerHeaders("b1-lifecycle-formulation-01"),
+      payload: { expected_version: 2 },
+    });
+    expect(formulation.statusCode).toBe(200);
+    expect(formulation.json<MutationSuccessEnvelope>().meta.entity_version).toBe(3);
+
+    const save = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/challenges/${challengeId}`,
+      headers: ownerHeaders("b1-lifecycle-save-01"),
+      payload: { expected_version: 3, patch: { summary: "نسخه دقیق صورت‌بندی نهایی" } },
+    });
+    expect(save.statusCode).toBe(200);
+    expect(save.json<MutationSuccessEnvelope>().meta.entity_version).toBe(4);
+
+    const approvals = await app.inject({
+      method: "POST",
+      url: apiRoutes.requestChallengeApprovals.replace("{challengeId}", challengeId),
+      headers: ownerHeaders("b1-lifecycle-approvals-01"),
+      payload: { expected_version: 4 },
+    });
+    expect(approvals.statusCode).toBe(200);
+    expect(approvals.json<MutationSuccessEnvelope>()).toMatchObject({
+      data: { next_actions: ["await_approvals"] },
+      meta: { entity_version: 5 },
+    });
+
+    const read = await app.inject({
+      method: "GET",
+      url: `/api/v1/challenges/${challengeId}`,
+      headers: ownerHeaders(),
+    });
+    expect(read.json<SuccessEnvelope<ChallengeResource>>().data).toMatchObject({
+      stage: "approvals",
+      version: 5,
+      content_version: 2,
+      readiness: { ready: true, evaluated_version: 5, issues: [] },
+    });
+    const snapshot = composition.challenges.snapshot();
+    expect(snapshot.versions.filter(({ id }) => id === challengeId)).toHaveLength(2);
+    expect(snapshot.auditEvents.filter(({ entityId }) => entityId === challengeId)).toHaveLength(5);
+    expect(
+      snapshot.outboxEvents.filter(({ aggregate_id }) => aggregate_id === challengeId),
+    ).toHaveLength(5);
+  });
+
+  async function createChallengeAtApprovalsStage(
+    keyPrefix: string,
+    draft: ChallengeDraftContentResource = buildChallengeContentResource(),
+  ): Promise<string> {
+    const created = await app.inject({
+      method: "POST",
+      url: apiRoutes.challenges,
+      headers: ownerHeaders(`${keyPrefix}-create`),
+      payload: buildCreateChallengeBody({ draft }),
+    });
+    const challengeId = created.json<MutationSuccessEnvelope>().data.entity_id;
+    await app.inject({
+      method: "POST",
+      url: apiRoutes.requestChallengeTriage.replace("{challengeId}", challengeId),
+      headers: ownerHeaders(`${keyPrefix}-triage`),
+      payload: { expected_version: 1 },
+    });
+    await app.inject({
+      method: "POST",
+      url: apiRoutes.advanceChallengeFormulation.replace("{challengeId}", challengeId),
+      headers: ownerHeaders(`${keyPrefix}-formulation`),
+      payload: { expected_version: 2 },
+    });
+    const approvals = await app.inject({
+      method: "POST",
+      url: apiRoutes.requestChallengeApprovals.replace("{challengeId}", challengeId),
+      headers: ownerHeaders(`${keyPrefix}-approvals`),
+      payload: { expected_version: 3 },
+    });
+    expect(approvals.statusCode).toBe(200);
+    return challengeId;
+  }
+
+  it("records all four B2 publication gates across the org and platform authorization paths", async () => {
+    const challengeId = await createChallengeAtApprovalsStage("b2-full");
+    const recordUrl = apiRoutes.recordChallengeApproval.replace("{challengeId}", challengeId);
+
+    const technical = await app.inject({
+      method: "POST",
+      url: recordUrl,
+      headers: gateHeaders(demoApiCredentials.approver, "b2-full-technical"),
+      payload: {
+        expected_version: 4,
+        gate: "technical",
+        decision: "approved",
+        reason: "طرح فنی از نظر امکان‌سنجی بررسی و تأیید شد.",
+      },
+    });
+    expect(technical.statusCode).toBe(200);
+    const technicalBody = technical.json<MutationSuccessEnvelope>();
+    expect(technicalBody.data).toMatchObject({
+      idempotent: false,
+      next_actions: ["await_remaining_gates"],
+    });
+    expect(technicalBody.meta.entity_version).toBe(1);
+
+    const technicalReplay = await app.inject({
+      method: "POST",
+      url: recordUrl,
+      headers: gateHeaders(demoApiCredentials.approver, "b2-full-technical"),
+      payload: {
+        expected_version: 4,
+        gate: "technical",
+        decision: "approved",
+        reason: "طرح فنی از نظر امکان‌سنجی بررسی و تأیید شد.",
+      },
+    });
+    expect(technicalReplay.json<MutationSuccessEnvelope>()).toMatchObject({
+      data: {
+        entity_id: technicalBody.data.entity_id,
+        receipt_id: technicalBody.data.receipt_id,
+        audit_event_id: technicalBody.data.audit_event_id,
+        idempotent: true,
+      },
+      meta: { entity_version: 1 },
+    });
+
+    // legal/finance/quality are all recorded cross-tenant: each platform
+    // actor's own session stays active in wsp_platform_main, never in
+    // wsp_org_alpha, so this is the narrow platform-authority path (B2),
+    // not the ordinary org-membership path.
+    const legal = await app.inject({
+      method: "POST",
+      url: recordUrl,
+      headers: gateHeaders(demoApiCredentials.platformLegal, "b2-full-legal"),
+      payload: {
+        expected_version: 4,
+        gate: "legal",
+        decision: "approved",
+        reason: "بند حقوقی بررسی و تأیید شد.",
+      },
+    });
+    expect(legal.statusCode).toBe(200);
+    expect(legal.json<MutationSuccessEnvelope>().data.next_actions).toEqual([
+      "await_remaining_gates",
+    ]);
+
+    const finance = await app.inject({
+      method: "POST",
+      url: recordUrl,
+      headers: gateHeaders(demoApiCredentials.platformFinance, "b2-full-finance"),
+      payload: {
+        expected_version: 4,
+        gate: "finance",
+        decision: "approved",
+        reason: "بودجه بررسی و تأیید شد.",
+      },
+    });
+    expect(finance.statusCode).toBe(200);
+    expect(finance.json<MutationSuccessEnvelope>().data.next_actions).toEqual([
+      "await_remaining_gates",
+    ]);
+
+    const quality = await app.inject({
+      method: "POST",
+      url: recordUrl,
+      headers: gateHeaders(demoApiCredentials.platformOps, "b2-full-quality"),
+      payload: {
+        expected_version: 4,
+        gate: "quality",
+        decision: "approved",
+        reason: "بررسی کیفیت مستقل انجام و تأیید شد.",
+      },
+    });
+    expect(quality.statusCode).toBe(200);
+    expect(quality.json<MutationSuccessEnvelope>().data.next_actions).toEqual([
+      "ready_for_publish",
+    ]);
+
+    const read = await app.inject({
+      method: "GET",
+      url: `/api/v1/challenges/${challengeId}`,
+      headers: ownerHeaders(),
+    });
+    const resource = read.json<SuccessEnvelope<ChallengeResource>>().data;
+    expect(resource.publication_readiness).toEqual({
+      ready: true,
+      satisfied: ["technical", "legal", "finance", "quality"],
+      missing: [],
+    });
+    expect(resource.approvals.map((approval) => approval.gate).sort()).toEqual([
+      "finance",
+      "legal",
+      "quality",
+      "technical",
+    ]);
+    // Gate recording never touches the challenge's own aggregate version --
+    // challenge_approval is a separate, independently-versioned aggregate.
+    expect(resource.version).toBe(4);
+
+    const snapshot = composition.challenges.snapshot();
+    expect(
+      snapshot.auditEvents.filter((event) => event.action === "challenge.approval.recorded"),
+    ).toHaveLength(4);
+    expect(
+      snapshot.outboxEvents.filter((event) => event.event_type === "challenge.approval.recorded"),
+    ).toHaveLength(4);
+
+    // The worker dead-letters any event type outside its supported set, so an
+    // event the challenge slice emits but the domain list omits is silent data
+    // loss rather than a visible failure.
+    const emitted = [...new Set(snapshot.outboxEvents.map((event) => event.event_type))].sort();
+    expect(emitted.length).toBeGreaterThan(0);
+    expect(
+      emitted.filter((type) => !(challengeOutboxEventTypes as readonly string[]).includes(type)),
+    ).toEqual([]);
+  });
+
+  it("denies gate recording for an ineligible role and for an unreachable cross-tenant target", async () => {
+    const challengeId = await createChallengeAtApprovalsStage("b2-denied");
+    const recordUrl = apiRoutes.recordChallengeApproval.replace("{challengeId}", challengeId);
+    const technicalPayload = {
+      expected_version: 4,
+      gate: "technical" as const,
+      decision: "approved" as const,
+      reason: "تلاش نامعتبر.",
+    };
+
+    // The org's own owner is a real member of the workspace but holds no
+    // gate-eligible role -- denied via the ordinary org-context path.
+    const ownerAttempt = await app.inject({
+      method: "POST",
+      url: recordUrl,
+      headers: ownerHeaders("b2-denied-owner"),
+      payload: technicalPayload,
+    });
+    expect(ownerAttempt.statusCode).toBe(403);
+    expect(ownerAttempt.json<ErrorEnvelope>().error.code).toBe("NO_ACCESS");
+
+    // A platform actor with no standing authority for this gate (platformOps
+    // only ever holds "quality") cannot reach it cross-tenant either -- and
+    // the denial reads as NOT_FOUND, not NO_ACCESS, so it cannot be used to
+    // probe whether the challenge exists.
+    const platformOpsAttempt = await app.inject({
+      method: "POST",
+      url: recordUrl,
+      headers: gateHeaders(demoApiCredentials.platformOps, "b2-denied-platform-ops-technical"),
+      payload: technicalPayload,
+    });
+    expect(platformOpsAttempt.statusCode).toBe(404);
+    expect(platformOpsAttempt.json<ErrorEnvelope>().error.code).toBe("NOT_FOUND");
+  });
+
+  /** Drives a challenge to `approvals` and clears all four gates. */
+  async function createFullyApprovedChallenge(
+    keyPrefix: string,
+    draft?: ChallengeDraftContentResource,
+  ): Promise<string> {
+    const challengeId = await createChallengeAtApprovalsStage(keyPrefix, draft);
+    const recordUrl = apiRoutes.recordChallengeApproval.replace("{challengeId}", challengeId);
+    const gates = [
+      ["technical", demoApiCredentials.approver],
+      ["legal", demoApiCredentials.platformLegal],
+      ["finance", demoApiCredentials.platformFinance],
+      ["quality", demoApiCredentials.platformOps],
+    ] as const;
+    for (const [gate, credential] of gates) {
+      const response = await app.inject({
+        method: "POST",
+        url: recordUrl,
+        headers: gateHeaders(credential, `${keyPrefix}-${gate}`),
+        payload: {
+          expected_version: 4,
+          gate,
+          decision: "approved",
+          reason: `تأیید دروازه ${gate}.`,
+        },
+      });
+      expect(response.statusCode).toBe(200);
+    }
+    return challengeId;
+  }
+
+  const publishUrl = (challengeId: string) =>
+    apiRoutes.publishChallenge.replace("{challengeId}", challengeId);
+
+  function publisherHeaders(idempotencyKey?: string) {
+    return {
+      authorization: `Bearer ${demoApiCredentials.publisher.accessToken}`,
+      "x-workspace-id": demoApiCredentials.publisher.workspaceId,
+      ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}),
+    };
+  }
+
+  it("publishes a fully approved version and writes only allowlisted public fields", async () => {
+    const challengeId = await createFullyApprovedChallenge(
+      "b4-publish",
+      // `legal_notes` is empty in the shared fixture; the leak assertion below
+      // is only meaningful when every confidential field carries real text.
+      buildChallengeContentResource({ legal_notes: "شرایط حقوقی داخلی و محرمانه." }),
+    );
+    const before = composition.challenges.snapshot();
+    const approvedVersionId = before.challenges.find(
+      ({ id }) => id === challengeId,
+    )?.current_version_id;
+
+    const published = await app.inject({
+      method: "POST",
+      url: publishUrl(challengeId),
+      headers: publisherHeaders("b4-publish-command-01"),
+      payload: { expected_version: 4 },
+    });
+    expect(published.statusCode).toBe(200);
+    const receipt = published.json<MutationSuccessEnvelope>();
+    expect(receipt.data.next_actions).toEqual(["await_proposals"]);
+    expect(receipt.meta.entity_version).toBe(5);
+
+    const read = await app.inject({
+      method: "GET",
+      url: `/api/v1/challenges/${challengeId}`,
+      headers: ownerHeaders(),
+    });
+    const resource = read.json<SuccessEnvelope<ChallengeResource>>().data;
+    expect(resource.stage).toBe("published");
+    // The published pointer is the exact version the four gates cleared.
+    expect(resource.published_version_id).toBe(approvedVersionId);
+
+    const snapshot = composition.challenges.snapshot();
+    const projections = snapshot.publicProjections.filter(
+      (projection) => projection.challenge_id === challengeId,
+    );
+    expect(projections).toHaveLength(1);
+
+    // The public row's field set is the allowlist and nothing else: every
+    // confidential content field is structurally absent, not blanked out.
+    const projection = projections[0];
+    expect(Object.keys(projection ?? {}).sort()).toEqual(
+      [
+        "allowed_applicant_types",
+        "applicant_scope",
+        "budget",
+        "category",
+        "challenge_id",
+        "challenge_version_id",
+        "document_gate_required",
+        "ip_terms",
+        "location",
+        "nda_required",
+        "output_type",
+        "preferred_start_date",
+        "proposal_deadline",
+        "public_summary",
+        "published_at",
+        "sourcing_model",
+        "state",
+        "title",
+        "verification_required",
+        "visibility",
+        "work_mode",
+      ].sort(),
+    );
+    const serialized = JSON.stringify(projection);
+    for (const confidential of [
+      resource.content.summary,
+      resource.content.current_state,
+      resource.content.desired_outcome,
+      resource.content.expected_output,
+      resource.content.legal_notes,
+      resource.content.contact.email,
+      resource.content.contact.phone,
+    ]) {
+      expect(confidential.length).toBeGreaterThan(0);
+      expect(serialized).not.toContain(confidential);
+    }
+
+    expect(
+      snapshot.auditEvents.filter(
+        (event) => event.entityId === challengeId && event.action === "challenge.published",
+      ),
+    ).toHaveLength(1);
+    expect(
+      snapshot.outboxEvents.filter(
+        (event) => event.aggregate_id === challengeId && event.event_type === "challenge.published",
+      ),
+    ).toHaveLength(1);
+    const emitted = [...new Set(snapshot.outboxEvents.map((event) => event.event_type))];
+    expect(
+      emitted.filter((type) => !(challengeOutboxEventTypes as readonly string[]).includes(type)),
+    ).toEqual([]);
+
+    // A replay is the same receipt and produces no second publication.
+    const replay = await app.inject({
+      method: "POST",
+      url: publishUrl(challengeId),
+      headers: publisherHeaders("b4-publish-command-01"),
+      payload: { expected_version: 4 },
+    });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json<MutationSuccessEnvelope>().data).toEqual({
+      ...receipt.data,
+      idempotent: true,
+    });
+    expect(composition.challenges.snapshot().publicProjections).toHaveLength(
+      snapshot.publicProjections.length,
+    );
+  });
+
+  it("refuses to publish an under-approved version and leaves no public row", async () => {
+    const challengeId = await createChallengeAtApprovalsStage("b4-partial");
+    // Three of four gates: `quality` is deliberately never recorded.
+    for (const [gate, credential] of [
+      ["technical", demoApiCredentials.approver],
+      ["legal", demoApiCredentials.platformLegal],
+      ["finance", demoApiCredentials.platformFinance],
+    ] as const) {
+      await app.inject({
+        method: "POST",
+        url: apiRoutes.recordChallengeApproval.replace("{challengeId}", challengeId),
+        headers: gateHeaders(credential, `b4-partial-${gate}`),
+        payload: { expected_version: 4, gate, decision: "approved", reason: "تأیید جزئی." },
+      });
+    }
+    const before = composition.challenges.snapshot();
+
+    const denied = await app.inject({
+      method: "POST",
+      url: publishUrl(challengeId),
+      headers: publisherHeaders("b4-partial-publish-01"),
+      payload: { expected_version: 4 },
+    });
+    expect(denied.statusCode).toBe(409);
+    expect(denied.json<ErrorEnvelope>().error).toMatchObject({
+      code: "INVALID_STATE",
+      current_state: "approvals",
+    });
+    expect(composition.challenges.snapshot()).toEqual(before);
+
+    // The outstanding gate is named on the record the caller already reads.
+    const read = await app.inject({
+      method: "GET",
+      url: `/api/v1/challenges/${challengeId}`,
+      headers: ownerHeaders(),
+    });
+    expect(
+      read.json<SuccessEnvelope<ChallengeResource>>().data.publication_readiness.missing,
+    ).toEqual(["quality"]);
+  });
+
+  it("denies publication to every role except the org publisher", async () => {
+    const challengeId = await createFullyApprovedChallenge("b4-role");
+    const before = composition.challenges.snapshot();
+
+    // The owner authored the brief; separation of duty keeps release out of
+    // the authoring role's hands even when every gate is green.
+    const ownerAttempt = await app.inject({
+      method: "POST",
+      url: publishUrl(challengeId),
+      headers: ownerHeaders("b4-role-owner-publish"),
+      payload: { expected_version: 4 },
+    });
+    expect(ownerAttempt.statusCode).toBe(403);
+    expect(ownerAttempt.json<ErrorEnvelope>().error.code).toBe("NO_ACCESS");
+
+    // The technical approver is likewise not a publisher.
+    const approverAttempt = await app.inject({
+      method: "POST",
+      url: publishUrl(challengeId),
+      headers: gateHeaders(demoApiCredentials.approver, "b4-role-approver-publish"),
+      payload: { expected_version: 4 },
+    });
+    expect(approverAttempt.statusCode).toBe(403);
+    expect(approverAttempt.json<ErrorEnvelope>().error.code).toBe("NO_ACCESS");
+
+    expect(composition.challenges.snapshot()).toEqual(before);
+  });
+
+  it("publishes an NDA-only challenge without ever entering the public table", async () => {
+    const ndaChallengeId = await createFullyApprovedChallenge(
+      "b4-nda",
+      buildChallengeContentResource({ visibility: "nda" }),
+    );
+
+    const published = await app.inject({
+      method: "POST",
+      url: publishUrl(ndaChallengeId),
+      headers: publisherHeaders("b4-nda-publish"),
+      payload: { expected_version: 4 },
+    });
+    expect(published.statusCode).toBe(200);
+
+    const snapshot = composition.challenges.snapshot();
+    expect(snapshot.challenges.find(({ id }) => id === ndaChallengeId)?.stage).toBe("published");
+    expect(
+      snapshot.publicProjections.filter((projection) => projection.challenge_id === ndaChallengeId),
+    ).toHaveLength(0);
+  });
+
+  /** Drives one challenge all the way to `published`. */
+  async function publishChallenge(
+    keyPrefix: string,
+    draft?: ChallengeDraftContentResource,
+  ): Promise<string> {
+    const challengeId = await createFullyApprovedChallenge(keyPrefix, draft);
+    const published = await app.inject({
+      method: "POST",
+      url: publishUrl(challengeId),
+      headers: publisherHeaders(`${keyPrefix}-publish`),
+      payload: { expected_version: 4 },
+    });
+    expect(published.statusCode).toBe(200);
+    return challengeId;
+  }
+
+  const publicChallengeUrl = (challengeId: string) =>
+    apiRoutes.publicChallengeById.replace("{challengeId}", challengeId);
+
+  it("serves public discovery from the projection with no confidential field", async () => {
+    const challengeId = await publishChallenge(
+      "b5-public",
+      buildChallengeContentResource({
+        visibility: "public",
+        legal_notes: "یادداشت حقوقی محرمانه.",
+      }),
+    );
+
+    const list = await app.inject({ method: "GET", url: apiRoutes.publicChallenges });
+    expect(list.statusCode).toBe(200);
+    const page = list.json<SuccessEnvelope<ChallengePublicPage>>().data;
+    const item = page.items.find((row) => row.challenge_id === challengeId);
+    expect(item).toBeDefined();
+    expect(page.next_cursor).toBeNull();
+
+    const detail = await app.inject({ method: "GET", url: publicChallengeUrl(challengeId) });
+    expect(detail.statusCode).toBe(200);
+    const projection = detail.json<SuccessEnvelope<ChallengePublicProjectionResource>>().data;
+
+    // The response's field set is the allowlist exactly -- a confidential
+    // field added to the aggregate cannot arrive here by accident.
+    expect(Object.keys(projection).sort()).toEqual(
+      [
+        "allowed_applicant_types",
+        "applicant_scope",
+        "budget",
+        "category",
+        "challenge_id",
+        "challenge_version_id",
+        "document_gate_required",
+        "ip_terms",
+        "location",
+        "nda_required",
+        "output_type",
+        "preferred_start_date",
+        "proposal_deadline",
+        "public_summary",
+        "published_at",
+        "sourcing_model",
+        "state",
+        "title",
+        "verification_required",
+        "visibility",
+        "work_mode",
+      ].sort(),
+    );
+    expect(item).toEqual(projection);
+
+    // Nothing the private record holds appears anywhere in the public payload.
+    const serialized = detail.payload;
+    for (const confidential of [
+      "A deterministic challenge draft for tests.",
+      "The current process is manual.",
+      "یادداشت حقوقی محرمانه.",
+      "contact@example.test",
+      "+980000000000",
+    ]) {
+      expect(serialized).not.toContain(confidential);
+    }
+    // The public envelope carries no aggregate version either.
+    expect(detail.json<SuccessEnvelope<unknown>>().meta).not.toHaveProperty("entity_version");
+  });
+
+  it("hides a registered-only challenge from anonymous readers and shows it to a session", async () => {
+    const registeredId = await publishChallenge(
+      "b5-registered",
+      buildChallengeContentResource({ visibility: "registered" }),
+    );
+
+    const anonymousList = await app.inject({ method: "GET", url: apiRoutes.publicChallenges });
+    expect(
+      anonymousList
+        .json<SuccessEnvelope<ChallengePublicPage>>()
+        .data.items.map((row) => row.challenge_id),
+    ).not.toContain(registeredId);
+
+    // The detail denial is a plain NOT_FOUND, identical to an unknown id, so
+    // an anonymous scan cannot learn that this challenge exists.
+    const anonymousDetail = await app.inject({
+      method: "GET",
+      url: publicChallengeUrl(registeredId),
+    });
+    expect(anonymousDetail.statusCode).toBe(404);
+    expect(anonymousDetail.json<ErrorEnvelope>().error.code).toBe("NOT_FOUND");
+
+    const signedIn = await app.inject({
+      method: "GET",
+      url: publicChallengeUrl(registeredId),
+      headers: { authorization: `Bearer ${demoApiCredentials.owner.accessToken}` },
+    });
+    expect(signedIn.statusCode).toBe(200);
+    expect(
+      signedIn.json<SuccessEnvelope<ChallengePublicProjectionResource>>().data.challenge_id,
+    ).toBe(registeredId);
+  });
+
+  it("never exposes an unpublished, confidential, or unknown challenge", async () => {
+    // Approved but not yet published.
+    const unpublishedId = await createFullyApprovedChallenge("b5-unpublished");
+    // Published, but NDA-only: it has no projection row at all.
+    const ndaId = await publishChallenge(
+      "b5-nda",
+      buildChallengeContentResource({ visibility: "nda" }),
+    );
+
+    for (const challengeId of [unpublishedId, ndaId, parseChallengeId("chl_absent_00000001")]) {
+      const response = await app.inject({
+        method: "GET",
+        url: publicChallengeUrl(challengeId),
+        // Even a fully authenticated org owner gets nothing from the public
+        // surface: reaching a private record is the authoring API's job.
+        headers: { authorization: `Bearer ${demoApiCredentials.owner.accessToken}` },
+      });
+      expect(response.statusCode).toBe(404);
+      expect(response.json<ErrorEnvelope>().error.code).toBe("NOT_FOUND");
+    }
+
+    const list = await app.inject({
+      method: "GET",
+      url: apiRoutes.publicChallenges,
+      headers: { authorization: `Bearer ${demoApiCredentials.owner.accessToken}` },
+    });
+    const ids = list
+      .json<SuccessEnvelope<ChallengePublicPage>>()
+      .data.items.map((row) => row.challenge_id);
+    expect(ids).not.toContain(unpublishedId);
+    expect(ids).not.toContain(ndaId);
+  });
+
+  it("degrades an unusable credential to the anonymous audience instead of failing", async () => {
+    const registeredId = await publishChallenge(
+      "b5-degrade",
+      buildChallengeContentResource({ visibility: "registered" }),
+    );
+
+    for (const authorization of ["Bearer not-a-real-token", "Basic abc", ""]) {
+      const response = await app.inject({
+        method: "GET",
+        url: apiRoutes.publicChallenges,
+        ...(authorization ? { headers: { authorization } } : {}),
+      });
+      // A public catalogue must answer, not 403, on a stale or malformed
+      // credential -- but the degraded answer still withholds registered rows.
+      expect(response.statusCode).toBe(200);
+      expect(
+        response
+          .json<SuccessEnvelope<ChallengePublicPage>>()
+          .data.items.map((row) => row.challenge_id),
+      ).not.toContain(registeredId);
+    }
+  });
+
+  it("filters by category and rejects a corrupt cursor", async () => {
+    const matching = await publishChallenge(
+      "b5-cat-match",
+      buildChallengeContentResource({ visibility: "public", category: "logistics" }),
+    );
+    const other = await publishChallenge(
+      "b5-cat-other",
+      buildChallengeContentResource({ visibility: "public", category: "operations" }),
+    );
+
+    const filtered = await app.inject({
+      method: "GET",
+      url: `${apiRoutes.publicChallenges}?category=logistics`,
+    });
+    const ids = filtered
+      .json<SuccessEnvelope<ChallengePublicPage>>()
+      .data.items.map((row) => row.challenge_id);
+    expect(ids).toContain(matching);
+    expect(ids).not.toContain(other);
+
+    const corrupt = await app.inject({
+      method: "GET",
+      url: `${apiRoutes.publicChallenges}?cursor=not-a-cursor`,
+    });
+    expect(corrupt.statusCode).toBe(422);
+    expect(corrupt.json<ErrorEnvelope>().error.code).toBe("VALIDATION");
+  });
+
+  it("gives platform gate approvers an allowlisted brief, never the org aggregate", async () => {
+    const challengeId = await createChallengeAtApprovalsStage("b8a-read");
+    const technical = await app.inject({
+      method: "POST",
+      url: apiRoutes.recordChallengeApproval.replace("{challengeId}", challengeId),
+      headers: gateHeaders(demoApiCredentials.approver, "b8a-technical"),
+      payload: {
+        expected_version: 4,
+        gate: "technical",
+        decision: "approved",
+        reason: "بررسی فنی انجام شد.",
+      },
+    });
+    expect(technical.statusCode).toBe(200);
+
+    const privateRead = await app.inject({
+      method: "GET",
+      url: `/api/v1/challenges/${challengeId}`,
+      headers: gateHeaders(demoApiCredentials.platformOps),
+    });
+    expect(privateRead.statusCode).toBe(404);
+
+    const opsRead = await app.inject({
+      method: "GET",
+      url: apiRoutes.platformChallengeApprovalBrief.replace("{challengeId}", challengeId),
+      headers: gateHeaders(demoApiCredentials.platformOps),
+    });
+    expect(opsRead.statusCode).toBe(200);
+    const resource = opsRead.json<SuccessEnvelope<ChallengeApprovalBriefResource>>().data;
+    expect(resource.id).toBe(challengeId);
+    expect(resource.stage).toBe("approvals");
+    expect(resource.publication_readiness.missing).toContain("quality");
+    expect(resource.content.title).not.toBe("");
+    expect(resource.content).not.toHaveProperty("contact");
+    expect(resource.content).not.toHaveProperty("invitees");
+    expect(resource.content).not.toHaveProperty("attachment_ids");
+    expect(resource).not.toHaveProperty("tenant_id");
+    expect(resource).not.toHaveProperty("created_by");
+    expect(resource.approvals[0]).toMatchObject({
+      gate: "technical",
+      recorded_by_role: "org:approver_technical",
+      recorded_by_current_actor: false,
+    });
+    expect(resource.approvals[0]).not.toHaveProperty("recorded_by");
+
+    for (const credential of [
+      demoApiCredentials.platformLegal,
+      demoApiCredentials.platformFinance,
+    ]) {
+      const response = await app.inject({
+        method: "GET",
+        url: apiRoutes.platformChallengeApprovalBrief.replace("{challengeId}", challengeId),
+        headers: gateHeaders(credential),
+      });
+      expect(response.statusCode).toBe(200);
+    }
+  });
+
+  it("lists only approval work for the active platform role", async () => {
+    const challengeId = await createChallengeAtApprovalsStage("b8b-queue");
+    const response = await app.inject({
+      method: "GET",
+      url: apiRoutes.platformChallengeApprovalQueue,
+      headers: gateHeaders(
+        demoApiCredentials.platformOps,
+        undefined,
+        demoApiCredentials.platformOps.workspaceId,
+      ),
+    });
+    expect(response.statusCode).toBe(200);
+    const queue = response.json<SuccessEnvelope<PlatformChallengeApprovalQueueResource>>().data;
+    expect(queue.items).toContainEqual(
+      expect.objectContaining({
+        challenge_id: challengeId,
+        workspace_id: demoApiCredentials.owner.workspaceId,
+        gate: "quality",
+      }),
+    );
+    expect(JSON.stringify(queue)).not.toContain("contact");
+  });
+
+  it("keeps the platform read inside the approvals window and off other stages", async () => {
+    // Created but never advanced: no gate authority applies, so ops must not
+    // be able to read it -- and the denial must not reveal that it exists.
+    const created = await app.inject({
+      method: "POST",
+      url: apiRoutes.challenges,
+      headers: ownerHeaders("b8a-draft-create"),
+      payload: buildCreateChallengeBody({ draft: buildChallengeContentResource() }),
+    });
+    const draftId = created.json<MutationSuccessEnvelope>().data.entity_id;
+
+    const draftRead = await app.inject({
+      method: "GET",
+      url: apiRoutes.platformChallengeApprovalBrief.replace("{challengeId}", draftId),
+      headers: gateHeaders(demoApiCredentials.platformOps),
+    });
+    expect(draftRead.statusCode).toBe(404);
+    expect(draftRead.json<ErrorEnvelope>().error.code).toBe("NOT_FOUND");
+
+    // An unknown id answers identically, so the two are indistinguishable.
+    const unknownRead = await app.inject({
+      method: "GET",
+      url: apiRoutes.platformChallengeApprovalBrief.replace(
+        "{challengeId}",
+        parseChallengeId("chl_absent_00000002"),
+      ),
+      headers: gateHeaders(demoApiCredentials.platformOps),
+    });
+    expect(unknownRead.statusCode).toBe(404);
+    expect(unknownRead.json<ErrorEnvelope>().error.code).toBe(
+      draftRead.json<ErrorEnvelope>().error.code,
+    );
+  });
+
+  it("denies the cross-tenant read to a foreign org and to a gateless platform role", async () => {
+    const challengeId = await createChallengeAtApprovalsStage("b8a-denied");
+
+    // Another organization is not a platform role: no standing authority, and
+    // no membership in wsp_org_alpha either.
+    const foreign = await app.inject({
+      method: "GET",
+      url: apiRoutes.platformChallengeApprovalBrief.replace("{challengeId}", challengeId),
+      headers: gateHeaders(demoApiCredentials.foreignOwner),
+    });
+    expect(foreign.statusCode).toBe(404);
+    expect(foreign.json<ErrorEnvelope>().error.code).toBe("NOT_FOUND");
+  });
+
+  it("runs the publication lifecycle through the publisher only, and hides a paused call", async () => {
+    const challengeId = await publishChallenge(
+      "b6-lifecycle",
+      buildChallengeContentResource({ visibility: "public" }),
+    );
+    const listed = async () => {
+      const response = await app.inject({ method: "GET", url: apiRoutes.publicChallenges });
+      return response
+        .json<SuccessEnvelope<ChallengePublicPage>>()
+        .data.items.map((row) => row.challenge_id);
+    };
+    expect(await listed()).toContain(challengeId);
+
+    // The org owner authored the brief; changing a live call's terms is a
+    // release decision, so it is the publisher's alone.
+    const ownerPause = await app.inject({
+      method: "POST",
+      url: apiRoutes.pauseChallenge.replace("{challengeId}", challengeId),
+      headers: ownerHeaders("b6-owner-pause"),
+      payload: { expected_version: 5, reason: "تلاش مالک." },
+    });
+    expect(ownerPause.statusCode).toBe(403);
+    expect(await listed()).toContain(challengeId);
+
+    const paused = await app.inject({
+      method: "POST",
+      url: apiRoutes.pauseChallenge.replace("{challengeId}", challengeId),
+      headers: publisherHeaders("b6-publisher-pause"),
+      payload: { expected_version: 5, reason: "توقف موقت." },
+    });
+    expect(paused.statusCode).toBe(200);
+    expect(paused.json<MutationSuccessEnvelope>().data.next_actions).toEqual(["await_resume"]);
+    expect(await listed()).not.toContain(challengeId);
+
+    // A paused call keeps its record for anyone already holding the link.
+    const detail = await app.inject({
+      method: "GET",
+      url: apiRoutes.publicChallengeById.replace("{challengeId}", challengeId),
+    });
+    expect(detail.statusCode).toBe(200);
+    expect(detail.json<SuccessEnvelope<ChallengePublicProjectionResource>>().data.state).toBe(
+      "paused",
+    );
+
+    // Extending is refused while paused: only an open call has a live deadline.
+    const extendPaused = await app.inject({
+      method: "POST",
+      url: apiRoutes.extendChallengeDeadline.replace("{challengeId}", challengeId),
+      headers: publisherHeaders("b6-extend-paused"),
+      payload: {
+        expected_version: 6,
+        proposal_deadline: "2031-01-01T00:00:00.000Z",
+        reason: "تمدید در حالت توقف.",
+      },
+    });
+    expect(extendPaused.statusCode).toBe(409);
+
+    const resumed = await app.inject({
+      method: "POST",
+      url: apiRoutes.resumeChallenge.replace("{challengeId}", challengeId),
+      headers: publisherHeaders("b6-publisher-resume"),
+      payload: { expected_version: 6, reason: "ادامه فراخوان." },
+    });
+    expect(resumed.statusCode).toBe(200);
+    expect(await listed()).toContain(challengeId);
+
+    const extended = await app.inject({
+      method: "POST",
+      url: apiRoutes.extendChallengeDeadline.replace("{challengeId}", challengeId),
+      headers: publisherHeaders("b6-extend-open"),
+      payload: {
+        expected_version: 7,
+        proposal_deadline: "2031-01-01T00:00:00.000Z",
+        reason: "تمدید مهلت.",
+      },
+    });
+    expect(extended.statusCode).toBe(200);
+
+    // Shortening is refused; a deadline solvers already saw only moves forward.
+    const shortened = await app.inject({
+      method: "POST",
+      url: apiRoutes.extendChallengeDeadline.replace("{challengeId}", challengeId),
+      headers: publisherHeaders("b6-extend-back"),
+      payload: {
+        expected_version: 8,
+        proposal_deadline: "2030-02-01T00:00:00.000Z",
+        reason: "کوتاه‌کردن مهلت.",
+      },
+    });
+    expect(shortened.statusCode).toBe(422);
+
+    const cancelled = await app.inject({
+      method: "POST",
+      url: apiRoutes.cancelChallenge.replace("{challengeId}", challengeId),
+      headers: publisherHeaders("b6-publisher-cancel"),
+      payload: { expected_version: 8, reason: "لغو با اطلاع‌رسانی." },
+    });
+    expect(cancelled.statusCode).toBe(200);
+    expect(cancelled.json<MutationSuccessEnvelope>().data.next_actions).toEqual(["closed"]);
+
+    // Terminal: a cancelled call cannot be resumed.
+    const reopened = await app.inject({
+      method: "POST",
+      url: apiRoutes.resumeChallenge.replace("{challengeId}", challengeId),
+      headers: publisherHeaders("b6-publisher-reopen"),
+      payload: { expected_version: 9, reason: "تلاش بازگشایی." },
+    });
+    expect(reopened.statusCode).toBe(409);
+
+    // Every lifecycle event stays inside the worker's supported set.
+    const emitted = [
+      ...new Set(composition.challenges.snapshot().outboxEvents.map((event) => event.event_type)),
+    ];
+    expect(
+      emitted.filter((type) => !(challengeOutboxEventTypes as readonly string[]).includes(type)),
+    ).toEqual([]);
+    const lifecycleAudits = composition.challenges
+      .snapshot()
+      .auditEvents.filter((event) => event.entityId === challengeId);
+    expect(lifecycleAudits.find((event) => event.action === "challenge.paused")?.reason).toBe(
+      "توقف موقت.",
+    );
+    expect(
+      lifecycleAudits.find((event) => event.action === "challenge.deadline.extended")?.reason,
+    ).toBe("تمدید مهلت.");
+  });
+
+  it("revalidates session revocation inside the cross-tenant platform gate unit of work", async () => {
+    const challengeId = await createChallengeAtApprovalsStage("b2-revoke");
+    const before = composition.challenges.snapshot();
+    const paused = pauseAfterSuccessfulAuthentication(composition);
+    await app.close();
+    app = paused.app;
+
+    const request = app.inject({
+      method: "POST",
+      url: apiRoutes.recordChallengeApproval.replace("{challengeId}", challengeId),
+      headers: gateHeaders(demoApiCredentials.platformOps, "b2-revoke-quality"),
+      payload: {
+        expected_version: 4,
+        gate: "quality",
+        decision: "approved",
+        reason: "بررسی کیفیت پس از ابطال نشست.",
+      },
+    });
+    await paused.authenticated;
+    await composition.identity.revoke(
+      demoApiCredentials.platformOps.accessToken,
+      buildSessionRevokeBody({
+        expected_version: 1,
+        session_id: demoApiCredentials.platformOps.sessionId,
+      }),
+      {
+        idempotencyKey: "b2-revoke-platform-session",
+        correlationId: deterministicId(idPrefixes.correlation, 70),
+      },
+    );
+    paused.release();
+    const response = await request;
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json<ErrorEnvelope>().error.code).toBe("NO_ACCESS");
+    expect(composition.challenges.snapshot()).toEqual(before);
+  });
+
   it("replays a challenge command with the same receipt and one aggregate effect", async () => {
     const request = {
       method: "POST" as const,
@@ -922,7 +2032,16 @@ describe("authoritative Fastify API foundation", () => {
           return challenges.create(body, context);
         },
         getScoped: (scope, id) => challenges.getScoped(scope, id),
+        getApprovalBrief: (scope, id) => challenges.getApprovalBrief(scope, id),
+        listApprovalQueue: (scope) => challenges.listApprovalQueue(scope),
         patch: (id, body, context) => challenges.patch(id, body, context),
+        transition: (id, command, body, context) =>
+          challenges.transition(id, command, body, context),
+        recordApproval: (id, body, context) => challenges.recordApproval(id, body, context),
+        publish: (id, body, context) => challenges.publish(id, body, context),
+        extendDeadline: (id, body, context) => challenges.extendDeadline(id, body, context),
+        changePublicationState: (id, command, body, context) =>
+          challenges.changePublicationState(id, command, body, context),
       },
     });
 
@@ -1209,10 +2328,155 @@ describe("in-memory challenge transaction", () => {
     expect(repository.snapshot()).toEqual({
       challenges: [],
       versions: [],
+      publicProjections: [],
+      approvals: [],
       auditEvents: [],
       outboxEvents: [],
       idempotencyEntryCount: 0,
     });
+  });
+
+  async function createChallengeAtApprovals(repository: InMemoryChallengeRepository, seed: number) {
+    const tenantId = deterministicId(idPrefixes.tenant, seed);
+    const workspaceId = deterministicId(idPrefixes.workspace, seed);
+    const base = {
+      tenantId,
+      workspaceId,
+      actorUserId: deterministicId(idPrefixes.user, seed),
+      role: "org:owner" as const,
+      correlationId: deterministicId(idPrefixes.correlation, seed),
+    };
+    const created = await repository.create(
+      buildCreateChallengeBody({ draft: buildChallengeContentResource() }),
+      { ...base, idempotencyKey: `b2-setup-create-${seed}` },
+    );
+    const challengeId = created.receipt.entity_id;
+    await repository.transition(
+      challengeId,
+      "request-triage",
+      { expected_version: 1 },
+      { ...base, idempotencyKey: `b2-setup-triage-${seed}` },
+    );
+    await repository.transition(
+      challengeId,
+      "advance-formulation",
+      { expected_version: 2 },
+      { ...base, idempotencyKey: `b2-setup-formulation-${seed}` },
+    );
+    await repository.transition(
+      challengeId,
+      "request-approvals",
+      { expected_version: 3 },
+      { ...base, idempotencyKey: `b2-setup-approvals-${seed}` },
+    );
+    return { challengeId, tenantId, workspaceId };
+  }
+
+  it("enforces separation of duty and rejects a duplicate gate on one version", async () => {
+    const repository = new InMemoryChallengeRepository(clock, new MonotonicIdFactory());
+    const { challengeId, tenantId, workspaceId } = await createChallengeAtApprovals(repository, 40);
+    const actorA = deterministicId(idPrefixes.user, 41);
+    const actorB = deterministicId(idPrefixes.user, 42);
+    const base = {
+      tenantId,
+      workspaceId,
+      correlationId: deterministicId(idPrefixes.correlation, 40),
+    };
+
+    const recorded = await repository.recordApproval(
+      challengeId,
+      { expected_version: 4, gate: "technical", decision: "approved", reason: "بررسی فنی." },
+      {
+        ...base,
+        actorUserId: actorA,
+        role: "org:approver_technical",
+        idempotencyKey: "b2-conflict-technical",
+      },
+    );
+    expect(recorded.entityVersion).toBe(1);
+
+    await expect(
+      repository.recordApproval(
+        challengeId,
+        { expected_version: 4, gate: "technical", decision: "approved", reason: "بررسی دوباره." },
+        {
+          ...base,
+          actorUserId: actorB,
+          role: "org:approver_technical",
+          idempotencyKey: "b2-conflict-technical-again",
+        },
+      ),
+    ).rejects.toMatchObject({ statusCode: 409, code: "CONFLICT" });
+
+    await expect(
+      repository.recordApproval(
+        challengeId,
+        { expected_version: 4, gate: "quality", decision: "approved", reason: "بررسی کیفیت." },
+        {
+          ...base,
+          actorUserId: actorA,
+          role: "platform:ops",
+          idempotencyKey: "b2-conflict-second-gate",
+        },
+      ),
+    ).rejects.toMatchObject({ statusCode: 409, code: "CONFLICT" });
+
+    const snapshot = repository.snapshot();
+    expect(
+      snapshot.approvals.filter((approval) => approval.challenge_id === challengeId),
+    ).toHaveLength(1);
+  });
+
+  it("rejects a gate recording before the challenge reaches the approvals stage", async () => {
+    const repository = new InMemoryChallengeRepository(clock, new MonotonicIdFactory());
+    const tenantId = deterministicId(idPrefixes.tenant, 50);
+    const workspaceId = deterministicId(idPrefixes.workspace, 50);
+    const created = await repository.create(
+      buildCreateChallengeBody({ draft: buildChallengeContentResource() }),
+      {
+        tenantId,
+        workspaceId,
+        actorUserId: deterministicId(idPrefixes.user, 50),
+        role: "org:owner",
+        correlationId: deterministicId(idPrefixes.correlation, 50),
+        idempotencyKey: "b2-wrong-stage-create",
+      },
+    );
+
+    await expect(
+      repository.recordApproval(
+        created.receipt.entity_id,
+        { expected_version: 1, gate: "technical", decision: "approved", reason: "زودهنگام." },
+        {
+          tenantId,
+          workspaceId,
+          actorUserId: deterministicId(idPrefixes.user, 51),
+          role: "org:approver_technical",
+          correlationId: deterministicId(idPrefixes.correlation, 50),
+          idempotencyKey: "b2-wrong-stage-record",
+        },
+      ),
+    ).rejects.toMatchObject({ statusCode: 409, code: "INVALID_STATE" });
+  });
+
+  it("rejects a gate recording from a role that is not eligible for that gate", async () => {
+    const repository = new InMemoryChallengeRepository(clock, new MonotonicIdFactory());
+    const { challengeId, tenantId, workspaceId } = await createChallengeAtApprovals(repository, 60);
+
+    await expect(
+      repository.recordApproval(
+        challengeId,
+        { expected_version: 4, gate: "quality", decision: "approved", reason: "نامعتبر." },
+        {
+          tenantId,
+          workspaceId,
+          actorUserId: deterministicId(idPrefixes.user, 61),
+          role: "org:owner",
+          correlationId: deterministicId(idPrefixes.correlation, 60),
+          idempotencyKey: "b2-wrong-role",
+        },
+      ),
+    ).rejects.toMatchObject({ statusCode: 403, code: "NO_ACCESS" });
   });
 
   it("rolls back session, audit, outbox, OIDC consumption, and idempotency on commit failure", async () => {

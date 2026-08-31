@@ -539,6 +539,10 @@
   height: 1px;
   background: var(--challenge-border);
   content: "";
+  /* Purely decorative: it reaches into the neighboring step's column (the li
+     is `overflow: visible`), and without this it intercepts clicks meant for
+     that step's button instead of letting them pass through. */
+  pointer-events: none;
 }
 
 .challenge-stepper button,
@@ -2516,5 +2520,134 @@
   .solver-card-organization {
     align-items: flex-start;
     flex-direction: column;
+  }
+}
+
+/* B7 publication gates. Deliberately minimal: the CSS budget has ~3KB of
+   headroom, so this reuses existing tokens rather than introducing a scale. */
+.challenge-gate-list {
+  display: grid;
+  gap: 0.5rem;
+  margin: 1rem 0;
+  padding: 0;
+  list-style: none;
+}
+.challenge-gate-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--line, #e5e7eb);
+  border-radius: 0.75rem;
+}
+.challenge-gate-row__name {
+  font-weight: 600;
+}
+.challenge-gate-row__state small {
+  display: block;
+  opacity: 0.75;
+}
+.challenge-gate-row__state[data-decision="pending"] {
+  opacity: 0.7;
+}
+.challenge-gate-form {
+  display: grid;
+  gap: 0.5rem;
+  margin-block: 1rem;
+}
+.challenge-gate-form textarea {
+  min-block-size: 5rem;
+}
+.challenge-gate-publish {
+  display: grid;
+  gap: 0.5rem;
+}
+.challenge-disabled-reason {
+  opacity: 0.8;
+}
+
+.challenge-live-call {
+  display: grid;
+  gap: 1rem;
+  margin-block-start: 1.5rem;
+  border: 1px solid var(--challenge-border);
+  border-radius: 11px;
+  padding: 1.25rem;
+  background: var(--challenge-surface);
+}
+
+.challenge-live-call > header,
+.challenge-live-call > header > div,
+.challenge-live-call dl,
+.challenge-live-call__actions {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.challenge-live-call > header {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.challenge-live-call h2,
+.challenge-live-call p,
+.challenge-live-call dl {
+  margin: 0;
+}
+
+.challenge-live-call p,
+.challenge-live-call dt {
+  color: var(--challenge-muted);
+  font-size: 13px;
+}
+
+.challenge-live-call__state {
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  background: var(--challenge-primary-soft);
+  color: var(--challenge-primary);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.challenge-live-call dl {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.challenge-live-call dl > div {
+  border-radius: 9px;
+  padding: 0.75rem;
+  background: #f7f9f8;
+}
+
+.challenge-live-call dd {
+  margin: 0.25rem 0 0;
+  font-weight: 750;
+}
+
+.challenge-live-call__form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.challenge-live-call__actions > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+@media (max-width: 640px) {
+  .challenge-live-call > header,
+  .challenge-live-call dl,
+  .challenge-live-call__form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .challenge-live-call__state {
+    justify-self: start;
   }
 }

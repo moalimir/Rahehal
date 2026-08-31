@@ -27,6 +27,7 @@ import {
   type SessionId,
   type UserId,
   type Workspace,
+  type WorkspaceRole,
 } from "@rahhal/domain";
 import type { PoolClient } from "pg";
 
@@ -168,7 +169,12 @@ function cachedMutation(value: unknown): CachedSessionMutation {
   return record as unknown as CachedSessionMutation;
 }
 
-function workspaceFromRow(row: AccessRow): Workspace {
+type WorkspaceRow = Pick<
+  AccessRow,
+  "workspace_id" | "tenant_id" | "workspace_kind" | "workspace_name" | "owner_user_id" | "team_kind"
+>;
+
+function workspaceFromRow(row: WorkspaceRow): Workspace {
   const id = parseWorkspaceId(row.workspace_id);
   const tenantId = parseTenantId(row.tenant_id);
   if (!isWorkspaceKind(row.workspace_kind)) throw new Error("Unknown workspace kind in database");
@@ -566,22 +572,30 @@ export class PostgresIdentityWorkspaceAdapter
       );
       if (concurrentReplay) return this.tokenOutcome(concurrentReplay, true);
 
-      const principal = await client.query<{ user_id: string; tenant_id: string }>(
+      const principal = await client.query<{
+        user_id: string;
+        tenant_id: string;
+        primary_email: string;
+      }>(
         `
-          SELECT link.user_id, membership.tenant_id
+          SELECT link.user_id, membership.tenant_id, app_user.primary_email
           FROM identity_link AS link
+          JOIN app_user ON app_user.id = link.user_id
           JOIN membership
             ON membership.user_id = link.user_id
            AND membership.state = 'active'
           WHERE link.issuer = $1 AND link.subject = $2
           ORDER BY membership.created_at, membership.id
           LIMIT 1
-          FOR SHARE OF link, membership
+          FOR SHARE OF link, app_user, membership
         `,
         [identity.issuer, identity.subject],
       );
       const actor = principal.rows[0];
       if (!actor) throw forbidden();
+      if (actor.primary_email.trim().toLowerCase() !== identity.verifiedEmail) throw forbidden();
+
+      await this.oidc.consume(identity);
 
       await client.query(
         `
@@ -590,6 +604,14 @@ export class PostgresIdentityWorkspaceAdapter
           WHERE issuer = $1 AND subject = $2
         `,
         [identity.issuer, identity.subject, this.clock.now().toISOString()],
+      );
+      await client.query(
+        `
+          UPDATE app_user
+          SET email_verified = true, updated_at = GREATEST(updated_at, $2::timestamptz)
+          WHERE id = $1
+        `,
+        [actor.user_id, this.clock.now().toISOString()],
       );
 
       const sessionId = parseSessionId(this.ids.next("ses"));
@@ -927,6 +949,94 @@ export class PostgresIdentityWorkspaceAdapter
     );
   }
 
+  /**
+   * Resolution primitive only — private, and takes the caller's `client` so
+   * platform authority can never be resolved outside the unit of work that
+   * performs the write. Resolving it in its own transaction would release the
+   * `FOR SHARE` locks before the mutation ran, reopening the revocation race.
+   */
+  private async activePlatformAccess(
+    client: PoolClient,
+    userId: UserId,
+    roles: readonly WorkspaceRole[],
+    targetWorkspaceId: string,
+  ): Promise<WorkspaceAccess | null> {
+    if (roles.length === 0) return null;
+    {
+      const platformResult = await client.query<AccessRow>(
+        `
+          SELECT
+            m.id AS membership_id,
+            m.tenant_id,
+            m.workspace_id,
+            m.workspace_kind,
+            m.user_id,
+            m.role,
+            m.state,
+            m.created_at AS membership_created_at,
+            m.updated_at AS membership_updated_at,
+            w.name AS workspace_name,
+            w.owner_user_id,
+            w.team_kind
+          FROM membership AS m
+          JOIN workspace AS w
+            ON w.id = m.workspace_id
+           AND w.tenant_id = m.tenant_id
+           AND w.kind = m.workspace_kind
+          WHERE m.user_id = $1
+            AND m.workspace_kind = 'platform'
+            AND m.role = ANY($2::text[])
+            AND m.state = 'active'
+          FOR SHARE OF m, w
+        `,
+        [userId, roles],
+      );
+      const platformRow = platformResult.rows[0];
+      if (!platformRow) return null;
+      if (!isWorkspaceRole(platformRow.role)) throw new Error("Unknown workspace role in database");
+      if (!isMembershipState(platformRow.state)) {
+        throw new Error("Unknown membership state in database");
+      }
+
+      const targetResult = await client.query<WorkspaceRow>(
+        `
+          SELECT
+            id AS workspace_id,
+            tenant_id,
+            kind AS workspace_kind,
+            name AS workspace_name,
+            owner_user_id,
+            team_kind
+          FROM workspace
+          WHERE id = $1
+          FOR SHARE
+        `,
+        [targetWorkspaceId],
+      );
+      const targetRow = targetResult.rows[0];
+      if (!targetRow) return null;
+      const target = workspaceFromRow(targetRow);
+
+      const membership: Membership = {
+        id: parseMembershipId(platformRow.membership_id),
+        tenantId: parseTenantId(platformRow.tenant_id),
+        workspaceId: parseWorkspaceId(platformRow.workspace_id),
+        userId: parseUserId(platformRow.user_id),
+        role: platformRow.role,
+        state: platformRow.state,
+        createdAt: timestamp(platformRow.membership_created_at),
+        updatedAt: timestamp(platformRow.membership_updated_at),
+      };
+      return {
+        tenantId: target.tenantId,
+        workspaceId: target.id,
+        role: platformRow.role,
+        workspace: target,
+        membership,
+      };
+    }
+  }
+
   async switchContext(
     session: AuthenticatedSession,
     targetWorkspaceId: string,
@@ -1092,6 +1202,98 @@ export class PostgresIdentityWorkspaceAdapter
         entityType: authorization.entityType,
         entityId: authorization.entityId,
         reason: error.kind,
+        correlationId: authorization.correlationId,
+        occurredAt: this.clock.now().toISOString(),
+      });
+      if (error.kind === "session_not_current" || error.kind === "role_capability_denied") {
+        throw forbidden();
+      }
+      throw notFound();
+    }
+  }
+
+  async runAuthorizedPlatformRole<Result>(
+    session: AuthenticatedSession,
+    roles: readonly WorkspaceRole[],
+    targetWorkspaceId: string,
+    authorization: WorkspaceAuthorization,
+    operation: (access: WorkspaceAccess) => Result | Promise<Result>,
+  ): Promise<Result> {
+    let authorizedAccess: WorkspaceAccess | undefined;
+    try {
+      return await this.unitOfWork.run(async () => {
+        const client = this.unitOfWork.currentClient();
+        // Revalidated inside the transaction, not from the request-time
+        // snapshot: a session revoked after authentication must deny here.
+        const current = await this.sessionByAccess(client, session, "share");
+        if (
+          !this.sessionIsUsable(current, this.clock.now()) ||
+          aggregateVersion(current.session_version) !== session.version
+        ) {
+          throw new TransactionDenial("session_not_current");
+        }
+        // Deliberately no active_workspace_id check: the whole point is that
+        // the actor's active context is their platform workspace, never the
+        // org workspace they are acting on.
+        const access = await this.activePlatformAccess(
+          client,
+          session.userId,
+          roles,
+          targetWorkspaceId,
+        );
+        if (!access) throw new TransactionDenial("workspace_unreachable");
+        if (authorization.allows && !authorization.allows(access)) {
+          throw new TransactionDenial("role_capability_denied", access);
+        }
+        authorizedAccess = access;
+        if (!authorization.deferSuccess) {
+          await this.decisionAudit.record({
+            outcome: "success",
+            actorUserId: session.userId,
+            tenantId: access.tenantId,
+            workspaceId: access.workspaceId,
+            action: authorization.action,
+            entityType: authorization.entityType,
+            entityId: authorization.entityId,
+            correlationId: authorization.correlationId,
+            occurredAt: this.clock.now().toISOString(),
+          });
+        }
+        return operation(access);
+      });
+    } catch (error) {
+      if (!(error instanceof TransactionDenial)) {
+        if (
+          authorization.deferSuccess &&
+          authorizedAccess &&
+          error instanceof ApiProblem &&
+          error.statusCode === 404
+        ) {
+          await this.decisionAudit.record({
+            outcome: "denied",
+            actorUserId: session.userId,
+            tenantId: authorizedAccess.tenantId,
+            workspaceId: authorizedAccess.workspaceId,
+            action: authorization.action,
+            entityType: authorization.entityType,
+            entityId: authorization.entityId,
+            reason: "record_unreachable",
+            correlationId: authorization.correlationId,
+            occurredAt: this.clock.now().toISOString(),
+          });
+        }
+        throw error;
+      }
+      await this.decisionAudit.record({
+        outcome: "denied",
+        actorUserId: session.userId,
+        tenantId: error.access?.tenantId,
+        workspaceId: error.access?.workspaceId ?? targetWorkspaceId,
+        action: authorization.action,
+        entityType: authorization.entityType,
+        entityId: authorization.entityId,
+        reason:
+          error.kind === "workspace_unreachable" ? "platform_authority_unreachable" : error.kind,
         correlationId: authorization.correlationId,
         occurredAt: this.clock.now().toISOString(),
       });

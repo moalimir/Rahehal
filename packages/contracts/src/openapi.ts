@@ -73,6 +73,27 @@ export const openApiDocument = {
         },
       },
     },
+    [apiRoutes.oidcAuthorizationStart]: {
+      post: {
+        operationId: "startOidcAuthorization",
+        tags: ["Session"],
+        summary: "Start a server-bound OIDC authorization-code and PKCE flow",
+        parameters: [idempotencyHeader],
+        requestBody: {
+          required: true,
+          content: jsonContent("OidcAuthorizationStartBody"),
+        },
+        responses: {
+          "200": {
+            description: "The provider authorization URL and one-time browser-held PKCE values.",
+            content: jsonContent("OidcAuthorizationStartSuccessEnvelope"),
+          },
+          "409": commonCommandErrors["409"],
+          "422": commonCommandErrors["422"],
+          "503": commonCommandErrors["503"],
+        },
+      },
+    },
     [apiRoutes.sessionExchange]: {
       post: {
         operationId: "exchangeSession",
@@ -215,6 +236,261 @@ export const openApiDocument = {
         responses: {
           "200": {
             description: "A receipt for the saved challenge draft.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.requestChallengeTriage]: {
+      post: {
+        operationId: "requestChallengeTriage",
+        tags: ["Challenge"],
+        summary: "Submit the current ready brief for triage and lock its content version",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, challengeIdParameter],
+        requestBody: { required: true, content: jsonContent("ChallengeTransitionBody") },
+        responses: {
+          "200": {
+            description: "A receipt for the draft to triage transition.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.advanceChallengeFormulation]: {
+      post: {
+        operationId: "advanceChallengeFormulation",
+        tags: ["Challenge"],
+        summary: "Record successful triage and open formulation authoring",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, challengeIdParameter],
+        requestBody: { required: true, content: jsonContent("ChallengeTransitionBody") },
+        responses: {
+          "200": {
+            description: "A receipt for the triage to formulation transition.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.requestChallengeApprovals]: {
+      post: {
+        operationId: "requestChallengeApprovals",
+        tags: ["Challenge"],
+        summary: "Submit the ready formulation for approvals and lock its content version",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, challengeIdParameter],
+        requestBody: { required: true, content: jsonContent("ChallengeTransitionBody") },
+        responses: {
+          "200": {
+            description: "A receipt for the formulation to approvals transition.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.recordChallengeApproval]: {
+      post: {
+        operationId: "recordChallengeApproval",
+        tags: ["Challenge"],
+        summary:
+          "Record one publication gate decision (technical/legal/finance/quality) for the locked approvals version",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, challengeIdParameter],
+        requestBody: { required: true, content: jsonContent("RecordChallengeApprovalBody") },
+        responses: {
+          "200": {
+            description: "A receipt for the recorded gate decision.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.platformChallengeApprovalQueue]: {
+      get: {
+        operationId: "listPlatformChallengeApprovals",
+        tags: ["Challenge"],
+        summary: "List approval-stage challenges awaiting the active platform role's gate",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader],
+        responses: {
+          "200": {
+            description: "The role-scoped platform approval queue.",
+            content: jsonContent("PlatformChallengeApprovalQueueSuccessEnvelope"),
+          },
+          "403": protectedCommandErrors["403"],
+          "404": protectedCommandErrors["404"],
+          "503": protectedCommandErrors["503"],
+        },
+      },
+    },
+    [apiRoutes.platformChallengeApprovalBrief]: {
+      get: {
+        operationId: "getPlatformChallengeApprovalBrief",
+        tags: ["Challenge"],
+        summary: "Read an allowlisted approval brief through standing platform authority",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, challengeIdParameter],
+        responses: {
+          "200": {
+            description: "The allowlisted approval brief for the locked version.",
+            content: jsonContent("ChallengeApprovalBriefSuccessEnvelope"),
+          },
+          "403": protectedCommandErrors["403"],
+          "404": protectedCommandErrors["404"],
+          "503": protectedCommandErrors["503"],
+        },
+      },
+    },
+    [apiRoutes.extendChallengeDeadline]: {
+      post: {
+        operationId: "extendChallengeDeadline",
+        tags: ["Challenge"],
+        summary: "Extend an open call's proposal deadline; never rewrites the approved version",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, challengeIdParameter],
+        requestBody: { required: true, content: jsonContent("ExtendChallengeDeadlineBody") },
+        responses: {
+          "200": {
+            description: "A receipt for the publication-lifecycle change.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.pauseChallenge]: {
+      post: {
+        operationId: "pauseChallenge",
+        tags: ["Challenge"],
+        summary: "Pause a published call: hidden from discovery, record preserved",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, challengeIdParameter],
+        requestBody: { required: true, content: jsonContent("ChallengePublicationStateBody") },
+        responses: {
+          "200": {
+            description: "A receipt for the publication-lifecycle change.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.resumeChallenge]: {
+      post: {
+        operationId: "resumeChallenge",
+        tags: ["Challenge"],
+        summary: "Resume a paused call",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, challengeIdParameter],
+        requestBody: { required: true, content: jsonContent("ChallengePublicationStateBody") },
+        responses: {
+          "200": {
+            description: "A receipt for the publication-lifecycle change.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.closeChallenge]: {
+      post: {
+        operationId: "closeChallenge",
+        tags: ["Challenge"],
+        summary: "Close a published call to further proposals (terminal)",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, challengeIdParameter],
+        requestBody: { required: true, content: jsonContent("ChallengePublicationStateBody") },
+        responses: {
+          "200": {
+            description: "A receipt for the publication-lifecycle change.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.cancelChallenge]: {
+      post: {
+        operationId: "cancelChallenge",
+        tags: ["Challenge"],
+        summary: "Cancel a published call (terminal)",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, challengeIdParameter],
+        requestBody: { required: true, content: jsonContent("ChallengePublicationStateBody") },
+        responses: {
+          "200": {
+            description: "A receipt for the publication-lifecycle change.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.publicChallenges]: {
+      get: {
+        operationId: "listPublicChallenges",
+        tags: ["Public"],
+        summary:
+          "List published challenges from the public projection only; `registered` rows require a session",
+        parameters: [
+          {
+            name: "category",
+            in: "query",
+            required: false,
+            schema: { type: "string", minLength: 1, maxLength: 500 },
+          },
+          {
+            name: "cursor",
+            in: "query",
+            required: false,
+            schema: { type: "string", minLength: 1, maxLength: 200 },
+          },
+        ],
+        responses: {
+          "200": {
+            description: "One page of public challenge projections.",
+            content: jsonContent("ChallengePublicPageSuccessEnvelope"),
+          },
+        },
+      },
+    },
+    [apiRoutes.publicChallengeById]: {
+      get: {
+        operationId: "getPublicChallenge",
+        tags: ["Public"],
+        summary:
+          "Read one published challenge's public projection; unknown, unpublished, and confidential challenges are indistinguishable",
+        parameters: [challengeIdParameter],
+        responses: {
+          "200": {
+            description: "The published challenge's public projection.",
+            content: jsonContent("ChallengePublicSuccessEnvelope"),
+          },
+          "404": {
+            description: "No public projection is readable for this id.",
+            content: jsonContent("ErrorEnvelope"),
+          },
+        },
+      },
+    },
+    [apiRoutes.publishChallenge]: {
+      post: {
+        operationId: "publishChallenge",
+        tags: ["Challenge"],
+        summary:
+          "Publish the fully approved version: lock it, set published_version_id, and write the public projection in one transaction",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, challengeIdParameter],
+        requestBody: { required: true, content: jsonContent("ChallengeTransitionBody") },
+        responses: {
+          "200": {
+            description: "A receipt for the approvals to published transition.",
             content: jsonContent("MutationSuccessEnvelope"),
           },
           ...protectedCommandErrors,

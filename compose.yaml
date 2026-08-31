@@ -1,8 +1,36 @@
 name: rahhal-local
 
 services:
+  oidc:
+    image: ghcr.io/dexidp/dex:v2.45.1@sha256:8499afd690c437f52301efd2b05b2455da5bd2dfc20332cd697dc9937f808462
+    command: ["dex", "serve", "/etc/dex/config.yaml"]
+    init: true
+    read_only: true
+    tmpfs:
+      - /var/dex:rw,noexec,nosuid,uid=1001,gid=1001,mode=0700,size=32m
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./infra/local/dex/config.yaml:/etc/dex/config.yaml:ro
+    ports:
+      - name: oidc
+        target: 5556
+        published: 5556
+        host_ip: 127.0.0.1
+        protocol: tcp
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:5556/dex/healthz"]
+      interval: 5s
+      timeout: 3s
+      start_period: 10s
+      retries: 10
+    stop_grace_period: 10s
+
   postgres:
-    image: postgres:16.15-alpine3.24
+    image: postgres:16.15-alpine3.24@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685
     environment:
       POSTGRES_DB: rahhal
       POSTGRES_USER: rahhal
@@ -41,20 +69,30 @@ services:
       - no-new-privileges:true
     ports:
       - name: web
-        target: 8080
+        target: 3000
         published: ${RAHHAL_WEB_PORT:-3000}
         host_ip: 127.0.0.1
         protocol: tcp
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/').then(async (response) => { await response.body?.cancel(); if (!response.ok) process.exit(1); }).catch(() => process.exit(1))",
+        ]
       interval: 10s
       timeout: 3s
       start_period: 10s
       retries: 5
     stop_grace_period: 10s
+    depends_on:
+      api:
+        condition: service_healthy
 
   database-setup:
-    image: rahhal/api:local
+    image: ${RAHHAL_API_IMAGE:-rahhal/api:local}
+    entrypoint: []
     build:
       context: .
       target: api
@@ -82,7 +120,9 @@ services:
     restart: "no"
 
   api:
-    image: rahhal/api:local
+    image: ${RAHHAL_API_IMAGE:-rahhal/api:local}
+    entrypoint: []
+    command: ["node", "apps/api/dist/server.js"]
     build:
       context: .
       target: api
@@ -107,7 +147,16 @@ services:
       PGUSER: rahhal
       PGPASSWORD: ${RAHHAL_POSTGRES_PASSWORD:-rahhal-local-only}
       RAHHAL_DATABASE_POOL_MAX: 10
+      OIDC_ISSUER_URL: http://dex.localhost:5556/dex
+      OIDC_CLIENT_ID: rahhal-local-web
+      OIDC_ALLOWED_REDIRECT_URIS: http://localhost:3000/auth/browser/callback
+      OIDC_ALLOW_INSECURE_HTTP: "true"
+      RAHHAL_BROWSER_ORIGIN: http://localhost:3000
+      OIDC_FLOW_SECRET: ${RAHHAL_OIDC_FLOW_SECRET:?run npm run docker:env:init}
+      SESSION_CREDENTIAL_SECRET: ${RAHHAL_SESSION_CREDENTIAL_SECRET:?run npm run docker:env:init}
     depends_on:
+      oidc:
+        condition: service_healthy
       postgres:
         condition: service_healthy
       database-setup:
@@ -118,13 +167,15 @@ services:
         published: ${RAHHAL_API_PORT:-3001}
         host_ip: 127.0.0.1
         protocol: tcp
+    extra_hosts:
+      - dex.localhost:host-gateway
     healthcheck:
       test:
         [
           "CMD",
           "node",
           "-e",
-          "fetch('http://127.0.0.1:3001/api/v1/openapi.json').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))",
+          "fetch('http://127.0.0.1:3001/api/v1/openapi.json').then(async (response) => { await response.body?.cancel(); if (!response.ok) process.exit(1); }).catch(() => process.exit(1))",
         ]
       interval: 10s
       timeout: 3s

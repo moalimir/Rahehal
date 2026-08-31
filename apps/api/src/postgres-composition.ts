@@ -1,32 +1,35 @@
 import { Pool } from "pg";
 
-import { ApiProblem } from "./errors.js";
 import { RandomIdFactory, systemClock } from "./primitives.js";
 import type {
   ApiPorts,
   Clock,
   IdFactory,
   OidcExchangePort,
+  OidcAuthorizationPort,
   SessionCredentialIssuerPort,
 } from "./ports.js";
 import { PostgresAccessDecisionAudit } from "./postgres/access-decision-audit.js";
 import { PostgresChallengeAdapter } from "./postgres/challenges.js";
 import { databasePoolConfig } from "./postgres/config.js";
 import { PostgresIdentityWorkspaceAdapter } from "./postgres/identity-workspace.js";
+import { PostgresPublicChallengeAdapter } from "./postgres/public-challenges.js";
+import {
+  oidcRuntimeSettings,
+  PostgresOidcAuthorizationAdapter,
+} from "./postgres/oidc-authorization.js";
 import { PostgresUnitOfWork } from "./postgres/unit-of-work.js";
+import { HmacSessionCredentialIssuer } from "./session-credentials.js";
 
-const requiredMigration = "0003_a1c_authoritative_challenge";
+// B4's publish transaction and B5's public read both need the projection table.
+const requiredMigration = "0010_phase2_closure";
 
-class DeferredOidcExchange implements OidcExchangePort {
-  async exchange(): Promise<never> {
-    throw new ApiProblem(503, "STORAGE", "Managed OIDC exchange is not available before A2");
-  }
-}
+type OidcAdapter = OidcExchangePort & OidcAuthorizationPort;
 
-class DeferredCredentialIssuer implements SessionCredentialIssuerPort {
-  issue(): never {
-    throw new ApiProblem(503, "STORAGE", "Session credential issuance is not available before A2");
-  }
+function required(environment: NodeJS.ProcessEnv, name: string): string {
+  const value = environment[name]?.trim();
+  if (!value) throw new Error(`${name} is required for PostgreSQL API composition`);
+  return value;
 }
 
 export type PostgresApiComposition = {
@@ -42,7 +45,7 @@ export async function createPostgresApiComposition(
     readonly environment?: NodeJS.ProcessEnv;
     readonly clock?: Clock;
     readonly ids?: IdFactory;
-    readonly oidc?: OidcExchangePort;
+    readonly oidc?: OidcAdapter;
     readonly credentials?: SessionCredentialIssuerPort;
     readonly beforeCommit?: () => void | Promise<void>;
   } = {},
@@ -51,9 +54,15 @@ export async function createPostgresApiComposition(
   const environment = options.environment ?? process.env;
   if (environment.NODE_ENV === "production") {
     throw new Error(
-      "The A1c PostgreSQL composition is local-integration-only until A2 provides managed identity",
+      "The A2 PostgreSQL composition uses a local test identity provider and refuses production",
     );
   }
+  const clock = options.clock ?? systemClock;
+  const ids = options.ids ?? new RandomIdFactory();
+  const settings = options.oidc ? undefined : oidcRuntimeSettings(environment);
+  const credentials =
+    options.credentials ??
+    new HmacSessionCredentialIssuer(required(environment, "SESSION_CREDENTIAL_SECRET"));
   const pool = options.pool ?? new Pool(databasePoolConfig(environment));
 
   try {
@@ -75,28 +84,31 @@ export async function createPostgresApiComposition(
     throw error;
   }
 
-  const clock = options.clock ?? systemClock;
-  const ids = options.ids ?? new RandomIdFactory();
   const unitOfWork = new PostgresUnitOfWork(pool, options.beforeCommit);
   const decisionAudit = new PostgresAccessDecisionAudit(unitOfWork, ids);
+  const oidc =
+    options.oidc ?? new PostgresOidcAuthorizationAdapter(unitOfWork, settings!, clock, ids);
   const identity = new PostgresIdentityWorkspaceAdapter(
     unitOfWork,
-    options.oidc ?? new DeferredOidcExchange(),
-    options.credentials ?? new DeferredCredentialIssuer(),
+    oidc,
+    credentials,
     clock,
     ids,
     decisionAudit,
   );
   const challenges = new PostgresChallengeAdapter(unitOfWork, clock, ids);
+  const publicChallenges = new PostgresPublicChallengeAdapter(unitOfWork);
 
   return {
     pool,
     unitOfWork,
     ports: {
+      oidcAuthorization: oidc,
       sessions: identity,
       workspaces: identity,
       authority: identity,
       challenges,
+      publicChallenges,
       decisionAudit,
       clock,
       ids,

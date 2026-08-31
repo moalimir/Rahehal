@@ -8,6 +8,7 @@ export const idPrefixes = {
   session: "ses",
   challenge: "chl",
   challengeVersion: "chv",
+  challengeApproval: "cap",
   proposal: "prp",
   proposalVersion: "prv",
   reviewAssignment: "rva",
@@ -36,6 +37,7 @@ export type MembershipId = PrefixedId<"mem">;
 export type SessionId = PrefixedId<"ses">;
 export type ChallengeId = PrefixedId<"chl">;
 export type ChallengeVersionId = PrefixedId<"chv">;
+export type ChallengeApprovalId = PrefixedId<"cap">;
 export type ProposalId = PrefixedId<"prp">;
 export type ProposalVersionId = PrefixedId<"prv">;
 export type ReviewAssignmentId = PrefixedId<"rva">;
@@ -58,6 +60,7 @@ export type EntityId =
   | SessionId
   | ChallengeId
   | ChallengeVersionId
+  | ChallengeApprovalId
   | ProposalId
   | ProposalVersionId
   | ReviewAssignmentId
@@ -77,6 +80,7 @@ const entityIdPrefixes = [
   idPrefixes.session,
   idPrefixes.challenge,
   idPrefixes.challengeVersion,
+  idPrefixes.challengeApproval,
   idPrefixes.proposal,
   idPrefixes.proposalVersion,
   idPrefixes.reviewAssignment,
@@ -140,6 +144,7 @@ export const isMembershipId = createIdentifierGuard(idPrefixes.membership);
 export const isSessionId = createIdentifierGuard(idPrefixes.session);
 export const isChallengeId = createIdentifierGuard(idPrefixes.challenge);
 export const isChallengeVersionId = createIdentifierGuard(idPrefixes.challengeVersion);
+export const isChallengeApprovalId = createIdentifierGuard(idPrefixes.challengeApproval);
 export const isOutboxEventId = createIdentifierGuard(idPrefixes.outboxEvent);
 export const isReceiptId = createIdentifierGuard(idPrefixes.receipt);
 export const isAuditEventId = createIdentifierGuard(idPrefixes.auditEvent);
@@ -156,6 +161,7 @@ export const parseMembershipId = createIdentifierParser(idPrefixes.membership);
 export const parseSessionId = createIdentifierParser(idPrefixes.session);
 export const parseChallengeId = createIdentifierParser(idPrefixes.challenge);
 export const parseChallengeVersionId = createIdentifierParser(idPrefixes.challengeVersion);
+export const parseChallengeApprovalId = createIdentifierParser(idPrefixes.challengeApproval);
 export const parseReceiptId = createIdentifierParser(idPrefixes.receipt);
 export const parseAuditEventId = createIdentifierParser(idPrefixes.auditEvent);
 export const parseCorrelationId = createIdentifierParser(idPrefixes.correlation);

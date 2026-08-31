@@ -3,13 +3,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { runMigrations } from "../src/postgres/migrations.js";
 import { seedSyntheticData } from "../src/postgres/seeds.js";
+import { testDatabaseAdminUrl } from "./support/database.js";
 
-const defaultAdminUrl = "postgresql://rahhal:rahhal-local-only@127.0.0.1:5433/postgres";
-const adminUrl = new URL(process.env.RAHHAL_TEST_DATABASE_ADMIN_URL ?? defaultAdminUrl);
-
-if (!["127.0.0.1", "localhost", "::1"].includes(adminUrl.hostname)) {
-  throw new Error("PostgreSQL foundation tests refuse to create databases on a non-loopback host");
-}
+const adminUrl = testDatabaseAdminUrl();
 
 const testDatabaseName = `rahhal_a1a_test_${process.pid}_${Date.now()}`;
 const testDatabaseUrl = new URL(adminUrl);
@@ -50,8 +46,29 @@ beforeAll(async () => {
     "0001_a1a_foundation",
     "0002_a1b_identity_transaction",
     "0003_a1c_authoritative_challenge",
+    "0004_a2_oidc_authorization",
+    "0005_b1_authoritative_challenge_lifecycle",
+    "0006_b2_challenge_approval_gates",
+    "0007_b3_versioned_eligibility_rules",
+    "0008_b4_challenge_publication",
+    "0009_b6_publication_lifecycle",
+    "0010_phase2_closure",
   ]);
 
+  const phase2Down = await runMigrations(database, "down");
+  expect(phase2Down.applied).toEqual(["0010_phase2_closure"]);
+  const b6Down = await runMigrations(database, "down");
+  expect(b6Down.applied).toEqual(["0009_b6_publication_lifecycle"]);
+  const b4Down = await runMigrations(database, "down");
+  expect(b4Down.applied).toEqual(["0008_b4_challenge_publication"]);
+  const b3Down = await runMigrations(database, "down");
+  expect(b3Down.applied).toEqual(["0007_b3_versioned_eligibility_rules"]);
+  const b2Down = await runMigrations(database, "down");
+  expect(b2Down.applied).toEqual(["0006_b2_challenge_approval_gates"]);
+  const b1Down = await runMigrations(database, "down");
+  expect(b1Down.applied).toEqual(["0005_b1_authoritative_challenge_lifecycle"]);
+  const a2Down = await runMigrations(database, "down");
+  expect(a2Down.applied).toEqual(["0004_a2_oidc_authorization"]);
   const a1cDown = await runMigrations(database, "down");
   expect(a1cDown.applied).toEqual(["0003_a1c_authoritative_challenge"]);
   const a1bDown = await runMigrations(database, "down");
@@ -75,6 +92,13 @@ beforeAll(async () => {
     "0001_a1a_foundation",
     "0002_a1b_identity_transaction",
     "0003_a1c_authoritative_challenge",
+    "0004_a2_oidc_authorization",
+    "0005_b1_authoritative_challenge_lifecycle",
+    "0006_b2_challenge_approval_gates",
+    "0007_b3_versioned_eligibility_rules",
+    "0008_b4_challenge_publication",
+    "0009_b6_publication_lifecycle",
+    "0010_phase2_closure",
   ]);
   const noOpUp = await runMigrations(database, "up");
   expect(noOpUp.applied).toEqual([]);
@@ -95,18 +119,26 @@ afterAll(async () => {
 
 describe("A1a PostgreSQL foundation", () => {
   it("migrates every required table and records the checksum", async () => {
+    // One list in the query's own `ORDER BY table_name` order, migration
+    // ledger included -- a new table has to be named here, not absorbed by an
+    // index into a spliced array.
     const expectedTables = [
       "access_grant",
       "app_session",
       "app_user",
       "audit_event",
       "challenge",
+      "challenge_approval",
+      "challenge_public_projection",
       "challenge_version",
+      "eligibility_rule",
       "idempotency_key",
       "identity_link",
       "membership",
       "mutation_receipt",
+      "oidc_authorization_attempt",
       "outbox_event",
+      "schema_migration",
       "tenant",
       "workspace",
     ];
@@ -116,11 +148,7 @@ describe("A1a PostgreSQL foundation", () => {
       WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
       ORDER BY table_name
     `);
-    expect(tables.rows.map((row) => row.table_name)).toEqual([
-      ...expectedTables.slice(0, 11),
-      "schema_migration",
-      ...expectedTables.slice(11),
-    ]);
+    expect(tables.rows.map((row) => row.table_name)).toEqual(expectedTables);
 
     const ledger = await database.query<{ id: string; checksum: string }>(
       "SELECT id, checksum FROM schema_migration",
@@ -135,6 +163,34 @@ describe("A1a PostgreSQL foundation", () => {
         id: "0003_a1c_authoritative_challenge",
         checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
       },
+      {
+        id: "0004_a2_oidc_authorization",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+      {
+        id: "0005_b1_authoritative_challenge_lifecycle",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+      {
+        id: "0006_b2_challenge_approval_gates",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+      {
+        id: "0007_b3_versioned_eligibility_rules",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+      {
+        id: "0008_b4_challenge_publication",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+      {
+        id: "0009_b6_publication_lifecycle",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+      {
+        id: "0010_phase2_closure",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
     ]);
   });
 
@@ -144,6 +200,8 @@ describe("A1a PostgreSQL foundation", () => {
       users: string;
       workspaces: string;
       challenges: string;
+      challenge_versions: string;
+      eligibility_rules: string;
       audit_events: string;
       outbox_events: string;
       mutation_receipts: string;
@@ -153,15 +211,21 @@ describe("A1a PostgreSQL foundation", () => {
         (SELECT count(*) FROM app_user) AS users,
         (SELECT count(*) FROM workspace) AS workspaces,
         (SELECT count(*) FROM challenge) AS challenges,
+        (SELECT count(*) FROM challenge_version) AS challenge_versions,
+        (SELECT count(*) FROM eligibility_rule) AS eligibility_rules,
         (SELECT count(*) FROM audit_event) AS audit_events,
         (SELECT count(*) FROM outbox_event) AS outbox_events,
         (SELECT count(*) FROM mutation_receipt) AS mutation_receipts
     `);
     expect(counts.rows[0]).toEqual({
       tenants: "4",
-      users: "3",
+      // 3 baseline + the 4 B7 governance identities (distinct approvers,
+      // publisher, platform finance/legal) the Phase-2 exit gate requires.
+      users: "7",
       workspaces: "5",
       challenges: "1",
+      challenge_versions: "1",
+      eligibility_rules: "1",
       audit_events: "1",
       outbox_events: "1",
       mutation_receipts: "1",
@@ -404,6 +468,20 @@ describe("A1a PostgreSQL foundation", () => {
   });
 
   it("fails the A1b migration atomically for an orphaned existing session", async () => {
+    const phase2Down = await runMigrations(database, "down");
+    expect(phase2Down.applied).toEqual(["0010_phase2_closure"]);
+    const b6Down = await runMigrations(database, "down");
+    expect(b6Down.applied).toEqual(["0009_b6_publication_lifecycle"]);
+    const b4Down = await runMigrations(database, "down");
+    expect(b4Down.applied).toEqual(["0008_b4_challenge_publication"]);
+    const b3Down = await runMigrations(database, "down");
+    expect(b3Down.applied).toEqual(["0007_b3_versioned_eligibility_rules"]);
+    const b2Down = await runMigrations(database, "down");
+    expect(b2Down.applied).toEqual(["0006_b2_challenge_approval_gates"]);
+    const b1Down = await runMigrations(database, "down");
+    expect(b1Down.applied).toEqual(["0005_b1_authoritative_challenge_lifecycle"]);
+    const a2Down = await runMigrations(database, "down");
+    expect(a2Down.applied).toEqual(["0004_a2_oidc_authorization"]);
     const a1cDown = await runMigrations(database, "down");
     expect(a1cDown.applied).toEqual(["0003_a1c_authoritative_challenge"]);
     const down = await runMigrations(database, "down");
@@ -455,6 +533,13 @@ describe("A1a PostgreSQL foundation", () => {
     expect(recovered.applied).toEqual([
       "0002_a1b_identity_transaction",
       "0003_a1c_authoritative_challenge",
+      "0004_a2_oidc_authorization",
+      "0005_b1_authoritative_challenge_lifecycle",
+      "0006_b2_challenge_approval_gates",
+      "0007_b3_versioned_eligibility_rules",
+      "0008_b4_challenge_publication",
+      "0009_b6_publication_lifecycle",
+      "0010_phase2_closure",
     ]);
   });
 });

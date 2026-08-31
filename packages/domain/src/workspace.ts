@@ -116,6 +116,10 @@ export function isWorkspaceRole(value: unknown): value is WorkspaceRole {
   return workspaceRoles.includes(value as WorkspaceRole);
 }
 
+export function isPlatformRole(role: WorkspaceRole): role is PlatformRole {
+  return (platformRoles as readonly WorkspaceRole[]).includes(role);
+}
+
 export function isTeamRole(value: unknown): value is TeamRole {
   return teamRoles.includes(value as TeamRole);
 }

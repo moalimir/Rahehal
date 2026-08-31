@@ -6,7 +6,7 @@ Read in order:
 
 | #   | Document                                                        | Purpose                                                                                                       |
 | --- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| 00  | [00_OVERVIEW](00_OVERVIEW.md)                                   | Executive summary, **canonical decisions (D1–D13)**, verdict                                                  |
+| 00  | [00_OVERVIEW](00_OVERVIEW.md)                                   | Executive summary, **canonical decisions (D1–D15)**, verdict                                                  |
 | 10  | [10_PRODUCT_VISION](10_PRODUCT_VISION.md)                       | Vision, narrative, product model across all roles × stages                                                    |
 | 15  | [15_PRODUCT_REQUIREMENTS](15_PRODUCT_REQUIREMENTS.md)           | _(ref)_ FR/NFR requirement catalog, success measures, MVP acceptance criteria                                 |
 | 20  | [20_CANONICAL_MODEL](20_CANONICAL_MODEL.md)                     | **Single source of truth** — glossary, actors, entities, one lifecycle, one role & permission model           |
@@ -21,6 +21,7 @@ Read in order:
 | 70  | [70_SECURITY_AND_AUTHZ](70_SECURITY_AND_AUTHZ.md)               | Unified authz decision model, permission matrix, threat model                                                 |
 | 80  | [80_DELIVERY_ROADMAP](80_DELIVERY_ROADMAP.md)                   | Phased roadmap, vertical slices, CI gates, definition of done                                                 |
 | 82  | [82_PHASE0_COMPLETION](82_PHASE0_COMPLETION.md)                 | **Phase-0 status** — done / remaining executable tasks / exit gates                                           |
+| 83  | [83_UI_UX_AUDIT_PLAN](83_UI_UX_AUDIT_PLAN.md)                   | Frontend UI/UX audit — sequencing, review rubric, tooling decisions, findings backlog                         |
 | 85  | [85_DEVELOPMENT_GUIDE](85_DEVELOPMENT_GUIDE.md)                 | _(ref)_ Setup, commands, conventions, backend-safe gateway pattern, CI pipeline, DoD                          |
 | 90  | [90_REQUIREMENTS_TRACEABILITY](90_REQUIREMENTS_TRACEABILITY.md) | _(ref)_ Requirement → current evidence → status → phase matrix                                                |
 | 95  | [95_RISKS_AND_OPEN_QUESTIONS](95_RISKS_AND_OPEN_QUESTIONS.md)   | _(ref)_ Risk register (R-01…R-16), P0 decisions, open questions, decision-log template                        |

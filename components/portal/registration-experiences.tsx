@@ -96,7 +96,7 @@ function SolverRegistrationVisual({
   const copy = {
     1: {
       title: "تخصص شما، شروع یک راه‌حل واقعی",
-      body: "یک هویت انسانی بسازید؛ پس از ورود می‌توانید تیم بسازید یا دعوت تیم‌ها را بپذیرید.",
+      body: "به‌صورت مستقل یا همراه تیم تخصصی خود، برای حل چالش‌های واقعی سازمان‌ها قدم بردارید.",
     },
     2: {
       title: "یک حساب امن برای همکاری حرفه‌ای",
@@ -166,7 +166,10 @@ export function SolverRegistrationExperience({ definition }: { definition: Route
           ? parsed.fields
           : (parsed as Partial<SolverRegistrationFields>);
       const safeFields: Partial<SolverRegistrationFields> = {
-        accountType: unsafeFields?.accountType,
+        accountType:
+          unsafeFields?.accountType === "team" || unsafeFields?.accountType === "individual"
+            ? unsafeFields.accountType
+            : "individual",
         teamType: unsafeFields?.teamType,
         city: unsafeFields?.city,
         headline: unsafeFields?.headline,
@@ -176,7 +179,6 @@ export function SolverRegistrationExperience({ definition }: { definition: Route
       const restored = {
         ...emptySolverRegistrationFields,
         ...safeFields,
-        accountType: "individual" as const,
         password: "",
         confirmPassword: "",
       };
@@ -247,13 +249,11 @@ export function SolverRegistrationExperience({ definition }: { definition: Route
     event.preventDefault();
     setError("");
     if (step === 1) {
-      const individualFields = {
-        ...fields,
-        accountType: "individual" as const,
-        teamType: "" as const,
-      };
-      setFields(individualFields);
-      persist(individualFields);
+      // The account-type cards already set fields.accountType on selection;
+      // clear a stale team type only when the user isn't actually on the team path.
+      const next = fields.accountType === "team" ? fields : { ...fields, teamType: "" as const };
+      setFields(next);
+      persist(next);
       navigate("/auth/solver/register/account");
       return;
     }
@@ -399,7 +399,9 @@ export function SolverRegistrationExperience({ definition }: { definition: Route
       <main className="solver-registration-main" id="main-content">
         <section className="solver-registration-form-panel">
           <form className="solver-registration-card" onSubmit={submit} noValidate>
-            <span className="organization-auth-badge">حساب انسانی حل‌کننده</span>
+            <span className="organization-auth-badge">
+              {step === 1 ? "حساب فرد یا تیم" : "حساب انسانی حل‌کننده"}
+            </span>
             <h1>{definition.title}</h1>
             <p>
               {step === 3 && fields.accountType === "team"
@@ -409,18 +411,37 @@ export function SolverRegistrationExperience({ definition }: { definition: Route
             <SolverRegistrationStepper step={step} />
 
             {step === 1 && (
-              <div className="solver-account-type-cards" aria-label="نوع حساب حل‌کننده">
-                <article className="is-selected">
+              <div
+                className="solver-account-type-cards"
+                role="radiogroup"
+                aria-label="انتخاب نوع حساب"
+              >
+                <button
+                  type="button"
+                  className={fields.accountType === "individual" ? "is-selected" : ""}
+                  aria-pressed={fields.accountType === "individual"}
+                  onClick={() => update("accountType", "individual")}
+                >
                   <span>
                     <Icon name="brief" />
                   </span>
-                  <strong>حساب حل‌کننده</strong>
-                  <small>
-                    فضای شخصی به‌صورت خودکار ساخته می‌شود؛ تیم‌ها workspace هستند و رمز عبور جدا
-                    ندارند.
-                  </small>
-                  <b aria-hidden="true">✓</b>
-                </article>
+                  <strong>فرد متخصص</strong>
+                  <small>به‌صورت مستقل در چالش‌ها شرکت می‌کنم و پروفایل شخصی می‌سازم.</small>
+                  <b aria-hidden="true">{fields.accountType === "individual" ? "✓" : ""}</b>
+                </button>
+                <button
+                  type="button"
+                  className={fields.accountType === "team" ? "is-selected" : ""}
+                  aria-pressed={fields.accountType === "team"}
+                  onClick={() => update("accountType", "team")}
+                >
+                  <span>
+                    <Icon name="people" />
+                  </span>
+                  <strong>تیم تخصصی</strong>
+                  <small>همراه اعضای تیم، راه‌حل ارائه می‌کنم و همکاری‌ها را مدیریت می‌کنم.</small>
+                  <b aria-hidden="true">{fields.accountType === "team" ? "✓" : ""}</b>
+                </button>
               </div>
             )}
 

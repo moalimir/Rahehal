@@ -87,6 +87,13 @@ export function createLocalDemoChallengeGateway(): ChallengeGateway {
           return success("submit", submitChallenge({ ...record, status: stored.status }));
         });
       },
+      async advanceFormulation() {
+        return failure(
+          "advance-formulation",
+          "INVALID_STATE",
+          "صورت‌بندی رسمی فقط در حالت متصل به سرور در دسترس است.",
+        );
+      },
       async publish(id) {
         return withDemoStorage("publish", () => {
           const record = getChallenge(id);

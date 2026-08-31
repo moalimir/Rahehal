@@ -95,13 +95,13 @@ Cross-cutting platform services (not domain modules): **Idempotency**, **Outbox/
 
 **A1b/A1c executable boundary:** `PostgresIdentityWorkspaceAdapter` resolves `(issuer, subject)` links, stores only SHA-256 credential digests, rotates/revokes sessions, serves `/me` data, and switches active workspace against database memberships. `PostgresUnitOfWork` binds nested adapter work to one transaction; protected operations lock and revalidate the session principal plus active membership before invoking the operation. `PostgresChallengeAdapter` scopes every read/write by tenant and workspace, appends a new immutable version on every save, and atomically records its receipt, audit, outbox, and tenant-scoped idempotency result. `RAHHAL_API_MODE=postgres` composes both adapters and refuses startup without migration `0003`; unknown/unset modes never fall back. Until A2, OIDC exchange and credential issuance fail closed while a digest-only synthetic session supports local acceptance.
 
-## 5. Audit & correlation (ADR-008)
+## 5. Audit & correlation (ADR-0008)
 
 - Every business mutation writes an **audit_event** in the _same transaction_ as the aggregate change (via the outbox pattern for downstream fan-out): `{id, tenant_id, actor_user_id, workspace_id, entity_type, entity_id, entity_version, action, audit_code, outcome, reason, correlation_id, occurred_at}`. The `audit` codes already exist on every transition in `state-machines.ts` (e.g. `challenge.published`, `payment.reconciled`) — use them verbatim.
 - **Correlation**: one `correlation_id` threads challenge_version → proposal_version → assignment/review → decision → case → contract → payment. This is a Phase-4 exit gate ("full correlation").
 - **Immutability & independence**: audit table is append-only (no UPDATE/DELETE grants to app role); periodic signed export to WORM storage; queryable by entity/correlation/actor; exportable under policy. Business-data _corrections_ are new events, never history edits (Ops question, doc 70 §7).
 
-## 6. Files & evidence (ADR-007)
+## 6. Files & evidence (ADR-0009)
 
 Upload pipeline (retires the client `lib/validation/upload.ts` as the _only_ gate; keep it as first-line UX validation):
 

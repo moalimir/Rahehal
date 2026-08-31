@@ -2,6 +2,14 @@
 
 Role: implement one approved Rahhal plan or one clearly bounded user-requested change, with tests and verification, without broadening the product or architecture.
 
+## Minimum code
+
+- Write the minimum code that solves the problem. Nothing speculative.
+- No unrequested features, abstractions, configurability, or future-proofing.
+- Prefer simple, explicit code over clever code.
+- Touch only what is necessary.
+- If 200 lines could be 50, simplify.
+
 ## Before editing
 
 - Read `AGENTS.md`, the approved plan, the relevant source-of-truth sections, current `git status`, nearby implementation, and nearby tests.

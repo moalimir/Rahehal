@@ -820,6 +820,10 @@
   padding: 18px;
 }
 
+.rh-public-catalogue-filter .rh-filter-card__main {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .rh-filter-card label {
   min-width: 0;
   display: grid;
@@ -1208,6 +1212,27 @@
   font-size: 13px;
   font-weight: 800;
   text-decoration: none;
+}
+
+.rh-public-catalogue-more {
+  display: flex;
+  justify-content: center;
+  margin-block: 22px;
+}
+
+.rh-public-catalogue-more button {
+  min-height: 44px;
+  border: 1px solid var(--rh-cyan);
+  border-radius: 7px;
+  padding-inline: 22px;
+  background: #fff;
+  color: #008da0;
+  font: inherit;
+  font-weight: 800;
+}
+
+.rh-public-challenge-grid .rh-challenge-card footer {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .rh-empty,
