@@ -192,7 +192,7 @@ Exact targets require baseline research. The first production pilot should instr
 - All MVP actors use real identity, sessions, workspaces, and server-side authorization.
 - Organization, challenge, proposal, proposal version, assignment, review, decision, and audit data persist in a transactional database.
 - Public projections expose only explicitly publishable fields.
-- File evidence uses private object storage, allowlisted types, size limits, malware scanning, signed access, retention, and access audit.
+- File evidence uses private object storage, allowlisted types, size limits, signed access, retention, and access audit. Malware scanning + quarantine is not an MVP gate — it is required before the pre-pilot hardening gate passes ([80_DELIVERY_ROADMAP](80_DELIVERY_ROADMAP.md) §9 G3).
 - The complete MVP journey succeeds in browser E2E tests for authorized users and fails safely for cross-tenant, wrong-role, expired-session, conflict, duplicate, stale-version, offline, and service-error scenarios.
 - All release gates in the development guide pass in CI.
 - Legal, privacy, security, accessibility, operations, and product owners sign off the pilot boundary.

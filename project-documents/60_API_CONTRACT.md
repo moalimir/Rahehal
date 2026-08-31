@@ -66,13 +66,13 @@ Success returns the canonical receipt:
 }
 ```
 
-Session exchange and refresh are the one response-shape specialization: their successful `data` is `{ tokens, receipt }`, because the write must return the rotated credentials and its canonical mutation receipt together. Session revoke, workspace context switch, challenge create, and challenge save return the receipt directly. Every mutation response still carries versioned meta.
+OIDC authorization start returns the provider URL plus one-time browser-held state and PKCE verifier; the server retains only their digests and exact redirect binding. Session exchange and refresh are the command response-shape specialization: their successful `data` is `{ tokens, receipt }`, because the write must return the rotated credentials and its canonical mutation receipt together. Session revoke, workspace context switch, challenge create, and challenge save return the receipt directly. Every aggregate mutation response still carries versioned meta.
 
 - **Idempotency**: `Idempotency-Key` is stored per `(tenant, command, key)` (50 §8) with the cached response and a canonical request fingerprint. The fingerprint binds the actor, active workspace, target, and normalized command body; an exact retry within TTL returns the _same_ receipt with `idempotent:true`, while reuse for a different command context/body returns `409 CONFLICT` and never discloses the first receipt. Session exchange/rotation use an equivalent credential-scoped fingerprint before a tenant context exists. This prevents duplicate submissions, decisions, invitations, signatures, and payments without turning a shared key into a cross-workspace read channel (NFR-REL-001).
 - **Optimistic concurrency**: `expected_version` must equal the aggregate's current `version`, else `409 CONFLICT` (see §4). Retry never silently overwrites.
 - **Step-up**: sensitive commands (`sensitiveActions`, `product.ts:42`: decide, accept-deliverable, approve-payment, manage-access, resolve-dispute) require a fresh `step_up_token`; absence → `403` with `code:"STEP_UP_REQUIRED"`.
 - **Reason**: `manual-review` transitions and all ops interventions require a structured `reason`.
-- **Unit of work**: the development API revalidates session/membership inside its shared in-memory critical section and snapshots mutation state so aggregate/version, business audit, outbox, idempotency result, and receipt commit or roll back together. This proves the boundary but is not durable. The production adapter must perform the same write set in one PostgreSQL transaction; access-decision audit remains an independently defined authorization record.
+- **Unit of work**: the demo composition revalidates session/membership inside a shared in-memory critical section. In PostgreSQL mode, nested identity/workspace/challenge work shares one `PostgresUnitOfWork`: session and membership are revalidated under locks, then a challenge aggregate pointer, immutable version, durable receipt, mutation audit, outbox event, and tenant-scoped cached result commit or roll back together. Denial/access-decision audit remains separately recorded when the denied transaction must roll back.
 
 ## 4. Error contract
 
@@ -109,11 +109,12 @@ Rate-limited requests return `429` with `Retry-After`. All errors carry `correla
 
 ## 5. MVP slice endpoints
 
-The first published OpenAPI increment has exactly **8 paths / 9 operations**: `GET /api/v1/openapi.json`; `POST` session exchange/refresh/revoke; `GET /api/v1/me`; `POST /api/v1/me/context:switch`; `POST /api/v1/challenges`; and `GET` + `PATCH /api/v1/challenges/{challengeId}`. It implements §5.1 plus challenge draft create/read/save from §5.2. All three session writes carry `expected_version` (`0` for exchange) and `Idempotency-Key`; protected challenge writes additionally require `X-Workspace-Id`. The remaining endpoint inventory below is the approved MVP target, not a claim that those routes already exist. Its in-memory API composition is for deterministic development/contract evidence only and refuses production mode; it is not a substitute for managed OIDC, PostgreSQL, RLS, or transactional durability.
+The completed Phase-2 OpenAPI has exactly **23 paths / 24 operations**: the Phase-1 identity/context and challenge-draft operations, B1 lifecycle commands, B2 approval recording, B4 publication, B5 public reads, B6 live-call controls, and the B8 platform queue/brief. Every implemented write carries `expected_version` and `Idempotency-Key`; protected challenge writes additionally require `X-Workspace-Id`. B3 adds no endpoint: challenge create/save accepts `verification_required` and `document_gate_required` beside `allowed_applicant_types`, `nda_required`, and `proposal_deadline`, and PostgreSQL snapshots those values against the exact challenge version. In the inventory below, entries labelled future are not part of the current contract. PostgreSQL mode validates signed issuer/audience/nonce, exact state/redirect, S256 PKCE, the existing `(issuer, subject)` link, and a verified matching contact before issuing digest-only app credentials. RLS and the managed production IdP remain later gates.
 
 ### 5.1 Identity & context
 
 ```
+POST /auth/oidc:start              # exact redirect → provider authorization URL + one-time PKCE values
 POST /auth/session:exchange        # OIDC code → app session (thin; IdP owns credentials/OTP)
 POST /auth/session:refresh
 POST /auth/session:revoke
@@ -125,25 +126,41 @@ POST /me/context:switch            # set active workspace (validated vs membersh
 
 ```
 POST /challenges                              # create draft            → chl_*
-GET  /challenges/{id}                          # private aggregate (member-scoped)
+GET  /challenges/{id}                          # full private aggregate (owning org workspace only)
 PATCH /challenges/{id}                         # autosave draft (expected_version)
 POST /challenges/{id}:request-triage           # draft → triage        (pre: brief-valid)
 POST /challenges/{id}:advance-formulation      # triage → formulation
-POST /challenges/{id}/approvals:record         # per-gate approval (business/technical/finance/legal/quality)
+POST /challenges/{id}:request-approvals        # formulation → approvals (pre: formulation-complete; locks the version)
+POST /challenges/{id}/approvals:record         # per-gate approval (technical/legal/finance/quality)
 POST /challenges/{id}:publish                  # approvals → published  (pre: 3 approvals + quality; atomic version lock + projection + outbox)
-POST /challenges/{id}:close                    # controlled close/pause/cancel
+POST /challenges/{id}:extend-deadline          # delivered (B6): forward-only, reason required, server time decides
+POST /challenges/{id}:pause                    # delivered (B6): hidden from discovery, record preserved
+POST /challenges/{id}:resume                   # delivered (B6)
+POST /challenges/{id}:close                    # delivered (B6): terminal
+POST /challenges/{id}:cancel                   # delivered (B6): terminal
+POST /challenges/{id}:amend                    # future exception path: requires new version + re-approval + proposal policy
 GET  /challenges/{id}/versions                 # immutable history
 ```
 
-### 5.3 Public discovery (unauthenticated, projection-backed)
+### 5.3 Platform publication work (standing authority, purpose-scoped)
 
 ```
-GET  /public/challenges?category=&q=&cursor=   # from challenge_public_projection only
-GET  /public/challenges/{id}                    # published fields only; confidential never present
-GET  /public/organizations/{id}                 # verified vs user-supplied vs demo clearly typed
+GET /platform/challenge-approvals                       # active platform role's pending gate, bounded to 50 rows
+GET /platform/challenges/{id}/approval-brief            # approvals-stage allowlist; target org workspace in X-Workspace-Id
 ```
 
-### 5.4 Solver, eligibility & proposal
+The queue derives its gate from the active `platform:ops`/`platform:finance`/`platform:legal` role and excludes versions whose gate is already occupied or on which the current actor already recorded another gate. The brief is not a stripped `ChallengeResource`: its closed contract omits contact data, invitees, attachment ids, tenant/creator ids, and other approvers' user ids. Unknown, wrong-stage, and unreachable records return the same typed `NOT_FOUND`.
+
+### 5.4 Public discovery (unauthenticated, projection-backed)
+
+```
+GET  /public/challenges?category=&cursor=      # delivered (B5): from challenge_public_projection only; keyset cursor, server-fixed page size
+GET  /public/challenges/{id}                   # delivered (B5): allowlisted projection fields only; non-enumerating NOT_FOUND
+GET  /public/challenges?q=                     # deferred: free-text search lands with the discovery UI
+GET  /public/organizations/{id}                # deferred: verified vs user-supplied vs demo clearly typed
+```
+
+### 5.5 Solver, eligibility & proposal
 
 ```
 GET  /opportunities?…&cursor=                  # searchable published challenges for active workspace
@@ -159,7 +176,7 @@ POST /proposals/{id}:withdraw
 GET  /proposals/{id}/versions                  # immutable history + diffs (changedFields)
 ```
 
-### 5.5 Review, COI & decision
+### 5.6 Review, COI & decision
 
 ```
 GET  /assignments?state=&cursor=               # reviewer's assignments (scoped)
@@ -175,12 +192,12 @@ POST /challenges/{id}/decision:record          # evaluating → decided (authori
 ## 6. Read projections & anonymity
 
 - Organization review views honor reviewer anonymity and policy timing (FR-REV-007): reviewer identity and other reviewers' scores are withheld until policy allows; enforced in the _projection query_, not the client.
-- Public projections are separate resources (`/public/*`) served from `challenge_public_projection`; the private aggregate is never used to render public pages (prevents confidential-field leakage — Phase-2 exit gate).
+- Public projections are separate resources (`/public/*`) served from `challenge_public_projection`; the private aggregate is never used to render public pages (prevents confidential-field leakage — Phase-2 exit gate). B5 enforces this through a distinct `PublicChallengePort` whose PostgreSQL adapter selects an explicit column list from the projection table and joins nothing else; a native test renames `challenge`/`challenge_version`/`challenge_approval` out of reach and proves both public reads still succeed. The audience (`anonymous` vs `registered`) is derived server-side from session presence, never from a client parameter, and a stale credential degrades to `anonymous` rather than failing the request.
 - Field-level access (e.g. confidential proposal fields to a reviewer) is evaluated independently from page access (70 §3).
 
 ## 7. Events emitted (outbox → consumers)
 
-The executable schema-v1 worker allowlist is initially exact and intentionally small: `challenge.draft.created`, `challenge.draft.updated`, `session.exchanged`, `session.refreshed`, `session.revoked`, and `session.context.switched`. No `challenge.draft.saved`, generic `challenge.stage.changed`, or AI event is accepted. These walking-skeleton application audit codes cover draft/session effects that do not yet have canonical transition-table rows.
+The executable schema-v1 worker allowlist is exact and intentionally small. It is not maintained by hand: the worker derives its challenge half from `challengeOutboxEventTypes` in the domain, so an event a challenge adapter emits but the domain omits is dead-lettered as `UNSUPPORTED_EVENT_TYPE` rather than silently dropped. It currently admits `challenge.draft.created`, `challenge.draft.updated`, `challenge.triage.requested`, `challenge.formulation.started`, `challenge.approvals.requested`, `challenge.approval.recorded`, `challenge.published`, `session.exchanged`, `session.refreshed`, `session.revoked`, and `session.context.switched`. No `challenge.draft.saved`, generic `challenge.stage.changed`, or AI event is accepted. The `challenge.draft.*` codes are walking-skeleton application audit codes covering draft effects that have no canonical transition-table row; the lifecycle codes reuse the state machine's `audit` names verbatim.
 
 For the target lifecycle commands below, event names reuse the state machines' `audit` codes verbatim so audit and integration share one vocabulary:
 

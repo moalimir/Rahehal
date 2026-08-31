@@ -155,6 +155,7 @@ CREATE TABLE app_session (
   FOREIGN KEY (active_workspace_id, active_tenant_id)
     REFERENCES workspace (id, tenant_id),
   CHECK ((active_tenant_id IS NULL) = (active_workspace_id IS NULL)),
+  CHECK (access_token_digest <> refresh_token_digest),
   CHECK (access_expires_at > issued_at),
   CHECK (refresh_expires_at > access_expires_at),
   CHECK (last_used_at IS NULL OR last_used_at >= issued_at),

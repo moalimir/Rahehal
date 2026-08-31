@@ -8,7 +8,7 @@ This document is **law** for the whole blueprint. Every database column, API fie
 
 | Term                  | Definition                                                                                                                                                                | Retired synonyms found in code                                                     |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| **Tenant**            | Top-level isolation boundary. An **Organization** is a tenant; the platform operator is a tenant. Every protected row belongs to exactly one tenant.                      | Shared type + in-memory API proof; no durable tenant authority yet                 |
+| **Tenant**            | Top-level isolation boundary. An **Organization** is a tenant; the platform operator is a tenant. Every protected row belongs to exactly one tenant.                      | Implicit organization/solver account boundaries                                    |
 | **Workspace**         | A working context a user acts _in_. Kinds: `platform` (operator space), `org` (organization space), `individual` (personal solver space), `team` (shared solver space).   | `SolverSpace`, `PersonalWorkspace`, `ActiveWorkspace` (`domain/solver.ts:1,12,68`) |
 | **Membership**        | The link `(user → workspace)` carrying a role and state.                                                                                                                  | `TeamMembership` (`domain/solver.ts:56`)                                           |
 | **Party**             | The kind of participant a subject is in a given interaction: Organization, Solver, Reviewer, Operations, Finance, Legal, Guest.                                           | former flat `InternalRole` / `Actor`; `AppPersona` is presentation-only            |
@@ -206,7 +206,7 @@ erDiagram
     USER ||--o{ AUDIT_EVENT : acts_in
 ```
 
-**Required as durable production entities:** `TENANT`, `CHALLENGE_VERSION`, `PUBLIC_PROJECTION`, `RUBRIC` / `RUBRIC_VERSION`, `REVIEW_ASSIGNMENT` (as a real row), `COI_DECLARATION`, `DECISION` (as a real row), `IMPACT_RECORD`, plus cross-cutting `FILE_OBJECT`, `NOTIFICATION_DELIVERY`, `IDEMPOTENCY_KEY`, `OUTBOX_EVENT`, `DISPUTE`, `CONSENT`, `PRIVILEGED_ACCESS_GRANT`, `POLICY_VERSION`. Shared types and in-memory walking-skeleton records now prove a subset of these shapes; none is yet a durable production row.
+**Required as durable production entities:** `TENANT`, `CHALLENGE_VERSION`, `PUBLIC_PROJECTION`, `RUBRIC` / `RUBRIC_VERSION`, `REVIEW_ASSIGNMENT` (as a real row), `COI_DECLARATION`, `DECISION` (as a real row), `IMPACT_RECORD`, plus cross-cutting `FILE_OBJECT`, `NOTIFICATION_DELIVERY`, `IDEMPOTENCY_KEY`, `OUTBOX_EVENT`, `DISPUTE`, `CONSENT`, `PRIVILEGED_ACCESS_GRANT`, `POLICY_VERSION`. A1a lands local PostgreSQL rows for tenant, challenge/version, idempotency, outbox, and audit; A1b exercises session/workspace evidence against them; A1c makes challenge draft versions and mutation receipts authoritative through the API. The remaining entities and the broader production authority have not landed.
 
 ## 7. Entity identity rules
 

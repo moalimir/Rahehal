@@ -10,6 +10,7 @@ import {
   StatusBadge,
 } from "@/components/challenge-flow/shell";
 import { useChallengeRecord } from "@/components/challenge-flow/hooks";
+import { useChallengeGateway } from "@/components/runtime-provider";
 import {
   budgetStatusLabels,
   ipTermLabels,
@@ -21,7 +22,6 @@ import {
 } from "@/domain/challenge";
 import { formatDateTime } from "@/lib/challenges/model";
 import { navigateChallenge } from "@/lib/challenges/navigation";
-import { demoChallengeGateway } from "@/lib/challenges/runtime";
 import { validateRecord } from "@/lib/challenges/validation";
 
 function Value({ children, empty = "ثبت نشده" }: { children?: React.ReactNode; empty?: string }) {
@@ -29,11 +29,21 @@ function Value({ children, empty = "ثبت نشده" }: { children?: React.React
 }
 
 export function ChallengePreviewPage({ id }: { id: string }) {
-  const { record, lastSavedLabel, loadError } = useChallengeRecord(id);
+  const challengeGateway = useChallengeGateway();
+  const { record, lastSavedLabel, loadError, readiness, stage } = useChallengeRecord(id);
   const [mode, setMode] = useState<"public" | "full">("full");
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [submitError, setSubmitError] = useState("");
-  const issues = useMemo(() => (record ? validateRecord(record) : []), [record]);
+  const issues = useMemo(() => {
+    if (!record) return [];
+    if (!readiness) return validateRecord(record);
+    return readiness.issues.map((issue) => ({
+      id: issue.path,
+      field: "title" as const,
+      step: issue.step,
+      message: issue.message,
+    }));
+  }, [readiness, record]);
   if (record === undefined)
     return (
       <ChallengeShell title="پیش‌نمایش پرونده">
@@ -43,8 +53,10 @@ export function ChallengePreviewPage({ id }: { id: string }) {
   if (loadError) return <ChallengeLoadErrorState message={loadError} />;
   if (!record) return <NotFoundState />;
 
-  const canSubmit =
-    issues.length === 0 && ["draft", "ready", "needs_changes"].includes(record.status);
+  const canSubmit = readiness
+    ? readiness.ready && (stage === "draft" || stage === "formulation")
+    : issues.length === 0 && ["draft", "ready", "needs_changes"].includes(record.status);
+  const requestingApprovals = stage === "formulation";
   return (
     <ChallengeShell
       title="پیش‌نمایش پرونده"
@@ -270,7 +282,7 @@ export function ChallengePreviewPage({ id }: { id: string }) {
             disabled={!canSubmit}
             onClick={() => setConfirmOpen(true)}
           >
-            ارسال برای بررسی
+            {requestingApprovals ? "ارسال برای تأییدها" : "ارسال برای بررسی"}
           </button>
           {issues.length > 0 && (
             <small>ابتدا {issues.length.toLocaleString("fa-IR")} مورد ناقص را تکمیل کنید.</small>
@@ -285,10 +297,12 @@ export function ChallengePreviewPage({ id }: { id: string }) {
 
       <ConfirmModal
         open={confirmOpen}
-        title="ارسال پرونده برای بررسی؟"
+        title={requestingApprovals ? "ارسال صورت‌بندی برای تأییدها؟" : "ارسال پرونده برای بررسی؟"}
         description={
           <>
-            <p>پس از ارسال، وضعیت پرونده به «در انتظار بررسی» تغییر می‌کند.</p>
+            <p>
+              پس از ارسال، وضعیت پرونده به «در انتظار بررسی» تغییر می‌کند و نسخه فعلی قفل می‌شود.
+            </p>
             <p>انتشار عمومی فقط پس از بررسی پلتفرم انجام می‌شود.</p>
           </>
         }
@@ -297,7 +311,7 @@ export function ChallengePreviewPage({ id }: { id: string }) {
         onConfirm={async () => {
           setConfirmOpen(false);
           setSubmitError("");
-          const result = await demoChallengeGateway.commands.submit(record);
+          const result = await challengeGateway.commands.submit(record);
           if (!result.ok) {
             setSubmitError(result.error.message);
             return;

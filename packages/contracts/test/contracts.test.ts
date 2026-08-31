@@ -12,6 +12,7 @@ import {
   type ErrorEnvelope,
   type PatchChallengeBody,
   type OutboxEvent,
+  type OidcAuthorizationStartBody,
   type SessionExchangeBody,
   type SuccessEnvelope,
 } from "../src/index.js";
@@ -26,16 +27,19 @@ describe("authoritative API contracts", () => {
   });
 
   it("carries optimistic concurrency in every implemented command body", () => {
+    expect(apiSchemas.OidcAuthorizationStartBody.required).toContain("expected_version");
     expect(apiSchemas.SessionExchangeBody.required).toContain("expected_version");
     expect(apiSchemas.SessionRefreshBody.required).toContain("expected_version");
     expect(apiSchemas.SessionRevokeBody.required).toContain("expected_version");
     expect(apiSchemas.SwitchWorkspaceContextBody.required).toContain("expected_version");
     expect(apiSchemas.CreateChallengeBody.required).toContain("expected_version");
     expect(apiSchemas.PatchChallengeBody.required).toContain("expected_version");
+    expect(apiSchemas.ChallengeTransitionBody.required).toContain("expected_version");
 
     expectTypeOf<CreateChallengeBody["expected_version"]>().toEqualTypeOf<0>();
     expectTypeOf<PatchChallengeBody["expected_version"]>().toEqualTypeOf<number>();
     expectTypeOf<SessionExchangeBody["state"]>().toEqualTypeOf<string>();
+    expectTypeOf<OidcAuthorizationStartBody["expected_version"]>().toEqualTypeOf<0>();
   });
 
   it("defines the complete canonical mutation receipt", () => {
@@ -55,6 +59,7 @@ describe("authoritative API contracts", () => {
     expect(Object.keys(openApiDocument.paths)).toEqual(
       expect.arrayContaining([
         apiRoutes.openApi,
+        apiRoutes.oidcAuthorizationStart,
         apiRoutes.sessionExchange,
         apiRoutes.sessionRefresh,
         apiRoutes.sessionRevoke,
@@ -62,6 +67,11 @@ describe("authoritative API contracts", () => {
         apiRoutes.switchWorkspaceContext,
         apiRoutes.challenges,
         apiRoutes.challengeById,
+        apiRoutes.requestChallengeTriage,
+        apiRoutes.advanceChallengeFormulation,
+        apiRoutes.requestChallengeApprovals,
+        apiRoutes.platformChallengeApprovalQueue,
+        apiRoutes.platformChallengeApprovalBrief,
       ]),
     );
 
@@ -70,6 +80,18 @@ describe("authoritative API contracts", () => {
       "X-Workspace-Id",
       "Idempotency-Key",
     ]);
+    expect(apiSchemas.ChallengeResource.required).toEqual(
+      expect.arrayContaining(["version", "content_version", "readiness"]),
+    );
+  });
+
+  it("keeps the platform approval brief structurally narrower than the org aggregate", () => {
+    const properties = Object.keys(apiSchemas.ChallengeApprovalBrief.properties.content.properties);
+    expect(properties).not.toContain("contact");
+    expect(properties).not.toContain("invitees");
+    expect(properties).not.toContain("attachment_ids");
+    expect(apiSchemas.ChallengeApprovalBrief.properties).not.toHaveProperty("tenant_id");
+    expect(apiSchemas.ChallengeApprovalBrief.properties).not.toHaveProperty("created_by");
   });
 
   it("keeps transport contracts language-neutral", () => {

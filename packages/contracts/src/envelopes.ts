@@ -1,4 +1,11 @@
-import type { AuditEventId, CorrelationId, EntityId, ReceiptId, WorkspaceId } from "@rahhal/domain";
+import type {
+  AuditEventId,
+  ChallengeReadinessIssue,
+  CorrelationId,
+  EntityId,
+  ReceiptId,
+  WorkspaceId,
+} from "@rahhal/domain";
 
 export const apiErrorCodes = [
   "VALIDATION",
@@ -26,6 +33,13 @@ export type ApiFieldError = {
   readonly path: string;
   readonly code: string;
   readonly message: string;
+  readonly step?: 1 | 2 | 3 | 4;
+};
+
+export type ApiReadiness = {
+  readonly ready: boolean;
+  readonly evaluated_version: number;
+  readonly issues: readonly ChallengeReadinessIssue[];
 };
 
 export type ApiError = {
@@ -35,6 +49,7 @@ export type ApiError = {
   readonly current_version?: number;
   readonly current_state?: string;
   readonly allowed_transitions?: readonly string[];
+  readonly readiness?: ApiReadiness;
   readonly recovery?: string;
 };
 

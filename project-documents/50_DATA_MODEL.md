@@ -14,7 +14,7 @@ Target schema for the MVP vertical slice (challenge → proposal → review → 
 - **Enums**: Postgres `CHECK` constraints or `enum` types mirroring the canonical state machines exactly (values verbatim from `state-machines.ts`).
 - **Optimistic concurrency**: aggregates carry a non-negative lock version bumped on every write; commands pass `expected_version` (60 §4). The A1a `challenge` column is `lock_version`; API naming remains `entity_version`/`expected_version`.
 
-## 2. Tenancy strategy (ADR-006)
+## 2. Tenancy strategy (ADR-0004)
 
 **Default: application-scoped tenancy + PostgreSQL Row-Level Security as defense-in-depth.**
 
@@ -44,29 +44,36 @@ CREATE POLICY proposal_access ON proposal USING (
 
 ## 3. Identity, tenancy & access
 
-The A1a executable baseline is `apps/api/migrations/0001_a1a_foundation.up.sql`:
+The executable baseline is `0001_a1a_foundation.up.sql`, `0002_a1b_identity_transaction.up.sql`, `0003_a1c_authoritative_challenge.up.sql`, and `0004_a2_oidc_authorization.up.sql`:
 
-| Table                       | Landed invariant                                                                                                                                                |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `tenant`                    | Exact kinds `organization`, `solver`, `platform`; `(id, kind)` supports declarative compatibility references                                                    |
-| `app_user`, `identity_link` | Contacts and verification flags are separate from provider identity; an external identity is unique by `(issuer, subject)`; no IdP secret or password is stored |
-| `workspace`                 | `platform→platform`, `org→organization`, `individual                                                                                                            | team→solver`; only individual/team spaces have an owner and only teams have `TeamKind` |
-| `membership`                | Workspace/tenant linkage is one composite foreign key; `platform:*`, `org:*`, `team:*`, and `individual` roles must match the workspace kind                    |
-| `access_grant`              | Cross-tenant only, workspace-bound, resource- and capability-specific, time-bounded, explicitly revocable, and auditable by actor ID                            |
-| `app_session`               | Stores only unique SHA-256-shaped access/refresh digests, expiry, version, active context, and revocation metadata; raw tokens are structurally absent          |
+| Table                        | Landed invariant                                                                                                                                                                                                                |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tenant`                     | Exact kinds `organization`, `solver`, `platform`; `(id, kind)` supports declarative compatibility references                                                                                                                    |
+| `app_user`, `identity_link`  | Contacts and verification flags are separate from provider identity; an external identity is unique by `(issuer, subject)`; no IdP secret or password is stored                                                                 |
+| `workspace`                  | `platform→platform`, `org→organization`, and `individual`/`team→solver`; only individual/team spaces have an owner and only teams have `TeamKind`                                                                               |
+| `membership`                 | Workspace/tenant linkage is one composite foreign key; `platform:*`, `org:*`, `team:*`, and `individual` roles must match the workspace kind                                                                                    |
+| `access_grant`               | Cross-tenant only, workspace-bound, resource- and capability-specific, time-bounded, explicitly revocable, and auditable by actor ID                                                                                            |
+| `app_session`                | Stores only unique SHA-256-shaped access/refresh digests, expiry, version, active context, revocation metadata, and an evidence-partition `origin_tenant_id`; raw credentials are structurally absent                           |
+| `oidc_authorization_attempt` | One-time exact redirect plus state/verifier/nonce/idempotency digests; only validated issuer/subject/verified email survive provider exchange; codes, verifiers, state, provider tokens, and raw claims are structurally absent |
 
-DEC-2026-011 and its owner record in [27](27_PHASE1_OWNER_APPROVALS.md) accept these tenant/workspace semantics. A1a encodes structural compatibility; A1b still must scope every query, revalidate active memberships/grants, and transact application writes. RLS remains the pre-pilot defense-in-depth gate.
+DEC-2026-011 and its owner record in [27](27_PHASE1_OWNER_APPROVALS.md) accept these tenant/workspace semantics. A1a encodes structural compatibility. A1b scopes session/workspace queries, binds the database session to the user principal, revalidates active membership under row locks, and transacts session state with audit/outbox/idempotency evidence. A1c joins challenge commands to that same transaction boundary. A2 records only authorization-attempt digests and validated identity fields, then consumes the attempt in the same transaction that creates the app session. Grant authorization remains a later increment; RLS remains the pre-pilot defense-in-depth gate.
+
+`origin_tenant_id` records the tenant under which the session was issued so session audit/outbox evidence always has a tenant partition; it is not the active authorization context. Migration `0002` backfills it from the active context or the user's earliest membership and fails explicitly if an existing orphaned session has no tenant source. Its down migration removes only that A1b column, constraint, and index.
 
 ## 4. Challenge aggregate + public projection
 
-A1a lands only `challenge` and `challenge_version`, sufficient for A1b draft create/read/save:
+A1a lands `challenge` and `challenge_version`; A1c makes the draft path authoritative:
 
 - A challenge belongs to a composite organization-tenant/`org`-workspace scope and accepts exactly the 11 canonical lifecycle stages.
 - `current_version_id` is required; `published_version_id` is required from `published` onward. Deferred composite foreign keys prove each pointer references a version of that same challenge.
-- Version numbers are positive and unique per challenge. Content must be a JSON object. Once `locked_at` is set with a reason, a trigger rejects both update and delete.
-- `lock_version` is the aggregate optimistic-concurrency value. The editor's `ready`/`needs_changes` values remain draft authoring sub-statuses inside versioned content, never lifecycle stages.
+- Version numbers are positive and unique per challenge. Migration `0003` normalizes legacy seed content to the complete draft shape and rejects missing structural keys. Every version row is append-only, whether submitted or still a draft; a save inserts a replacement version instead of updating content.
+- `lock_version` is the positive aggregate optimistic-concurrency value and equals the current version number. The editor's `ready`/`needs_changes` values are constrained `authoring_status` values on each version, never lifecycle stages.
 
-Phase 2 adds `challenge_approval`, `eligibility_rule`, and the structurally separate `challenge_public_projection` in its own reversible migration. Approvals remain version-specific and independently attributable. `allowed_applicant_types` is authoritative; `applicant_scope` is its DEC-2026-010 derived compatibility projection and is never an independently writable aggregate column.
+Phase 2 migration `0006` adds version-specific, independently attributable `challenge_approval` evidence. Migration `0007` adds one append-only `eligibility_rule` snapshot per `challenge_version`, created by a database trigger in the same transaction as the version. The snapshot carries authoritative `allowed_applicant_types`, verification/NDA/document gates, proposal deadline, and rule state. Editable challenges accept only an open, unexpired rule; partial drafts may leave the deadline null until readiness validation requires it. Existing versions are backfilled without rewriting their immutable content. `applicant_scope` remains the DEC-2026-010 derived compatibility projection and is never independently writable.
+
+Migration `0008` adds the structurally separate `challenge_public_projection`, written by B4's publish transaction. It has one explicit column per field on the `challengePublicProjectionFields` allowlist and no `content jsonb` column, so a confidential field added to `challenge_version.content` later has nowhere in the public table to land. Rows exist only for `public`/`registered` challenges — an `invite_only`/`nda` challenge publishes without ever entering the table, so discovery cannot leak it through a forgotten filter. The table is append-only; a `challenge` trigger additionally refuses any `published_version_id` that does not carry all four approved `challenge_approval` gates, so a direct SQL write cannot fabricate a publication the gates never cleared. Migration `0009` (B6) adds the _call's_ live state — `challenge.publication_state` and `challenge.proposal_deadline_at` — beside the approved version rather than inside it. Extending a deadline or pausing a call must not fabricate a `challenge_version` the four publication gates never approved, nor rewrite the one they did, so the immutable evidence stays frozen and the mutable call state lives on the aggregate. A trigger keeps `closed`/`cancelled` terminal and refuses a deadline that moves backwards. The projection gains a mirrored `state` column and its append-only trigger is replaced by one that permits changes to `state` and `proposal_deadline` alone. Migration `0010` closes the remaining direct-SQL gap: even those two permitted fields may update only when their new values match the authoritative `challenge` row. Discovery filters on `state = 'open'`; a paused or closed call keeps its row so a direct link still resolves and shows why it stopped. Lifecycle command reasons are retained in `audit_event.metadata.reason`; they are not copied into public projections or outbox payloads.
+
+B5 delivers the public read path over this table: a separate `PublicChallengePort` whose PostgreSQL adapter selects an explicit column list from `challenge_public_projection` and joins no private table, ordered by a keyset cursor on `(proposal_deadline DESC, challenge_id DESC)`.
 
 ## 5. Proposal aggregate (immutable versions)
 
@@ -197,15 +204,16 @@ CREATE TABLE payment (
 
 ## 8. Cross-cutting platform tables
 
-A1a lands three cross-cutting records:
+A1a lands three cross-cutting records; A1b writes session evidence and A1c writes challenge evidence into them. A1c also adds an append-only durable receipt:
 
-| Table             | Landed invariant                                                                                                                                                                                                                                                                       |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `idempotency_key` | Tenant scope and pre-tenant credential-fingerprint scope are mutually exclusive; the scope/key tuple is unique with nulls treated as equal; request hash, state, credential-free cached object response, and expiry must be coherent; recursive guards reject raw session-token fields |
-| `outbox_event`    | The durable envelope carries stable event ID, tenant/correlation, event and aggregate identity, positive schema version, object payload, dedupe key, and occurrence time; event content is immutable                                                                                   |
-| `audit_event`     | Actor kind is explicit (`user/system/provider/anonymous`), user actors require a user ID, scope/target pairs are coherent, metadata is an object, and all updates/deletes are rejected                                                                                                 |
+| Table              | Landed invariant                                                                                                                                                                                                                                                                       |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `idempotency_key`  | Tenant scope and pre-tenant credential-fingerprint scope are mutually exclusive; the scope/key tuple is unique with nulls treated as equal; request hash, state, credential-free cached object response, and expiry must be coherent; recursive guards reject raw session-token fields |
+| `outbox_event`     | The durable envelope carries stable event ID, tenant/correlation, event and aggregate identity, positive schema version, object payload, dedupe key, and occurrence time; event content is immutable                                                                                   |
+| `audit_event`      | Actor kind is explicit (`user/system/provider/anonymous`), user actors require a user ID, scope/target pairs are coherent, metadata is an object, and all updates/deletes are rejected                                                                                                 |
+| `mutation_receipt` | A tenant/workspace-scoped entity version points to exactly one audit event and stores correlation, occurrence time, and typed next actions; all updates/deletes are rejected                                                                                                           |
 
-Outbox delivery bookkeeping (`available_at`, attempts, lock, publication, redacted error code) remains mutable so A1b/worker adapters can claim and complete rows. The worker must validate the reconstructed envelope and pass `event_id` unchanged downstream. A1a does not yet provide leases, an operated dead-letter queue, or WORM audit export.
+Outbox delivery bookkeeping (`available_at`, attempts, lock, publication, redacted error code) remains mutable so a later worker adapter can claim and complete rows. The worker must validate the reconstructed envelope and pass `event_id` unchanged downstream. A1a–A1c do not yet provide durable claims/leases, an operated dead-letter queue, separate application/database roles, RLS, or WORM audit export.
 
 `file_object`, `notification_delivery`, `policy_version`, `consent`, `dispute`, `privileged_access_grant`, `nda_acceptance`, and `verification_record` remain later migration work. File rows must eventually enforce the quarantine/scan/classification rules in [70](70_SECURITY_AND_AUTHZ.md); no placeholder table is created early.
 

@@ -70,7 +70,7 @@ Cross-cutting platform services (not domain modules): **Idempotency**, **Outbox/
   ```
 - A later behavior-neutral target move may create `apps/web`; it is not a prerequisite for the API boundary. Generated web clients and `infra/` deployment definitions are also future additions. The root `domain/state-machines.ts` remains the current transition oracle and has not been moved into `packages/domain`.
 - **Environments:** isolated dev / test / preview / staging / production with separate data, credentials, domains, provider accounts, and audit retention. Never clone production identity documents or confidential files into preview.
-- **Local-first container baseline:** the root multi-stage `Dockerfile` and `compose.yaml` build Linux images for the current static web, compiled API, and compiled worker and run pinned PostgreSQL 16 on macOS Docker Desktop or Linux. All published ports bind only to `127.0.0.1`; application containers run non-root/read-only with dropped capabilities. A1a supplies the checksummed SQL schema and synthetic seeds, but the API/worker still use isolated in-memory compositions until A1b installs PostgreSQL adapters. This stack is not staging or production.
+- **Local-first container baseline:** the root multi-stage `Dockerfile` and `compose.yaml` build Linux images for the current static web, compiled API, and compiled worker and run pinned PostgreSQL 16 on macOS Docker Desktop or Linux. All published ports bind only to `127.0.0.1`; application containers run non-root/read-only with dropped capabilities. A guarded one-shot job applies migrations and synthetic seeds before the API starts. A1c composes the API explicitly with PostgreSQL session/workspace/challenge adapters; the web and worker remain demo-only. The restart smoke creates a challenge, restarts the API container, and reads the same database record. This stack is not staging or production.
 - **Server-later rule:** production adapters, migrations, identity flows, recovery, and integration tests are developed against local Linux containers first. Hosting/IaC selection happens from measured requirements and owner-approved residency constraints. Server deployment must consume immutable, revision-labelled images built from these targets (or reviewed successors), never rebuild source independently on the host. Apple Silicon validates `linux/arm64`; the release pipeline must additionally build and test the selected server architecture, normally `linux/amd64`, before promotion.
 
 ### Technology recommendation (ADR-0013/0014)
@@ -93,13 +93,15 @@ Cross-cutting platform services (not domain modules): **Idempotency**, **Outbox/
 - **Safe return-to**: keep `lib/auth/return-to.ts`'s allowlisting, but validate server-side against authorized role context (FR-IAM-006).
 - **Tenancy**: every protected row carries `tenant_id` + `workspace_id`. Active context is explicit (`ActiveWorkspace`), switched deliberately, never inferred from URL. A user may hold memberships in multiple workspaces/tenants. DEC-2026-011 is accepted: tenant kinds are `organization`/`solver`/`platform`; workspace kinds are compatibly constrained as `org`/`individual|team`/`platform`; cross-tenant reach requires an explicit `access_grant`.
 
-## 5. Audit & correlation (ADR-008)
+**A1b/A1c executable boundary:** `PostgresIdentityWorkspaceAdapter` resolves `(issuer, subject)` links, stores only SHA-256 credential digests, rotates/revokes sessions, serves `/me` data, and switches active workspace against database memberships. `PostgresUnitOfWork` binds nested adapter work to one transaction; protected operations lock and revalidate the session principal plus active membership before invoking the operation. `PostgresChallengeAdapter` scopes every read/write by tenant and workspace, appends a new immutable version on every save, and atomically records its receipt, audit, outbox, and tenant-scoped idempotency result. `RAHHAL_API_MODE=postgres` composes both adapters and refuses startup without migration `0003`; unknown/unset modes never fall back. Until A2, OIDC exchange and credential issuance fail closed while a digest-only synthetic session supports local acceptance.
+
+## 5. Audit & correlation (ADR-0008)
 
 - Every business mutation writes an **audit_event** in the _same transaction_ as the aggregate change (via the outbox pattern for downstream fan-out): `{id, tenant_id, actor_user_id, workspace_id, entity_type, entity_id, entity_version, action, audit_code, outcome, reason, correlation_id, occurred_at}`. The `audit` codes already exist on every transition in `state-machines.ts` (e.g. `challenge.published`, `payment.reconciled`) — use them verbatim.
 - **Correlation**: one `correlation_id` threads challenge_version → proposal_version → assignment/review → decision → case → contract → payment. This is a Phase-4 exit gate ("full correlation").
 - **Immutability & independence**: audit table is append-only (no UPDATE/DELETE grants to app role); periodic signed export to WORM storage; queryable by entity/correlation/actor; exportable under policy. Business-data _corrections_ are new events, never history edits (Ops question, doc 70 §7).
 
-## 6. Files & evidence (ADR-007)
+## 6. Files & evidence (ADR-0009)
 
 Upload pipeline (retires the client `lib/validation/upload.ts` as the _only_ gate; keep it as first-line UX validation):
 

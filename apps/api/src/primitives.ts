@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { FastifyRequest } from "fastify";
 import { parseCorrelationId } from "@rahhal/domain";
 import { ApiProblem, unauthorized } from "./errors.js";
@@ -15,9 +15,15 @@ export const systemClock: Clock = { now: () => new Date() };
 export class MonotonicIdFactory implements IdFactory {
   private sequence = 0;
 
-  next(prefix: "ses" | "chl" | "chv" | "rcp" | "aud" | "cor" | "evt") {
+  next(prefix: "ses" | "chl" | "chv" | "cap" | "rcp" | "aud" | "cor" | "evt" | "oat") {
     this.sequence += 1;
     return `${prefix}_${this.sequence.toString(36).padStart(8, "0")}`;
+  }
+}
+
+export class RandomIdFactory implements IdFactory {
+  next(prefix: "ses" | "chl" | "chv" | "cap" | "rcp" | "aud" | "cor" | "evt" | "oat") {
+    return `${prefix}_${randomUUID().replaceAll("-", "")}`;
   }
 }
 

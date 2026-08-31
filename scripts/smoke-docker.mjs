@@ -1,4 +1,9 @@
+import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { promisify } from "node:util";
+
 const requestTimeoutMs = 5_000;
+const execFileAsync = promisify(execFile);
 
 function localUrl(name, explicitUrl, port, path = "/") {
   const value = explicitUrl?.trim();
@@ -6,10 +11,10 @@ function localUrl(name, explicitUrl, port, path = "/") {
   return new URL(path, `http://127.0.0.1:${port}`).toString();
 }
 
-async function checkedResponse(name, url) {
+async function checkedResponse(name, url, init) {
   let response;
   try {
-    response = await fetch(url, { signal: AbortSignal.timeout(requestTimeoutMs) });
+    response = await fetch(url, { ...init, signal: AbortSignal.timeout(requestTimeoutMs) });
   } catch (error) {
     throw new Error(`${name} is unavailable at ${url}: ${error.message}`, { cause: error });
   }
@@ -32,6 +37,9 @@ const apiUrl = localUrl(
   process.env.RAHHAL_API_PORT ?? "3001",
   "/api/v1/openapi.json",
 );
+const apiOrigin = new URL(
+  process.env.RAHHAL_API_URL?.trim() || `http://127.0.0.1:${process.env.RAHHAL_API_PORT ?? "3001"}`,
+);
 
 const web = await checkedResponse("Rahhal web container", webUrl);
 const html = await web.text();
@@ -50,4 +58,59 @@ if (specification.openapi !== "3.1.0" || specification.info?.title !== "Rahhal A
   throw new Error("Rahhal API container did not return the canonical OpenAPI document");
 }
 
-process.stdout.write(`Docker smoke passed: web=${webUrl} api=${apiUrl}\n`);
+const commandHeaders = {
+  authorization: "Bearer local-a1b-access-owner-alpha",
+  "content-type": "application/json",
+  "x-workspace-id": "wsp_org_alpha",
+  "idempotency-key": `docker-smoke-${randomUUID()}`,
+};
+const create = await checkedResponse(
+  "Rahhal PostgreSQL challenge create",
+  new URL("/api/v1/challenges", apiOrigin),
+  {
+    method: "POST",
+    headers: commandHeaders,
+    body: JSON.stringify({
+      expected_version: 0,
+      draft: { title: "Docker restart persistence smoke" },
+    }),
+  },
+);
+const created = await create.json();
+const challengeId = created?.data?.entity_id;
+if (typeof challengeId !== "string" || !challengeId.startsWith("chl_")) {
+  throw new Error("Rahhal PostgreSQL challenge create did not return a typed challenge receipt");
+}
+
+await execFileAsync("docker", ["compose", "restart", "api"], { timeout: 60_000 });
+
+let readAfterRestart;
+for (let attempt = 0; attempt < 30; attempt += 1) {
+  try {
+    readAfterRestart = await checkedResponse(
+      "Rahhal PostgreSQL challenge after API restart",
+      new URL(`/api/v1/challenges/${challengeId}`, apiOrigin),
+      {
+        headers: {
+          authorization: commandHeaders.authorization,
+          "x-workspace-id": commandHeaders["x-workspace-id"],
+        },
+      },
+    );
+    break;
+  } catch (error) {
+    if (attempt === 29) throw error;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+}
+const persisted = await readAfterRestart.json();
+if (
+  persisted?.data?.id !== challengeId ||
+  persisted?.data?.content?.title !== "Docker restart persistence smoke"
+) {
+  throw new Error("Rahhal challenge did not persist across the API container restart");
+}
+
+process.stdout.write(
+  `Docker smoke passed with PostgreSQL restart persistence: web=${webUrl} api=${apiUrl} challenge=${challengeId}\n`,
+);

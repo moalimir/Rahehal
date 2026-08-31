@@ -1,11 +1,38 @@
 import type { SessionId } from "@rahhal/domain";
 
 import type {
+  SuccessEnvelope,
   MutationReceipt,
   MutationSuccessEnvelope,
   VersionedApiMeta,
   VersionedCommand,
 } from "./envelopes.js";
+
+export type OidcAuthorizationStartBody = {
+  readonly expected_version: 0;
+  readonly redirect_uri: string;
+};
+
+export type OidcAuthorizationStartResult = {
+  readonly authorization_url: string;
+  readonly state: string;
+  readonly code_verifier: string;
+  readonly expires_at: string;
+};
+
+export type OidcAuthorizationStartSuccessEnvelope = SuccessEnvelope<OidcAuthorizationStartResult>;
+
+export type BrowserOidcAuthorizationStartBody = {
+  readonly expected_version: 0;
+};
+
+export type BrowserOidcAuthorizationStartResult = {
+  readonly authorization_url: string;
+  readonly expires_at: string;
+};
+
+export type BrowserOidcAuthorizationStartSuccessEnvelope =
+  SuccessEnvelope<BrowserOidcAuthorizationStartResult>;
 
 export type SessionExchangeBody = {
   readonly expected_version: 0;

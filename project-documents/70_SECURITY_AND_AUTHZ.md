@@ -1,8 +1,8 @@
 # Security & Authorization
 
-The broader prototype's biggest lie is that it _looks_ secure: deny-by-default helpers, publication gates, COI gates, payment prerequisites — still enforced in the browser and bypassable (M-01). The initial API exception is described below, but it is an in-memory boundary proof rather than production authority. This document defines the server-side authority that replaces the browser rules. It unifies the three client permission engines (X-05) into one decision model and keeps them as the **test oracle**.
+The broader prototype's biggest lie is that it _looks_ secure: deny-by-default helpers, publication gates, COI gates, payment prerequisites — still enforced in the browser and bypassable (M-01). A1c establishes one narrow PostgreSQL-authoritative challenge-draft exception, while the web and broader workflows remain demo-only. This document defines the server-side authority that replaces the remaining browser rules. It unifies the three client permission engines (X-05) into one decision model and keeps them as the **test oracle**.
 
-> **Current executable proof (2026-08-27):** `apps/api` exercises the initial session, workspace-context, and challenge-draft subset through injected in-memory ports. A1a additionally supplies a real PostgreSQL schema whose isolated tests prove tenant/workspace/role compatibility, cross-tenant grant constraints, `(issuer, subject)` identity uniqueness, digest-only sessions, exact challenge stages, locked-version and audit immutability, immutable outbox content, and scoped idempotency. The API is not wired to that schema yet, RLS is deferred, and `apps/worker` does not claim durable rows; those remain A1b and pre-pilot hardening gates.
+> **Current executable proof (2026-08-30):** Phase 1 supplies principal-bound digest-only sessions, membership/workspace revalidation inside transaction scope, local authorization-code + S256-PKCE OIDC, and scoped immutable challenge drafts. Phase 2 adds distinct-actor publication gates, atomic publish/public projection, reasoned live-call controls, a purpose-scoped platform approval queue/brief, and projection/aggregate synchronization through migration `0010`. API, PostgreSQL, contract, rollback/race, and real-browser Docker suites prove these boundaries. The managed production IdP, MFA/step-up, RLS, separate database roles, rate limits, operated outbox delivery, private files, and authoritative worker remain pre-pilot/later roadmap gates.
 
 ---
 
@@ -43,7 +43,7 @@ request = {
 **Evaluation order (fail closed at each step):**
 
 1. **Authn** — valid, unexpired token → else `NO_ACCESS`.
-2. **Reach** — the subject reaches the record via _(a)_ the same active tenant, _(b)_ an active `access_grant` linking their active workspace to the record's collaboration (cross-tenant open-innovation sharing — [42 §3](42_FOUNDATION_HARDENING.md)), or _(c)_ a public projection → else `NOT_FOUND` (non-enumerating). Pure `tenant_id ==` isolation would deny the core org↔solver flow.
+2. **Reach** — the subject reaches the record via _(a)_ the same active tenant, _(b)_ an active `access_grant` linking their active workspace to the record's collaboration (cross-tenant open-innovation sharing — [42 §3](42_FOUNDATION_HARDENING.md)), _(c)_ a public projection, or _(d)_ standing platform-role authority over one fixed, named action (not general reach — [25 ADR-0015](25_DECISIONS.md): record own publication gate, list own gate queue, or read the approval brief) → else `NOT_FOUND` (non-enumerating). Pure `tenant_id ==` isolation would deny the core org↔solver flow.
 3. **Membership** — an _active_ membership exists → else `NO_ACCESS`.
 4. **Role capability** — some held role grants `action` → else `NO_ACCESS`.
 5. **State** — `action` is legal from `target.state` (state machine) → else `INVALID_STATE`.
@@ -61,17 +61,27 @@ Every decision (allow _and_ deny) emits an `audit_event` with `outcome ∈ {succ
 - PostgreSQL RLS enforces the tenant-**or-grant** predicate as a backstop ([50 §2](50_DATA_MODEL.md)).
 - Public projection tables are physically separate from private aggregates (60 §6).
 - Protected records return non-enumerating `404` to non-members (hidden == denied, indistinguishable).
+- The full organization `ChallengeResource` is same-workspace only. Platform publication roles receive a separate SQL-projected approval brief with an explicit field allowlist; it excludes contact/invite/file identifiers and replaces other actors' user ids with only the current actor's separation-of-duty boolean.
+- The platform approval queue requires an active platform workspace, derives the one gate from the active role, excludes completed/self-recorded versions, and is bounded. It is not a general cross-tenant challenge catalogue.
 - Test suite must cover: horizontal access, vertical escalation, stale membership, cross-workspace IDs, guessed IDs, bulk endpoints, and **grant lifecycle** (granted counterpart allowed; revoked/expired/absent grant → `404`).
 
 ## 4. Permission matrix (MVP slice)
 
 Canonical roles (20 §3). ✔ = allowed; ✔* = allowed with step-up + reason; — = denied. `team:*`rows follow`decideTeamPermission` (`solver/permissions.ts`) exactly.
 
+**`challenge:publish` vs `challenge:publish-override`.** These were one row until 2026-08-29, which conflated two different operations and misread as "`platform:ops` may publish an org's challenge". They are separate:
+
+- **`challenge:publish`** — the routine `approvals → published` transition with all four gates recorded as `approved`. `org:publisher` only, matching [20 §8](20_CANONICAL_MODEL.md)'s stage table and the executable `challengeTransitions`. No step-up and no separate reason: the four gate reasons already carry the justification, and a mandatory free-text field on a routine action dilutes the audit trail rather than enriching it. **Implemented (B4).**
+- **`challenge:publish-override`** — publishing when readiness or the gates are _not_ satisfied ([95 §2](95_RISKS_AND_OPEN_QUESTIONS.md): "Only `org:publisher` + `platform:ops` may override (recorded, reasoned)"). Step-up **and** a structured reason are required here, because the actor is asserting something no gate attests. `platform:ops` appears only on this row — it co-signs an override, it never publishes in an organization's place. **Not implemented and not part of the completed MVP Phase 2; schedule only after DEC-2026-012 is resolved.**
+
+One question is still open on the override and belongs to the owner: whether `org:publisher` **+** `platform:ops` means a joint co-signature or each role overriding within its own lane (the org owns brief quality, ops owns the publication-quality gate). Do not implement the override until that is decided — see [25 DEC-2026-012](25_DECISIONS.md).
+
 | Action (command)             | org:owner/member | org:approver\_\* | org:publisher | team:owner/admin            | team:proposal-manager | team:contributor | team:viewer | platform:reviewer | platform:ops             | platform:finance | platform:legal |
 | ---------------------------- | ---------------- | ---------------- | ------------- | --------------------------- | --------------------- | ---------------- | ----------- | ----------------- | ------------------------ | ---------------- | -------------- |
 | `challenge:create/edit`      | ✔               | —                | —             | —                           | —                     | —                | —           | —                 | —                        | —                | —              |
 | `challenge/approvals:record` | —                | ✔ (own gate)    | —             | —                           | —                     | —                | —           | —                 | ✔ (quality)             | ✔ (finance)     | ✔ (legal)     |
-| `challenge:publish`          | —                | —                | ✔\*          | —                           | —                     | —                | —           | —                 | ✔\*                     | —                | —              |
+| `challenge:publish`          | —                | —                | ✔            | —                           | —                     | —                | —           | —                 | —                        | —                | —              |
+| `challenge:publish-override` | —                | —                | ✔\*          | —                           | —                     | —                | —           | —                 | ✔\*                     | —                | —              |
 | `proposal:create/edit`       | —                | —                | —             | ✔                          | ✔                    | ✔ (if assigned) | —           | —                 | —                        | —                | —              |
 | `proposal:submit`            | —                | —                | —             | ✔ (owner; admin if policy) | ✔ (if policy)        | —                | —           | —                 | —                        | —                | —              |
 | `proposal:view-payments`     | —                | —                | —             | ✔ (if policy)              | ✔ (if policy)        | —                | —           | —                 | —                        | —                | —              |

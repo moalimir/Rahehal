@@ -1,0 +1,35 @@
+name: Visual regression
+
+# Manually-triggered only. This cannot pass until a human reviews all 18 scenarios
+# x 7 viewports and commits an approved baseline to playwright/golden/ (there is
+# none yet - never auto-approve a visual baseline). Once that exists, run this
+# workflow on demand before a release, or fold it back into ci.yml as a required
+# job (see project-documents/82_PHASE0_COMPLETION.md T-E).
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  visual:
+    name: Visual regression (needs Golden Master)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --include=optional
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build:web
+      - run: npm run test:visual
+      - name: Upload visual diff report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-visual-report
+          path: playwright-report/
+          retention-days: 14

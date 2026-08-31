@@ -3,13 +3,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { runMigrations } from "../src/postgres/migrations.js";
 import { seedSyntheticData } from "../src/postgres/seeds.js";
+import { testDatabaseAdminUrl } from "./support/database.js";
 
-const defaultAdminUrl = "postgresql://rahhal:rahhal-local-only@127.0.0.1:5433/postgres";
-const adminUrl = new URL(process.env.RAHHAL_TEST_DATABASE_ADMIN_URL ?? defaultAdminUrl);
-
-if (!["127.0.0.1", "localhost", "::1"].includes(adminUrl.hostname)) {
-  throw new Error("PostgreSQL foundation tests refuse to create databases on a non-loopback host");
-}
+const adminUrl = testDatabaseAdminUrl();
 
 const testDatabaseName = `rahhal_a1a_test_${process.pid}_${Date.now()}`;
 const testDatabaseUrl = new URL(adminUrl);
@@ -46,10 +42,44 @@ beforeAll(async () => {
   databasePoolCreated = true;
 
   const firstUp = await runMigrations(database, "up");
-  expect(firstUp.applied).toEqual(["0001_a1a_foundation"]);
+  expect(firstUp.applied).toEqual([
+    "0001_a1a_foundation",
+    "0002_a1b_identity_transaction",
+    "0003_a1c_authoritative_challenge",
+    "0004_a2_oidc_authorization",
+    "0005_b1_authoritative_challenge_lifecycle",
+    "0006_b2_challenge_approval_gates",
+    "0007_b3_versioned_eligibility_rules",
+    "0008_b4_challenge_publication",
+    "0009_b6_publication_lifecycle",
+    "0010_phase2_closure",
+  ]);
 
-  const down = await runMigrations(database, "down");
-  expect(down.applied).toEqual(["0001_a1a_foundation"]);
+  const phase2Down = await runMigrations(database, "down");
+  expect(phase2Down.applied).toEqual(["0010_phase2_closure"]);
+  const b6Down = await runMigrations(database, "down");
+  expect(b6Down.applied).toEqual(["0009_b6_publication_lifecycle"]);
+  const b4Down = await runMigrations(database, "down");
+  expect(b4Down.applied).toEqual(["0008_b4_challenge_publication"]);
+  const b3Down = await runMigrations(database, "down");
+  expect(b3Down.applied).toEqual(["0007_b3_versioned_eligibility_rules"]);
+  const b2Down = await runMigrations(database, "down");
+  expect(b2Down.applied).toEqual(["0006_b2_challenge_approval_gates"]);
+  const b1Down = await runMigrations(database, "down");
+  expect(b1Down.applied).toEqual(["0005_b1_authoritative_challenge_lifecycle"]);
+  const a2Down = await runMigrations(database, "down");
+  expect(a2Down.applied).toEqual(["0004_a2_oidc_authorization"]);
+  const a1cDown = await runMigrations(database, "down");
+  expect(a1cDown.applied).toEqual(["0003_a1c_authoritative_challenge"]);
+  const a1bDown = await runMigrations(database, "down");
+  expect(a1bDown.applied).toEqual(["0002_a1b_identity_transaction"]);
+  const foundationStillPresent = await database.query<{ table_name: string | null }>(
+    "SELECT to_regclass('public.tenant')::text AS table_name",
+  );
+  expect(foundationStillPresent.rows[0]?.table_name).toBe("tenant");
+
+  const a1aDown = await runMigrations(database, "down");
+  expect(a1aDown.applied).toEqual(["0001_a1a_foundation"]);
   const removed = await database.query<{ table_name: string | null }>(
     "SELECT to_regclass('public.tenant')::text AS table_name",
   );
@@ -58,7 +88,18 @@ beforeAll(async () => {
   const secondDown = await runMigrations(database, "down");
   expect(secondDown.applied).toEqual([]);
   const secondUp = await runMigrations(database, "up");
-  expect(secondUp.applied).toEqual(["0001_a1a_foundation"]);
+  expect(secondUp.applied).toEqual([
+    "0001_a1a_foundation",
+    "0002_a1b_identity_transaction",
+    "0003_a1c_authoritative_challenge",
+    "0004_a2_oidc_authorization",
+    "0005_b1_authoritative_challenge_lifecycle",
+    "0006_b2_challenge_approval_gates",
+    "0007_b3_versioned_eligibility_rules",
+    "0008_b4_challenge_publication",
+    "0009_b6_publication_lifecycle",
+    "0010_phase2_closure",
+  ]);
   const noOpUp = await runMigrations(database, "up");
   expect(noOpUp.applied).toEqual([]);
 
@@ -70,9 +111,7 @@ afterAll(async () => {
   if (databasePoolCreated) await database.end();
   if (adminConnected) {
     if (databaseCreated) {
-      await admin.query(
-        `DROP DATABASE IF EXISTS ${quotedIdentifier(testDatabaseName)} WITH (FORCE)`,
-      );
+      await admin.query(`DROP DATABASE IF EXISTS ${quotedIdentifier(testDatabaseName)}`);
     }
     await admin.end();
   }
@@ -80,17 +119,26 @@ afterAll(async () => {
 
 describe("A1a PostgreSQL foundation", () => {
   it("migrates every required table and records the checksum", async () => {
+    // One list in the query's own `ORDER BY table_name` order, migration
+    // ledger included -- a new table has to be named here, not absorbed by an
+    // index into a spliced array.
     const expectedTables = [
       "access_grant",
       "app_session",
       "app_user",
       "audit_event",
       "challenge",
+      "challenge_approval",
+      "challenge_public_projection",
       "challenge_version",
+      "eligibility_rule",
       "idempotency_key",
       "identity_link",
       "membership",
+      "mutation_receipt",
+      "oidc_authorization_attempt",
       "outbox_event",
+      "schema_migration",
       "tenant",
       "workspace",
     ];
@@ -100,17 +148,49 @@ describe("A1a PostgreSQL foundation", () => {
       WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
       ORDER BY table_name
     `);
-    expect(tables.rows.map((row) => row.table_name)).toEqual([
-      ...expectedTables.slice(0, 10),
-      "schema_migration",
-      ...expectedTables.slice(10),
-    ]);
+    expect(tables.rows.map((row) => row.table_name)).toEqual(expectedTables);
 
     const ledger = await database.query<{ id: string; checksum: string }>(
       "SELECT id, checksum FROM schema_migration",
     );
     expect(ledger.rows).toEqual([
       { id: "0001_a1a_foundation", checksum: expect.stringMatching(/^[0-9a-f]{64}$/) },
+      {
+        id: "0002_a1b_identity_transaction",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+      {
+        id: "0003_a1c_authoritative_challenge",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+      {
+        id: "0004_a2_oidc_authorization",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+      {
+        id: "0005_b1_authoritative_challenge_lifecycle",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+      {
+        id: "0006_b2_challenge_approval_gates",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+      {
+        id: "0007_b3_versioned_eligibility_rules",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+      {
+        id: "0008_b4_challenge_publication",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+      {
+        id: "0009_b6_publication_lifecycle",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+      {
+        id: "0010_phase2_closure",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
     ]);
   });
 
@@ -120,24 +200,35 @@ describe("A1a PostgreSQL foundation", () => {
       users: string;
       workspaces: string;
       challenges: string;
+      challenge_versions: string;
+      eligibility_rules: string;
       audit_events: string;
       outbox_events: string;
+      mutation_receipts: string;
     }>(`
       SELECT
         (SELECT count(*) FROM tenant) AS tenants,
         (SELECT count(*) FROM app_user) AS users,
         (SELECT count(*) FROM workspace) AS workspaces,
         (SELECT count(*) FROM challenge) AS challenges,
+        (SELECT count(*) FROM challenge_version) AS challenge_versions,
+        (SELECT count(*) FROM eligibility_rule) AS eligibility_rules,
         (SELECT count(*) FROM audit_event) AS audit_events,
-        (SELECT count(*) FROM outbox_event) AS outbox_events
+        (SELECT count(*) FROM outbox_event) AS outbox_events,
+        (SELECT count(*) FROM mutation_receipt) AS mutation_receipts
     `);
     expect(counts.rows[0]).toEqual({
       tenants: "4",
-      users: "3",
+      // 3 baseline + the 4 B7 governance identities (distinct approvers,
+      // publisher, platform finance/legal) the Phase-2 exit gate requires.
+      users: "7",
       workspaces: "5",
       challenges: "1",
+      challenge_versions: "1",
+      eligibility_rules: "1",
       audit_events: "1",
       outbox_events: "1",
+      mutation_receipts: "1",
     });
   });
 
@@ -210,12 +301,29 @@ describe("A1a PostgreSQL foundation", () => {
     await expectDatabaseError(
       database.query(`
         INSERT INTO app_session (
-          id, user_id, token_family_id, access_token_digest, refresh_token_digest,
+          id, user_id, origin_tenant_id, token_family_id,
+          access_token_digest, refresh_token_digest,
           access_expires_at, refresh_expires_at
         ) VALUES (
-          'ses_invalid_digest', 'usr_solver_alpha', 'family_invalid_digest', 'raw-token',
+          'ses_invalid_digest', 'usr_solver_alpha', 'ten_solver_alpha',
+          'family_invalid_digest', 'raw-token',
           repeat('d', 64), clock_timestamp() + interval '5 minutes',
           clock_timestamp() + interval '1 day'
+        )
+      `),
+      "23514",
+    );
+
+    await expectDatabaseError(
+      database.query(`
+        INSERT INTO app_session (
+          id, user_id, origin_tenant_id, token_family_id,
+          access_token_digest, refresh_token_digest,
+          access_expires_at, refresh_expires_at
+        ) VALUES (
+          'ses_equal_digests', 'usr_solver_alpha', 'ten_solver_alpha',
+          'family_equal_digests', repeat('d', 64), repeat('d', 64),
+          clock_timestamp() + interval '5 minutes', clock_timestamp() + interval '1 day'
         )
       `),
       "23514",
@@ -244,10 +352,10 @@ describe("A1a PostgreSQL foundation", () => {
       database.query(`
         INSERT INTO challenge (
           id, tenant_id, tenant_kind, workspace_id, workspace_kind, stage,
-          current_version_id, created_by_user_id
+          current_version_id, lock_version, created_by_user_id
         ) VALUES (
           'chl_invalid_solver', 'ten_solver_alpha', 'organization', 'wsp_team_alpha',
-          'org', 'draft', 'chv_invalid_solver_v1', 'usr_solver_alpha'
+          'org', 'draft', 'chv_invalid_solver_v1', 1, 'usr_solver_alpha'
         )
       `),
       "23503",
@@ -257,30 +365,30 @@ describe("A1a PostgreSQL foundation", () => {
       database.query(`
         INSERT INTO challenge (
           id, tenant_id, tenant_kind, workspace_id, workspace_kind, stage,
-          current_version_id, created_by_user_id
+          current_version_id, lock_version, created_by_user_id
         ) VALUES (
           'chl_invalid_stage', 'ten_org_alpha', 'organization', 'wsp_org_alpha',
-          'org', 'ready', 'chv_invalid_stage_v1', 'usr_owner_alpha'
+          'org', 'ready', 'chv_invalid_stage_v1', 1, 'usr_owner_alpha'
         )
       `),
       "23514",
     );
   });
 
-  it("makes locked challenge versions and audit evidence immutable", async () => {
-    await database.query(`
-      INSERT INTO challenge_version (
-        id, challenge_id, version_number, content, created_by_user_id, locked_at, lock_reason
-      ) VALUES (
-        'chv_synthetic_alpha_v2', 'chl_synthetic_alpha', 2, '{"title":"locked"}'::jsonb,
-        'usr_owner_alpha', clock_timestamp(), 'submitted'
-      )
-    `);
+  it("makes every challenge version, receipt, and audit record immutable", async () => {
     await expectDatabaseError(
       database.query(`
         UPDATE challenge_version
         SET content = '{"title":"tampered"}'::jsonb
-        WHERE id = 'chv_synthetic_alpha_v2'
+        WHERE id = 'chv_synthetic_alpha_v1'
+      `),
+      "55000",
+    );
+    await expectDatabaseError(
+      database.query(`
+        UPDATE mutation_receipt
+        SET next_actions = '["tampered"]'::jsonb
+        WHERE id = 'rcp_seed_challenge_alpha'
       `),
       "55000",
     );
@@ -357,5 +465,81 @@ describe("A1a PostgreSQL foundation", () => {
       `),
       "23514",
     );
+  });
+
+  it("fails the A1b migration atomically for an orphaned existing session", async () => {
+    const phase2Down = await runMigrations(database, "down");
+    expect(phase2Down.applied).toEqual(["0010_phase2_closure"]);
+    const b6Down = await runMigrations(database, "down");
+    expect(b6Down.applied).toEqual(["0009_b6_publication_lifecycle"]);
+    const b4Down = await runMigrations(database, "down");
+    expect(b4Down.applied).toEqual(["0008_b4_challenge_publication"]);
+    const b3Down = await runMigrations(database, "down");
+    expect(b3Down.applied).toEqual(["0007_b3_versioned_eligibility_rules"]);
+    const b2Down = await runMigrations(database, "down");
+    expect(b2Down.applied).toEqual(["0006_b2_challenge_approval_gates"]);
+    const b1Down = await runMigrations(database, "down");
+    expect(b1Down.applied).toEqual(["0005_b1_authoritative_challenge_lifecycle"]);
+    const a2Down = await runMigrations(database, "down");
+    expect(a2Down.applied).toEqual(["0004_a2_oidc_authorization"]);
+    const a1cDown = await runMigrations(database, "down");
+    expect(a1cDown.applied).toEqual(["0003_a1c_authoritative_challenge"]);
+    const down = await runMigrations(database, "down");
+    expect(down.applied).toEqual(["0002_a1b_identity_transaction"]);
+    await database.query(`
+      INSERT INTO app_user (id, display_name, primary_email, created_at, updated_at)
+      VALUES (
+        'usr_orphaned_session', 'Orphaned Session', 'orphaned-session@synthetic.invalid',
+        '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'
+      )
+    `);
+    await database.query(`
+      INSERT INTO app_session (
+        id, user_id, token_family_id, access_token_digest, refresh_token_digest,
+        issued_at, access_expires_at, refresh_expires_at
+      ) VALUES (
+        'ses_orphaned_session', 'usr_orphaned_session', 'family_orphaned_session',
+        repeat('a', 64), repeat('b', 64), '2026-01-01T00:00:00Z',
+        '2029-01-01T00:00:00Z', '2030-01-01T00:00:00Z'
+      )
+    `);
+
+    await expect(runMigrations(database, "up")).rejects.toThrow(
+      "revoke orphaned sessions before retrying",
+    );
+    const rolledBack = await database.query<{
+      origin_column: string | null;
+      ledger_count: string;
+    }>(`
+      SELECT
+        (
+          SELECT column_name
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'app_session'
+            AND column_name = 'origin_tenant_id'
+        ) AS origin_column,
+        (
+          SELECT count(*)
+          FROM schema_migration
+          WHERE id = '0002_a1b_identity_transaction'
+        ) AS ledger_count
+    `);
+    expect(rolledBack.rows[0]).toEqual({ origin_column: null, ledger_count: "0" });
+
+    await database.query("DELETE FROM app_session WHERE id = 'ses_orphaned_session'");
+    await database.query("DELETE FROM app_user WHERE id = 'usr_orphaned_session'");
+    const recovered = await runMigrations(database, "up");
+    expect(recovered.applied).toEqual([
+      "0002_a1b_identity_transaction",
+      "0003_a1c_authoritative_challenge",
+      "0004_a2_oidc_authorization",
+      "0005_b1_authoritative_challenge_lifecycle",
+      "0006_b2_challenge_approval_gates",
+      "0007_b3_versioned_eligibility_rules",
+      "0008_b4_challenge_publication",
+      "0009_b6_publication_lifecycle",
+      "0010_phase2_closure",
+    ]);
   });
 });

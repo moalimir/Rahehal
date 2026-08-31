@@ -24,14 +24,17 @@ Open `http://localhost:3000`.
 Use native `npm run dev` for the fastest hot-reload loop. Use Docker whenever a change affects runtime packaging, environment behavior, service startup, or Linux portability:
 
 ```bash
+npm run docker:env:init
 npm run docker:config
 npm run docker:build
 npm run docker:up
 npm run docker:smoke
 ```
 
-The default local endpoints are web `http://localhost:3000` and API OpenAPI
-`http://localhost:3001/api/v1/openapi.json`. Override host ports without editing Compose:
+The initializer creates an ignored mode-0600 `.env` with independent random A2 flow/session
+secrets and refuses to replace an existing file. The default local endpoints are web
+`http://localhost:3000`, API OpenAPI `http://localhost:3001/api/v1/openapi.json`, and the synthetic
+Dex issuer `http://dex.localhost:5556/dex`. Override host ports without editing Compose:
 
 ```bash
 RAHHAL_WEB_PORT=3100 RAHHAL_API_PORT=3101 npm run docker:up
@@ -45,9 +48,9 @@ npm run docker:logs
 npm run docker:down
 ```
 
-`docker:build` refreshes changed targets. `docker:up` starts the current images and waits for HTTP health without forcing another build, which keeps routine local startup fast. The images run as unprivileged users on read-only root filesystems with all Linux capabilities dropped; writable temporary space is bounded `tmpfs`. Published ports bind to `127.0.0.1`, not the LAN. Do not weaken those defaults to simulate a server.
+`docker:build` refreshes changed targets. `docker:up` waits for Dex and PostgreSQL, runs the guarded one-shot migration/seed container, then starts the PostgreSQL-composed API and waits for HTTP health. `docker:smoke` creates a challenge with the synthetic session, restarts the API container, and reads the same record back. Dex exposes one synthetic local login (`owner-alpha@synthetic.invalid` / `rahhal-local-owner`) and an exact `http://localhost:3000/auth/browser/callback` redirect, which A3 connects to the web through the same-origin browser-session routes. The images run as unprivileged users on read-only root filesystems with all Linux capabilities dropped; writable temporary space is bounded `tmpfs`. Published ports bind to `127.0.0.1`, not the LAN. Do not weaken those defaults to simulate a server.
 
-The stack is intentionally incomplete: A1a supplies pinned PostgreSQL, durable schema, deterministic seeds, and isolated constraint tests, but the API and worker remain separate in-memory demo compositions and the browser remains demo authority. No application event crosses from the API process to the worker yet. Add each PostgreSQL adapter, OIDC, object storage, scanning, or telemetry only in the roadmap increment that supplies its negative tests, health behavior, and recovery procedure.
+The stack is intentionally incomplete but no longer browser-authoritative for the delivered challenge slice. Phase 1 supplies PostgreSQL identity/workspace authorization, transaction-scoped challenge draft create/read/save, local OIDC, and the connected browser gateway. Phase 2 carries that slice through readiness, four attributed approval gates, publication, a structurally separate public projection, live-call controls, and a purpose-scoped platform approval queue/brief. The managed production IdP, MFA/step-up, RLS, abuse controls, private file pipeline, and authoritative worker remain later gates; no application event crosses from the API process to the worker yet.
 
 ### Local PostgreSQL workflow
 
@@ -70,10 +73,56 @@ Prove a clean down/up cycle and constraints in an isolated ephemeral database:
 npm run test:postgres
 ```
 
-The test refuses a non-loopback admin URL. It creates and drops only a generated
-`rahhal_a1a_test_*` database. Stop PostgreSQL without deleting its named volume with
+The test refuses a non-loopback admin URL. It creates and drops only generated
+`rahhal_a1a_test_*`, `rahhal_a1b_test_*`, `rahhal_a1c_test_*`, and `rahhal_a2_oidc_*` databases. The suite covers migration/seed constraints
+plus session digest storage, rotation/revocation/replay, principal and membership revalidation,
+transaction locks, immutable challenge versions, receipt/audit/outbox/idempotency atomicity,
+concurrent create replay, scope denial, rollback, API-runtime restart persistence, signed OIDC
+issuer/audience/nonce/PKCE validation, verified-contact denial, one-time consumption, and login/session
+expiry. Stop PostgreSQL without deleting its named volume with
 `npm run db:down`. `npm run db:migrate:down` reverts one migration; run it only against the database
 whose rollback you intend to test.
+
+> The PostgreSQL suite talks to `127.0.0.1:5433` directly, while Compose publishes
+> `${RAHHAL_POSTGRES_PORT:-5433}`. If `.env` overrides that port the two endpoints diverge, and a run
+> pointed at the wrong one fails in confusing ways rather than loudly — check which database you are
+> connected to before trusting an empty result.
+
+### Connected browser acceptance (A3 and Phase 2)
+
+The demo browser gate (`npm run test:browser`) exercises the static export only. The connected suite
+proves the A3 boundary — sign-in, workspace activation, and challenge create/read/save through the
+API and PostgreSQL — and needs the whole stack running first:
+
+```bash
+npm run docker:up
+npm run build:web:network
+RAHHAL_CONNECTED_E2E=1 npm run test:browser:connected
+```
+
+Without `RAHHAL_CONNECTED_E2E=1` the suite skips, so it never blocks the demo gate. It always skips
+Playwright's own `webServer`, because that starts the demo runtime rather than the connected one.
+It also covers the two negative paths at this boundary: a revoked session failing the next command,
+and a missing or foreign record id resolving to an explicit empty state and a non-enumerating
+`NOT_FOUND` rather than a look-alike sample.
+
+Phase 2 adds the governed publication journey. Run it only against freshly rebuilt connected images:
+
+```bash
+npm run docker:build
+npm run docker:up
+npm run docker:smoke
+RAHHAL_CONNECTED_E2E=1 npm run test:browser:b7
+```
+
+The B7 suite creates its own challenge, uses four distinct visible approval forms (org technical plus platform legal/finance/quality from `/app/ops/publication`), publishes as `org:publisher`, pauses/resumes and extends the live call, then finds it in the anonymous public catalogue and verifies its detail excludes confidential fields. A disabled publish or live-call control is a failing acceptance result, not something to bypass with an API call.
+
+On Docker Desktop for macOS, a build that stalls before the first `FROM` while host-side registry requests succeed can be a Docker credential-helper problem rather than WireGuard or BuildKit cache. Confirm with `docker pull node:22.18.0-bookworm-slim`; repair Docker Desktop's credential integration before treating old images as acceptance evidence. Do not prune volumes or weaken loopback bindings as a workaround.
+
+The authorization redirect sends the browser to the Dex issuer at `dex.localhost:5556`. Compose maps
+that name only inside the `api` container; on the host, Chromium resolves `*.localhost` to loopback
+per RFC 6761, so the flow works there. Other browsers, and any host-side tooling that has to reach
+the issuer, need an explicit `/etc/hosts` entry.
 
 ### From Mac to the eventual server
 
@@ -161,6 +210,7 @@ Generated reports under `reports/generated/` are disposable evidence and are ign
 ### Container checks
 
 ```bash
+npm run docker:env:init # first clean checkout only
 npm run docker:config
 npm run docker:build
 npm run docker:up

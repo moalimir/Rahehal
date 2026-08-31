@@ -17,7 +17,11 @@ import {
 import { SaveIndicator, WizardStepper } from "@/components/challenge-flow/wizard";
 import { useChallengeRecord } from "@/components/challenge-flow/hooks";
 import { isDraftStatus } from "@/domain/challenge";
-import { navigateChallenge, readStandalonePath } from "@/lib/challenges/navigation";
+import {
+  connectedChallengeHref,
+  navigateChallenge,
+  readStandalonePath,
+} from "@/lib/challenges/navigation";
 import { validateStep, wizardSteps, type WizardStep } from "@/lib/challenges/validation";
 
 function stepFromLocation(fallback: WizardStep): WizardStep {
@@ -28,7 +32,7 @@ function stepFromLocation(fallback: WizardStep): WizardStep {
 }
 
 export function ChallengeEditPage({ id }: { id: string }) {
-  const { record, updateRecord, saveNow, saveStatus, lastSavedLabel, loadError } =
+  const { record, updateRecord, saveNow, saveStatus, lastSavedLabel, loadError, saveError } =
     useChallengeRecord(id);
   const [step, setStep] = useState<WizardStep>(1);
   const [showErrors, setShowErrors] = useState(false);
@@ -60,7 +64,7 @@ export function ChallengeEditPage({ id }: { id: string }) {
       }));
       const path = `/app/org/challenges/${record.id}/edit?step=${next}`;
       if (document.documentElement.dataset.challengeStandalone === "true") navigateChallenge(path);
-      else window.history.pushState(null, "", path);
+      else window.history.pushState(null, "", connectedChallengeHref(path));
       window.scrollTo({ top: 0, behavior: "smooth" });
     },
     [record, updateRecord],
@@ -167,6 +171,21 @@ export function ChallengeEditPage({ id }: { id: string }) {
           <SaveIndicator status={saveStatus} />
         </header>
         <ErrorSummary issues={issues} />
+        {saveError && (
+          <div className="challenge-inline-error" role="alert" data-error-code={saveError.code}>
+            <strong>
+              {saveError.code === "CONFLICT"
+                ? "نسخه تازه‌تری روی سرور وجود دارد."
+                : "ذخیره انجام نشد."}
+            </strong>{" "}
+            {saveError.message}
+            {saveError.code === "CONFLICT" && (
+              <button type="button" onClick={() => window.location.reload()}>
+                دریافت نسخه تازه
+              </button>
+            )}
+          </div>
+        )}
         {stepContent}
         <footer className="challenge-form-actions">
           <div>

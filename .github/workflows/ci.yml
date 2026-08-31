@@ -1,8 +1,10 @@
 name: CI
 
 # Release pipeline (85_DEVELOPMENT_GUIDE.md §8). Runs every release gate on the pinned
-# runtime. Only the `visual` job is non-blocking, until a reviewed Golden Master lands
-# (T-E in project-documents/82_PHASE0_COMPLETION.md); everything else is required.
+# runtime; every job here is required. Visual regression (T-E in
+# project-documents/82_PHASE0_COMPLETION.md) is a separate, manually-triggered
+# workflow (visual.yml) until a reviewed Golden Master exists — it cannot pass
+# without one, so running it on every push was pure cost with zero signal.
 
 on:
   push:
@@ -35,6 +37,41 @@ jobs:
       - run: npm run analyze:source:check
       - run: npm run verify:boundaries
       - run: npm run verify:vocabulary
+
+  # The authoritative layer. `npm test` deliberately excludes these suites --
+  # they need a real PostgreSQL -- so without this job every adapter behind
+  # A1a-B5 (atomic evidence, append-only triggers, publish races, public
+  # projection isolation) would ship unguarded.
+  database:
+    name: PostgreSQL integration
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16.15-alpine3.24
+        env:
+          POSTGRES_DB: rahhal
+          POSTGRES_USER: rahhal
+          POSTGRES_PASSWORD: rahhal-local-only
+          POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rahhal -d rahhal"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      # Same resolution path the local runs use, so a divergence between the
+      # published Compose port and the suites' default cannot come back.
+      RAHHAL_POSTGRES_PORT: 5432
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --include=optional
+      - run: npm run test:postgres
 
   build:
     name: Build & static verification
@@ -87,24 +124,6 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run build:web
       - run: npm run test:browser
-
-  # ── Visual regression needs a committed Golden Master (T-E) ────────────────────
-  # Budgets + standalone smoke are now green and enforced in `build`.
-  # Remove continue-on-error once playwright/golden/ has a reviewed baseline.
-  visual:
-    name: Visual regression (needs Golden Master)
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: npm ci --include=optional
-      - run: npx playwright install --with-deps chromium
-      - run: npm run build:web
-      - run: npm run test:visual
 
   security:
     name: Dependency & security scan

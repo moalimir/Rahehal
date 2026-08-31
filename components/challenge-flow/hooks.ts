@@ -2,20 +2,22 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChallengeRecord } from "@/domain/challenge";
+import type { ChallengeResult, ChallengeResultMeta } from "@/lib/challenges/gateway";
 import { formatDateTime } from "@/lib/challenges/model";
-import { demoChallengeGateway } from "@/lib/challenges/runtime";
+import { useChallengeGateway } from "@/components/runtime-provider";
 import { normalizedEditableRecord } from "@/lib/challenges/validation";
 
 export type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error";
 
 export function useChallengeList() {
+  const challengeGateway = useChallengeGateway();
   const [records, setRecords] = useState<ChallengeRecord[]>([]);
   const [loadError, setLoadError] = useState("");
   const mountedRef = useRef(false);
   const requestGenerationRef = useRef(0);
   const refresh = useCallback(async () => {
     const generation = ++requestGenerationRef.current;
-    const result = await demoChallengeGateway.queries.list();
+    const result = await challengeGateway.queries.list();
     if (mountedRef.current && generation === requestGenerationRef.current) {
       if (result.ok) {
         setRecords(result.data);
@@ -25,7 +27,7 @@ export function useChallengeList() {
       }
     }
     return result.ok;
-  }, []);
+  }, [challengeGateway]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -44,10 +46,15 @@ export function useChallengeList() {
 }
 
 export function useChallengeRecord(id: string) {
+  const challengeGateway = useChallengeGateway();
   const [record, setRecord] = useState<ChallengeRecord | null | undefined>(undefined);
   const [loadedId, setLoadedId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState("");
+  const [saveError, setSaveError] = useState<
+    Extract<ChallengeResult<never>, { ok: false }>["error"] | null
+  >(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
+  const [resourceMeta, setResourceMeta] = useState<ChallengeResultMeta | null>(null);
   const recordRef = useRef<ChallengeRecord | null>(null);
   const statusRef = useRef<SaveStatus>("idle");
   const timerRef = useRef<number | null>(null);
@@ -77,11 +84,14 @@ export function useChallengeRecord(id: string) {
     statusRef.current = "idle";
     setRecord(undefined);
     setLoadError("");
+    setSaveError(null);
     setSaveStatus("idle");
-    void demoChallengeGateway.queries.get(id).then((result) => {
+    setResourceMeta(null);
+    void challengeGateway.queries.get(id).then((result) => {
       if (!active || activeIdRef.current !== id || loadGeneration !== loadGenerationRef.current)
         return;
       const stored = result.ok ? result.data : null;
+      setResourceMeta(result.ok ? result.meta : null);
       setLoadError(!result.ok && result.error.code !== "NOT_FOUND" ? result.error.message : "");
       recordRef.current = stored;
       setLoadedId(id);
@@ -98,10 +108,10 @@ export function useChallengeRecord(id: string) {
       }
       if (recordRef.current?.id === id && ["dirty", "error"].includes(statusRef.current)) {
         saveGenerationRef.current += 1;
-        void demoChallengeGateway.commands.save(normalizedEditableRecord(recordRef.current));
+        void challengeGateway.commands.save(normalizedEditableRecord(recordRef.current));
       }
     };
-  }, [id]);
+  }, [challengeGateway, id]);
 
   const saveNow = useCallback(async () => {
     if (timerRef.current !== null) {
@@ -115,7 +125,7 @@ export function useChallengeRecord(id: string) {
     const saveGeneration = ++saveGenerationRef.current;
     if (mountedRef.current) setSaveStatus("saving");
     statusRef.current = "saving";
-    const result = await demoChallengeGateway.commands.save(normalizedEditableRecord(current));
+    const result = await challengeGateway.commands.save(normalizedEditableRecord(current));
     if (
       !mountedRef.current ||
       activeIdRef.current !== currentId ||
@@ -124,12 +134,15 @@ export function useChallengeRecord(id: string) {
       return null;
     const snapshotUnchanged = recordRef.current === current;
     if (!result.ok) {
+      setSaveError(result.error);
       const nextStatus = snapshotUnchanged ? "error" : "dirty";
       setSaveStatus(nextStatus);
       statusRef.current = nextStatus;
       return null;
     }
     if (snapshotUnchanged) {
+      setSaveError(null);
+      setResourceMeta(result.meta);
       recordRef.current = result.data;
       setRecord(result.data);
       setSaveStatus("saved");
@@ -140,7 +153,7 @@ export function useChallengeRecord(id: string) {
       return null;
     }
     return result.data;
-  }, []);
+  }, [challengeGateway]);
 
   const updateRecord = useCallback(
     (updater: (current: ChallengeRecord) => ChallengeRecord) => {
@@ -177,5 +190,8 @@ export function useChallengeRecord(id: string) {
     saveStatus,
     lastSavedLabel: visibleRecord ? formatDateTime(visibleRecord.updatedAt) : "—",
     loadError: loadedId === id ? loadError : "",
+    saveError,
+    readiness: resourceMeta?.readiness ?? null,
+    stage: resourceMeta?.stage ?? null,
   };
 }

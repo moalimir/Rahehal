@@ -159,19 +159,42 @@ describe("صفحات عمومی اختصاصی", () => {
     expect(screen.getByRole("button", { name: "ادامه و ثبت اطلاعات سازمان" })).toBeInTheDocument();
   });
 
-  it("ورود حل‌کننده یک هویت انسانی و کنترل امن رمز دارد", () => {
+  it("ورود متخصصان و تیم‌ها یک هویت انسانی و کنترل امن رمز دارد", () => {
     const login = publicProductRoutes.find((item) => item.path === "/auth/login");
     if (!login) throw new Error("solver login route missing");
     render(createElement(PortalPage, { definition: login }));
 
-    expect(screen.getByRole("heading", { level: 1, name: "ورود حل‌کننده" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 1, name: "ورود متخصصان و تیم‌ها" }),
+    ).toBeInTheDocument();
     expect(screen.getByText(/تیم رمز عبور مستقل ندارد/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "حساب تیمی" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "نمایش رمز عبور" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "ایجاد حساب" })).toHaveAttribute(
       "href",
       "/auth/solver/register/type",
     );
+
+    // The tabs pick which dashboard context to land in, not a separate
+    // credential — a team has no independent password (asserted above), so
+    // switching tabs must not add or remove any identifier/password field.
+    const individualTab = screen.getByRole("button", { name: "حساب فردی" });
+    const teamTab = screen.getByRole("button", { name: "حساب تیمی" });
+    expect(individualTab).toHaveAttribute("aria-pressed", "true");
+    expect(teamTab).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("link", { name: "رمز عبور را فراموش کرده‌اید؟" })).toHaveAttribute(
+      "href",
+      "/auth/recovery?account=individual",
+    );
+
+    fireEvent.click(teamTab);
+    expect(teamTab).toHaveAttribute("aria-pressed", "true");
+    expect(individualTab).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("link", { name: "رمز عبور را فراموش کرده‌اید؟" })).toHaveAttribute(
+      "href",
+      "/auth/recovery?account=team",
+    );
+    expect(screen.getAllByLabelText("ایمیل یا شماره همراه")).toHaveLength(1);
+    expect(screen.getByLabelText("رمز عبور")).toBeInTheDocument();
   });
 
   it("ثبت‌نام حل‌کننده سه مرحله انسانی و پروفایل دارد", () => {
@@ -185,9 +208,22 @@ describe("صفحات عمومی اختصاصی", () => {
     if (!type || !account || !profile) throw new Error("solver registration routes missing");
 
     const { unmount } = render(createElement(PortalPage, { definition: type }));
-    expect(screen.getByRole("heading", { level: 1, name: "ثبت‌نام حل‌کننده" })).toBeInTheDocument();
-    expect(screen.getByText(/یک حساب انسانی/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /تیم تخصصی/ })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 1, name: "ثبت‌نام فرد یا تیم" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/متخصص مستقل یا یک تیم تخصصی/)).toBeInTheDocument();
+
+    // Choosing "team" only changes which first workspace gets created for
+    // this one human identity — it is not a separate credential, so this is
+    // still one registration flow, not two.
+    const individualCard = screen.getByRole("button", { name: /فرد متخصص/ });
+    const teamCard = screen.getByRole("button", { name: /تیم تخصصی/ });
+    expect(individualCard).toHaveAttribute("aria-pressed", "true");
+    expect(teamCard).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(teamCard);
+    expect(teamCard).toHaveAttribute("aria-pressed", "true");
+    expect(individualCard).toHaveAttribute("aria-pressed", "false");
     unmount();
 
     const accountRender = render(createElement(PortalPage, { definition: account }));
