@@ -91,6 +91,39 @@ describe("public challenge record", () => {
     expect(screen.queryByText("پذیرش پیشنهاد")).not.toBeInTheDocument();
   });
 
+  /**
+   * The four reasons a public read can fail must be one answer, and that
+   * answer must not be the gateway's own message — it is phrased for an
+   * authenticated workspace and would read as nonsense to a guest.
+   */
+  it("gives one workspace-free answer for every unavailable challenge", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              ok: false,
+              error: {
+                code: "NOT_FOUND",
+                message: "پرونده در فضای کاری فعال در دسترس نیست.",
+              },
+              meta: {
+                server_time: "2026-08-31T10:00:00.000Z",
+                correlation_id: "cor_public_record_missing",
+              },
+            }),
+            { status: 404, headers: { "content-type": "application/json" } },
+          ),
+      ),
+    );
+
+    render(<PublicChallengeRecord id={projection.challenge_id} />);
+
+    await waitFor(() => expect(screen.getByText("این فراخوان در دسترس نیست")).toBeInTheDocument());
+    expect(screen.queryByText(/فضای کاری فعال/)).not.toBeInTheDocument();
+  });
+
   it("renders the deadline in Tehran time, not the runtime zone", async () => {
     stubFetch("open");
     render(<PublicChallengeRecord id={projection.challenge_id} />);

@@ -25,27 +25,30 @@ const applicantLabels: Record<string, string> = {
  */
 export function PublicChallengeRecord({ id }: { id: string }) {
   const [record, setRecord] = useState<ChallengePublicProjectionResource | null>(null);
-  const [error, setError] = useState("");
+  const [unavailable, setUnavailable] = useState(false);
 
   useEffect(() => {
     let active = true;
     void readPublicChallenge(id).then((result) => {
       if (!active) return;
       if (result.ok) setRecord(result.data);
-      // Unknown, unpublished, confidential and session-gated ids are one
-      // answer, so this message must not distinguish them either.
-      else setError(result.error.message);
+      else setUnavailable(true);
     });
     return () => {
       active = false;
     };
   }, [id]);
 
-  if (error) {
+  if (unavailable) {
     return (
       <section className="rh-empty">
         <h1>این فراخوان در دسترس نیست</h1>
-        <p>{error}</p>
+        {/* Unknown, unpublished, invitation-only and NDA challenges are one
+            answer. The server's own message is not echoed here: it is written
+            for an authenticated workspace ("not available in the active
+            workspace"), which is both wrong on a public page and a needless
+            second channel that could start distinguishing these cases. */}
+        <p>ممکن است این فراخوان حذف شده، هنوز منتشر نشده یا عمومی نباشد.</p>
         <Link className="button button--secondary button--sm" href="/challenges">
           بازگشت به فهرست چالش‌ها
         </Link>
