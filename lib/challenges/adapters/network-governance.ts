@@ -115,6 +115,33 @@ export function createNetworkChallengeGovernanceGateway(
       if (!result.ok) return failure(result);
       return { ok: true, data: result.data, meta: result.meta };
     },
+    async advanceFormulation(id, targetWorkspaceId) {
+      const expectedVersion = versions.get(id);
+      if (expectedVersion === undefined) {
+        return localFailure("CONFLICT", "ابتدا نسخه به‌روز پرونده را دریافت کنید.");
+      }
+      const headers = workspaceHeaders(targetWorkspaceId);
+      if (!headers) return localFailure("NO_ACCESS", "ابتدا فضای کاری راه‌حل را فعال کنید.");
+      const fingerprint = `challenge-advance-formulation:${id}:${expectedVersion}`;
+      const key =
+        pendingKeys.get(fingerprint) ?? idempotencyKey("web-challenge-advance-formulation");
+      pendingKeys.set(fingerprint, key);
+      const result = await requestApi<MutationSuccessEnvelope>(
+        apiRoutes.advanceChallengeFormulation.replace("{challengeId}", encodeURIComponent(id)),
+        {
+          method: "POST",
+          headers: { ...headers, "idempotency-key": key },
+          body: JSON.stringify({ expected_version: expectedVersion }),
+        },
+      );
+      if (!result.ok) return failure(result);
+
+      // The purpose-scoped brief becomes unreadable once ops advances the
+      // challenge out of triage, so a successful command cannot reload it.
+      pendingKeys.delete(fingerprint);
+      versions.delete(id);
+      return { ok: true, data: null, meta: result.meta };
+    },
     async recordApproval(id, input: RecordApprovalInput, targetWorkspaceId?: string) {
       return command(
         id,

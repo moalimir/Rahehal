@@ -41,6 +41,7 @@ export interface ChallengeGovernanceGateway {
     targetWorkspaceId?: string,
   ): Promise<ChallengeResult<ChallengeGovernanceResource>>;
   listPendingApprovals(): Promise<ChallengeResult<PlatformChallengeApprovalQueueResource>>;
+  advanceFormulation(id: string, targetWorkspaceId: string): Promise<ChallengeResult<null>>;
   recordApproval(
     id: string,
     input: RecordApprovalInput,

@@ -4997,6 +4997,22 @@
   background: #edf2f7;
   font-size: 12px;
 }
+/* A call that no longer accepts proposals must read as such, not as a styling
+   variant of an open one. */
+[data-publication-state="paused"] .rh-demo-badge,
+[data-publication-state="closed"] .rh-demo-badge,
+[data-publication-state="cancelled"] .rh-demo-badge,
+[data-publication-state="paused"] .rh-active-pill,
+[data-publication-state="closed"] .rh-active-pill,
+[data-publication-state="cancelled"] .rh-active-pill {
+  color: #7a4a12;
+  background: #fdf1de;
+}
+.rh-challenge-closed-note {
+  margin-block-start: 8px;
+  color: #7a4a12;
+  font-size: 13px;
+}
 .rh-challenge-card header .rh-organization-logo {
   width: 50px;
   height: 50px;

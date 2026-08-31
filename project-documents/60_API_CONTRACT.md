@@ -109,7 +109,7 @@ Rate-limited requests return `429` with `Retry-After`. All errors carry `correla
 
 ## 5. MVP slice endpoints
 
-The completed Phase-2 OpenAPI has exactly **23 paths / 24 operations**: the Phase-1 identity/context and challenge-draft operations, B1 lifecycle commands, B2 approval recording, B4 publication, B5 public reads, B6 live-call controls, and the B8 platform queue/brief. Every implemented write carries `expected_version` and `Idempotency-Key`; protected challenge writes additionally require `X-Workspace-Id`. B3 adds no endpoint: challenge create/save accepts `verification_required` and `document_gate_required` beside `allowed_applicant_types`, `nda_required`, and `proposal_deadline`, and PostgreSQL snapshots those values against the exact challenge version. In the inventory below, entries labelled future are not part of the current contract. PostgreSQL mode validates signed issuer/audience/nonce, exact state/redirect, S256 PKCE, the existing `(issuer, subject)` link, and a verified matching contact before issuing digest-only app credentials. RLS and the managed production IdP remain later gates.
+The completed Phase-2 OpenAPI has exactly **23 paths / 25 operations**: the Phase-1 identity/context and challenge operations (including the scoped organization list), B1 lifecycle commands, B2 approval recording, B4 publication, B5 public reads, B6 live-call controls, and the B8 platform queue/brief. Every implemented write carries `expected_version` and `Idempotency-Key`; protected challenge writes additionally require `X-Workspace-Id`. B3 adds no endpoint: challenge create/save accepts `verification_required` and `document_gate_required` beside `allowed_applicant_types`, `nda_required`, and `proposal_deadline`, and PostgreSQL snapshots those values when the exact version enters approvals. In the inventory below, entries labelled future are not part of the current contract. PostgreSQL mode validates signed issuer/audience/nonce, exact state/redirect, S256 PKCE, the existing `(issuer, subject)` link, and a verified matching contact before issuing digest-only app credentials. RLS and the managed production IdP remain later gates.
 
 ### 5.1 Identity & context
 
@@ -126,10 +126,11 @@ POST /me/context:switch            # set active workspace (validated vs membersh
 
 ```
 POST /challenges                              # create draft            → chl_*
+GET  /challenges?stage=&cursor=               # bounded active org-workspace projection, immutable created-time cursor
 GET  /challenges/{id}                          # full private aggregate (owning org workspace only)
 PATCH /challenges/{id}                         # autosave draft (expected_version)
-POST /challenges/{id}:request-triage           # draft → triage        (pre: brief-valid)
-POST /challenges/{id}:advance-formulation      # triage → formulation
+POST /challenges/{id}:request-triage           # draft → triage        (pre: rough-brief-valid)
+POST /challenges/{id}:advance-formulation      # triage → formulation  (org owner/member or purpose-scoped platform:ops)
 POST /challenges/{id}:request-approvals        # formulation → approvals (pre: formulation-complete; locks the version)
 POST /challenges/{id}/approvals:record         # per-gate approval (technical/legal/finance/quality)
 POST /challenges/{id}:publish                  # approvals → published  (pre: 3 approvals + quality; atomic version lock + projection + outbox)
@@ -139,17 +140,19 @@ POST /challenges/{id}:resume                   # delivered (B6)
 POST /challenges/{id}:close                    # delivered (B6): terminal
 POST /challenges/{id}:cancel                   # delivered (B6): terminal
 POST /challenges/{id}:amend                    # future exception path: requires new version + re-approval + proposal policy
-GET  /challenges/{id}/versions                 # immutable history
+GET  /challenges/{id}/versions                 # future: immutable history
 ```
 
 ### 5.3 Platform publication work (standing authority, purpose-scoped)
 
 ```
-GET /platform/challenge-approvals                       # active platform role's pending gate, bounded to 50 rows
-GET /platform/challenges/{id}/approval-brief            # approvals-stage allowlist; target org workspace in X-Workspace-Id
+GET /platform/challenge-approvals                       # active platform role's pending triage/gate work, bounded to 50 rows
+GET /platform/challenges/{id}/approval-brief            # triage/approvals purpose allowlist; target org workspace in X-Workspace-Id
 ```
 
-The queue derives its gate from the active `platform:ops`/`platform:finance`/`platform:legal` role and excludes versions whose gate is already occupied or on which the current actor already recorded another gate. The brief is not a stripped `ChallengeResource`: its closed contract omits contact data, invitees, attachment ids, tenant/creator ids, and other approvers' user ids. Unknown, wrong-stage, and unreachable records return the same typed `NOT_FOUND`.
+The queue derives work from the active `platform:ops`/`platform:finance`/`platform:legal` role. Ops receives rough briefs at `triage` plus its quality gate at `approvals`; finance and legal receive only their approval gate. Approval items exclude versions whose gate is occupied or on which the current actor already recorded another gate. The brief is not a stripped `ChallengeResource`: each purpose/gate has a closed content allowlist and omits contact data, invitees, attachment ids, tenant/creator ids, and other approvers' user ids. `platform:ops` may issue `:advance-formulation` only for a visible triage item; after the transition, the purpose-scoped brief becomes inaccessible. Unknown, wrong-stage, wrong-purpose, and unreachable records return the same typed `NOT_FOUND`.
+
+A rejected gate remains immutable on its exact version. A subsequent authorized `PATCH` creates a fresh challenge version in `formulation`; that new version has no inherited approvals and must pass full readiness before requesting approvals again.
 
 ### 5.4 Public discovery (unauthenticated, projection-backed)
 
@@ -192,7 +195,7 @@ POST /challenges/{id}/decision:record          # evaluating → decided (authori
 ## 6. Read projections & anonymity
 
 - Organization review views honor reviewer anonymity and policy timing (FR-REV-007): reviewer identity and other reviewers' scores are withheld until policy allows; enforced in the _projection query_, not the client.
-- Public projections are separate resources (`/public/*`) served from `challenge_public_projection`; the private aggregate is never used to render public pages (prevents confidential-field leakage — Phase-2 exit gate). B5 enforces this through a distinct `PublicChallengePort` whose PostgreSQL adapter selects an explicit column list from the projection table and joins nothing else; a native test renames `challenge`/`challenge_version`/`challenge_approval` out of reach and proves both public reads still succeed. The audience (`anonymous` vs `registered`) is derived server-side from session presence, never from a client parameter, and a stale credential degrades to `anonymous` rather than failing the request.
+- Public projections are separate resources (`/public/*`) served from `challenge_public_projection`; the private aggregate is never used to render public pages (prevents confidential-field leakage — Phase-2 exit gate). B5 enforces this through a distinct `PublicChallengePort` whose PostgreSQL adapter selects an explicit column list from the projection table and joins nothing else; a native test renames `challenge`/`challenge_version`/`challenge_approval` out of reach and proves both public reads still succeed. The audience (`anonymous` vs `registered`) is derived server-side from session presence, never from a client parameter, and a stale credential degrades to `anonymous` rather than failing the request. List cursors bind immutable `published_at` plus `challenge_id`; category equality trims and case-folds consistently. Server time excludes expired calls from the list while detail reports the derived expired state.
 - Field-level access (e.g. confidential proposal fields to a reviewer) is evaluated independently from page access (70 §3).
 
 ## 7. Events emitted (outbox → consumers)

@@ -70,11 +70,8 @@ export function NetworkOrganizationLogin() {
 
             <div className="organization-auth-dev-note">
               <strong>محیط توسعه محلی</strong>
-              این نمونه به پایگاه‌داده و ارائه‌دهنده هویت محلی متصل است. برای ورود می‌توانید از حساب
-              مصنوعی زیر استفاده کنید — ایمیل: <code dir="ltr">
-                owner-alpha@synthetic.invalid
-              </code>{" "}
-              · گذرواژه: <code dir="ltr">rahhal-local-owner</code>
+              این نمونه به پایگاه‌داده و ارائه‌دهنده هویت محلی متصل است. حساب‌های مصنوعی فقط در
+              راهنمای توسعه محلی نگهداری می‌شوند و در رابط متصل منتشر نمی‌شوند.
             </div>
           </div>
         </section>

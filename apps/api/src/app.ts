@@ -12,6 +12,7 @@ import {
   openApiDocument,
   type CreateChallengeBody,
   type ChallengeNextAction,
+  type ChallengeListQuery,
   type ChallengeTransitionBody,
   type MeResource,
   type MutationSuccessEnvelope,
@@ -35,8 +36,10 @@ import {
   gateApproverRoles,
   isGateApproverRole,
   isPlatformRole,
+  organizationCapabilities,
   type ChallengeId,
   type CorrelationId,
+  type WorkspaceRole,
 } from "@rahhal/domain";
 import {
   authorizationFlowCookie,
@@ -210,16 +213,20 @@ const platformGateApproverRoles = [...new Set(Object.values(gateApproverRoles).f
 );
 
 const canEditChallenge = (access: WorkspaceAccess) =>
-  access.workspace.kind === "org" && (access.role === "org:owner" || access.role === "org:member");
+  access.workspace.kind === "org" && organizationCapabilities(access.role).authorChallenges;
 
 /**
  * Publication is `org:publisher` only -- the one role on the
  * `approvals -> published` transition. Deliberately not `canEditChallenge`:
  * the actor who authored the brief must not also be the actor who releases it
  * (70_SECURITY_AND_AUTHZ §6).
+ *
+ * Both predicates read `organizationCapabilities`, the same shared definition
+ * the web navigation derives from, so what a role is offered and what the
+ * server accepts cannot drift apart.
  */
 const canPublishChallenge = (access: WorkspaceAccess) =>
-  access.workspace.kind === "org" && access.role === "org:publisher";
+  access.workspace.kind === "org" && organizationCapabilities(access.role).publishChallenges;
 
 function idempotencyCommand(request: FastifyRequest) {
   const idempotencyKey = requiredHeader(request, "Idempotency-Key");
@@ -334,6 +341,7 @@ function registerChallengeCommand(
     context: ChallengeScope & { idempotencyKey: string; correlationId: CorrelationId },
   ) => Promise<MutationOutcome<ChallengeId, ChallengeNextAction>>,
   bodySchema: (typeof apiSchemas)[keyof typeof apiSchemas] = apiSchemas.ChallengeTransitionBody,
+  standingPlatformRoles: readonly WorkspaceRole[] = [],
 ): void {
   app.post<{ Params: ChallengeIdParams; Body: ChallengeTransitionBody }>(
     fastifyChallengeCommandPath(route),
@@ -351,49 +359,56 @@ function registerChallengeCommand(
         ports.decisionAudit,
         ports.clock,
       );
-      return runAuthorizedWorkspace(
-        request,
-        ports,
-        session,
-        {
-          action,
-          entityType: "challenge",
-          entityId: request.params.challengeId,
-          allows,
-          deferSuccess: true,
-        },
-        async (access) => {
-          const visible = await ports.challenges.getScoped(
-            challengeScope(session, access),
-            request.params.challengeId,
-          );
-          if (!visible) {
-            await ports.decisionAudit.record({
-              outcome: "denied",
-              actorUserId: session.userId,
-              tenantId: access.tenantId,
-              workspaceId: access.workspaceId,
-              action,
-              entityType: "challenge",
-              entityId: request.params.challengeId,
-              reason: "record_unreachable",
-              correlationId: correlationId(request),
-              occurredAt: ports.clock.now().toISOString(),
-            });
-            throw notFound();
-          }
-          await recordWorkspaceAccessSuccess(request, ports, session, access, {
+      const command = idempotencyCommand(request);
+      const targetWorkspaceId = requiredHeader(request, "X-Workspace-Id");
+      const authorization = {
+        action,
+        entityType: "challenge",
+        entityId: request.params.challengeId,
+        allows,
+        deferSuccess: true,
+      } as const;
+      const commandOnAccess = async (access: WorkspaceAccess) => {
+        const visible = await ports.challenges.getScoped(
+          challengeScope(session, access),
+          request.params.challengeId,
+        );
+        if (!visible) {
+          await ports.decisionAudit.record({
+            outcome: "denied",
+            actorUserId: session.userId,
+            tenantId: access.tenantId,
+            workspaceId: access.workspaceId,
             action,
             entityType: "challenge",
             entityId: request.params.challengeId,
+            reason: "record_unreachable",
+            correlationId: correlationId(request),
+            occurredAt: ports.clock.now().toISOString(),
           });
-          const outcome = await invoke(request.params.challengeId, request.body, {
-            ...challengeScope(session, access),
-            ...idempotencyCommand(request),
-          });
-          return mutationSuccess(outcome, request, ports);
-        },
-      );
+          throw notFound();
+        }
+        await recordWorkspaceAccessSuccess(request, ports, session, access, {
+          action,
+          entityType: "challenge",
+          entityId: request.params.challengeId,
+        });
+        const outcome = await invoke(request.params.challengeId, request.body, {
+          ...challengeScope(session, access),
+          ...command,
+        });
+        return mutationSuccess(outcome, request, ports);
+      };
+      if (standingPlatformRoles.length > 0 && session.activeWorkspaceId !== targetWorkspaceId) {
+        return ports.authority.runAuthorizedPlatformRole(
+          session,
+          standingPlatformRoles,
+          targetWorkspaceId,
+          { ...authorization, correlationId: correlationId(request) },
+          commandOnAccess,
+        );
+      }
+      return runAuthorizedWorkspace(request, ports, session, authorization, commandOnAccess);
     },
   );
 }
@@ -429,6 +444,7 @@ function registerRecordChallengeApproval(app: FastifyInstance, ports: ApiPorts):
       );
       const workspaceId = requiredHeader(request, "X-Workspace-Id");
       const gate = request.body.gate;
+      const command = idempotencyCommand(request);
 
       const recordOnAccess = async (access: WorkspaceAccess) => {
         const visible = await ports.challenges.getScoped(
@@ -458,7 +474,7 @@ function registerRecordChallengeApproval(app: FastifyInstance, ports: ApiPorts):
         const outcome = await ports.challenges.recordApproval(
           request.params.challengeId,
           request.body,
-          { ...challengeScope(session, access), ...idempotencyCommand(request) },
+          { ...challengeScope(session, access), ...command },
         );
         return mutationSuccess(outcome, request, ports);
       };
@@ -897,6 +913,7 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
         ports.decisionAudit,
         ports.clock,
       );
+      const command = idempotencyCommand(request);
       return runAuthorizedWorkspace(
         request,
         ports,
@@ -909,11 +926,51 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
         async (access) => {
           const outcome = await ports.challenges.create(request.body, {
             ...challengeScope(session, access),
-            ...idempotencyCommand(request),
+            ...command,
           });
           void reply.status(201);
           return mutationSuccess(outcome, request, ports);
         },
+      );
+    },
+  );
+
+  /**
+   * The active organization workspace's own challenges. Any org role may read
+   * the list — the same rule `GET /challenges/{id}` uses — because an approver
+   * who cannot find the challenge awaiting their gate cannot do their job.
+   * The rows themselves are scoped by `(tenant, workspace)` in the adapter.
+   */
+  app.get<{ Querystring: ChallengeListQuery }>(
+    apiRoutes.challenges,
+    {
+      schema: {
+        querystring: apiSchemas.ChallengeListQuery,
+        response: { 200: apiSchemas.ChallengePageSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "challenge:list",
+          entityType: "challenge",
+          allows: canReadChallenge,
+        },
+        async (access) =>
+          success(
+            await ports.challenges.listScoped(challengeScope(session, access), request.query),
+            request,
+            ports,
+          ),
       );
     },
   );
@@ -1073,6 +1130,7 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
         ports.decisionAudit,
         ports.clock,
       );
+      const command = idempotencyCommand(request);
       return runAuthorizedWorkspace(
         request,
         ports,
@@ -1111,7 +1169,7 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
           });
           const outcome = await ports.challenges.patch(request.params.challengeId, request.body, {
             ...challengeScope(session, access),
-            ...idempotencyCommand(request),
+            ...command,
           });
           return mutationSuccess(outcome, request, ports);
         },
@@ -1119,9 +1177,22 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
     },
   );
 
-  const registerTransition = (route: string, command: ChallengeTransitionCommand, action: string) =>
-    registerChallengeCommand(app, ports, route, action, canEditChallenge, (id, body, context) =>
-      ports.challenges.transition(id, command, body, context),
+  const registerTransition = (
+    route: string,
+    command: ChallengeTransitionCommand,
+    action: string,
+    allows = canEditChallenge,
+    standingPlatformRoles: readonly WorkspaceRole[] = [],
+  ) =>
+    registerChallengeCommand(
+      app,
+      ports,
+      route,
+      action,
+      allows,
+      (id, body, context) => ports.challenges.transition(id, command, body, context),
+      apiSchemas.ChallengeTransitionBody,
+      standingPlatformRoles,
     );
 
   registerTransition(
@@ -1133,6 +1204,8 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
     apiRoutes.advanceChallengeFormulation,
     "advance-formulation",
     "challenge:advance-formulation",
+    (access) => canEditChallenge(access) || access.role === "platform:ops",
+    ["platform:ops"],
   );
   registerTransition(
     apiRoutes.requestChallengeApprovals,

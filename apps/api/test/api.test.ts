@@ -1,6 +1,7 @@
 import {
   apiRoutes,
   type ErrorEnvelope,
+  type ChallengePageSuccessEnvelope,
   type MutationSuccessEnvelope,
   type SessionSuccessEnvelope,
   type SuccessEnvelope,
@@ -622,13 +623,13 @@ describe("authoritative Fastify API foundation", () => {
     expect(failure.error).toMatchObject({
       code: "VALIDATION",
       current_version: resource.version,
-      readiness: resource.readiness,
-      fields: resource.readiness.issues,
+      readiness: resource.triage_readiness,
+      fields: resource.triage_readiness.issues,
     });
     expect(composition.challenges.snapshot().auditEvents).toHaveLength(1);
   });
 
-  it("rejects an expired eligibility deadline before creating a challenge version", async () => {
+  it("allows an expired draft to be saved so its deadline can be corrected", async () => {
     const versionsBefore = composition.challenges.snapshot().versions.length;
     const response = await app.inject({
       method: "POST",
@@ -639,12 +640,8 @@ describe("authoritative Fastify API foundation", () => {
       }),
     });
 
-    expect(response.statusCode).toBe(422);
-    expect(response.json<ErrorEnvelope>().error).toMatchObject({
-      code: "VALIDATION",
-      fields: [expect.objectContaining({ path: "/content/proposal_deadline", code: "future" })],
-    });
-    expect(composition.challenges.snapshot().versions).toHaveLength(versionsBefore);
+    expect(response.statusCode).toBe(201);
+    expect(composition.challenges.snapshot().versions).toHaveLength(versionsBefore + 1);
   });
 
   it("advances only along the canonical B1 lifecycle with versioned atomic receipts", async () => {
@@ -1420,6 +1417,8 @@ describe("authoritative Fastify API foundation", () => {
     expect(resource.content).not.toHaveProperty("contact");
     expect(resource.content).not.toHaveProperty("invitees");
     expect(resource.content).not.toHaveProperty("attachment_ids");
+    expect(resource.content).not.toHaveProperty("legal_notes");
+    expect(resource.content).not.toHaveProperty("previous_attempts");
     expect(resource).not.toHaveProperty("tenant_id");
     expect(resource).not.toHaveProperty("created_by");
     expect(resource.approvals[0]).toMatchObject({
@@ -1428,6 +1427,18 @@ describe("authoritative Fastify API foundation", () => {
       recorded_by_current_actor: false,
     });
     expect(resource.approvals[0]).not.toHaveProperty("recorded_by");
+
+    const financeRead = await app.inject({
+      method: "GET",
+      url: apiRoutes.platformChallengeApprovalBrief.replace("{challengeId}", challengeId),
+      headers: gateHeaders(demoApiCredentials.platformFinance),
+    });
+    expect(financeRead.statusCode).toBe(200);
+    const financeBrief = financeRead.json<SuccessEnvelope<ChallengeApprovalBriefResource>>().data;
+    expect(financeBrief.gate).toBe("finance");
+    expect(financeBrief.content).toHaveProperty("budget");
+    expect(financeBrief.content).not.toHaveProperty("legal_notes");
+    expect(financeBrief.content).not.toHaveProperty("previous_attempts");
 
     for (const credential of [
       demoApiCredentials.platformLegal,
@@ -1463,6 +1474,84 @@ describe("authoritative Fastify API foundation", () => {
       }),
     );
     expect(JSON.stringify(queue)).not.toContain("contact");
+  });
+
+  it("lets platform ops screen a triage brief without gaining general org access", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: apiRoutes.challenges,
+      headers: ownerHeaders("b1-ops-triage-create"),
+      payload: buildCreateChallengeBody({ draft: buildChallengeContentResource() }),
+    });
+    const challengeId = created.json<MutationSuccessEnvelope>().data.entity_id;
+    const triage = await app.inject({
+      method: "POST",
+      url: apiRoutes.requestChallengeTriage.replace("{challengeId}", challengeId),
+      headers: ownerHeaders("b1-ops-triage-request"),
+      payload: { expected_version: 1 },
+    });
+    expect(triage.statusCode).toBe(200);
+
+    const briefUrl = apiRoutes.platformChallengeApprovalBrief.replace("{challengeId}", challengeId);
+    const opsBrief = await app.inject({
+      method: "GET",
+      url: briefUrl,
+      headers: gateHeaders(demoApiCredentials.platformOps),
+    });
+    expect(opsBrief.statusCode).toBe(200);
+    expect(opsBrief.json<SuccessEnvelope<ChallengeApprovalBriefResource>>().data).toMatchObject({
+      id: challengeId,
+      stage: "triage",
+      gate: "quality",
+      version: 2,
+    });
+
+    const opsQueue = await app.inject({
+      method: "GET",
+      url: apiRoutes.platformChallengeApprovalQueue,
+      headers: gateHeaders(
+        demoApiCredentials.platformOps,
+        undefined,
+        demoApiCredentials.platformOps.workspaceId,
+      ),
+    });
+    expect(opsQueue.statusCode).toBe(200);
+    expect(
+      opsQueue.json<SuccessEnvelope<PlatformChallengeApprovalQueueResource>>().data.items,
+    ).toContainEqual(
+      expect.objectContaining({ challenge_id: challengeId, stage: "triage", gate: "quality" }),
+    );
+
+    const financeAttempt = await app.inject({
+      method: "POST",
+      url: apiRoutes.advanceChallengeFormulation.replace("{challengeId}", challengeId),
+      headers: gateHeaders(demoApiCredentials.platformFinance, "b1-ops-triage-finance-denied"),
+      payload: { expected_version: 2 },
+    });
+    expect(financeAttempt.statusCode).toBe(404);
+    expect(financeAttempt.json<ErrorEnvelope>().error.code).toBe("NOT_FOUND");
+
+    const advanced = await app.inject({
+      method: "POST",
+      url: apiRoutes.advanceChallengeFormulation.replace("{challengeId}", challengeId),
+      headers: gateHeaders(demoApiCredentials.platformOps, "b1-ops-triage-advance"),
+      payload: { expected_version: 2 },
+    });
+    expect(advanced.statusCode).toBe(200);
+    expect(advanced.json<MutationSuccessEnvelope>().meta.entity_version).toBe(3);
+
+    const closedBrief = await app.inject({
+      method: "GET",
+      url: briefUrl,
+      headers: gateHeaders(demoApiCredentials.platformOps),
+    });
+    expect(closedBrief.statusCode).toBe(404);
+    const ownerRead = await app.inject({
+      method: "GET",
+      url: `/api/v1/challenges/${challengeId}`,
+      headers: ownerHeaders(),
+    });
+    expect(ownerRead.json<SuccessEnvelope<ChallengeResource>>().data.stage).toBe("formulation");
   });
 
   it("keeps the platform read inside the approvals window and off other stages", async () => {
@@ -2032,6 +2121,7 @@ describe("authoritative Fastify API foundation", () => {
           return challenges.create(body, context);
         },
         getScoped: (scope, id) => challenges.getScoped(scope, id),
+        listScoped: (scope, query) => challenges.listScoped(scope, query),
         getApprovalBrief: (scope, id) => challenges.getApprovalBrief(scope, id),
         listApprovalQueue: (scope) => challenges.listApprovalQueue(scope),
         patch: (id, body, context) => challenges.patch(id, body, context),
@@ -2217,6 +2307,11 @@ describe("authoritative Fastify API foundation", () => {
       },
     });
 
+    const accessSuccessBefore = composition.decisionAudit
+      .snapshot()
+      .filter(
+        (record) => record.action === "challenge:create" && record.outcome === "success",
+      ).length;
     const missingKey = await app.inject({
       method: "POST",
       url: apiRoutes.challenges,
@@ -2228,6 +2323,11 @@ describe("authoritative Fastify API foundation", () => {
       code: "VALIDATION",
       fields: [{ path: "Idempotency-Key", code: "required" }],
     });
+    expect(
+      composition.decisionAudit
+        .snapshot()
+        .filter((record) => record.action === "challenge:create" && record.outcome === "success"),
+    ).toHaveLength(accessSuccessBefore);
 
     for (const [idempotencyKey, code] of [
       ["short", "minLength"],
@@ -2271,6 +2371,113 @@ describe("authoritative Fastify API foundation", () => {
     expect(() => createDemoApiComposition({ mode: undefined, nodeEnv: "development" })).toThrow(
       "demo-only",
     );
+  });
+});
+
+describe("organization challenge list", () => {
+  let app: FastifyInstance;
+  let composition: ReturnType<typeof createDemoApiComposition>;
+
+  beforeEach(() => {
+    composition = createDemoApiComposition({ mode: "demo", nodeEnv: "test" });
+    app = buildApi(composition.ports);
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  const createDraft = async (key: string, title: string) => {
+    const created = await app.inject({
+      method: "POST",
+      url: apiRoutes.challenges,
+      headers: ownerHeaders(key),
+      payload: buildCreateChallengeBody({
+        draft: buildChallengeContentResource({ title, category: "energy" }),
+      }),
+    });
+    expect(created.statusCode).toBe(201);
+    return created.json<MutationSuccessEnvelope>().data.entity_id;
+  };
+
+  const list = (query = "", headers = ownerHeaders()) =>
+    app.inject({ method: "GET", url: `${apiRoutes.challenges}${query}`, headers });
+
+  it("returns the workspace's own challenges, newest first, with narrow rows", async () => {
+    await createDraft("list-first", "قدیمی‌ترین پرونده");
+    const newest = await createDraft("list-second", "تازه‌ترین پرونده");
+
+    const response = await list();
+
+    expect(response.statusCode).toBe(200);
+    const page = response.json<ChallengePageSuccessEnvelope>();
+    expect(page.data.items).toHaveLength(2);
+    expect(page.data.items[0]?.id).toBe(newest);
+    expect(page.data.next_cursor).toBeNull();
+
+    // The row is the closed list contract -- no `content`, no contact, no
+    // attachment ids. A list is the easiest place for those to arrive unseen.
+    expect(Object.keys(page.data.items[0] ?? {}).sort()).toEqual([
+      "authoring_status",
+      "category",
+      "created_at",
+      "current_version_id",
+      "id",
+      "proposal_deadline_at",
+      "publication_readiness",
+      "publication_state",
+      "ready",
+      "stage",
+      "title",
+      "updated_at",
+      "version",
+    ]);
+  });
+
+  it("never lists another workspace's challenges", async () => {
+    const alpha = await createDraft("list-scope-alpha", "پرونده آلفا");
+
+    const foreign = await list("", {
+      authorization: `Bearer ${demoApiCredentials.foreignOwner.accessToken}`,
+      "x-workspace-id": demoApiCredentials.foreignOwner.workspaceId,
+    });
+
+    // Beta has its own seeded challenge, so an empty page would prove nothing.
+    // What must hold is that alpha's row is absent and every row beta sees is
+    // its own.
+    expect(foreign.statusCode).toBe(200);
+    const items = foreign.json<ChallengePageSuccessEnvelope>().data.items;
+    expect(items.length).toBeGreaterThan(0);
+    expect(items.map((item) => item.id)).not.toContain(alpha);
+
+    const alphaItems = (await list()).json<ChallengePageSuccessEnvelope>().data.items;
+    expect(alphaItems.map((item) => item.id)).toContain(alpha);
+    expect(alphaItems.map((item) => item.id)).not.toContain(items[0]?.id);
+  });
+
+  it("filters by stage without leaking challenges at other stages", async () => {
+    await createDraft("list-stage-draft", "پیش‌نویس");
+
+    const drafts = await list("?stage=draft");
+    const published = await list("?stage=published");
+
+    expect(drafts.json<ChallengePageSuccessEnvelope>().data.items).toHaveLength(1);
+    expect(published.json<ChallengePageSuccessEnvelope>().data.items).toEqual([]);
+  });
+
+  it("rejects an unreadable cursor and an unknown stage rather than ignoring them", async () => {
+    expect((await list("?cursor=not-a-cursor")).statusCode).toBe(422);
+    expect((await list("?stage=evaluating")).statusCode).toBe(422);
+  });
+
+  it("refuses a caller with no session and one outside an org workspace", async () => {
+    expect((await app.inject({ method: "GET", url: apiRoutes.challenges })).statusCode).toBe(403);
+
+    const platform = await list("", {
+      authorization: `Bearer ${demoApiCredentials.platformOps.accessToken}`,
+      "x-workspace-id": demoApiCredentials.platformOps.workspaceId,
+    });
+    expect(platform.statusCode).toBe(403);
   });
 });
 

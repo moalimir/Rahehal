@@ -1,3 +1,5 @@
+import { challengeManagedStages } from "@rahhal/domain";
+
 import { apiRoutes } from "./routes.js";
 import { apiSchemas, type ApiSchemaName } from "./schemas.js";
 
@@ -188,6 +190,35 @@ export const openApiDocument = {
       },
     },
     [apiRoutes.challenges]: {
+      get: {
+        operationId: "listChallenges",
+        tags: ["Challenge"],
+        summary: "List the active organization workspace's own challenges",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          workspaceHeader,
+          {
+            name: "stage",
+            in: "query",
+            required: false,
+            schema: { type: "string", enum: [...challengeManagedStages] },
+          },
+          {
+            name: "cursor",
+            in: "query",
+            required: false,
+            schema: { type: "string", minLength: 1, maxLength: 200 },
+          },
+        ],
+        responses: {
+          "200": {
+            description: "One page of the workspace's challenges, newest first.",
+            content: jsonContent("ChallengePageSuccessEnvelope"),
+          },
+          "403": errorResponse("The session is absent, expired, or revoked."),
+          "422": errorResponse("The stage filter or cursor is not readable."),
+        },
+      },
       post: {
         operationId: "createChallengeDraft",
         tags: ["Challenge"],

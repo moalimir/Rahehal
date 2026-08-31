@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type {
   ChallengeApprovalResource,
@@ -11,7 +12,10 @@ import { ChallengeLoadErrorState, ChallengeShell } from "@/components/challenge-
 import { Toast } from "@/components/challenge-flow/fields";
 import { LiveCallControls } from "@/components/challenge-flow/live-call-controls";
 import { useChallengeGovernance, useWebRuntime } from "@/components/runtime-provider";
+import { budgetStatusLabels, currencyLabels } from "@/domain/challenge";
 import type { ChallengeGovernanceResource } from "@/lib/challenges/governance";
+import { formatMinorAmount } from "@/lib/challenges/model";
+import { navigateChallenge } from "@/lib/challenges/navigation";
 
 const gateLabels: Record<PublicationGate, string> = {
   technical: "تأیید فنی",
@@ -78,6 +82,7 @@ export function ChallengeGovernancePage({
   const [toast, setToast] = useState("");
   const [busy, setBusy] = useState(false);
   const [reason, setReason] = useState("");
+  const [decision, setDecision] = useState<"approved" | "rejected">("approved");
 
   const load = useCallback(async () => {
     if (!governance) return;
@@ -141,8 +146,11 @@ export function ChallengeGovernancePage({
     resource.stage === "approvals" &&
     !recorded.has(actorGate!) &&
     !alreadyRecordedByActor;
+  const canAdvanceTriage =
+    role === "platform:ops" && resource.stage === "triage" && Boolean(targetWorkspaceId);
   const canPublish = role === "org:publisher" && readiness.ready && resource.stage === "approvals";
   const organizationChallenge = isOrganizationChallenge(resource) ? resource : null;
+  const rejected = resource.approvals.some((approval) => approval.decision === "rejected");
 
   const run = async (
     operation: () => Promise<{ ok: boolean; error?: { message: string } }>,
@@ -169,30 +177,88 @@ export function ChallengeGovernancePage({
         <h2 id="challenge-review-brief-title">{resource.content.title}</h2>
         <p>{resource.content.summary}</p>
         <dl>
-          <div>
-            <dt>نتیجه مورد انتظار</dt>
-            <dd>{resource.content.desired_outcome}</dd>
-          </div>
-          <div>
-            <dt>دامنه</dt>
-            <dd>{resource.content.in_scope}</dd>
-          </div>
-          <div>
-            <dt>محدودیت‌ها</dt>
-            <dd>{resource.content.constraints || "ثبت نشده"}</dd>
-          </div>
-          <div>
-            <dt>شرایط حقوقی</dt>
-            <dd>{resource.content.legal_notes || "ثبت نشده"}</dd>
-          </div>
+          {resource.content.desired_outcome !== undefined && (
+            <div>
+              <dt>نتیجه مورد انتظار</dt>
+              <dd>{resource.content.desired_outcome}</dd>
+            </div>
+          )}
+          {resource.content.in_scope !== undefined && (
+            <div>
+              <dt>دامنه</dt>
+              <dd>{resource.content.in_scope}</dd>
+            </div>
+          )}
+          {resource.content.constraints !== undefined && (
+            <div>
+              <dt>محدودیت‌ها</dt>
+              <dd>{resource.content.constraints || "ثبت نشده"}</dd>
+            </div>
+          )}
+          {resource.content.legal_notes !== undefined && (
+            <div>
+              <dt>شرایط حقوقی</dt>
+              <dd>{resource.content.legal_notes || "ثبت نشده"}</dd>
+            </div>
+          )}
+          {resource.content.public_summary !== undefined && (
+            <div>
+              <dt>خلاصه عمومی</dt>
+              <dd>{resource.content.public_summary || "ثبت نشده"}</dd>
+            </div>
+          )}
+          {resource.content.proposal_deadline !== undefined && (
+            <div>
+              <dt>مهلت پیشنهاد</dt>
+              <dd>{resource.content.proposal_deadline}</dd>
+            </div>
+          )}
+          {resource.content.budget !== undefined && (
+            <div>
+              <dt>بودجه</dt>
+              <dd>
+                {resource.content.budget.status === "fixed"
+                  ? `${formatMinorAmount(resource.content.budget.amount_minor ?? 0)} ${currencyLabels[resource.content.budget.currency]}`
+                  : budgetStatusLabels[resource.content.budget.status]}
+              </dd>
+            </div>
+          )}
         </dl>
       </section>
 
-      <ul className="challenge-gate-list" aria-label="وضعیت دروازه‌های انتشار">
-        {publicationGates.map((gate) => (
-          <GateRow key={gate} gate={gate} approval={recorded.get(gate)} />
-        ))}
-      </ul>
+      {resource.stage === "triage" && (
+        <section className="challenge-gate-publish" aria-labelledby="challenge-triage-action">
+          <h2 id="challenge-triage-action">غربالگری اولیه</h2>
+          <p>با تأیید غربالگری، پرونده برای تکمیل صورت‌بندی به سازمان بازگردانده می‌شود.</p>
+          <button
+            type="button"
+            className="challenge-button challenge-button--primary"
+            disabled={!canAdvanceTriage || busy}
+            onClick={() =>
+              void run(async () => {
+                const result = await governance.advanceFormulation(id, targetWorkspaceId!);
+                if (result.ok) navigateChallenge("/app/ops/publication");
+                return result;
+              })
+            }
+          >
+            تأیید غربالگری و شروع صورت‌بندی
+          </button>
+          {!canAdvanceTriage && (
+            <small className="challenge-disabled-reason">
+              فقط نقش عملیات پلتفرم می‌تواند غربالگری این صف را تأیید کند.
+            </small>
+          )}
+        </section>
+      )}
+
+      {resource.stage !== "triage" && (
+        <ul className="challenge-gate-list" aria-label="وضعیت دروازه‌های انتشار">
+          {publicationGates.map((gate) => (
+            <GateRow key={gate} gate={gate} approval={recorded.get(gate)} />
+          ))}
+        </ul>
+      )}
 
       {canRecord && actorGate && (
         <form
@@ -202,17 +268,41 @@ export function ChallengeGovernancePage({
             void run(async () => {
               const result = await governance.recordApproval(
                 id,
-                { gate: actorGate, decision: "approved", reason: reason.trim() },
+                { gate: actorGate, decision, reason: reason.trim() },
                 targetWorkspaceId,
               );
               if (result.ok) {
                 setResource(result.data);
                 setReason("");
+                setDecision("approved");
               }
               return result;
             });
           }}
         >
+          <fieldset>
+            <legend>نتیجه بررسی</legend>
+            <label>
+              <input
+                type="radio"
+                name="gate-decision"
+                value="approved"
+                checked={decision === "approved"}
+                onChange={() => setDecision("approved")}
+              />
+              تأیید
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="gate-decision"
+                value="rejected"
+                checked={decision === "rejected"}
+                onChange={() => setDecision("rejected")}
+              />
+              رد و درخواست اصلاح
+            </label>
+          </fieldset>
           <label htmlFor="gate-reason">دلیل ثبت {gateLabels[actorGate]}</label>
           <textarea
             id="gate-reason"
@@ -227,39 +317,48 @@ export function ChallengeGovernancePage({
             className="challenge-button challenge-button--primary"
             disabled={busy}
           >
-            ثبت {gateLabels[actorGate]}
+            {decision === "approved" ? "ثبت تأیید" : "ثبت رد"} {gateLabels[actorGate]}
           </button>
         </form>
       )}
 
-      <div className="challenge-gate-publish">
-        <button
-          type="button"
-          className="challenge-button challenge-button--primary"
-          disabled={!canPublish || busy}
-          onClick={() =>
-            void run(async () => {
-              const result = await governance.publish(id);
-              if (result.ok) setResource(result.data);
-              return result;
-            })
-          }
-        >
-          انتشار پرونده
-        </button>
-        {/* A disabled control must say why, not just look inert. */}
-        {!canPublish && (
-          <small className="challenge-disabled-reason">
-            {resource.stage === "published"
-              ? "این پرونده منتشر شده است."
-              : role !== "org:publisher"
-                ? "فقط نقش منتشرکننده سازمان می‌تواند پرونده را منتشر کند."
-                : `دروازه‌های باقی‌مانده: ${readiness.missing
-                    .map((gate) => gateLabels[gate])
-                    .join("، ")}`}
-          </small>
-        )}
-      </div>
+      {organizationChallenge && rejected && (
+        <p className="challenge-disabled-reason">
+          این نسخه رد شده است. اصلاح، یک نسخه تازه در مرحله صورت‌بندی می‌سازد و تأییدها برای آن از
+          نو ثبت می‌شوند. <Link href={`/app/org/challenges/${resource.id}/edit`}>شروع اصلاح</Link>
+        </p>
+      )}
+
+      {resource.stage !== "triage" && (
+        <div className="challenge-gate-publish">
+          <button
+            type="button"
+            className="challenge-button challenge-button--primary"
+            disabled={!canPublish || busy}
+            onClick={() =>
+              void run(async () => {
+                const result = await governance.publish(id);
+                if (result.ok) setResource(result.data);
+                return result;
+              })
+            }
+          >
+            انتشار پرونده
+          </button>
+          {/* A disabled control must say why, not just look inert. */}
+          {!canPublish && (
+            <small className="challenge-disabled-reason">
+              {resource.stage === "published"
+                ? "این پرونده منتشر شده است."
+                : role !== "org:publisher"
+                  ? "فقط نقش منتشرکننده سازمان می‌تواند پرونده را منتشر کند."
+                  : `دروازه‌های باقی‌مانده: ${readiness.missing
+                      .map((gate) => gateLabels[gate])
+                      .join("، ")}`}
+            </small>
+          )}
+        </div>
+      )}
 
       {organizationChallenge && (
         <LiveCallControls

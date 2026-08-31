@@ -1,6 +1,8 @@
 import type {
   ChallengeDraftContentResource,
   ChallengeDraftPatch,
+  ChallengeListItemResource,
+  ChallengePageSuccessEnvelope,
   ChallengeResource,
   ChallengeSuccessEnvelope,
   CreateChallengeBody,
@@ -8,8 +10,16 @@ import type {
   MutationSuccessEnvelope,
   PatchChallengeBody,
 } from "@rahhal/contracts";
+import { apiRoutes } from "@rahhal/contracts";
 import type { ChallengeRecord } from "@/domain/challenge";
-import { emptyChallenge } from "@/lib/challenges/model";
+import {
+  emptyChallenge,
+  majorAmountToMinor,
+  minorAmountToMajor,
+  tehranDateInput,
+  tehranEndOfDayToIso,
+  tehranStartOfDayToIso,
+} from "@/lib/challenges/model";
 import type {
   ChallengeGateway,
   ChallengeGatewayErrorCode,
@@ -22,22 +32,7 @@ type NetworkChallengeGatewayOptions = {
   readonly activeWorkspaceId: () => string | null;
 };
 
-function dateInput(value: string | null): string {
-  return value ? value.slice(0, 10) : "";
-}
-
-function dateTime(value: string): string | null {
-  return value ? `${value}T00:00:00.000Z` : null;
-}
-
-function amountMinor(value: string): number | null {
-  const normalized = value
-    .replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit)))
-    .replace(/[٬,\s]/g, "");
-  if (!normalized) return null;
-  const parsed = Number(normalized);
-  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
-}
+const dateInput = tehranDateInput;
 
 function inferLastStep(content: ChallengeDraftContentResource): 1 | 2 | 3 | 4 {
   if (content.visibility || content.contact.email || content.accuracy_confirmed) return 4;
@@ -80,7 +75,10 @@ export function challengeResourceToRecord(resource: ChallengeResource): Challeng
     proposalDeadline: dateInput(content.proposal_deadline),
     preferredStartDate: dateInput(content.preferred_start_date),
     budgetStatus: content.budget.status,
-    budgetAmount: content.budget.amount_minor?.toString() ?? "",
+    budgetAmount:
+      content.budget.amount_minor === null
+        ? ""
+        : minorAmountToMajor(content.budget.amount_minor).toString(),
     currency: content.budget.currency,
     invitees: content.invitees.join("، "),
     visibility: content.visibility ?? "",
@@ -96,6 +94,34 @@ export function challengeResourceToRecord(resource: ChallengeResource): Challeng
     updatedAt: resource.updated_at,
     ...(resource.stage === "draft" ? {} : { submittedAt: resource.updated_at }),
     lastStep: inferLastStep(content),
+  };
+}
+
+/**
+ * A list row into the record shape the list page already renders. The row is
+ * deliberately narrow — the brief never crosses the list endpoint — so the
+ * fields the table does not show stay at their empty defaults rather than
+ * being invented here.
+ *
+ * `lastStep` is one of those: it is inferred from content the list does not
+ * carry, so a draft's edit link opens at the first step and the editor, which
+ * loads the authoritative record, resumes from there.
+ */
+export function challengeListItemToRecord(item: ChallengeListItemResource): ChallengeRecord {
+  const status: ChallengeRecord["status"] =
+    item.stage === "published"
+      ? "published"
+      : item.stage === "triage" || item.stage === "approvals"
+        ? "under_review"
+        : item.authoring_status;
+  return {
+    ...emptyChallenge(item.id, item.created_at),
+    id: item.id,
+    status,
+    title: item.title,
+    category: item.category,
+    proposalDeadline: dateInput(item.proposal_deadline_at),
+    updatedAt: item.updated_at,
   };
 }
 
@@ -121,11 +147,12 @@ export function challengeRecordToPatch(record: ChallengeRecord): ChallengeDraftP
     applicant_scope: record.applicantScope || null,
     allowed_applicant_types: record.allowedApplicantTypes,
     work_mode: record.workMode || null,
-    proposal_deadline: dateTime(record.proposalDeadline),
-    preferred_start_date: dateTime(record.preferredStartDate),
+    proposal_deadline: tehranEndOfDayToIso(record.proposalDeadline),
+    preferred_start_date: tehranStartOfDayToIso(record.preferredStartDate),
     budget: {
       status: record.budgetStatus || "undecided",
-      amount_minor: record.budgetStatus === "fixed" ? amountMinor(record.budgetAmount) : null,
+      amount_minor:
+        record.budgetStatus === "fixed" ? majorAmountToMinor(record.budgetAmount) : null,
       currency: record.currency,
     },
     invitees: record.invitees
@@ -203,17 +230,36 @@ export function createNetworkChallengeGateway(
     return {
       ok: true,
       data: challengeResourceToRecord(result.data),
-      meta: { ...result.meta, readiness: result.data.readiness, stage: result.data.stage },
+      meta: {
+        ...result.meta,
+        readiness: result.data.readiness,
+        triage_readiness: result.data.triage_readiness,
+        stage: result.data.stage,
+      },
     };
   };
 
   return {
     queries: {
+      /**
+       * The workspace's own challenges, from the server. The page size is
+       * fixed server-side; the list screen renders one page and the cursor is
+       * carried by the caller when it needs more, so this never silently
+       * presents a truncated set as the whole workspace.
+       */
       async list() {
-        return localFailure(
-          "INVALID_STATE",
-          "فهرست پیش‌نویس‌ها در فاز ۲ به قرارداد سرور افزوده می‌شود؛ از پیوند مستقیم پرونده استفاده کنید.",
-        );
+        const headers = workspaceHeaders();
+        if (!headers) return localFailure("NO_ACCESS", "ابتدا یک فضای کاری سازمانی انتخاب کنید.");
+        const result = await requestApi<ChallengePageSuccessEnvelope>(apiRoutes.challenges, {
+          method: "GET",
+          headers,
+        });
+        if (!result.ok) return failure(result);
+        return {
+          ok: true as const,
+          data: result.data.items.map(challengeListItemToRecord),
+          meta: result.meta,
+        };
       },
       get,
     },

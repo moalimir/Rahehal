@@ -1,9 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 
 /**
- * B7 acceptance ([80] §5): org drafts → triage → approvals with three distinct
- * approvers → publish; the public visits the published challenge; ops runs the
- * quality gate. Plus the three named negative paths.
+ * B7 acceptance ([80] §5): org drafts → ops triage → approvals with four
+ * distinct approvers → publish; the public visits the published challenge.
+ * Plus the three named negative paths.
  *
  * Requires the connected stack (PostgreSQL, API in `postgres` mode, local Dex,
  * and the web built with RAHHAL_WEB_RUNTIME=network):
@@ -14,14 +14,14 @@ import { expect, test, type Page } from "@playwright/test";
  * is a reserved, unroutable domain and the shared password lives in
  * infra/local/dex/config.yaml. Nothing here is a real credential.
  *
- * Every gate and the publish are clicked in the UI. Platform approvers hold no
- * membership in the org's workspace and cannot activate one, so they open the
- * governance page with the owning workspace named in the URL; B8a's
- * platform-scoped read resolves it through the same standing authority (ADR-0015)
- * that B2 already used for the write. Draft creation and the stage transitions
- * stay as API calls from inside the signed-in page — they are B1 surface that
- * B7 does not re-prove, and doing them through the multi-step form would make
- * this gate slow and brittle without testing anything B1 has not.
+ * Triage, every gate, and publish are clicked in the UI. Platform actors hold
+ * no membership in the org's workspace and cannot activate one, so they open
+ * the governance page with the owning workspace named in the URL; B8a's
+ * platform-scoped brief resolves it through the narrow standing authority in
+ * ADR-0015. Draft creation and the owner-controlled stage transitions stay as
+ * API calls from inside the signed-in page — they are B1 surface that B7 does
+ * not re-prove, and doing them through the multi-step form would make this gate
+ * slow and brittle without testing anything B1 has not.
  */
 const connectedStack = process.env.RAHHAL_CONNECTED_E2E === "1";
 const password = process.env.RAHHAL_E2E_PASSWORD ?? "rahhal-local-owner";
@@ -64,7 +64,8 @@ const readyContent = {
   sourcing_model: "public",
   allowed_applicant_types: ["individual", "expert-team"],
   work_mode: "hybrid",
-  proposal_deadline: "2030-02-01T00:00:00.000Z",
+  // The end of 2030-02-01 in Tehran, as the intake form would write it.
+  proposal_deadline: "2030-02-01T20:29:59.999Z",
   visibility: "public",
   public_summary: "فراخوان عمومی برای کاهش مصرف آب در خط رنگ کارخانه.",
   ip_terms: "solver_license",
@@ -154,16 +155,35 @@ test.describe("B7 governed challenge journey", () => {
     expect(created.status).toBe(201);
     challengeId = String((created.body.data as { entity_id: string }).entity_id);
 
-    for (const [command, version] of [
-      [":request-triage", 1],
-      [":advance-formulation", 2],
-      [":request-approvals", 3],
-    ] as const) {
-      const result = await api(page, "POST", `/api/v1/challenges/${challengeId}${command}`, {
-        expected_version: version,
-      });
-      expect(result.status, `${command} should succeed`).toBe(200);
-    }
+    const requestedTriage = await api(
+      page,
+      "POST",
+      `/api/v1/challenges/${challengeId}:request-triage`,
+      { expected_version: 1 },
+    );
+    expect(requestedTriage.status).toBe(200);
+
+    // Platform ops owns the visible screening action. Once it advances the
+    // record, its purpose-scoped brief disappears instead of widening into an
+    // organization read.
+    await signOut(page);
+    await signIn(page, identities.quality);
+    await page.goto("/app/ops/publication");
+    await activatePlatformWorkspace(page);
+    await page.locator(`a[href*="id=${challengeId}"]`).click();
+    await page.getByRole("button", { name: "تأیید غربالگری و شروع صورت‌بندی" }).click();
+    await page.waitForURL(/\/app\/ops\/publication/);
+
+    await signOut(page);
+    await signIn(page, identities.owner);
+    await activateWorkspace(page);
+    const requestedApprovals = await api(
+      page,
+      "POST",
+      `/api/v1/challenges/${challengeId}:request-approvals`,
+      { expected_version: 3 },
+    );
+    expect(requestedApprovals.status).toBe(200);
 
     // Negative: the owner authored the brief, so publishing is not theirs to do
     // even before the gates are considered (separation of duty).

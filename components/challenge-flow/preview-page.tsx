@@ -21,7 +21,7 @@ import {
   workModeLabels,
 } from "@/domain/challenge";
 import { formatDateTime } from "@/lib/challenges/model";
-import { navigateChallenge } from "@/lib/challenges/navigation";
+import { challengeHref, navigateChallenge } from "@/lib/challenges/navigation";
 import { validateRecord } from "@/lib/challenges/validation";
 
 function Value({ children, empty = "ثبت نشده" }: { children?: React.ReactNode; empty?: string }) {
@@ -30,7 +30,8 @@ function Value({ children, empty = "ثبت نشده" }: { children?: React.React
 
 export function ChallengePreviewPage({ id }: { id: string }) {
   const challengeGateway = useChallengeGateway();
-  const { record, lastSavedLabel, loadError, readiness, stage } = useChallengeRecord(id);
+  const { record, lastSavedLabel, loadError, readiness, triageReadiness, stage } =
+    useChallengeRecord(id);
   const [mode, setMode] = useState<"public" | "full">("full");
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [submitError, setSubmitError] = useState("");
@@ -53,8 +54,9 @@ export function ChallengePreviewPage({ id }: { id: string }) {
   if (loadError) return <ChallengeLoadErrorState message={loadError} />;
   if (!record) return <NotFoundState />;
 
-  const canSubmit = readiness
-    ? readiness.ready && (stage === "draft" || stage === "formulation")
+  const submissionReadiness = stage === "draft" ? triageReadiness : readiness;
+  const canSubmit = submissionReadiness
+    ? submissionReadiness.ready && (stage === "draft" || stage === "formulation")
     : issues.length === 0 && ["draft", "ready", "needs_changes"].includes(record.status);
   const requestingApprovals = stage === "formulation";
   return (
@@ -89,7 +91,9 @@ export function ChallengePreviewPage({ id }: { id: string }) {
           <ul>
             {issues.map((issue) => (
               <li key={`${issue.step}-${issue.id}`}>
-                <Link href={`/app/org/challenges/${record.id}/edit?step=${issue.step}`}>
+                <Link
+                  href={challengeHref(`/app/org/challenges/${record.id}/edit?step=${issue.step}`)}
+                >
                   {issue.message}
                   <span>گام {issue.step.toLocaleString("fa-IR")}</span>
                 </Link>
@@ -271,7 +275,7 @@ export function ChallengePreviewPage({ id }: { id: string }) {
       <div className="challenge-preview-actions">
         <Link
           className="challenge-button challenge-button--secondary"
-          href={`/app/org/challenges/${record.id}/edit?step=4`}
+          href={challengeHref(`/app/org/challenges/${record.id}/edit?step=4`)}
         >
           بازگشت و ویرایش
         </Link>

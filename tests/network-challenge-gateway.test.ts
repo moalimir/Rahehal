@@ -6,7 +6,12 @@ import {
   buildErrorEnvelope,
   buildMutationSuccess,
 } from "@rahhal/testkit";
-import { parseChallengeId, parseCorrelationId, parseWorkspaceId } from "@rahhal/domain";
+import {
+  parseChallengeId,
+  parseChallengeVersionId,
+  parseCorrelationId,
+  parseWorkspaceId,
+} from "@rahhal/domain";
 import { createNetworkChallengeGateway } from "@/lib/challenges/adapters/network";
 
 const meta = buildApiMeta({
@@ -83,6 +88,47 @@ describe("A3 network challenge gateway", () => {
       expected_version: 0,
       draft: { title: resource.content.title },
     });
+  });
+
+  /**
+   * The two units the gateway is responsible for translating. A wrong-direction
+   * wiring still satisfies the helpers' own unit tests, so the direction is
+   * asserted here, on the wire.
+   */
+  it("sends budget as minor units and the deadline as the end of its Tehran day", async () => {
+    const resource = buildChallengeResource({
+      id: parseChallengeId("chl_a3_gateway_units"),
+      workspace_id: workspaceId,
+      content: {
+        title: "کاهش مصرف بخار",
+        budget: { status: "fixed", amount_minor: 85_000_000_000, currency: "IRR" },
+        proposal_deadline: "2030-02-01T20:29:59.999Z",
+      },
+    });
+    const responses = [
+      jsonResponse({ ok: true, data: resource, meta } satisfies ChallengeSuccessEnvelope),
+      jsonResponse(buildMutationSuccess({ entity_id: resource.id, next_actions: ["edit"] }, meta)),
+      jsonResponse({ ok: true, data: resource, meta } satisfies ChallengeSuccessEnvelope),
+    ];
+    const fetchMock = vi.fn<GatewayFetch>(async () => responses.shift() ?? jsonResponse({}, 500));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("crypto", { randomUUID: () => "00000000-0000-4000-8000-000000000002" });
+
+    const gateway = createNetworkChallengeGateway({ activeWorkspaceId: () => workspaceId });
+    const loaded = await gateway.queries.get(resource.id);
+    if (!loaded.ok) throw new Error("the gateway must load the seeded resource");
+
+    // Read back: the person sees the major unit and the plain calendar date.
+    expect(loaded.data.budgetAmount).toBe("850000000");
+    expect(loaded.data.proposalDeadline).toBe("2030-02-01");
+
+    await gateway.commands.save(loaded.data);
+
+    const saveCall = fetchMock.mock.calls[1];
+    if (!saveCall) throw new Error("the gateway must issue a save request");
+    const body = JSON.parse(String(saveCall[1]?.body));
+    expect(body.patch.budget).toMatchObject({ amount_minor: 85_000_000_000, currency: "IRR" });
+    expect(body.patch.proposal_deadline).toBe("2030-02-01T20:29:59.999Z");
   });
 
   it("surfaces stale versions as typed conflicts and never falls back to fixtures", async () => {
@@ -203,19 +249,64 @@ describe("A3 network challenge gateway", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("fails closed when no active workspace or list contract exists", async () => {
+  it("fails closed on every read when no workspace is active", async () => {
     const fetchMock = vi.fn<GatewayFetch>();
     vi.stubGlobal("fetch", fetchMock);
     const gateway = createNetworkChallengeGateway({ activeWorkspaceId: () => null });
 
     await expect(gateway.queries.list()).resolves.toMatchObject({
       ok: false,
-      error: { code: "INVALID_STATE" },
+      error: { code: "NO_ACCESS" },
     });
     await expect(gateway.queries.get("chl_unknown_record")).resolves.toMatchObject({
       ok: false,
       error: { code: "NO_ACCESS" },
     });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The list used to be a hard local failure ("added to the server contract in
+   * phase 2"), which is why an organization saw nothing after publishing. It
+   * now reads the workspace-scoped server list.
+   */
+  it("lists the workspace's challenges from the server", async () => {
+    const fetchMock = vi.fn<GatewayFetch>(async () =>
+      jsonResponse({
+        ok: true,
+        data: {
+          items: [
+            {
+              id: parseChallengeId("chl_a3_gateway_listed"),
+              current_version_id: parseChallengeVersionId("chv_a3_gateway_listed"),
+              stage: "published",
+              authoring_status: "ready",
+              publication_state: "open",
+              proposal_deadline_at: "2030-02-01T20:29:59.999Z",
+              version: 5,
+              title: "کاهش مصرف بخار",
+              category: "energy",
+              ready: true,
+              publication_readiness: { ready: true, satisfied: [], missing: [] },
+              created_at: "2026-08-30T10:00:00.000Z",
+              updated_at: "2026-08-31T10:00:00.000Z",
+            },
+          ],
+          next_cursor: null,
+        },
+        meta,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const gateway = createNetworkChallengeGateway({ activeWorkspaceId: () => workspaceId });
+    const result = await gateway.queries.list();
+
+    expect(result.ok && result.data).toMatchObject([
+      { id: "chl_a3_gateway_listed", title: "کاهش مصرف بخار", status: "published" },
+    ]);
+    const [path, init] = fetchMock.mock.calls[0] ?? [];
+    expect(path).toBe("/api/v1/challenges");
+    expect(init?.headers).toMatchObject({ "x-workspace-id": workspaceId });
   });
 });

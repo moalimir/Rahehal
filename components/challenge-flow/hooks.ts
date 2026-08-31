@@ -192,6 +192,7 @@ export function useChallengeRecord(id: string) {
     loadError: loadedId === id ? loadError : "",
     saveError,
     readiness: resourceMeta?.readiness ?? null,
+    triageReadiness: resourceMeta?.triage_readiness ?? null,
     stage: resourceMeta?.stage ?? null,
   };
 }

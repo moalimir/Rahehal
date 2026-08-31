@@ -578,6 +578,14 @@
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* The connector line is drawn at 50% height across the whole row, and the
+     number badge above already lifts itself over it with a background. The
+     label needed the same, without which the line ran straight through the
+     step's text. */
+  position: relative;
+  z-index: 1;
+  padding-inline: 4px;
+  background: #fff;
 }
 
 .challenge-stepper li.is-complete span {
