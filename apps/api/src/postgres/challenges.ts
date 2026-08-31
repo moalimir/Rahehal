@@ -1,5 +1,4 @@
 import type {
-  ChallengeApprovalBriefContentResource,
   ChallengeApprovalBriefResource,
   ChallengeApprovalNextAction,
   ChallengeApprovalResource,
@@ -54,8 +53,10 @@ import type { PoolClient } from "pg";
 
 import {
   assertEligibilityRuleAttachable,
+  challengeApprovalBriefContent,
   challengePublicProjection,
   challengeReadiness,
+  challengeTriageReadiness,
   emptyChallengeContent,
   mergeChallengeDraftPatch,
   satisfiedTransitionPreconditions,
@@ -139,6 +140,7 @@ const challengeNextActions = [
 const challengeApprovalNextActions = [
   "await_remaining_gates",
   "ready_for_publish",
+  "revise",
 ] as const satisfies readonly ChallengeApprovalNextAction[];
 
 type ChallengeApprovalRow = {
@@ -177,6 +179,7 @@ type PlatformChallengeApprovalQueueRow = {
   readonly current_version_id: string;
   readonly workspace_id: string;
   readonly lock_version: number;
+  readonly stage: string;
   readonly title: string;
   readonly category: string;
   readonly updated_at: Date;
@@ -235,6 +238,7 @@ function challengeResource(
     version,
     content_version: challengeVersion(row.version_number),
     readiness: challengeReadiness(content, version),
+    triage_readiness: challengeTriageReadiness(content, version),
     content,
     created_by: parseUserId(row.created_by_user_id),
     created_at: timestamp(row.created_at),
@@ -791,7 +795,6 @@ export class PostgresChallengeAdapter implements ChallengePort {
       const versionId = parseChallengeVersionId(this.ids.next("chv"));
       const occurredAt = this.clock.now().toISOString();
       const merged = mergeChallengeDraftPatch(emptyChallengeContent(), body.draft ?? {});
-      assertEligibilityRuleAttachable(merged.content, new Date(occurredAt));
       const readiness = challengeReadiness(merged.content, 1);
       const authoringStatus = readiness.ready ? "ready" : "draft";
       const insert = await client.query(
@@ -843,6 +846,7 @@ export class PostgresChallengeAdapter implements ChallengePort {
         version: 1,
         content_version: 1,
         readiness,
+        triage_readiness: challengeTriageReadiness(merged.content, 1),
         content: merged.content,
         approvals: [],
         publication_readiness: evaluatePublicationReadiness([]),
@@ -871,7 +875,8 @@ export class PostgresChallengeAdapter implements ChallengePort {
     scope: ChallengeScope,
     id: string,
   ): Promise<ChallengeApprovalBriefResource | null> {
-    if (!platformGateForRole(scope.role)) throw forbidden();
+    const gate = platformGateForRole(scope.role);
+    if (!gate) throw forbidden();
     return this.unitOfWork.run(async () => {
       const client = this.unitOfWork.currentClient();
       const result = await client.query<ChallengeApprovalBriefRow>(
@@ -921,14 +926,17 @@ export class PostgresChallengeAdapter implements ChallengePort {
           WHERE challenge.tenant_id = $1
             AND challenge.workspace_id = $2
             AND challenge.id = $3
-            AND challenge.stage = 'approvals'
+            AND challenge.stage IN ('triage', 'approvals')
           FOR SHARE OF challenge, version
         `,
         [scope.tenantId, scope.workspaceId, id],
       );
       const row = result.rows[0];
       if (!row) return null;
-      if (row.stage !== "approvals") throw new Error("Approval brief loaded outside approvals");
+      if (row.stage !== "triage" && row.stage !== "approvals") {
+        throw new Error("Platform challenge brief loaded outside its work stages");
+      }
+      if (row.stage === "triage" && scope.role !== "platform:ops") return null;
       if (typeof row.content !== "object" || row.content === null || Array.isArray(row.content)) {
         throw new Error("Database returned invalid approval brief content");
       }
@@ -941,9 +949,13 @@ export class PostgresChallengeAdapter implements ChallengePort {
         id: parseChallengeId(row.id),
         current_version_id: parseChallengeVersionId(row.current_version_id),
         workspace_id: parseWorkspaceId(row.workspace_id),
-        stage: "approvals",
+        stage: row.stage,
+        gate,
         version: challengeVersion(row.lock_version),
-        content: structuredClone(row.content) as ChallengeApprovalBriefContentResource,
+        content: challengeApprovalBriefContent(
+          structuredClone(row.content) as ChallengeDraftContentResource,
+          gate,
+        ),
         approvals,
         publication_readiness: evaluatePublicationReadiness(approvals),
         updated_at: timestamp(row.updated_at),
@@ -962,6 +974,7 @@ export class PostgresChallengeAdapter implements ChallengePort {
             challenge.current_version_id,
             challenge.workspace_id,
             challenge.lock_version,
+            challenge.stage,
             version.content ->> 'title' AS title,
             version.content ->> 'category' AS category,
             challenge.updated_at
@@ -969,34 +982,45 @@ export class PostgresChallengeAdapter implements ChallengePort {
           JOIN challenge_version AS version
             ON version.id = challenge.current_version_id
            AND version.challenge_id = challenge.id
-          WHERE challenge.stage = 'approvals'
-            AND NOT EXISTS (
-              SELECT 1
-              FROM challenge_approval
-              WHERE challenge_version_id = challenge.current_version_id
-                AND gate = $1
+          WHERE (
+            (challenge.stage = 'triage' AND $3::boolean)
+            OR (
+              challenge.stage = 'approvals'
+              AND NOT EXISTS (
+                SELECT 1
+                FROM challenge_approval
+                WHERE challenge_version_id = challenge.current_version_id
+                  AND gate = $1
+              )
+              AND NOT EXISTS (
+                SELECT 1
+                FROM challenge_approval
+                WHERE challenge_version_id = challenge.current_version_id
+                  AND recorded_by_user_id = $2
+              )
             )
-            AND NOT EXISTS (
-              SELECT 1
-              FROM challenge_approval
-              WHERE challenge_version_id = challenge.current_version_id
-                AND recorded_by_user_id = $2
-            )
+          )
           ORDER BY challenge.updated_at, challenge.id
           LIMIT 50
         `,
-        [gate, scope.actorUserId],
+        [gate, scope.actorUserId, scope.role === "platform:ops"],
       );
-      const items: PlatformChallengeApprovalQueueItem[] = result.rows.map((row) => ({
-        challenge_id: parseChallengeId(row.challenge_id),
-        current_version_id: parseChallengeVersionId(row.current_version_id),
-        workspace_id: parseWorkspaceId(row.workspace_id),
-        version: challengeVersion(row.lock_version),
-        title: row.title,
-        category: row.category,
-        gate,
-        updated_at: timestamp(row.updated_at),
-      }));
+      const items: PlatformChallengeApprovalQueueItem[] = result.rows.map((row) => {
+        if (row.stage !== "triage" && row.stage !== "approvals") {
+          throw new Error("Platform queue returned an invalid stage");
+        }
+        return {
+          challenge_id: parseChallengeId(row.challenge_id),
+          current_version_id: parseChallengeVersionId(row.current_version_id),
+          workspace_id: parseWorkspaceId(row.workspace_id),
+          version: challengeVersion(row.lock_version),
+          stage: row.stage,
+          title: row.title,
+          category: row.category,
+          gate,
+          updated_at: timestamp(row.updated_at),
+        };
+      });
       return { items };
     });
   }
@@ -1022,7 +1046,14 @@ export class PostgresChallengeAdapter implements ChallengePort {
       const current = await this.findScoped(client, context, id, true);
       if (!current) throw notFound();
       if (body.expected_version !== current.version) throw staleVersion(current.version);
-      if (current.stage !== "draft" && current.stage !== "formulation") {
+      const rejectedApproval = current.approvals.some(
+        (approval) => approval.decision === "rejected",
+      );
+      if (
+        current.stage !== "draft" &&
+        current.stage !== "formulation" &&
+        !(current.stage === "approvals" && rejectedApproval)
+      ) {
         throw new ApiProblem(409, "INVALID_STATE", "Challenge content is not editable", {
           currentState: current.stage,
           allowedTransitions: challengeTransitions
@@ -1036,13 +1067,13 @@ export class PostgresChallengeAdapter implements ChallengePort {
       const contentVersion = current.content_version + 1;
       const versionId = parseChallengeVersionId(this.ids.next("chv"));
       const occurredAt = this.clock.now().toISOString();
-      assertEligibilityRuleAttachable(merged.content, new Date(occurredAt));
       const readiness = challengeReadiness(merged.content, version);
       const authoringStatus = readiness.ready
         ? "ready"
-        : current.stage === "formulation"
+        : current.stage === "formulation" || rejectedApproval
           ? "needs_changes"
           : "draft";
+      const nextStage = rejectedApproval ? "formulation" : current.stage;
       const versionInsert = await client.query(
         `
           INSERT INTO challenge_version (
@@ -1066,7 +1097,7 @@ export class PostgresChallengeAdapter implements ChallengePort {
       const aggregateUpdate = await client.query(
         `
           UPDATE challenge
-          SET current_version_id = $4, lock_version = $5, updated_at = $6
+          SET current_version_id = $4, stage = $8, lock_version = $5, updated_at = $6
           WHERE tenant_id = $1 AND workspace_id = $2 AND id = $3 AND lock_version = $7
         `,
         [
@@ -1077,6 +1108,7 @@ export class PostgresChallengeAdapter implements ChallengePort {
           version,
           occurredAt,
           current.version,
+          nextStage,
         ],
       );
       if (aggregateUpdate.rowCount !== 1) {
@@ -1085,10 +1117,12 @@ export class PostgresChallengeAdapter implements ChallengePort {
       const resource: ChallengeResource = {
         ...current,
         current_version_id: versionId,
+        stage: nextStage,
         authoring_status: authoringStatus,
         version,
         content_version: contentVersion,
         readiness,
+        triage_readiness: challengeTriageReadiness(merged.content, version),
         content: merged.content,
         // A new version_id starts with no approvals of its own -- gates are
         // recorded against one specific locked version (B2), never inherited.
@@ -1174,11 +1208,16 @@ export class PostgresChallengeAdapter implements ChallengePort {
       }
 
       const readiness = challengeReadiness(current.content, current.version);
-      if (command !== "advance-formulation" && !readiness.ready) {
+      const requiredReadiness =
+        command === "request-triage" ? current.triage_readiness : readiness;
+      if (command === "request-approvals") {
+        assertEligibilityRuleAttachable(current.content, this.clock.now());
+      }
+      if (command !== "advance-formulation" && !requiredReadiness.ready) {
         throw new ApiProblem(422, "VALIDATION", "Challenge brief is not ready", {
           currentVersion: current.version,
-          fields: readiness.issues,
-          readiness,
+          fields: requiredReadiness.issues,
+          readiness: requiredReadiness,
         });
       }
       if (
@@ -1187,7 +1226,7 @@ export class PostgresChallengeAdapter implements ChallengePort {
           current.stage,
           definition.to,
           context.role,
-          satisfiedTransitionPreconditions(current.stage, readiness),
+          satisfiedTransitionPreconditions(current.stage, requiredReadiness),
         )
       ) {
         throw new ApiProblem(409, "INVALID_STATE", "Challenge transition is not allowed", {
@@ -1199,6 +1238,33 @@ export class PostgresChallengeAdapter implements ChallengePort {
       }
 
       const occurredAt = this.clock.now().toISOString();
+      if (command === "request-approvals") {
+        await client.query(
+          `
+            INSERT INTO eligibility_rule (
+              id, tenant_id, workspace_id, challenge_id, challenge_version_id,
+              allowed_applicant_types, verification_required, nda_required,
+              document_gate_required, proposal_deadline, state, created_at
+            ) VALUES (
+              'elr_' || substring($1 FROM 5), $2, $3, $4, $1, $5::text[],
+              $6, $7, $8, $9, 'open', $10
+            )
+            ON CONFLICT (challenge_version_id) DO NOTHING
+          `,
+          [
+            current.current_version_id,
+            context.tenantId,
+            context.workspaceId,
+            current.id,
+            [...current.content.allowed_applicant_types],
+            current.content.verification_required,
+            current.content.nda_required,
+            current.content.document_gate_required,
+            current.content.proposal_deadline,
+            occurredAt,
+          ],
+        );
+      }
       if (definition.lockReason) {
         const versionLock = await client.query(
           `
@@ -1250,6 +1316,10 @@ export class PostgresChallengeAdapter implements ChallengePort {
         stage: definition.to,
         version,
         readiness: { ...readiness, evaluated_version: version },
+        triage_readiness: {
+          ...current.triage_readiness,
+          evaluated_version: version,
+        },
         updated_at: occurredAt,
       };
       return this.recordMutation(
@@ -1313,6 +1383,7 @@ export class PostgresChallengeAdapter implements ChallengePort {
           readiness,
         });
       }
+      assertEligibilityRuleAttachable(current.content, this.clock.now());
 
       const occurredAt = this.clock.now().toISOString();
       // The version reaching `approvals` is already locked by that transition;
@@ -1431,6 +1502,10 @@ export class PostgresChallengeAdapter implements ChallengePort {
         proposal_deadline_at: current.content.proposal_deadline,
         version,
         readiness: { ...readiness, evaluated_version: version },
+        triage_readiness: {
+          ...current.triage_readiness,
+          evaluated_version: version,
+        },
         updated_at: occurredAt,
       };
       return this.recordMutation(
@@ -1736,7 +1811,11 @@ export class PostgresChallengeAdapter implements ChallengePort {
       };
       const publicationReadiness = evaluatePublicationReadiness([...current.approvals, approval]);
       const nextActions: readonly ChallengeApprovalNextAction[] = [
-        publicationReadiness.ready ? "ready_for_publish" : "await_remaining_gates",
+        body.decision === "rejected"
+          ? "revise"
+          : publicationReadiness.ready
+            ? "ready_for_publish"
+            : "await_remaining_gates",
       ];
 
       return this.recordApprovalMutation(

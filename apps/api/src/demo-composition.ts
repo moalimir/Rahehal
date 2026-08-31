@@ -290,6 +290,7 @@ function foreignChallenge(now: string): ChallengeResource {
     version: 1,
     content_version: 1,
     readiness: { ready: false, evaluated_version: 1, issues: [] },
+    triage_readiness: { ready: false, evaluated_version: 1, issues: [] },
     approvals: [],
     publication_readiness: {
       ready: false,

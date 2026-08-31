@@ -374,6 +374,14 @@ export function evaluateChallengeReadiness(content: ChallengeDraftContent): Chal
   return { ready: issues.length === 0, issues };
 }
 
+/** A rough brief can enter screening once its first-step ownership facts exist. */
+export function evaluateChallengeTriageReadiness(
+  content: ChallengeDraftContent,
+): ChallengeReadiness {
+  const issues = evaluateChallengeReadiness(content).issues.filter((issue) => issue.step === 1);
+  return { ready: issues.length === 0, issues };
+}
+
 export type ChallengeDraft = {
   readonly id: ChallengeId;
   readonly currentVersionId: ChallengeVersionId;
@@ -483,9 +491,9 @@ export type PublicationReadiness = {
 /**
  * Publication requires all four gates recorded with an "approved" decision
  * (canonical model invariant #2). A recorded "rejected" decision still
- * occupies that gate's one row per version — the version cannot be
- * re-approved; a reasoned decision must send the challenge back through
- * formulation as a new version instead (out of B2's scope).
+ * occupies that gate's one row per version — the rejected version cannot be
+ * re-approved. Editing a rejected approvals version creates a new immutable
+ * version in formulation, whose gates start empty.
  */
 export function evaluatePublicationReadiness(
   approvals: readonly ChallengeApprovalRecord[],

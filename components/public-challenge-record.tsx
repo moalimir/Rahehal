@@ -5,16 +5,22 @@ import { useEffect, useState } from "react";
 import type { ChallengePublicProjectionResource } from "@rahhal/contracts";
 import { SiteHeader } from "@/components/site-header";
 import { PublicFooter } from "@/components/site-footer";
+import {
+  applicantTypeLabels,
+  budgetStatusLabels,
+  currencyLabels,
+  ipTermLabels,
+  outputTypeLabels,
+  sourcingModelLabels,
+  workModeLabels,
+} from "@/domain/challenge";
 import { readPublicChallenge } from "@/lib/challenges/adapters/network-public-challenges";
-import { formatDateTime, publicationStateLabels, tehranTimeLabel } from "@/lib/challenges/model";
-
-const applicantLabels: Record<string, string> = {
-  individual: "فرد مستقل",
-  "expert-team": "تیم تخصصی",
-  company: "شرکت",
-  lab: "آزمایشگاه",
-  "academic-group": "گروه دانشگاهی",
-};
+import {
+  formatDateTime,
+  formatMinorAmount,
+  publicationStateLabels,
+  tehranTimeLabel,
+} from "@/lib/challenges/model";
 
 /**
  * The public face of a published challenge, rendered strictly from B5's
@@ -105,10 +111,67 @@ export function PublicChallengeRecord({ id }: { id: string }) {
         <div>
           <dt>مشارکت‌کنندگان مجاز</dt>
           <dd>
-            {record.allowed_applicant_types.map((type) => applicantLabels[type] ?? type).join("، ")}
+            {record.allowed_applicant_types.map((type) => applicantTypeLabels[type]).join("، ")}
           </dd>
         </div>
       </dl>
+      <section className="challenge-preview-document" aria-labelledby="public-call-terms">
+        <h2 id="public-call-terms">شرایط فراخوان</h2>
+        <dl className="challenge-definition-list challenge-definition-list--compact">
+          <div>
+            <dt>سازمان منتشرکننده</dt>
+            <dd>نام سازمان در سطح نمایش عمومی این نسخه افشا نشده است.</dd>
+          </div>
+          <div>
+            <dt>خروجی مورد انتظار</dt>
+            <dd>{outputTypeLabels[record.output_type]}</dd>
+          </div>
+          <div>
+            <dt>شیوه جذب</dt>
+            <dd>{sourcingModelLabels[record.sourcing_model]}</dd>
+          </div>
+          <div>
+            <dt>شیوه انجام</dt>
+            <dd>{workModeLabels[record.work_mode]}</dd>
+          </div>
+          <div>
+            <dt>بودجه</dt>
+            <dd>
+              {record.budget.status === "fixed" && record.budget.amount_minor !== null
+                ? `${formatMinorAmount(record.budget.amount_minor)} ${currencyLabels[record.budget.currency]}`
+                : budgetStatusLabels[record.budget.status]}
+            </dd>
+          </div>
+          <div>
+            <dt>شروع ترجیحی</dt>
+            <dd>
+              {record.preferred_start_date
+                ? `${formatDateTime(record.preferred_start_date)} ${tehranTimeLabel}`
+                : "تعیین نشده"}
+            </dd>
+          </div>
+          <div>
+            <dt>احراز هویت</dt>
+            <dd>{record.verification_required ? "الزامی" : "الزامی نیست"}</dd>
+          </div>
+          <div>
+            <dt>توافق محرمانگی</dt>
+            <dd>{record.nda_required ? "پیش از ادامه الزامی است" : "الزامی نیست"}</dd>
+          </div>
+          <div>
+            <dt>مدارک صلاحیت</dt>
+            <dd>{record.document_gate_required ? "الزامی" : "الزامی نیست"}</dd>
+          </div>
+          <div>
+            <dt>مالکیت فکری</dt>
+            <dd>{ipTermLabels[record.ip_terms]}</dd>
+          </div>
+          <div>
+            <dt>فرایند ارزیابی</dt>
+            <dd>بررسی شرایط مشارکت و سپس ارزیابی نسخه ثبت‌شده پیشنهاد.</dd>
+          </div>
+        </dl>
+      </section>
     </article>
   );
 }
