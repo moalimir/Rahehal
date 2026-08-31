@@ -199,13 +199,20 @@ export function ConfiguredRoleShell({
     : accounts[role];
 
   const capabilities = activeMembership ? organizationCapabilities(activeMembership.role) : null;
-  const roleScopedNavigation =
-    connectedOrganization && capabilities
-      ? navigation[role].filter((item) => {
-          const required = organizationNavigationRequirements[item.key];
-          return required === null || required === undefined || capabilities[required];
-        })
-      : navigation[role];
+  /**
+   * With no active membership there is no capability to check, so nothing that
+   * requires one is offered. That covers the signed-out visitor, who would
+   * otherwise be shown the full ten-entry organization menu by an app that
+   * does not yet know who they are — every entry leading to a page that will
+   * simply demand a login.
+   */
+  const roleScopedNavigation = connectedOrganization
+    ? navigation[role].filter((item) => {
+        const required = organizationNavigationRequirements[item.key];
+        if (required === null || required === undefined) return true;
+        return capabilities ? capabilities[required] : false;
+      })
+    : navigation[role];
 
   return (
     <RoleAppShell

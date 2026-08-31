@@ -67,3 +67,8 @@ export function LiveCallControls(): never {
 export function PlatformApprovalQueue(): never {
   return unreachable("PlatformApprovalQueue");
 }
+
+/** Stands in for `@/components/organization-preview-notice`. */
+export function PreviewDataNotice(): never {
+  return unreachable("PreviewDataNotice");
+}

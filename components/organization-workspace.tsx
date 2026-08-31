@@ -6,6 +6,9 @@ import { Icon } from "@/components/icons";
 import { PersonAvatar } from "@/components/person-avatar";
 import type { InternalRoute } from "@/data/internal-routes";
 import { createDirectOffer, listDirectOffers, type DirectOffer } from "@/lib/offers/store";
+import { useWebRuntime } from "@/components/runtime-provider";
+import { isNetworkWebRuntime } from "@/lib/runtime/mode";
+import { PreviewDataNotice } from "@/components/organization-preview-notice";
 
 const topLevelOrganizationPaths = new Set([
   "/app/org/dashboard",
@@ -203,7 +206,18 @@ function OrgToast({ message, onClose }: { message: string; onClose: () => void }
 }
 
 function OrganizationDashboard() {
+  const runtime = useWebRuntime();
   const [done, setDone] = useState<string[]>([]);
+  /**
+   * The greeting is the one thing on this page that must not be a fixture: a
+   * dashboard that addresses a signed-in owner by someone else's name reads as
+   * a broken session, not as sample data. The counts beside it stay sample —
+   * the preview notice above says so — but who is being greeted comes from the
+   * session.
+   */
+  const greetedName = isNetworkWebRuntime
+    ? (runtime.me?.user.display_name ?? "همکار گرامی")
+    : "سارا";
   const actions = [
     ["ACT-301", "تکمیل داوری مالی پیشنهاد PR-104", "امروز، ۱۶:۳۰", "فوری"],
     ["ACT-298", "پاسخ به درخواست شفاف‌سازی تیم نوآب", "فردا، ۱۰:۰۰", "بالا"],
@@ -213,7 +227,7 @@ function OrganizationDashboard() {
     <div className="org-workspace-page">
       <OrgPageHeader
         eyebrow="داشبورد سازمان"
-        title="سلام سارا؛ امروز ۴ اقدام نیازمند توجه است"
+        title={`سلام ${greetedName}؛ امروز ۴ اقدام نیازمند توجه است`}
         description="مسئله‌ها، پیشنهادهای دریافتی، دعوت‌ها و پایلوت‌ها را با همان وضعیت‌هایی ببینید که حل‌کنندگان در سمت خود مشاهده می‌کنند."
         action={
           <Link className="org-button org-button--primary" href="/app/org/challenges/new">
@@ -1537,5 +1551,11 @@ export function OrganizationWorkspaceExperience({ route }: { route: InternalRout
         return null;
     }
   }, [route.path]);
-  return content;
+  if (!content) return null;
+  return (
+    <>
+      {isNetworkWebRuntime && <PreviewDataNotice />}
+      {content}
+    </>
+  );
 }
