@@ -1,8 +1,11 @@
 import type {
   ApplicantType,
   ChallengeId,
+  ChallengeVersionId,
   EligibilityReasonCode,
   EligibilityStatus,
+  FileId,
+  MembershipId,
   ProposalId,
   ProposalState,
   ProposalVersionId,
@@ -18,6 +21,7 @@ export type ProposalContentResource = {
   readonly problem_statement: string;
   readonly value_proposition: string;
   readonly maturity_level: string;
+  readonly prototype_weeks: string;
   readonly technologies: readonly string[];
   readonly technical_approach: string;
   readonly architecture: string;
@@ -29,11 +33,21 @@ export type ProposalContentResource = {
   readonly dependencies: string;
   readonly pilot_location: string;
   readonly risks: string;
+  readonly mitigation: string;
+  readonly lead_name: string;
   readonly team_summary: string;
+  readonly relevant_experience: string;
   readonly budget_amount_minor: number | null;
   readonly budget_currency: string;
-  readonly attachment_ids: readonly string[];
-  readonly terms_accepted: boolean;
+  readonly payment_model: string;
+  readonly budget_rationale: string;
+  readonly start_availability: string;
+  readonly team_availability: string;
+  readonly nda_accepted: boolean;
+  readonly conflict_declared: boolean;
+  readonly ip_accepted: boolean;
+  readonly accuracy_confirmed: boolean;
+  readonly attachment_ids: readonly FileId[];
 };
 
 export type ProposalContentPatch = Partial<ProposalContentResource>;
@@ -42,6 +56,7 @@ export type ProposalVersionResource = {
   readonly id: ProposalVersionId;
   readonly version_number: number;
   readonly base_version_id: ProposalVersionId | null;
+  readonly accepted_challenge_version_id: ChallengeVersionId | null;
   readonly changed_fields: readonly string[];
   readonly content_hash: string;
   readonly locked: boolean;
@@ -54,7 +69,9 @@ export type ProposalResource = {
   readonly current_version_id: ProposalVersionId;
   readonly tenant_id: TenantId;
   readonly owner_workspace_id: WorkspaceId;
+  readonly owner_workspace_kind: "individual" | "team";
   readonly challenge_id: ChallengeId;
+  readonly assigned_membership_ids: readonly MembershipId[];
   readonly state: ProposalState;
   readonly tracking_code: string | null;
   readonly version: number;
@@ -83,21 +100,10 @@ export type PatchProposalBody = VersionedCommand & {
  * published version, not merely that a row exists.
  */
 export type SubmitProposalBody = VersionedCommand & {
-  readonly accepted_challenge_version_id: string;
+  readonly accepted_challenge_version_id: ChallengeVersionId;
 };
 
-export type WithdrawProposalBody = VersionedCommand & {
-  readonly reason: string;
-};
-
-export type ProposalNextAction =
-  | "edit"
-  | "submit"
-  | "await_eligibility"
-  | "await_review"
-  | "answer_clarification"
-  | "start_revision"
-  | "withdrawn";
+export type ProposalNextAction = "edit" | "submit" | "await_eligibility";
 
 /**
  * C1's decision, returned for one (challenge, active workspace) pair. It names
@@ -111,7 +117,7 @@ export type EligibilityReasonResource = {
 
 export type EligibilityDecisionResource = {
   readonly challenge_id: ChallengeId;
-  readonly evaluated_against_version_id: string;
+  readonly evaluated_against_version_id: ChallengeVersionId;
   readonly applicant_type: ApplicantType | null;
   readonly status: EligibilityStatus;
   readonly reasons: readonly EligibilityReasonResource[];

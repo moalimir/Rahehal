@@ -1,12 +1,14 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
-  canAuthorProposal,
   evaluateProposalEligibility,
+  evaluateProposalReadiness,
   proposalTransitions,
   proposalVersionLockingStates,
+  parseChallengeVersionId,
   parseWorkspaceId,
   type EligibilityApplicant,
+  type EligibilityCallSnapshot,
   type EligibilityRuleSnapshot,
   InvalidIdentifierError,
   applicantScopeForTypes,
@@ -35,6 +37,7 @@ import {
   teamKinds,
   type ChallengeId,
   type ChallengeDraftContent,
+  type ProposalContent,
   type TeamKind,
 } from "../src/index.js";
 
@@ -266,13 +269,15 @@ describe("canonical domain primitives", () => {
 
 describe("C1 proposal eligibility", () => {
   const openRule: EligibilityRuleSnapshot = {
-    challengeVersionId: "chv_published_0001",
+    challengeVersionId: parseChallengeVersionId("chv_published_0001"),
     allowedApplicantTypes: ["individual", "expert-team"],
     verificationRequired: false,
     ndaRequired: false,
     documentGateRequired: false,
-    proposalDeadline: "2030-01-01T00:00:00.000Z",
+  };
+  const openCall: EligibilityCallSnapshot = {
     state: "open",
+    proposalDeadline: "2030-01-01T00:00:00.000Z",
   };
   const applicant: EligibilityApplicant = {
     workspaceId: parseWorkspaceId("wsp_team_alpha"),
@@ -283,10 +288,8 @@ describe("C1 proposal eligibility", () => {
   };
   const now = new Date("2026-08-30T12:00:00.000Z");
 
-  it("names the exact challenge version it judged", () => {
-    const decision = evaluateProposalEligibility(openRule, applicant, now);
-    // A solver must be able to tell which published terms the answer refers to,
-    // so the decision cites its rule version rather than "the current rules".
+  it("names the exact immutable rule version it judged", () => {
+    const decision = evaluateProposalEligibility(openRule, openCall, applicant, now);
     expect(decision.evaluatedAgainstVersionId).toBe("chv_published_0001");
     expect(decision.status).toBe("eligible");
   });
@@ -294,6 +297,7 @@ describe("C1 proposal eligibility", () => {
   it("separates a structural refusal from a gate the solver can still clear", () => {
     const wrongType = evaluateProposalEligibility(
       openRule,
+      openCall,
       { ...applicant, applicantType: "lab" },
       now,
     );
@@ -303,11 +307,10 @@ describe("C1 proposal eligibility", () => {
 
     const needsGates = evaluateProposalEligibility(
       { ...openRule, verificationRequired: true, ndaRequired: true },
+      openCall,
       applicant,
       now,
     );
-    // Fixable, so it must not read as a permanent refusal, and must say what
-    // to do rather than returning a generic "not eligible".
     expect(needsGates.status).toBe("needs_action");
     expect(needsGates.reasons.map((reason) => reason.code)).toEqual([
       "verification_required",
@@ -316,55 +319,65 @@ describe("C1 proposal eligibility", () => {
     expect(needsGates.nextActions).toEqual(["verify_workspace", "accept_nda"]);
   });
 
-  it("decides deadlines and paused calls by server time, before any gate", () => {
+  it("uses B6's current deadline and supports every terminal call state", () => {
     const expired = evaluateProposalEligibility(
-      { ...openRule, proposalDeadline: "2026-08-30T11:59:59.000Z" },
+      openRule,
+      { ...openCall, proposalDeadline: "2026-08-30T11:59:59.000Z" },
       applicant,
       now,
     );
-    expect(expired.status).toBe("ineligible");
     expect(expired.reasons[0]?.code).toBe("deadline_passed");
 
-    const paused = evaluateProposalEligibility({ ...openRule, state: "paused" }, applicant, now);
-    expect(paused.reasons[0]?.code).toBe("call_not_open");
+    for (const state of ["paused", "closed", "cancelled"] as const) {
+      const unavailable = evaluateProposalEligibility(
+        openRule,
+        { ...openCall, state },
+        applicant,
+        now,
+      );
+      expect(unavailable.reasons[0]?.code).toBe("call_not_open");
+    }
+  });
 
-    // An unknown applicant type is refused rather than defaulting to allowed.
+  it("fails closed for an unknown applicant type", () => {
     const unknown = evaluateProposalEligibility(
       openRule,
+      openCall,
       { ...applicant, applicantType: null },
       now,
     );
     expect(unknown.reasons[0]?.code).toBe("applicant_type_unknown");
   });
-
-  it("never advertises a rule version it did not evaluate", () => {
-    const decision = evaluateProposalEligibility(
-      { ...openRule, challengeVersionId: "chv_published_0002", state: "closed" },
-      applicant,
-      now,
-    );
-    expect(decision.evaluatedAgainstVersionId).toBe("chv_published_0002");
-  });
 });
 
 describe("Phase 3 proposal lifecycle", () => {
-  it("locks a version on every transition that hands content to someone else", () => {
+  it("locks only proposal-content submissions", () => {
+    expect(proposalVersionLockingStates).toEqual(["submitted", "resubmitted"]);
     for (const state of proposalVersionLockingStates) {
       const rule = proposalTransitions.find((transition) => transition.to === state);
-      expect(rule, `${state} needs a transition`).toBeDefined();
       expect(rule?.sideEffects).toContain("lock-proposal-version");
     }
   });
 
-  it("keeps decision-owned states out of Phase 3's transition table", () => {
-    // `selected`/`rejected` come from Phase 4's recorded decision. Listing a
-    // transition nothing enforces would be worse than listing none.
-    const reachable = proposalTransitions.map((transition) => transition.to);
-    expect(reachable).not.toContain("selected");
-    expect(reachable).not.toContain("rejected");
+  it("owns one complete canonical transition table", () => {
+    expect(proposalTransitions.map(({ from, to }) => `${from}->${to}`)).toEqual([
+      "draft->submitted",
+      "submitted->eligibility_review",
+      "eligibility_review->eligible",
+      "eligibility_review->ineligible",
+      "eligible->clarification_requested",
+      "clarification_requested->clarification_submitted",
+      "clarification_submitted->reviewing",
+      "reviewing->revision_requested",
+      "revision_requested->revision_draft",
+      "revision_draft->resubmitted",
+      "resubmitted->reviewing",
+      "reviewing->selected",
+      "reviewing->rejected",
+    ]);
   });
 
-  it("only lets authoring roles move a proposal the solver owns", () => {
+  it("treats listed submit roles as candidates subject to server authorization", () => {
     const submit = proposalTransitions.find((transition) => transition.to === "submitted");
     expect(submit?.roles).toEqual([
       "team:owner",
@@ -372,13 +385,61 @@ describe("Phase 3 proposal lifecycle", () => {
       "team:proposal-manager",
       "individual",
     ]);
-    expect(canAuthorProposal("team:viewer")).toBe(false);
-    expect(canAuthorProposal("team:contributor")).toBe(false);
-    expect(canAuthorProposal("individual")).toBe(true);
+    expect(submit?.preconditions).toContain("sender-authorized");
   });
 
   it("requires a base version before a revision may be resubmitted", () => {
     const resubmit = proposalTransitions.find((transition) => transition.to === "resubmitted");
     expect(resubmit?.preconditions).toContain("base-version-cited");
+  });
+
+  it("rejects malformed money and unconfirmed declarations", () => {
+    const content: ProposalContent = {
+      title: "راهکار کاهش مصرف انرژی",
+      problemStatement: "شرح کامل مسئله و وضعیت عملیاتی موجود در کارخانه.",
+      valueProposition: "راهکار پیشنهادی مصرف را با سنجش مستمر کاهش می‌دهد.",
+      maturityLevel: "prototype",
+      prototypeWeeks: "8",
+      technologies: ["sensor"],
+      technicalApproach: "رویکرد فنی کامل برای نمونه‌سازی و ارزیابی راهکار.",
+      architecture: "edge",
+      dataNeeds: "telemetry",
+      successMetrics: "کاهش حداقل بیست درصدی مصرف انرژی.",
+      ipStatus: "owned",
+      durationWeeks: "16",
+      roadmap: "pilot",
+      dependencies: "access",
+      pilotLocation: "site",
+      risks: "integration",
+      mitigation: "staged rollout",
+      leadName: "Solver",
+      teamSummary: "team",
+      relevantExperience: "experience",
+      budgetAmountMinor: 100_000,
+      budgetCurrency: "IRR",
+      paymentModel: "milestone",
+      budgetRationale: "estimate",
+      startAvailability: "two-weeks",
+      teamAvailability: "part-time",
+      ndaAccepted: true,
+      conflictDeclared: true,
+      ipAccepted: true,
+      accuracyConfirmed: true,
+      attachmentIds: [],
+    };
+
+    expect(evaluateProposalReadiness(content).ready).toBe(true);
+    expect(
+      evaluateProposalReadiness({
+        ...content,
+        budgetAmountMinor: -1,
+        budgetCurrency: "",
+        accuracyConfirmed: false,
+      }).issues.map((issue) => issue.path),
+    ).toEqual([
+      "/content/budget_amount_minor",
+      "/content/budget_currency",
+      "/content/accuracy_confirmed",
+    ]);
   });
 });

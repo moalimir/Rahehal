@@ -77,25 +77,28 @@ B5 delivers the public read path over this table: a separate `PublicChallengePor
 
 ## 5. Proposal aggregate (immutable versions)
 
-The remaining schema sections describe later migrations and must not be treated as already present after A1a.
+This section is present through migration `0011`; sections 6 onward remain later migrations.
 
-Migration `0011` lands the Phase-3 foundation: `proposal` and `proposal_version`, in the A1c shape — a mutable aggregate carrying lifecycle state and an optimistic-concurrency counter, plus append-only versions holding content. `proposal.owner_workspace_id` is always the **solver's** workspace; a host organization reaches a proposal through cross-tenant collaboration, never ownership. `content_hash` is stored per version so a submitted proposal can be proved byte-for-byte later (FR-SOL-006), and `base_version_id` is a composite foreign key back to the same proposal, so a revision cannot cite a version belonging to someone else's. The one-active-proposal invariant is a **partial** unique index excluding `withdrawn`, so withdrawing does not permanently consume a solver's single slot on a challenge. A trigger permits exactly one mutation to a version — unlocked to locked, touching nothing else — and a second trigger refuses any proposal against a challenge that was never published, or created while the call is not `open`. Both restate command-layer rules in the database so a direct SQL write cannot bypass them.
+Migration `0011` lands the Phase-3 foundation: `proposal` and `proposal_version`, in the A1c shape — a mutable aggregate carrying lifecycle state and an optimistic-concurrency counter, plus append-only versions holding content. A composite workspace foreign key limits ownership to `individual`/`team` solver workspaces, and an identity trigger makes tenant, owner, challenge, creator, and creation time immutable. The current-version pointer is mandatory, deferred, and checked against the latest gap-free version and aggregate lock version. `assigned_membership_ids` carries C2's proposal-assignment input; application commands still validate that each assignment is an active membership of the owning team.
+
+`content_hash` proves exact submitted content (FR-SOL-006). Every version after the first must cite a same-proposal `base_version_id`; locked versions also persist `accepted_challenge_version_id`, constrained to the same challenge. Locking succeeds only while B6's current call is open and unexpired and only for the current published challenge version, so a deadline race or later amendment cannot erase which terms were accepted. The one-active-proposal invariant remains a partial unique index excluding `withdrawn`. Content shape, integer-safe minor-unit money, assignment IDs, immutable ownership, exact accepted terms, version sequence, current pointer, and append-only locks have direct PostgreSQL negative tests.
 
 ```sql
 CREATE TABLE proposal (
   id            text PRIMARY KEY,            -- prp_*
   tenant_id     text NOT NULL REFERENCES tenant(id),   -- the OWNING solver tenant/workspace
   owner_workspace_id text NOT NULL REFERENCES workspace(id),
+  owner_workspace_kind text NOT NULL,       -- individual | team
   challenge_id  text NOT NULL REFERENCES challenge(id),
-  current_version_id text,
-  state         text NOT NULL CHECK (state IN          -- ProposalState (solver.ts:166)
+  current_version_id text NOT NULL,
+  state         text NOT NULL CHECK (state IN          -- packages/domain ProposalState
                   ('draft','submitted','eligibility_review','eligible','ineligible',
                    'clarification_requested','clarification_submitted','reviewing',
                    'revision_requested','revision_draft','resubmitted','selected',
                    'rejected','withdrawn')),
   assigned_membership_ids text[] NOT NULL DEFAULT '{}',
   tracking_code text UNIQUE,                  -- human alias, not a key (20 §7.3)
-  version       integer NOT NULL DEFAULT 0,
+  lock_version  bigint NOT NULL DEFAULT 1,
   submitted_at  timestamptz,
   created_at    timestamptz NOT NULL DEFAULT now(),
   updated_at    timestamptz NOT NULL DEFAULT now(),
@@ -106,17 +109,19 @@ CREATE TABLE proposal (
 CREATE TABLE proposal_version (
   id            text PRIMARY KEY,            -- prv_*
   proposal_id   text NOT NULL REFERENCES proposal(id),
-  number        integer NOT NULL,
+  challenge_id  text NOT NULL REFERENCES challenge(id),
+  version_number integer NOT NULL,
   actor_user_id text NOT NULL REFERENCES app_user(id),
-  content       jsonb NOT NULL,             -- ProposalContent (solver.ts:182)
+  content       jsonb NOT NULL,             -- authoritative ProposalContent
   content_hash  text NOT NULL,             -- exact-content proof (FR-SOL-006)
   changed_fields text[] NOT NULL DEFAULT '{}',
-  base_version_id text REFERENCES proposal_version(id),  -- explicit base for revisions
-  locked        boolean NOT NULL DEFAULT false,
+  base_version_id text REFERENCES proposal_version(id),  -- required after v1
+  accepted_challenge_version_id text REFERENCES challenge_version(id),
+  locked_at     timestamptz,
   created_at    timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (proposal_id, number)
+  UNIQUE (proposal_id, version_number)
 );
--- Enforce immutability: no UPDATE of a locked version (trigger or restricted grants)
+-- Only the unlocked→locked evidence update is permitted; all other update/delete fails.
 ```
 
 ## 6. Rubric, review assignment, COI, review, decision

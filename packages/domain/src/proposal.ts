@@ -1,7 +1,13 @@
 import type { Transition } from "./challenge.js";
-import type { ProposalId, ProposalVersionId, UserId, WorkspaceId } from "./id.js";
+import type {
+  ChallengeVersionId,
+  FileId,
+  ProposalId,
+  ProposalVersionId,
+  UserId,
+  WorkspaceId,
+} from "./id.js";
 import type { ApplicantType } from "./taxonomy.js";
-import type { WorkspaceRole } from "./workspace.js";
 
 /**
  * The canonical proposal lifecycle (20_CANONICAL_MODEL §4). These names are
@@ -40,32 +46,26 @@ export function isEditableProposalState(state: ProposalState): state is Editable
 }
 
 /**
- * A proposal version is immutable once locked. Locking happens on the
- * transitions that hand content to someone else — submission, a clarification
- * answer, and a resubmission — mirroring how a challenge version locks when it
- * is submitted for triage or approvals.
+ * Proposal content locks only when it is submitted or resubmitted. A
+ * clarification response is separate evidence; it must not fabricate a new
+ * proposal-content version.
  */
-export const proposalVersionLockingStates = [
-  "submitted",
-  "clarification_submitted",
-  "resubmitted",
-] as const;
+export const proposalVersionLockingStates = ["submitted", "resubmitted"] as const;
 
 /**
- * Phase 3 covers `draft` through `resubmitted` plus `withdrawn`. `selected`
- * and `rejected` are reachable only from a recorded decision, which is Phase
- * 4's `decision:record` command, so they are listed as states but have no
- * transition here yet — an empty row is the honest way to say "not this phase"
- * rather than leaving a rule that nothing enforces.
+ * One canonical proposal lifecycle shared by the browser oracle and the
+ * authoritative API. Team-policy and assignment checks remain explicit
+ * preconditions; a role appearing here is only a candidate actor, never enough
+ * authorization on its own.
  */
 export const proposalTransitions = [
   {
     from: "draft",
     to: "submitted",
     roles: ["team:owner", "team:admin", "team:proposal-manager", "individual"],
-    preconditions: ["content-valid", "challenge-open", "terms-accepted"],
-    sideEffects: ["lock-proposal-version", "create-receipt"],
-    notification: "سازمان میزبان",
+    preconditions: ["form-valid", "sender-authorized", "terms-accepted"],
+    sideEffects: ["create-version", "lock-proposal-version", "create-receipt"],
+    notification: "سازمان مسئله‌گذار",
     audit: "proposal.submitted",
     retry: "idempotent",
   },
@@ -73,9 +73,9 @@ export const proposalTransitions = [
     from: "submitted",
     to: "eligibility_review",
     roles: ["org:member", "platform:ops"],
-    preconditions: [],
+    preconditions: ["submission-locked"],
     sideEffects: ["open-eligibility-review"],
-    notification: "ارسال‌کننده پیشنهاد",
+    notification: "مالک پیشنهاد",
     audit: "proposal.eligibility.started",
     retry: "idempotent",
   },
@@ -84,18 +84,18 @@ export const proposalTransitions = [
     to: "eligible",
     roles: ["org:member", "platform:ops"],
     preconditions: ["eligibility-passed"],
-    sideEffects: [],
-    notification: "ارسال‌کننده پیشنهاد",
+    sideEffects: ["mark-eligible"],
+    notification: "مالک پیشنهاد",
     audit: "proposal.eligible",
-    retry: "idempotent",
+    retry: "manual-review",
   },
   {
     from: "eligibility_review",
     to: "ineligible",
     roles: ["org:member", "platform:ops"],
-    preconditions: ["eligibility-failed", "decision-rationale"],
-    sideEffects: [],
-    notification: "ارسال‌کننده پیشنهاد",
+    preconditions: ["eligibility-failed", "reason-recorded"],
+    sideEffects: ["lock-outcome"],
+    notification: "مالک پیشنهاد",
     audit: "proposal.ineligible",
     retry: "manual-review",
   },
@@ -103,9 +103,9 @@ export const proposalTransitions = [
     from: "eligible",
     to: "clarification_requested",
     roles: ["org:member"],
-    preconditions: ["clarification-question"],
-    sideEffects: [],
-    notification: "ارسال‌کننده پیشنهاد",
+    preconditions: ["question-recorded"],
+    sideEffects: ["open-controlled-thread"],
+    notification: "مالک پیشنهاد",
     audit: "proposal.clarification.requested",
     retry: "idempotent",
   },
@@ -113,18 +113,18 @@ export const proposalTransitions = [
     from: "clarification_requested",
     to: "clarification_submitted",
     roles: ["team:owner", "team:admin", "team:proposal-manager", "individual"],
-    preconditions: ["content-valid"],
-    sideEffects: ["lock-proposal-version", "create-receipt"],
-    notification: "سازمان میزبان",
+    preconditions: ["response-valid", "sender-authorized"],
+    sideEffects: ["lock-clarification-response"],
+    notification: "سازمان مسئله‌گذار",
     audit: "proposal.clarification.submitted",
     retry: "idempotent",
   },
   {
-    from: "eligible",
+    from: "clarification_submitted",
     to: "reviewing",
     roles: ["org:member"],
-    preconditions: ["reviewers-assigned"],
-    sideEffects: [],
+    preconditions: ["clarification-resolved"],
+    sideEffects: ["open-review"],
     notification: "داوران",
     audit: "proposal.review.started",
     retry: "idempotent",
@@ -133,88 +133,77 @@ export const proposalTransitions = [
     from: "reviewing",
     to: "revision_requested",
     roles: ["org:member"],
-    preconditions: ["revision-rationale"],
-    sideEffects: [],
-    notification: "ارسال‌کننده پیشنهاد",
+    preconditions: ["revision-scope", "revision-deadline"],
+    sideEffects: ["create-revision-draft"],
+    notification: "مالک پیشنهاد",
     audit: "proposal.revision.requested",
     retry: "idempotent",
   },
   {
     from: "revision_requested",
     to: "revision_draft",
-    roles: ["team:owner", "team:admin", "team:proposal-manager", "individual"],
-    preconditions: [],
-    sideEffects: ["open-revision-draft"],
-    notification: "اعضای فضای کاری",
-    audit: "proposal.revision.started",
+    roles: ["team:owner", "team:admin", "team:proposal-manager", "team:contributor", "individual"],
+    preconditions: ["editor-authorized"],
+    sideEffects: ["open-versioned-draft"],
+    notification: "",
+    audit: "proposal.revision.draft.created",
     retry: "idempotent",
   },
   {
     from: "revision_draft",
     to: "resubmitted",
     roles: ["team:owner", "team:admin", "team:proposal-manager", "individual"],
-    preconditions: ["content-valid", "challenge-open", "base-version-cited"],
-    sideEffects: ["lock-proposal-version", "create-receipt"],
-    notification: "سازمان میزبان",
+    preconditions: ["form-valid", "sender-authorized", "terms-accepted", "base-version-cited"],
+    sideEffects: ["create-version", "lock-proposal-version", "create-receipt"],
+    notification: "سازمان مسئله‌گذار",
     audit: "proposal.resubmitted",
     retry: "idempotent",
   },
   {
-    from: "draft",
-    to: "withdrawn",
-    roles: ["team:owner", "individual"],
-    preconditions: ["withdrawal-reason"],
-    sideEffects: [],
-    notification: "اعضای فضای کاری",
-    audit: "proposal.withdrawn",
+    from: "resubmitted",
+    to: "reviewing",
+    roles: ["org:member", "platform:ops"],
+    preconditions: ["eligibility-passed"],
+    sideEffects: ["open-review"],
+    notification: "مالک پیشنهاد",
+    audit: "proposal.review.resumed",
     retry: "idempotent",
   },
   {
-    from: "submitted",
-    to: "withdrawn",
-    roles: ["team:owner", "individual"],
-    preconditions: ["withdrawal-reason"],
-    sideEffects: ["notify-host-organization"],
-    notification: "سازمان میزبان",
-    audit: "proposal.withdrawn",
-    retry: "idempotent",
+    from: "reviewing",
+    to: "selected",
+    roles: ["org:member"],
+    preconditions: ["reviews-complete", "decision-approved"],
+    sideEffects: ["lock-outcome"],
+    notification: "مالک پیشنهاد",
+    audit: "proposal.selected",
+    retry: "manual-review",
+  },
+  {
+    from: "reviewing",
+    to: "rejected",
+    roles: ["org:member"],
+    preconditions: ["reviews-complete", "decision-rationale"],
+    sideEffects: ["lock-outcome"],
+    notification: "مالک پیشنهاد",
+    audit: "proposal.rejected",
+    retry: "manual-review",
   },
 ] as const satisfies readonly Transition<ProposalState>[];
 
 /**
- * Every outbox event type the proposal slice emits. The worker derives its
- * supported set from this list, so an event a proposal adapter emits but this
- * list omits is dead-lettered rather than silently dropped — the same contract
- * `challengeOutboxEventTypes` carries.
- */
-export const proposalOutboxEventTypes = [
-  "proposal.draft.created",
-  "proposal.draft.updated",
-  "proposal.submitted",
-  "proposal.eligibility.started",
-  "proposal.eligible",
-  "proposal.ineligible",
-  "proposal.clarification.requested",
-  "proposal.clarification.submitted",
-  "proposal.review.started",
-  "proposal.revision.requested",
-  "proposal.revision.started",
-  "proposal.resubmitted",
-  "proposal.withdrawn",
-] as const;
-export type ProposalOutboxEventType = (typeof proposalOutboxEventTypes)[number];
-
-/**
- * The canonical proposal content, mirroring the fields the browser aggregate
- * already collects (`domain/solver.ts`). Persisted as one immutable `jsonb`
- * blob per version, exactly like `ChallengeDraftContent`, so a submitted
- * version can be proved byte-for-byte later (FR-SOL-006).
+ * Authoritative proposal content. It retains every field collected by the
+ * browser form while normalizing money to integer minor units and attachments
+ * to opaque metadata references. The C3 browser adapter owns that explicit
+ * conversion; this contract never persists display-formatted money or names as
+ * file authority.
  */
 export type ProposalContent = {
   readonly title: string;
   readonly problemStatement: string;
   readonly valueProposition: string;
   readonly maturityLevel: string;
+  readonly prototypeWeeks: string;
   readonly technologies: readonly string[];
   readonly technicalApproach: string;
   readonly architecture: string;
@@ -226,11 +215,21 @@ export type ProposalContent = {
   readonly dependencies: string;
   readonly pilotLocation: string;
   readonly risks: string;
+  readonly mitigation: string;
+  readonly leadName: string;
   readonly teamSummary: string;
+  readonly relevantExperience: string;
   readonly budgetAmountMinor: number | null;
   readonly budgetCurrency: string;
-  readonly attachmentIds: readonly string[];
-  readonly termsAccepted: boolean;
+  readonly paymentModel: string;
+  readonly budgetRationale: string;
+  readonly startAvailability: string;
+  readonly teamAvailability: string;
+  readonly ndaAccepted: boolean;
+  readonly conflictDeclared: boolean;
+  readonly ipAccepted: boolean;
+  readonly accuracyConfirmed: boolean;
+  readonly attachmentIds: readonly FileId[];
 };
 
 export type ProposalReadinessIssue = {
@@ -267,14 +266,27 @@ export function evaluateProposalReadiness(content: ProposalContent): ProposalRea
     add("/content/technical_approach", "min_length", "رویکرد فنی را شرح دهید.");
   if (!filled(content.successMetrics, 10))
     add("/content/success_metrics", "min_length", "سنجه‌های موفقیت را مشخص کنید.");
-  if (!filled(content.durationWeeks, 1))
-    add("/content/duration_weeks", "required", "مدت اجرا را وارد کنید.");
+  if (!/^\d{1,2}$/.test(content.prototypeWeeks) || Number(content.prototypeWeeks) < 1)
+    add("/content/prototype_weeks", "format", "زمان نمونه اولیه را به هفته وارد کنید.");
+  if (!/^\d{1,3}$/.test(content.durationWeeks) || Number(content.durationWeeks) < 1)
+    add("/content/duration_weeks", "format", "مدت اجرا را به هفته وارد کنید.");
   if (!filled(content.ipStatus, 2))
     add("/content/ip_status", "required", "وضعیت مالکیت فکری را مشخص کنید.");
-  if (content.budgetAmountMinor === null)
+  if (
+    content.budgetAmountMinor === null ||
+    !Number.isSafeInteger(content.budgetAmountMinor) ||
+    content.budgetAmountMinor < 0
+  )
     add("/content/budget_amount_minor", "required", "مبلغ پیشنهادی را وارد کنید.");
-  if (!content.termsAccepted)
-    add("/content/terms_accepted", "required", "پذیرش شرایط فراخوان الزامی است.");
+  if (!/^[A-Z]{3}$/.test(content.budgetCurrency))
+    add("/content/budget_currency", "format", "واحد پول معتبر نیست.");
+  if (!content.ndaAccepted) add("/content/nda_accepted", "required", "پذیرش محرمانگی الزامی است.");
+  if (!content.conflictDeclared)
+    add("/content/conflict_declared", "required", "اعلام تعارض منافع الزامی است.");
+  if (!content.ipAccepted)
+    add("/content/ip_accepted", "required", "پذیرش شرایط مالکیت فکری الزامی است.");
+  if (!content.accuracyConfirmed)
+    add("/content/accuracy_confirmed", "required", "تأیید صحت اطلاعات الزامی است.");
 
   return { ready: issues.length === 0, issues };
 }
@@ -299,13 +311,17 @@ export type EligibilityApplicant = {
  * solver who already read the terms.
  */
 export type EligibilityRuleSnapshot = {
-  readonly challengeVersionId: string;
+  readonly challengeVersionId: ChallengeVersionId;
   readonly allowedApplicantTypes: readonly ApplicantType[];
   readonly verificationRequired: boolean;
   readonly ndaRequired: boolean;
   readonly documentGateRequired: boolean;
-  readonly proposalDeadline: string | null;
-  readonly state: "open" | "paused" | "closed";
+};
+
+/** B6's mutable call state, read beside the immutable B3 rule. */
+export type EligibilityCallSnapshot = {
+  readonly state: "open" | "paused" | "closed" | "cancelled";
+  readonly proposalDeadline: string;
 };
 
 export const eligibilityReasonCodes = [
@@ -360,6 +376,7 @@ const reasonMessages: Record<EligibilityReasonCode, string> = {
  */
 export function evaluateProposalEligibility(
   rule: EligibilityRuleSnapshot,
+  call: EligibilityCallSnapshot,
   applicant: EligibilityApplicant,
   now: Date,
 ): EligibilityDecision {
@@ -370,8 +387,8 @@ export function evaluateProposalEligibility(
     nextActions: [],
   });
 
-  if (rule.state !== "open") return reject("call_not_open");
-  if (rule.proposalDeadline !== null && Date.parse(rule.proposalDeadline) <= now.getTime()) {
+  if (call.state !== "open") return reject("call_not_open");
+  if (Date.parse(call.proposalDeadline) <= now.getTime()) {
     return reject("deadline_passed");
   }
   if (applicant.applicantType === null) return reject("applicant_type_unknown");
@@ -422,25 +439,10 @@ export type ProposalVersionRef = {
   readonly proposalId: ProposalId;
   readonly number: number;
   readonly baseVersionId: ProposalVersionId | null;
+  readonly acceptedChallengeVersionId: ChallengeVersionId | null;
   readonly changedFields: readonly string[];
   readonly contentHash: string;
   readonly locked: boolean;
   readonly actorUserId: UserId;
   readonly createdAt: string;
 };
-
-/**
- * Which team roles may act on a proposal, mirroring `decideTeamPermission`
- * (`lib/solver/permissions.ts`) that C2 ports server-side. Restated as data so
- * the transition table above and the API guard read from one list.
- */
-export const proposalAuthoringRoles: readonly WorkspaceRole[] = [
-  "team:owner",
-  "team:admin",
-  "team:proposal-manager",
-  "individual",
-];
-
-export function canAuthorProposal(role: WorkspaceRole): boolean {
-  return proposalAuthoringRoles.includes(role);
-}

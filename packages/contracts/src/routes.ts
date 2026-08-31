@@ -22,13 +22,6 @@ export const apiRoutes = {
   cancelChallenge: "/api/v1/challenges/{challengeId}:cancel",
   publicChallenges: "/api/v1/public/challenges",
   publicChallengeById: "/api/v1/public/challenges/{challengeId}",
-
-  // Phase 3 — authoritative proposal.
-  challengeEligibility: "/api/v1/challenges/{challengeId}/eligibility",
-  proposals: "/api/v1/proposals",
-  proposalById: "/api/v1/proposals/{proposalId}",
-  submitProposal: "/api/v1/proposals/{proposalId}:submit",
-  withdrawProposal: "/api/v1/proposals/{proposalId}:withdraw",
 } as const;
 
 /**

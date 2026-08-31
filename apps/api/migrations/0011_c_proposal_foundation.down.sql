@@ -1,7 +1,17 @@
+DROP TRIGGER proposal_version_pointer_consistent ON proposal_version;
+DROP TRIGGER proposal_current_pointer_consistent ON proposal;
+DROP FUNCTION validate_proposal_current_pointer();
 DROP TRIGGER proposal_requires_published_challenge ON proposal;
 DROP FUNCTION validate_proposal_challenge();
+DROP TRIGGER proposal_identity_protected ON proposal;
+DROP FUNCTION protect_proposal_identity();
 DROP TRIGGER proposal_version_evidence_protected ON proposal_version;
 DROP FUNCTION protect_proposal_version_evidence();
+DROP TRIGGER proposal_version_insert_validated ON proposal_version;
+DROP FUNCTION validate_proposal_version_insert();
+DROP FUNCTION validate_locked_proposal_version(text, text);
 ALTER TABLE proposal DROP CONSTRAINT proposal_current_version_fk;
 DROP TABLE proposal_version;
 DROP TABLE proposal;
+DROP FUNCTION valid_proposal_content(jsonb);
+DROP FUNCTION valid_proposal_assignment_array(text[]);

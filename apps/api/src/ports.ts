@@ -19,7 +19,6 @@ import type {
   ProposalNextAction,
   ProposalResource,
   SubmitProposalBody,
-  WithdrawProposalBody,
   ExtendChallengeDeadlineBody,
   PatchChallengeBody,
   PublicAudience,
@@ -182,17 +181,20 @@ export interface WorkspaceAuthorityUnitOfWorkPort {
   ): Promise<Result>;
 }
 
-export type ChallengeScope = {
+export type WorkspaceScope = {
   readonly tenantId: TenantId;
   readonly workspaceId: WorkspaceId;
   readonly actorUserId: UserId;
   readonly role: WorkspaceRole;
 };
 
-export type ChallengeCommandContext = ChallengeScope & {
+export type WorkspaceCommandContext = WorkspaceScope & {
   readonly idempotencyKey: string;
   readonly correlationId: CorrelationId;
 };
+
+export type ChallengeScope = WorkspaceScope;
+export type ChallengeCommandContext = WorkspaceCommandContext;
 
 export type ChallengeTransitionCommand =
   | "request-triage"
@@ -279,7 +281,7 @@ export interface PublicChallengePort {
  * whole point of checking eligibility before drafting.
  */
 export interface EligibilityPort {
-  evaluate(scope: ChallengeScope, challengeId: string): Promise<EligibilityDecisionResource | null>;
+  evaluate(scope: WorkspaceScope, challengeId: string): Promise<EligibilityDecisionResource | null>;
 }
 
 /**
@@ -290,23 +292,18 @@ export interface EligibilityPort {
 export interface ProposalPort {
   create(
     body: CreateProposalBody,
-    context: ChallengeCommandContext,
+    context: WorkspaceCommandContext,
   ): Promise<MutationOutcome<ProposalId, ProposalNextAction>>;
-  getScoped(scope: ChallengeScope, id: string): Promise<ProposalResource | null>;
+  getScoped(scope: WorkspaceScope, id: string): Promise<ProposalResource | null>;
   patch(
     id: string,
     body: PatchProposalBody,
-    context: ChallengeCommandContext,
+    context: WorkspaceCommandContext,
   ): Promise<MutationOutcome<ProposalId, ProposalNextAction>>;
   submit(
     id: string,
     body: SubmitProposalBody,
-    context: ChallengeCommandContext,
-  ): Promise<MutationOutcome<ProposalId, ProposalNextAction>>;
-  withdraw(
-    id: string,
-    body: WithdrawProposalBody,
-    context: ChallengeCommandContext,
+    context: WorkspaceCommandContext,
   ): Promise<MutationOutcome<ProposalId, ProposalNextAction>>;
 }
 
