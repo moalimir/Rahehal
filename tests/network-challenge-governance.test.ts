@@ -74,6 +74,31 @@ function approvalBrief() {
   };
 }
 
+function triageBrief() {
+  const resource = buildChallengeResource({
+    id: challengeId,
+    workspace_id: workspaceId,
+    stage: "triage",
+    version: 2,
+  });
+  return {
+    id: resource.id,
+    current_version_id: resource.current_version_id,
+    workspace_id: resource.workspace_id,
+    stage: "triage" as const,
+    gate: "quality" as const,
+    version: resource.version,
+    content: {
+      title: resource.content.title,
+      summary: resource.content.summary,
+      category: resource.content.category,
+    },
+    approvals: [],
+    publication_readiness: resource.publication_readiness,
+    updated_at: resource.updated_at,
+  };
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -305,6 +330,37 @@ describe("B7 network challenge governance gateway", () => {
       (fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string>)["x-workspace-id"],
     ).toBe(workspaceId);
     expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/v1/platform/challenge-approvals");
+  });
+
+  it("advances an ops triage brief without trying to reload it after access closes", async () => {
+    const responses = [
+      jsonResponse({
+        ok: true,
+        data: triageBrief(),
+        meta,
+      } satisfies ChallengeApprovalBriefSuccessEnvelope),
+      jsonResponse(buildMutationSuccess({ entity_id: challengeId, next_actions: [] }, meta)),
+    ];
+    const fetchMock = vi.fn<GatewayFetch>(async () => responses.shift() ?? jsonResponse({}, 500));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("crypto", { randomUUID: () => "00000000-0000-4000-8000-00000000b705" });
+
+    const gateway = createNetworkChallengeGovernanceGateway({
+      activeWorkspaceId: () => parseWorkspaceId("wsp_platform_main"),
+    });
+    await gateway.read(challengeId, workspaceId);
+    const result = await gateway.advanceFormulation(challengeId, workspaceId);
+
+    expect(result).toMatchObject({ ok: true, data: null });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [url, init] = fetchMock.mock.calls[1] ?? [];
+    expect(url).toBe(`/api/v1/challenges/${challengeId}:advance-formulation`);
+    expect((init?.headers as Record<string, string>)["x-workspace-id"]).toBe(workspaceId);
+    expect(JSON.parse(String(init?.body))).toEqual({ expected_version: 2 });
+    await expect(gateway.advanceFormulation(challengeId, workspaceId)).resolves.toMatchObject({
+      ok: false,
+      error: { code: "CONFLICT" },
+    });
   });
 
   it("refuses to command a record it has not read, and without a workspace", async () => {

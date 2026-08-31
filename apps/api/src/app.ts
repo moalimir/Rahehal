@@ -362,43 +362,43 @@ function registerChallengeCommand(
       const command = idempotencyCommand(request);
       const targetWorkspaceId = requiredHeader(request, "X-Workspace-Id");
       const authorization = {
-          action,
-          entityType: "challenge",
-          entityId: request.params.challengeId,
-          allows,
-          deferSuccess: true,
-        } as const;
+        action,
+        entityType: "challenge",
+        entityId: request.params.challengeId,
+        allows,
+        deferSuccess: true,
+      } as const;
       const commandOnAccess = async (access: WorkspaceAccess) => {
-          const visible = await ports.challenges.getScoped(
-            challengeScope(session, access),
-            request.params.challengeId,
-          );
-          if (!visible) {
-            await ports.decisionAudit.record({
-              outcome: "denied",
-              actorUserId: session.userId,
-              tenantId: access.tenantId,
-              workspaceId: access.workspaceId,
-              action,
-              entityType: "challenge",
-              entityId: request.params.challengeId,
-              reason: "record_unreachable",
-              correlationId: correlationId(request),
-              occurredAt: ports.clock.now().toISOString(),
-            });
-            throw notFound();
-          }
-          await recordWorkspaceAccessSuccess(request, ports, session, access, {
+        const visible = await ports.challenges.getScoped(
+          challengeScope(session, access),
+          request.params.challengeId,
+        );
+        if (!visible) {
+          await ports.decisionAudit.record({
+            outcome: "denied",
+            actorUserId: session.userId,
+            tenantId: access.tenantId,
+            workspaceId: access.workspaceId,
             action,
             entityType: "challenge",
             entityId: request.params.challengeId,
+            reason: "record_unreachable",
+            correlationId: correlationId(request),
+            occurredAt: ports.clock.now().toISOString(),
           });
-          const outcome = await invoke(request.params.challengeId, request.body, {
-            ...challengeScope(session, access),
-            ...command,
-          });
-          return mutationSuccess(outcome, request, ports);
-        };
+          throw notFound();
+        }
+        await recordWorkspaceAccessSuccess(request, ports, session, access, {
+          action,
+          entityType: "challenge",
+          entityId: request.params.challengeId,
+        });
+        const outcome = await invoke(request.params.challengeId, request.body, {
+          ...challengeScope(session, access),
+          ...command,
+        });
+        return mutationSuccess(outcome, request, ports);
+      };
       if (standingPlatformRoles.length > 0 && session.activeWorkspaceId !== targetWorkspaceId) {
         return ports.authority.runAuthorizedPlatformRole(
           session,

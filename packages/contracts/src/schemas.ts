@@ -400,11 +400,7 @@ const challengeApprovalResourceSchema = {
 const challengeApprovalBriefContentSchema = {
   type: "object",
   additionalProperties: false,
-  required: [
-    "title",
-    "summary",
-    "category",
-  ],
+  required: ["title", "summary", "category"],
   properties: {
     title: challengeContentProperties.title,
     summary: challengeContentProperties.summary,

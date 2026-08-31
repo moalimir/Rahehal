@@ -49,12 +49,11 @@ afterEach(() => {
 
 describe("challenge governance decision", () => {
   it("lets an approver record a reasoned rejection", async () => {
-    const { ChallengeGovernancePage } = await import(
-      "@/components/challenge-flow/governance-page"
-    );
+    const { ChallengeGovernancePage } = await import("@/components/challenge-flow/governance-page");
     render(<ChallengeGovernancePage id={resource.id} />);
 
     await screen.findByRole("heading", { name: resource.content.title });
+    expect(screen.getByText("۱٬۰۰۰٬۰۰۰ ریال")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("radio", { name: "رد و درخواست اصلاح" }));
     fireEvent.change(screen.getByLabelText("دلیل ثبت تأیید فنی"), {
       target: { value: "دامنه فنی باید اصلاح شود." },

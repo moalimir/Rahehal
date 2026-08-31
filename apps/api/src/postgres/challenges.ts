@@ -1340,8 +1340,7 @@ export class PostgresChallengeAdapter implements ChallengePort {
       }
 
       const readiness = challengeReadiness(current.content, current.version);
-      const requiredReadiness =
-        command === "request-triage" ? current.triage_readiness : readiness;
+      const requiredReadiness = command === "request-triage" ? current.triage_readiness : readiness;
       if (command === "request-approvals") {
         assertEligibilityRuleAttachable(current.content, this.clock.now());
       }

@@ -134,7 +134,9 @@ function projectionResource(row: ProjectionRow): ChallengePublicProjectionResour
     // A paused or closed call still resolves by direct link -- solvers who
     // already have it must be able to see that it stopped accepting proposals.
     // Only the *listing* filters on state.
-    state: row.expired ? "closed" : oneOf(challengePublicationStates, row.state, "publication state"),
+    state: row.expired
+      ? "closed"
+      : oneOf(challengePublicationStates, row.state, "publication state"),
     published_at: row.published_at.toISOString(),
   };
 }

@@ -75,7 +75,5 @@ export function comparePublicChallenges(
   right: PublicChallengeOrderKey,
 ): number {
   const byPublication = Date.parse(right.published_at) - Date.parse(left.published_at);
-  return byPublication !== 0
-    ? byPublication
-    : right.challenge_id.localeCompare(left.challenge_id);
+  return byPublication !== 0 ? byPublication : right.challenge_id.localeCompare(left.challenge_id);
 }

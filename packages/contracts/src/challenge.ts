@@ -306,10 +306,7 @@ export type ChallengePublicProjectionResource = {
   readonly published_at: string;
 };
 
-export type ChallengeApprovalNextAction =
-  | "await_remaining_gates"
-  | "ready_for_publish"
-  | "revise";
+export type ChallengeApprovalNextAction = "await_remaining_gates" | "ready_for_publish" | "revise";
 
 export type ChallengeSuccessEnvelope = {
   readonly ok: true;

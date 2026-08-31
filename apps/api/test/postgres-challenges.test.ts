@@ -294,7 +294,6 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
       events: "2",
       replays: "2",
     });
-
   });
 
   it("saves expired drafts but refuses invalid governed eligibility snapshots", async () => {
@@ -739,10 +738,7 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
   it("returns a rejected version to formulation through a fresh immutable version", async () => {
     const challenges = adapter();
     const challengeId = await advanceToApprovals(challenges, "b2-rework", 109);
-    const rejectedVersion = await challenges.getScoped(
-      context("b2-rework-read", 113),
-      challengeId,
-    );
+    const rejectedVersion = await challenges.getScoped(context("b2-rework-read", 113), challengeId);
 
     const rejection = await challenges.recordApproval(
       challengeId,
@@ -947,6 +943,52 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
     expect(queue.items).toContainEqual(
       expect.objectContaining({ challenge_id: challengeId, gate: "quality" }),
     );
+  });
+
+  it("queues a triage brief for platform ops and closes that reach after screening", async () => {
+    const challenges = adapter();
+    const created = await challenges.create(
+      { expected_version: 0, draft: buildChallengeContentResource() },
+      context("b1-ops-triage-create", 140),
+    );
+    const challengeId = created.receipt.entity_id;
+    await challenges.transition(
+      challengeId,
+      "request-triage",
+      { expected_version: 1 },
+      context("b1-ops-triage-request", 141),
+    );
+    const opsScope = context("b1-ops-triage-scope", 142, {
+      role: "platform:ops",
+      actorUserId: parseUserId("usr_platform_ops"),
+    });
+
+    await expect(challenges.getApprovalBrief(opsScope, challengeId)).resolves.toMatchObject({
+      id: challengeId,
+      stage: "triage",
+      gate: "quality",
+      version: 2,
+    });
+    await expect(challenges.listApprovalQueue(opsScope)).resolves.toMatchObject({
+      items: expect.arrayContaining([
+        expect.objectContaining({ challenge_id: challengeId, stage: "triage" }),
+      ]),
+    });
+
+    await challenges.transition(
+      challengeId,
+      "advance-formulation",
+      { expected_version: 2 },
+      context("b1-ops-triage-advance", 143, {
+        role: "platform:ops",
+        actorUserId: parseUserId("usr_platform_ops"),
+      }),
+    );
+
+    await expect(challenges.getApprovalBrief(opsScope, challengeId)).resolves.toBeNull();
+    await expect(
+      challenges.getScoped(context("b1-ops-triage-owner-read", 144), challengeId),
+    ).resolves.toMatchObject({ stage: "formulation", version: 3 });
   });
 
   /**

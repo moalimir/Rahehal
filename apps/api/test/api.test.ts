@@ -1476,6 +1476,84 @@ describe("authoritative Fastify API foundation", () => {
     expect(JSON.stringify(queue)).not.toContain("contact");
   });
 
+  it("lets platform ops screen a triage brief without gaining general org access", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: apiRoutes.challenges,
+      headers: ownerHeaders("b1-ops-triage-create"),
+      payload: buildCreateChallengeBody({ draft: buildChallengeContentResource() }),
+    });
+    const challengeId = created.json<MutationSuccessEnvelope>().data.entity_id;
+    const triage = await app.inject({
+      method: "POST",
+      url: apiRoutes.requestChallengeTriage.replace("{challengeId}", challengeId),
+      headers: ownerHeaders("b1-ops-triage-request"),
+      payload: { expected_version: 1 },
+    });
+    expect(triage.statusCode).toBe(200);
+
+    const briefUrl = apiRoutes.platformChallengeApprovalBrief.replace("{challengeId}", challengeId);
+    const opsBrief = await app.inject({
+      method: "GET",
+      url: briefUrl,
+      headers: gateHeaders(demoApiCredentials.platformOps),
+    });
+    expect(opsBrief.statusCode).toBe(200);
+    expect(opsBrief.json<SuccessEnvelope<ChallengeApprovalBriefResource>>().data).toMatchObject({
+      id: challengeId,
+      stage: "triage",
+      gate: "quality",
+      version: 2,
+    });
+
+    const opsQueue = await app.inject({
+      method: "GET",
+      url: apiRoutes.platformChallengeApprovalQueue,
+      headers: gateHeaders(
+        demoApiCredentials.platformOps,
+        undefined,
+        demoApiCredentials.platformOps.workspaceId,
+      ),
+    });
+    expect(opsQueue.statusCode).toBe(200);
+    expect(
+      opsQueue.json<SuccessEnvelope<PlatformChallengeApprovalQueueResource>>().data.items,
+    ).toContainEqual(
+      expect.objectContaining({ challenge_id: challengeId, stage: "triage", gate: "quality" }),
+    );
+
+    const financeAttempt = await app.inject({
+      method: "POST",
+      url: apiRoutes.advanceChallengeFormulation.replace("{challengeId}", challengeId),
+      headers: gateHeaders(demoApiCredentials.platformFinance, "b1-ops-triage-finance-denied"),
+      payload: { expected_version: 2 },
+    });
+    expect(financeAttempt.statusCode).toBe(404);
+    expect(financeAttempt.json<ErrorEnvelope>().error.code).toBe("NOT_FOUND");
+
+    const advanced = await app.inject({
+      method: "POST",
+      url: apiRoutes.advanceChallengeFormulation.replace("{challengeId}", challengeId),
+      headers: gateHeaders(demoApiCredentials.platformOps, "b1-ops-triage-advance"),
+      payload: { expected_version: 2 },
+    });
+    expect(advanced.statusCode).toBe(200);
+    expect(advanced.json<MutationSuccessEnvelope>().meta.entity_version).toBe(3);
+
+    const closedBrief = await app.inject({
+      method: "GET",
+      url: briefUrl,
+      headers: gateHeaders(demoApiCredentials.platformOps),
+    });
+    expect(closedBrief.statusCode).toBe(404);
+    const ownerRead = await app.inject({
+      method: "GET",
+      url: `/api/v1/challenges/${challengeId}`,
+      headers: ownerHeaders(),
+    });
+    expect(ownerRead.json<SuccessEnvelope<ChallengeResource>>().data.stage).toBe("formulation");
+  });
+
   it("keeps the platform read inside the approvals window and off other stages", async () => {
     // Created but never advanced: no gate authority applies, so ops must not
     // be able to read it -- and the denial must not reveal that it exists.
@@ -2231,8 +2309,9 @@ describe("authoritative Fastify API foundation", () => {
 
     const accessSuccessBefore = composition.decisionAudit
       .snapshot()
-      .filter((record) => record.action === "challenge:create" && record.outcome === "success")
-      .length;
+      .filter(
+        (record) => record.action === "challenge:create" && record.outcome === "success",
+      ).length;
     const missingKey = await app.inject({
       method: "POST",
       url: apiRoutes.challenges,

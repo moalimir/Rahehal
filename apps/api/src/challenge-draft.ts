@@ -62,7 +62,10 @@ export function challengeReadiness(
   content: ChallengeDraftContentResource,
   aggregateVersion: number,
 ): ApiReadiness {
-  return { ...evaluateChallengeReadiness(contractContentToDomain(content)), evaluated_version: aggregateVersion };
+  return {
+    ...evaluateChallengeReadiness(contractContentToDomain(content)),
+    evaluated_version: aggregateVersion,
+  };
 }
 
 function contractContentToDomain(content: ChallengeDraftContentResource): ChallengeDraftContent {

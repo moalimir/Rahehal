@@ -28,6 +28,26 @@ export function idempotencyKey(): never {
   return unreachable("idempotencyKey");
 }
 
+/** Stands in for `@/lib/auth/network-session`. */
+export function networkInternalSession(): null {
+  return null;
+}
+
+/** Stands in for `@/lib/auth/network-session`. */
+export function workspacesForPersona(): readonly never[] {
+  return [];
+}
+
+/** Stands in for `@/lib/auth/network-organization-shell`. */
+export function networkOrganizationRoleLabel(): string {
+  return "عضو سازمان";
+}
+
+/** Stands in for `@/lib/auth/network-organization-shell`. */
+export function networkOrganizationNavigation<T>(items: readonly T[]): T[] {
+  return [...items];
+}
+
 /** Stands in for `@/lib/challenges/adapters/network`. */
 export function createNetworkChallengeGateway(): never {
   return unreachable("createNetworkChallengeGateway");
@@ -76,4 +96,9 @@ export function PreviewDataNotice(): never {
 /** Stands in for `@/components/challenge-flow/connected-record-links`. */
 export function ConnectedRecordLinks(): never {
   return unreachable("ConnectedRecordLinks");
+}
+
+/** Stands in for `@/components/internal/network-internal-boundary`. */
+export function NetworkInternalBoundary(): never {
+  return unreachable("NetworkInternalBoundary");
 }
