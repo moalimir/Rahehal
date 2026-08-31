@@ -22,7 +22,7 @@ export const CONNECTED_RECORD_PATH = "/app/org/challenges/record";
 export const PUBLIC_CHALLENGE_RECORD_PATH = "/challenges/record";
 
 const recordPathPattern =
-  /^\/app\/org\/challenges\/(chl_[A-Za-z0-9][A-Za-z0-9_-]{2,63})(?:\/(overview|edit|studio|preview|submitted))?$/;
+  /^\/app\/org\/challenges\/(chl_[A-Za-z0-9][A-Za-z0-9_-]{2,63})(?:\/(overview|edit|studio|preview|submitted|governance))?$/;
 
 /**
  * Rewrites a canonical `/app/org/challenges/<id>/<view>` link to the connected
@@ -42,6 +42,22 @@ export function connectedChallengeHref(href: string): string {
   return `${CONNECTED_RECORD_PATH}${view ? `/${view}` : ""}/?id=${encodeURIComponent(id)}${
     trailing ? `&${trailing}` : ""
   }`;
+}
+
+/**
+ * The href a rendered `<Link>` must carry for a canonical challenge path.
+ *
+ * `navigateChallenge` already rewrote programmatic navigation, but every
+ * `<Link href>` emitted the canonical path verbatim. In a connected build a
+ * server-generated id is not a pre-generated route, so those links resolved to
+ * 404 — which is what an organization hit the moment its own challenge list
+ * started returning real records.
+ *
+ * Callers keep writing canonical paths; this is the single place that knows
+ * the connected build addresses a record by query parameter.
+ */
+export function challengeHref(path: string): string {
+  return isNetworkWebRuntime ? connectedChallengeHref(path) : path;
 }
 
 export function navigateChallenge(path: string, replace = false) {

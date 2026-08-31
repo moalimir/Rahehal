@@ -1,5 +1,6 @@
 "use client";
 
+import { challengeHref } from "@/lib/challenges/navigation";
 import Link from "next/link";
 import {
   ChallengeLoadErrorState,
@@ -33,7 +34,7 @@ export function ChallengeDetailPage({ id }: { id: string }) {
         editable ? (
           <Link
             className="challenge-button challenge-button--primary"
-            href={`/app/org/challenges/${record.id}/edit?step=${record.lastStep}`}
+            href={challengeHref(`/app/org/challenges/${record.id}/edit?step=${record.lastStep}`)}
           >
             {actionLabel}
           </Link>

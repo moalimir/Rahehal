@@ -21,7 +21,7 @@ import {
   workModeLabels,
 } from "@/domain/challenge";
 import { formatDateTime } from "@/lib/challenges/model";
-import { navigateChallenge } from "@/lib/challenges/navigation";
+import { challengeHref, navigateChallenge } from "@/lib/challenges/navigation";
 import { validateRecord } from "@/lib/challenges/validation";
 
 function Value({ children, empty = "ثبت نشده" }: { children?: React.ReactNode; empty?: string }) {
@@ -89,7 +89,9 @@ export function ChallengePreviewPage({ id }: { id: string }) {
           <ul>
             {issues.map((issue) => (
               <li key={`${issue.step}-${issue.id}`}>
-                <Link href={`/app/org/challenges/${record.id}/edit?step=${issue.step}`}>
+                <Link
+                  href={challengeHref(`/app/org/challenges/${record.id}/edit?step=${issue.step}`)}
+                >
                   {issue.message}
                   <span>گام {issue.step.toLocaleString("fa-IR")}</span>
                 </Link>
@@ -271,7 +273,7 @@ export function ChallengePreviewPage({ id }: { id: string }) {
       <div className="challenge-preview-actions">
         <Link
           className="challenge-button challenge-button--secondary"
-          href={`/app/org/challenges/${record.id}/edit?step=4`}
+          href={challengeHref(`/app/org/challenges/${record.id}/edit?step=4`)}
         >
           بازگشت و ویرایش
         </Link>

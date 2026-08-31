@@ -21,6 +21,7 @@ import {
   connectedChallengeHref,
   navigateChallenge,
   readStandalonePath,
+  challengeHref,
 } from "@/lib/challenges/navigation";
 import { validateStep, wizardSteps, type WizardStep } from "@/lib/challenges/validation";
 
@@ -95,7 +96,7 @@ export function ChallengeEditPage({ id }: { id: string }) {
           <p>جزئیات و رویدادهای پرونده را در نمای خلاصه ببینید.</p>
           <Link
             className="challenge-button challenge-button--primary"
-            href={`/app/org/challenges/${record.id}`}
+            href={challengeHref(`/app/org/challenges/${record.id}`)}
           >
             مشاهده پرونده
           </Link>

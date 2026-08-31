@@ -243,6 +243,23 @@
   padding-inline: var(--space-2);
   color: var(--color-muted);
   font-size: var(--text-xs);
+  /* The "active workspace" caption must not be the thing that gets squeezed
+     out when the workspace name is long. */
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* A workspace name is often Latin inside an RTL control. Without an explicit
+   truncation the native select clips the *start* of the name — "Synthetic
+   Organization Alpha" rendered as "hetic Organization Alpha", which reads as a
+   broken string rather than a shortened one. Ellipsis truncates at the end
+   instead, so the beginning of the name always survives. */
+.unified-space-switcher--select select {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .unified-space-switcher button {
   min-block-size: 34px;
