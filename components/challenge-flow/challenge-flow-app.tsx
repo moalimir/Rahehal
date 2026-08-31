@@ -87,6 +87,26 @@ function ConnectedChallengeBoundary({
   const organizationWorkspaces =
     runtime.me?.workspaces.filter((workspace) => workspace.kind === "org") ?? [];
   if (!allowWithoutOrgWorkspace && (!active || active.workspace_kind !== "org")) {
+    // Someone with no organization workspace at all — a platform operator, a
+    // solver — must be told that, not handed an empty chooser with nothing to
+    // choose and no way out. Only the count differs from a denial; offering a
+    // switch that cannot be made is the dead end, not the denial.
+    if (organizationWorkspaces.length === 0) {
+      return (
+        <ChallengeShell
+          title="دسترسی سازمانی ندارید"
+          description="این بخش تنها برای اعضای یک فضای کاری سازمانی است."
+        >
+          <section className="challenge-empty-state">
+            <h2>این بخش به فضای کاری سازمانی نیاز دارد</h2>
+            <p>حساب شما عضو هیچ فضای کاری سازمانی نیست.</p>
+            <Link className="challenge-button challenge-button--primary" href="/app">
+              بازگشت به فضای کاری خودتان
+            </Link>
+          </section>
+        </ChallengeShell>
+      );
+    }
     return (
       <ChallengeShell
         title="انتخاب فضای کاری"
