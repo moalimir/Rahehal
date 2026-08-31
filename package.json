@@ -29,7 +29,6 @@
     "db:down": "docker compose stop postgres",
     "db:migrate:up": "npm run db:migrate:up --workspace @rahhal/api",
     "db:migrate:down": "npm run db:migrate:down --workspace @rahhal/api",
-    "db:reset": "npm run db:reset --workspace @rahhal/api",
     "db:seed": "npm run db:seed --workspace @rahhal/api",
     "build": "npm run build:packages && npm run build:web:app && npm run build:services",
     "build:web": "npm run build:packages && npm run build:web:app",

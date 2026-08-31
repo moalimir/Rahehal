@@ -37,7 +37,6 @@ import {
   isPlatformRole,
   type ChallengeId,
   type CorrelationId,
-  type WorkspaceRole,
 } from "@rahhal/domain";
 import {
   authorizationFlowCookie,
@@ -335,7 +334,6 @@ function registerChallengeCommand(
     context: ChallengeScope & { idempotencyKey: string; correlationId: CorrelationId },
   ) => Promise<MutationOutcome<ChallengeId, ChallengeNextAction>>,
   bodySchema: (typeof apiSchemas)[keyof typeof apiSchemas] = apiSchemas.ChallengeTransitionBody,
-  standingPlatformRoles: readonly WorkspaceRole[] = [],
 ): void {
   app.post<{ Params: ChallengeIdParams; Body: ChallengeTransitionBody }>(
     fastifyChallengeCommandPath(route),
@@ -353,16 +351,18 @@ function registerChallengeCommand(
         ports.decisionAudit,
         ports.clock,
       );
-      const command = idempotencyCommand(request);
-      const targetWorkspaceId = requiredHeader(request, "X-Workspace-Id");
-      const authorization = {
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
           action,
           entityType: "challenge",
           entityId: request.params.challengeId,
           allows,
           deferSuccess: true,
-        } as const;
-      const commandOnAccess = async (access: WorkspaceAccess) => {
+        },
+        async (access) => {
           const visible = await ports.challenges.getScoped(
             challengeScope(session, access),
             request.params.challengeId,
@@ -389,20 +389,11 @@ function registerChallengeCommand(
           });
           const outcome = await invoke(request.params.challengeId, request.body, {
             ...challengeScope(session, access),
-            ...command,
+            ...idempotencyCommand(request),
           });
           return mutationSuccess(outcome, request, ports);
-        };
-      if (standingPlatformRoles.length > 0 && session.activeWorkspaceId !== targetWorkspaceId) {
-        return ports.authority.runAuthorizedPlatformRole(
-          session,
-          standingPlatformRoles,
-          targetWorkspaceId,
-          { ...authorization, correlationId: correlationId(request) },
-          commandOnAccess,
-        );
-      }
-      return runAuthorizedWorkspace(request, ports, session, authorization, commandOnAccess);
+        },
+      );
     },
   );
 }
@@ -438,7 +429,6 @@ function registerRecordChallengeApproval(app: FastifyInstance, ports: ApiPorts):
       );
       const workspaceId = requiredHeader(request, "X-Workspace-Id");
       const gate = request.body.gate;
-      const command = idempotencyCommand(request);
 
       const recordOnAccess = async (access: WorkspaceAccess) => {
         const visible = await ports.challenges.getScoped(
@@ -468,7 +458,7 @@ function registerRecordChallengeApproval(app: FastifyInstance, ports: ApiPorts):
         const outcome = await ports.challenges.recordApproval(
           request.params.challengeId,
           request.body,
-          { ...challengeScope(session, access), ...command },
+          { ...challengeScope(session, access), ...idempotencyCommand(request) },
         );
         return mutationSuccess(outcome, request, ports);
       };
@@ -907,7 +897,6 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
         ports.decisionAudit,
         ports.clock,
       );
-      const command = idempotencyCommand(request);
       return runAuthorizedWorkspace(
         request,
         ports,
@@ -920,7 +909,7 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
         async (access) => {
           const outcome = await ports.challenges.create(request.body, {
             ...challengeScope(session, access),
-            ...command,
+            ...idempotencyCommand(request),
           });
           void reply.status(201);
           return mutationSuccess(outcome, request, ports);
@@ -1084,7 +1073,6 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
         ports.decisionAudit,
         ports.clock,
       );
-      const command = idempotencyCommand(request);
       return runAuthorizedWorkspace(
         request,
         ports,
@@ -1123,7 +1111,7 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
           });
           const outcome = await ports.challenges.patch(request.params.challengeId, request.body, {
             ...challengeScope(session, access),
-            ...command,
+            ...idempotencyCommand(request),
           });
           return mutationSuccess(outcome, request, ports);
         },
@@ -1131,22 +1119,9 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
     },
   );
 
-  const registerTransition = (
-    route: string,
-    command: ChallengeTransitionCommand,
-    action: string,
-    allows = canEditChallenge,
-    standingPlatformRoles: readonly WorkspaceRole[] = [],
-  ) =>
-    registerChallengeCommand(
-      app,
-      ports,
-      route,
-      action,
-      allows,
-      (id, body, context) => ports.challenges.transition(id, command, body, context),
-      apiSchemas.ChallengeTransitionBody,
-      standingPlatformRoles,
+  const registerTransition = (route: string, command: ChallengeTransitionCommand, action: string) =>
+    registerChallengeCommand(app, ports, route, action, canEditChallenge, (id, body, context) =>
+      ports.challenges.transition(id, command, body, context),
     );
 
   registerTransition(
@@ -1158,8 +1133,6 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
     apiRoutes.advanceChallengeFormulation,
     "advance-formulation",
     "challenge:advance-formulation",
-    (access) => access.role === "platform:ops",
-    ["platform:ops"],
   );
   registerTransition(
     apiRoutes.requestChallengeApprovals,

@@ -65,7 +65,6 @@ function approvalBrief() {
     current_version_id: resource.current_version_id,
     workspace_id: resource.workspace_id,
     stage: "approvals" as const,
-    gate: "quality" as const,
     version: resource.version,
     content,
     approvals: [],

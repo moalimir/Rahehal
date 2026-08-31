@@ -1,4 +1,5 @@
 import type {
+  ChallengeApprovalBriefContentResource,
   ChallengeApprovalBriefResource,
   ChallengeApprovalNextAction,
   ChallengeApprovalResource,
@@ -48,10 +49,8 @@ import {
 } from "@rahhal/domain";
 import {
   assertEligibilityRuleAttachable,
-  challengeApprovalBriefContent,
   challengePublicProjection,
   challengeReadiness,
-  challengeTriageReadiness,
   emptyChallengeContent,
   mergeChallengeDraftPatch,
   satisfiedTransitionPreconditions,
@@ -352,6 +351,7 @@ export class InMemoryChallengeRepository implements ChallengePort, PublicChallen
       const id = parseChallengeId(this.ids.next("chl"));
       const now = this.clock.now().toISOString();
       const merged = mergeChallengeDraftPatch(emptyChallengeContent(), body.draft ?? {});
+      assertEligibilityRuleAttachable(merged.content, new Date(now));
       const resource: ChallengeResource = {
         id,
         current_version_id: parseChallengeVersionId(this.ids.next("chv")),
@@ -365,7 +365,6 @@ export class InMemoryChallengeRepository implements ChallengePort, PublicChallen
         version: 1,
         content_version: 1,
         readiness: challengeReadiness(merged.content, 1),
-        triage_readiness: challengeTriageReadiness(merged.content, 1),
         content: merged.content,
         approvals: [],
         publication_readiness: evaluatePublicationReadiness([]),
@@ -401,25 +400,21 @@ export class InMemoryChallengeRepository implements ChallengePort, PublicChallen
     scope: ChallengeScope,
     id: string,
   ): Promise<ChallengeApprovalBriefResource | null> {
-    const gate = platformGateForRole(scope.role);
-    if (!gate) throw forbidden();
+    if (!platformGateForRole(scope.role)) throw forbidden();
     const stored = this.state.challenges.get(scopeKey(scope.tenantId, scope.workspaceId, id));
-    if (
-      !stored ||
-      (stored.current.stage !== "triage" && stored.current.stage !== "approvals") ||
-      (stored.current.stage === "triage" && scope.role !== "platform:ops")
-    ) {
-      return null;
-    }
+    if (!stored || stored.current.stage !== "approvals") return null;
     const current = withApprovals(stored.current, this.state.approvals);
+    const { contact, invitees, attachment_ids: attachmentIds, ...content } = current.content;
+    void contact;
+    void invitees;
+    void attachmentIds;
     return structuredClone({
       id: current.id,
       current_version_id: current.current_version_id,
       workspace_id: current.workspace_id,
-      stage: current.stage,
-      gate,
+      stage: "approvals" as const,
       version: current.version,
-      content: challengeApprovalBriefContent(current.content, gate),
+      content: content satisfies ChallengeApprovalBriefContentResource,
       approvals: current.approvals.map((approval) => ({
         gate: approval.gate,
         decision: approval.decision,
@@ -438,19 +433,10 @@ export class InMemoryChallengeRepository implements ChallengePort, PublicChallen
     if (!gate) throw forbidden();
     const items = [...this.state.challenges.values()]
       .map((stored) => withApprovals(stored.current, this.state.approvals))
+      .filter((challenge) => challenge.stage === "approvals")
+      .filter((challenge) => !challenge.approvals.some((approval) => approval.gate === gate))
       .filter(
         (challenge) =>
-          challenge.stage === "approvals" ||
-          (challenge.stage === "triage" && scope.role === "platform:ops"),
-      )
-      .filter(
-        (challenge) =>
-          challenge.stage === "triage" ||
-          !challenge.approvals.some((approval) => approval.gate === gate),
-      )
-      .filter(
-        (challenge) =>
-          challenge.stage === "triage" ||
           !challenge.approvals.some((approval) => approval.recorded_by === scope.actorUserId),
       )
       .sort(
@@ -463,7 +449,6 @@ export class InMemoryChallengeRepository implements ChallengePort, PublicChallen
         current_version_id: challenge.current_version_id,
         workspace_id: challenge.workspace_id,
         version: challenge.version,
-        stage: challenge.stage,
         title: challenge.content.title,
         category: challenge.content.category,
         gate,
@@ -494,14 +479,7 @@ export class InMemoryChallengeRepository implements ChallengePort, PublicChallen
       if (body.expected_version !== stored.current.version) {
         throw staleVersion(stored.current.version);
       }
-      const rejectedApproval = stored.current.approvals.some(
-        (approval) => approval.decision === "rejected",
-      );
-      if (
-        stored.current.stage !== "draft" &&
-        stored.current.stage !== "formulation" &&
-        !(stored.current.stage === "approvals" && rejectedApproval)
-      ) {
+      if (stored.current.stage !== "draft" && stored.current.stage !== "formulation") {
         throw new ApiProblem(409, "INVALID_STATE", "Challenge content is not editable", {
           currentState: stored.current.stage,
           allowedTransitions: challengeTransitions
@@ -512,22 +490,21 @@ export class InMemoryChallengeRepository implements ChallengePort, PublicChallen
 
       const merged = mergeChallengeDraftPatch(stored.current.content, body.patch);
       const now = this.clock.now();
+      assertEligibilityRuleAttachable(merged.content, now);
       const version = stored.current.version + 1;
       const contentVersion = stored.current.content_version + 1;
       const readiness = challengeReadiness(merged.content, version);
       const updated: ChallengeResource = {
         ...stored.current,
         current_version_id: parseChallengeVersionId(this.ids.next("chv")),
-        stage: rejectedApproval ? "formulation" : stored.current.stage,
         authoring_status: readiness.ready
           ? "ready"
-          : stored.current.stage === "formulation" || rejectedApproval
+          : stored.current.stage === "formulation"
             ? "needs_changes"
             : "draft",
         version,
         content_version: contentVersion,
         readiness,
-        triage_readiness: challengeTriageReadiness(merged.content, version),
         content: merged.content,
         // A new version_id starts with no approvals of its own — gates are
         // recorded against one specific locked version (B2), never inherited.
@@ -609,15 +586,10 @@ export class InMemoryChallengeRepository implements ChallengePort, PublicChallen
         });
       }
       const readiness = challengeReadiness(stored.current.content, stored.current.version);
-      const requiredReadiness =
-        command === "request-triage" ? stored.current.triage_readiness : readiness;
-      if (command === "request-approvals") {
-        assertEligibilityRuleAttachable(stored.current.content, this.clock.now());
-      }
-      if (command !== "advance-formulation" && !requiredReadiness.ready) {
+      if (command !== "advance-formulation" && !readiness.ready) {
         throw new ApiProblem(422, "VALIDATION", "Challenge brief is not ready", {
-          fields: requiredReadiness.issues,
-          readiness: requiredReadiness,
+          fields: readiness.issues,
+          readiness,
           currentVersion: stored.current.version,
         });
       }
@@ -627,7 +599,7 @@ export class InMemoryChallengeRepository implements ChallengePort, PublicChallen
           stored.current.stage,
           definition.to,
           context.role,
-          satisfiedTransitionPreconditions(stored.current.stage, requiredReadiness),
+          satisfiedTransitionPreconditions(stored.current.stage, readiness),
         )
       ) {
         throw new ApiProblem(409, "INVALID_STATE", "Challenge transition is not allowed", {
@@ -643,10 +615,6 @@ export class InMemoryChallengeRepository implements ChallengePort, PublicChallen
         stage: definition.to,
         version,
         readiness: { ...readiness, evaluated_version: version },
-        triage_readiness: {
-          ...stored.current.triage_readiness,
-          evaluated_version: version,
-        },
         updated_at: this.clock.now().toISOString(),
       };
       state.challenges.set(storedKey, { ...stored, current: updated });
@@ -731,11 +699,7 @@ export class InMemoryChallengeRepository implements ChallengePort, PublicChallen
       state.challenges.set(storedKey, { ...stored, current: refreshed });
 
       const nextActions: readonly ChallengeApprovalNextAction[] = [
-        body.decision === "rejected"
-          ? "revise"
-          : refreshed.publication_readiness.ready
-            ? "ready_for_publish"
-            : "await_remaining_gates",
+        refreshed.publication_readiness.ready ? "ready_for_publish" : "await_remaining_gates",
       ];
       return this.recordApprovalMutation(state, approval, refreshed, context, nextActions, {
         key,
@@ -793,7 +757,6 @@ export class InMemoryChallengeRepository implements ChallengePort, PublicChallen
           currentVersion: stored.current.version,
         });
       }
-      assertEligibilityRuleAttachable(stored.current.content, this.clock.now());
 
       const occurredAt = this.clock.now().toISOString();
       const version = stored.current.version + 1;
@@ -805,10 +768,6 @@ export class InMemoryChallengeRepository implements ChallengePort, PublicChallen
         proposal_deadline_at: stored.current.content.proposal_deadline,
         version,
         readiness: { ...readiness, evaluated_version: version },
-        triage_readiness: {
-          ...stored.current.triage_readiness,
-          evaluated_version: version,
-        },
         updated_at: occurredAt,
       };
       // Only listable challenges enter the public table at all; an invite-only
@@ -1020,14 +979,8 @@ export class InMemoryChallengeRepository implements ChallengePort, PublicChallen
       // Only an open call is listed; a paused or closed one keeps its record
       // and still resolves by direct link.
       .filter((row) => row.state === "open")
-      .filter((row) => Date.parse(row.proposal_deadline) > this.clock.now().getTime())
       .filter((row) => visible.includes(row.visibility))
-      .filter(
-        (row) =>
-          query.category === undefined ||
-          row.category.trim().toLocaleLowerCase("en-US") ===
-            query.category.trim().toLocaleLowerCase("en-US"),
-      )
+      .filter((row) => query.category === undefined || row.category === query.category)
       .sort(comparePublicChallenges);
     const afterCursor = cursor
       ? ordered.filter((row) => comparePublicChallenges(cursor, row) < 0)
@@ -1051,14 +1004,7 @@ export class InMemoryChallengeRepository implements ChallengePort, PublicChallen
     const row = this.state.publicProjections.find(
       (projection) => projection.challenge_id === id && visible.includes(projection.visibility),
     );
-    if (!row) return null;
-    return structuredClone({
-      ...row,
-      state:
-        row.state === "open" && Date.parse(row.proposal_deadline) <= this.clock.now().getTime()
-          ? "closed"
-          : row.state,
-    });
+    return row ? structuredClone(row) : null;
   }
 
   seed(resource: ChallengeResource) {

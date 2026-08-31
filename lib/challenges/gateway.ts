@@ -27,7 +27,6 @@ export type ChallengeResultMeta = {
   readonly server_time: string;
   readonly correlation_id: string;
   readonly readiness?: ApiReadiness;
-  readonly triage_readiness?: ApiReadiness;
   readonly stage?: ChallengeManagedStage;
 };
 

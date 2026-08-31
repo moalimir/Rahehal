@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type {
   ChallengeApprovalResource,
@@ -79,7 +78,6 @@ export function ChallengeGovernancePage({
   const [toast, setToast] = useState("");
   const [busy, setBusy] = useState(false);
   const [reason, setReason] = useState("");
-  const [decision, setDecision] = useState<"approved" | "rejected">("approved");
 
   const load = useCallback(async () => {
     if (!governance) return;
@@ -145,7 +143,6 @@ export function ChallengeGovernancePage({
     !alreadyRecordedByActor;
   const canPublish = role === "org:publisher" && readiness.ready && resource.stage === "approvals";
   const organizationChallenge = isOrganizationChallenge(resource) ? resource : null;
-  const rejected = resource.approvals.some((approval) => approval.decision === "rejected");
 
   const run = async (
     operation: () => Promise<{ ok: boolean; error?: { message: string } }>,
@@ -172,52 +169,22 @@ export function ChallengeGovernancePage({
         <h2 id="challenge-review-brief-title">{resource.content.title}</h2>
         <p>{resource.content.summary}</p>
         <dl>
-          {resource.content.desired_outcome !== undefined && (
-            <div>
-              <dt>نتیجه مورد انتظار</dt>
-              <dd>{resource.content.desired_outcome}</dd>
-            </div>
-          )}
-          {resource.content.in_scope !== undefined && (
-            <div>
-              <dt>دامنه</dt>
-              <dd>{resource.content.in_scope}</dd>
-            </div>
-          )}
-          {resource.content.constraints !== undefined && (
-            <div>
-              <dt>محدودیت‌ها</dt>
-              <dd>{resource.content.constraints || "ثبت نشده"}</dd>
-            </div>
-          )}
-          {resource.content.legal_notes !== undefined && (
-            <div>
-              <dt>شرایط حقوقی</dt>
-              <dd>{resource.content.legal_notes || "ثبت نشده"}</dd>
-            </div>
-          )}
-          {resource.content.public_summary !== undefined && (
-            <div>
-              <dt>خلاصه عمومی</dt>
-              <dd>{resource.content.public_summary || "ثبت نشده"}</dd>
-            </div>
-          )}
-          {resource.content.proposal_deadline !== undefined && (
-            <div>
-              <dt>مهلت پیشنهاد</dt>
-              <dd>{resource.content.proposal_deadline}</dd>
-            </div>
-          )}
-          {resource.content.budget !== undefined && (
-            <div>
-              <dt>بودجه</dt>
-              <dd>
-                {resource.content.budget.status === "fixed"
-                  ? `${(resource.content.budget.amount_minor ?? 0).toLocaleString("fa-IR")} ${resource.content.budget.currency}`
-                  : resource.content.budget.status}
-              </dd>
-            </div>
-          )}
+          <div>
+            <dt>نتیجه مورد انتظار</dt>
+            <dd>{resource.content.desired_outcome}</dd>
+          </div>
+          <div>
+            <dt>دامنه</dt>
+            <dd>{resource.content.in_scope}</dd>
+          </div>
+          <div>
+            <dt>محدودیت‌ها</dt>
+            <dd>{resource.content.constraints || "ثبت نشده"}</dd>
+          </div>
+          <div>
+            <dt>شرایط حقوقی</dt>
+            <dd>{resource.content.legal_notes || "ثبت نشده"}</dd>
+          </div>
         </dl>
       </section>
 
@@ -235,41 +202,17 @@ export function ChallengeGovernancePage({
             void run(async () => {
               const result = await governance.recordApproval(
                 id,
-                { gate: actorGate, decision, reason: reason.trim() },
+                { gate: actorGate, decision: "approved", reason: reason.trim() },
                 targetWorkspaceId,
               );
               if (result.ok) {
                 setResource(result.data);
                 setReason("");
-                setDecision("approved");
               }
               return result;
             });
           }}
         >
-          <fieldset>
-            <legend>نتیجه بررسی</legend>
-            <label>
-              <input
-                type="radio"
-                name="gate-decision"
-                value="approved"
-                checked={decision === "approved"}
-                onChange={() => setDecision("approved")}
-              />
-              تأیید
-            </label>
-            <label>
-              <input
-                type="radio"
-                name="gate-decision"
-                value="rejected"
-                checked={decision === "rejected"}
-                onChange={() => setDecision("rejected")}
-              />
-              رد و درخواست اصلاح
-            </label>
-          </fieldset>
           <label htmlFor="gate-reason">دلیل ثبت {gateLabels[actorGate]}</label>
           <textarea
             id="gate-reason"
@@ -284,17 +227,9 @@ export function ChallengeGovernancePage({
             className="challenge-button challenge-button--primary"
             disabled={busy}
           >
-            {decision === "approved" ? "ثبت تأیید" : "ثبت رد"} {gateLabels[actorGate]}
+            ثبت {gateLabels[actorGate]}
           </button>
         </form>
-      )}
-
-      {organizationChallenge && rejected && (
-        <p className="challenge-disabled-reason">
-          این نسخه رد شده است. اصلاح، یک نسخه تازه در مرحله صورت‌بندی می‌سازد و تأییدها برای آن از
-          نو ثبت می‌شوند. {" "}
-          <Link href={`/app/org/challenges/${resource.id}/edit`}>شروع اصلاح</Link>
-        </p>
       )}
 
       <div className="challenge-gate-publish">

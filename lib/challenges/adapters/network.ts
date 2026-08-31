@@ -199,12 +199,7 @@ export function createNetworkChallengeGateway(
     return {
       ok: true,
       data: challengeResourceToRecord(result.data),
-      meta: {
-        ...result.meta,
-        readiness: result.data.readiness,
-        triage_readiness: result.data.triage_readiness,
-        stage: result.data.stage,
-      },
+      meta: { ...result.meta, readiness: result.data.readiness, stage: result.data.stage },
     };
   };
 

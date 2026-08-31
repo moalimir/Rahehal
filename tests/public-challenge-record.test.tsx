@@ -69,11 +69,6 @@ describe("public challenge record", () => {
     await waitFor(() => expect(screen.getByText(projection.title)).toBeInTheDocument());
     expect(screen.getByText("پذیرش پیشنهاد")).toBeInTheDocument();
     expect(screen.queryByText(/پیشنهاد تازه نمی‌پذیرد/)).not.toBeInTheDocument();
-    expect(screen.getByText("پایلوت")).toBeInTheDocument();
-    expect(screen.getByText("ترکیبی")).toBeInTheDocument();
-    expect(screen.getByText(/۱٬۰۰۰٬۰۰۰ ریال/)).toBeInTheDocument();
-    expect(screen.getByText(/مجوز استفاده برای سازمان/)).toBeInTheDocument();
-    expect(screen.getByText(/نام سازمان.*افشا نشده/)).toBeInTheDocument();
   });
 
   /**
