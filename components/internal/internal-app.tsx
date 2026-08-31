@@ -42,6 +42,7 @@ import { isQaHarnessEnabled } from "@/lib/qa-harness";
 import { isNetworkWebRuntime } from "@/lib/runtime/mode";
 import { canAccessInternalRole, readDemoSession, type DemoSession } from "@/lib/auth/session";
 import { networkInternalSession, workspacesForPersona } from "@/lib/auth/network-session";
+import { PreviewDataNotice } from "@/components/organization-preview-notice";
 import { isRecordReady } from "@/lib/challenges/validation";
 import { directOfferById, proposalById, readSolverState } from "@/lib/solver/repository";
 
@@ -232,7 +233,16 @@ export function InternalApp({ route }: { route: InternalRoute }) {
         {isOrganizationWorkspacePath(route.path) ? (
           <OrganizationWorkspaceExperience route={route} />
         ) : (
-          <InternalExperience route={route} />
+          <>
+            {/* The case pages — timeline, proposals, review, pilot and the
+                rest — are keyed to a fixture challenge that exists in no
+                database, and their server authorities are Phase 3 to 5. They
+                get the same label as every other sample page rather than
+                letting a person click out of a marked page into an unmarked
+                one. */}
+            {network && <PreviewDataNotice />}
+            <InternalExperience route={route} />
+          </>
         )}
       </OrganizationShell>
     );

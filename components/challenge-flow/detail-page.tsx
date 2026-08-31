@@ -10,6 +10,8 @@ import {
 import { useChallengeRecord } from "@/components/challenge-flow/hooks";
 import { isDraftStatus, outputTypeLabels, sourcingModelLabels } from "@/domain/challenge";
 import { formatDateTime } from "@/lib/challenges/model";
+import { isNetworkWebRuntime } from "@/lib/runtime/mode";
+import { ConnectedRecordLinks } from "@/components/challenge-flow/connected-record-links";
 
 export function ChallengeDetailPage({ id }: { id: string }) {
   const { record, loadError } = useChallengeRecord(id);
@@ -31,18 +33,20 @@ export function ChallengeDetailPage({ id }: { id: string }) {
       status={record.status}
       lastSaved={`آخرین تغییر: ${formatDateTime(record.updatedAt)}`}
       actions={
-        editable ? (
-          <Link
-            className="challenge-button challenge-button--primary"
-            href={challengeHref(`/app/org/challenges/${record.id}/edit?step=${record.lastStep}`)}
-          >
-            {actionLabel}
-          </Link>
-        ) : (
+        <>
+          {editable ? (
+            <Link
+              className="challenge-button challenge-button--primary"
+              href={challengeHref(`/app/org/challenges/${record.id}/edit?step=${record.lastStep}`)}
+            >
+              {actionLabel}
+            </Link>
+          ) : null}
+          {isNetworkWebRuntime && <ConnectedRecordLinks record={record} />}
           <Link className="challenge-button challenge-button--secondary" href="/app/org/challenges">
             بازگشت به فهرست
           </Link>
-        )
+        </>
       }
     >
       <div className="challenge-detail-layout">
