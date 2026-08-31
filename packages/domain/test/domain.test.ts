@@ -37,6 +37,7 @@ import {
   teamKinds,
   type ChallengeId,
   type ChallengeDraftContent,
+  type Currency,
   type ProposalContent,
   type TeamKind,
 } from "../src/index.js";
@@ -433,7 +434,7 @@ describe("Phase 3 proposal lifecycle", () => {
       evaluateProposalReadiness({
         ...content,
         budgetAmountMinor: -1,
-        budgetCurrency: "",
+        budgetCurrency: "XYZ" as Currency,
         accuracyConfirmed: false,
       }).issues.map((issue) => issue.path),
     ).toEqual([

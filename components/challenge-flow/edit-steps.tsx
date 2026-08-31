@@ -374,7 +374,7 @@ export function CollaborationStep({ record, issues, update }: StepProps) {
           error={issueFor(issues, "workMode")}
         />
         <TextField
-          label="مهلت دریافت پیشنهاد"
+          label="مهلت دریافت پیشنهاد (تا پایان روز، به وقت تهران)"
           required
           type="date"
           dir="ltr"
@@ -401,7 +401,7 @@ export function CollaborationStep({ record, issues, update }: StepProps) {
       {record.budgetStatus === "fixed" && (
         <div className="challenge-form-grid">
           <TextField
-            label="مبلغ"
+            label="مبلغ کل (به واحد پول انتخابی)"
             required
             dir="ltr"
             value={record.budgetAmount}

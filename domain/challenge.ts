@@ -145,6 +145,12 @@ export const workModeLabels: Record<Exclude<WorkMode, "">, string> = {
   hybrid: "ترکیبی",
 };
 
+export const currencyLabels: Record<ChallengeRecord["currency"], string> = {
+  IRR: "ریال",
+  USD: "دلار آمریکا",
+  EUR: "یورو",
+};
+
 export const budgetStatusLabels: Record<Exclude<BudgetStatus, "">, string> = {
   fixed: "مبلغ مشخص",
   quote: "دریافت پیشنهاد قیمت",

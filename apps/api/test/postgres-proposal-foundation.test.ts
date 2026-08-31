@@ -350,4 +350,30 @@ describe("C proposal database foundation", () => {
       "23514",
     );
   });
+
+  it("rejects unsupported proposal currencies", async () => {
+    await database.query(`
+      INSERT INTO proposal (
+        id, tenant_id, owner_workspace_id, owner_workspace_kind, challenge_id,
+        current_version_id, state, assigned_membership_ids, created_by_user_id
+      ) VALUES (
+        'prp_invalid_currency', 'ten_solver_alpha', 'wsp_team_alpha', 'team',
+        'chl_synthetic_alpha', 'prv_invalid_currency_v1', 'draft',
+        ARRAY['mem_team_owner_alpha'], 'usr_solver_alpha'
+      )
+    `);
+    await expectDatabaseError(
+      database.query(
+        `INSERT INTO proposal_version (
+           id, proposal_id, challenge_id, version_number, actor_user_id, content,
+           content_hash
+         ) VALUES (
+           'prv_invalid_currency_v1', 'prp_invalid_currency', 'chl_synthetic_alpha',
+           1, 'usr_solver_alpha', $1, $2
+         )`,
+        [proposalContent({ budget_currency: "XYZ" }), "d".repeat(64)],
+      ),
+      "23514",
+    );
+  });
 });

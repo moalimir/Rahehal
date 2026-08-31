@@ -52,9 +52,13 @@ function brief(overrides: Draft): Draft {
     sourcing_model: "public",
     allowed_applicant_types: ["individual", "expert-team"],
     work_mode: "hybrid",
-    proposal_deadline: "2030-02-01T00:00:00.000Z",
-    preferred_start_date: "2030-03-01T00:00:00.000Z",
-    budget: { status: "fixed", amount_minor: 850_000_000, currency: "IRR" },
+    // The API takes instants, so these are the Tehran day boundaries the
+    // intake form would have produced: a deadline lasts through its whole day,
+    // a start date begins at the start of one.
+    proposal_deadline: "2030-02-01T20:29:59.999Z",
+    preferred_start_date: "2030-02-28T20:30:00.000Z",
+    // 850,000,000 rials in integer minor units (ISO 4217 exponent 2).
+    budget: { status: "fixed", amount_minor: 85_000_000_000, currency: "IRR" },
     visibility: "public",
     public_summary: "فراخوان عمومی برای ارائه راهکار اجرایی و قابل پایلوت در محیط واقعی.",
     ip_terms: "solver_license",
@@ -226,7 +230,7 @@ test.describe("demo fixture", () => {
       (
         await api(page, "POST", `/api/v1/challenges/${extended}:extend-deadline`, {
           expected_version: 5,
-          proposal_deadline: "2030-06-01T00:00:00.000Z",
+          proposal_deadline: "2030-06-01T20:29:59.999Z",
           reason: "تمدید به درخواست حل‌کنندگان بالقوه.",
         })
       ).status,

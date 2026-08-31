@@ -1,4 +1,4 @@
-import type { Transition } from "./challenge.js";
+import { currencies, type Currency, type Transition } from "./challenge.js";
 import type {
   ChallengeVersionId,
   FileId,
@@ -220,7 +220,7 @@ export type ProposalContent = {
   readonly teamSummary: string;
   readonly relevantExperience: string;
   readonly budgetAmountMinor: number | null;
-  readonly budgetCurrency: string;
+  readonly budgetCurrency: Currency;
   readonly paymentModel: string;
   readonly budgetRationale: string;
   readonly startAvailability: string;
@@ -278,7 +278,7 @@ export function evaluateProposalReadiness(content: ProposalContent): ProposalRea
     content.budgetAmountMinor < 0
   )
     add("/content/budget_amount_minor", "required", "مبلغ پیشنهادی را وارد کنید.");
-  if (!/^[A-Z]{3}$/.test(content.budgetCurrency))
+  if (!currencies.includes(content.budgetCurrency))
     add("/content/budget_currency", "format", "واحد پول معتبر نیست.");
   if (!content.ndaAccepted) add("/content/nda_accepted", "required", "پذیرش محرمانگی الزامی است.");
   if (!content.conflictDeclared)

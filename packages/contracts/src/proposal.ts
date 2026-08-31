@@ -2,6 +2,7 @@ import type {
   ApplicantType,
   ChallengeId,
   ChallengeVersionId,
+  Currency,
   EligibilityReasonCode,
   EligibilityStatus,
   FileId,
@@ -38,7 +39,7 @@ export type ProposalContentResource = {
   readonly team_summary: string;
   readonly relevant_experience: string;
   readonly budget_amount_minor: number | null;
-  readonly budget_currency: string;
+  readonly budget_currency: Currency;
   readonly payment_model: string;
   readonly budget_rationale: string;
   readonly start_availability: string;

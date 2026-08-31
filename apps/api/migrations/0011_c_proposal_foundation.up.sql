@@ -73,7 +73,7 @@ BEGIN
     RETURN false;
   END IF;
 
-  IF (value ->> 'budget_currency') !~ '^[A-Z]{3}$' THEN
+  IF (value ->> 'budget_currency') NOT IN ('IRR', 'USD', 'EUR') THEN
     RETURN false;
   END IF;
 
