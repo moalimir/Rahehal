@@ -2,7 +2,48 @@
 
 import type { ReactNode } from "react";
 import { RoleAppShell, type AppNavigationItem, type AppShellRole } from "@/components/app-shell";
+import {
+  organizationCapabilities,
+  type OrganizationCapabilities,
+  type WorkspaceRole,
+} from "@rahhal/domain";
+
 import { useWebRuntime } from "@/components/runtime-provider";
+
+/**
+ * Which capability a nav entry needs before it is worth offering.
+ *
+ * `null` means every member of the organization: the dashboard, the challenge
+ * list and the organization's own profile are the surfaces an approver or a
+ * publisher still has to reach to do their one job.
+ *
+ * This filters what is *offered*, never what is allowed. The server decides
+ * every request regardless (70_SECURITY_AND_AUTHZ §2), so a hidden link is a
+ * courtesy, not a control — which is exactly why it is keyed on the same
+ * `organizationCapabilities` the API authorizes with instead of a second list
+ * that would quietly disagree with it.
+ */
+const organizationNavigationRequirements: Record<string, keyof OrganizationCapabilities | null> = {
+  dashboard: null,
+  challenges: null,
+  profile: null,
+  experts: "authorChallenges",
+  proposals: "authorChallenges",
+  pilots: "authorChallenges",
+  reports: "authorChallenges",
+  contracts: "manageOrganization",
+  access: "manageOrganization",
+  settings: "manageOrganization",
+};
+
+const organizationRoleLabels: Partial<Record<WorkspaceRole, string>> = {
+  "org:owner": "مالک سازمان",
+  "org:member": "عضو سازمان",
+  "org:publisher": "منتشرکننده سازمان",
+  "org:approver_technical": "تأییدکننده فنی",
+  "org:approver_legal": "تأییدکننده حقوقی",
+  "org:approver_finance": "تأییدکننده مالی",
+};
 
 const navigation: Record<Exclude<AppShellRole, "solver">, AppNavigationItem[]> = {
   org: [
@@ -147,18 +188,36 @@ export function ConfiguredRoleShell({
         workspaceLabel: "فضای سازمانی فعال",
         workspaceName: activeWorkspace?.name ?? "انتخاب فضای کاری",
         userName: runtime.me?.user.display_name ?? "کاربر راه‌حل",
-        userRole:
-          activeMembership?.role === "org:owner"
-            ? "مالک سازمان"
-            : activeMembership?.role === "org:member"
-              ? "عضو سازمان"
-              : "عضو بدون فضای فعال",
+        // Every organization role gets its own name. The old mapping knew only
+        // owner and member, so a publisher or an approver — the two roles the
+        // separation of duty exists for — were labelled as having no active
+        // workspace while they were signed into one.
+        userRole: activeMembership
+          ? (organizationRoleLabels[activeMembership.role] ?? "عضو سازمان")
+          : "عضو بدون فضای فعال",
       }
     : accounts[role];
+
+  const capabilities = activeMembership ? organizationCapabilities(activeMembership.role) : null;
+  /**
+   * With no active membership there is no capability to check, so nothing that
+   * requires one is offered. That covers the signed-out visitor, who would
+   * otherwise be shown the full ten-entry organization menu by an app that
+   * does not yet know who they are — every entry leading to a page that will
+   * simply demand a login.
+   */
+  const roleScopedNavigation = connectedOrganization
+    ? navigation[role].filter((item) => {
+        const required = organizationNavigationRequirements[item.key];
+        if (required === null || required === undefined) return true;
+        return capabilities ? capabilities[required] : false;
+      })
+    : navigation[role];
+
   return (
     <RoleAppShell
       role={role}
-      navigation={navigation[role]}
+      navigation={roleScopedNavigation}
       currentPath={currentPath}
       account={account}
       rootClassName={organizationShell ? "rh-shell rh-org-shell" : `app-shell app-shell--${role}`}

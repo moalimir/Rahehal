@@ -1354,3 +1354,55 @@
     text-align: right;
   }
 }
+
+/* --------------------------------------------------------------------------
+   Preview-data notice. Shown in the connected runtime on organization pages
+   whose contents are still fixtures, so the one shell that holds both
+   PostgreSQL-backed and sample pages says which is which.
+   -------------------------------------------------------------------------- */
+.org-preview-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-block-end: 18px;
+  padding: 12px 16px;
+  border: 1px solid #f0d9a8;
+  border-radius: 12px;
+  /* Warm rather than red: this is an honest label, not a failure. */
+  background: #fdf7ea;
+  color: #6b5426;
+  font-size: 13px;
+  line-height: 1.9;
+}
+
+.org-preview-notice__tag {
+  flex: 0 0 auto;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #f2c66b;
+  color: #4a3a12;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.org-preview-notice p {
+  flex: 1 1 22rem;
+  margin: 0;
+}
+
+.org-preview-notice__link {
+  flex: 0 0 auto;
+  font-weight: 750;
+  color: #8a6a1f;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.org-preview-notice__link:hover {
+  color: #6b5426;
+}
+.org-preview-notice__link:focus-visible {
+  outline: 2px solid #8a6a1f;
+  outline-offset: 2px;
+  border-radius: 4px;
+}

@@ -6,6 +6,9 @@ import type {
   ChallengePublicationStateBody,
   ChallengePublicPage,
   ChallengePublicProjectionResource,
+  ChallengeListItemResource,
+  ChallengeListQuery,
+  ChallengePage,
   ChallengeResource,
   ChallengeTransitionBody,
   CreateChallengeBody,
@@ -56,6 +59,12 @@ import {
   mergeChallengeDraftPatch,
   satisfiedTransitionPreconditions,
 } from "./challenge-draft.js";
+import {
+  challengePageSize,
+  compareChallenges,
+  decodeChallengeCursor,
+  encodeChallengeCursor,
+} from "./challenge-list.js";
 import { ApiProblem, forbidden, idempotencyConflict, notFound, staleVersion } from "./errors.js";
 import { commandFingerprint } from "./primitives.js";
 import {
@@ -395,6 +404,49 @@ export class InMemoryChallengeRepository implements ChallengePort, PublicChallen
   async getScoped(scope: ChallengeScope, id: string) {
     const stored = this.state.challenges.get(scopeKey(scope.tenantId, scope.workspaceId, id));
     return stored ? structuredClone(stored.current) : null;
+  }
+
+  /**
+   * Parity with the PostgreSQL adapter: same scope, same newest-first order,
+   * same keyset cursor, same narrow row. The demo store keys challenges by
+   * scope already, so the filter is a predicate rather than a WHERE clause.
+   */
+  async listScoped(scope: ChallengeScope, query: ChallengeListQuery): Promise<ChallengePage> {
+    const cursor = decodeChallengeCursor(query.cursor);
+    const rows = [...this.state.challenges.values()]
+      .map((stored) => withApprovals(stored.current, this.state.approvals))
+      .filter(
+        (challenge) =>
+          challenge.tenant_id === scope.tenantId &&
+          challenge.workspace_id === scope.workspaceId &&
+          (query.stage === undefined || challenge.stage === query.stage),
+      )
+      .map(
+        (challenge): ChallengeListItemResource => ({
+          id: challenge.id,
+          current_version_id: challenge.current_version_id,
+          stage: challenge.stage,
+          authoring_status: challenge.authoring_status,
+          publication_state: challenge.publication_state,
+          proposal_deadline_at: challenge.proposal_deadline_at,
+          version: challenge.version,
+          title: challenge.content.title,
+          category: challenge.content.category,
+          ready: challenge.readiness.ready,
+          publication_readiness: challenge.publication_readiness,
+          created_at: challenge.created_at,
+          updated_at: challenge.updated_at,
+        }),
+      )
+      .sort(compareChallenges)
+      .filter((item) => cursor === null || compareChallenges(cursor, item) < 0);
+
+    const items = rows.slice(0, challengePageSize);
+    const last = items.at(-1);
+    return structuredClone({
+      items,
+      next_cursor: rows.length > challengePageSize && last ? encodeChallengeCursor(last) : null,
+    });
   }
 
   async getApprovalBrief(

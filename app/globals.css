@@ -10555,6 +10555,15 @@ bdi {
 .organization-auth-secondary {
   width: 100%;
   min-height: 56px;
+  /* Centred explicitly because this class is worn by both a <button> and an
+     <a>. A button centres its label on its own; a link does not, so once the
+     signed-in state swapped the button for "ادامه به ثبت مسئله" the label sat
+     at the top corner of a 56px box. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  text-decoration: none;
   border: 1px solid #04a8b4;
   border-radius: 7px;
   background: #05a9b4;

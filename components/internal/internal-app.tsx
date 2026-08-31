@@ -19,7 +19,7 @@ import {
   OrganizationWorkspaceExperience,
 } from "@/components/organization-workspace";
 import { ConfirmDialog, ReceiptPanel, StateNotice } from "@/components/internal/shared";
-import { useChallengeGateway } from "@/components/runtime-provider";
+import { useChallengeGateway, useWebRuntime } from "@/components/runtime-provider";
 import { ConfiguredRoleShell, OrganizationShell } from "@/components/role-shells";
 import { SolverDashboardExperience } from "@/components/solver-dashboard";
 import { SolverProposalDetail } from "@/components/solver-proposals-list";
@@ -41,6 +41,8 @@ import {
 import { isQaHarnessEnabled } from "@/lib/qa-harness";
 import { isNetworkWebRuntime } from "@/lib/runtime/mode";
 import { canAccessInternalRole, readDemoSession, type DemoSession } from "@/lib/auth/session";
+import { networkInternalSession, workspacesForPersona } from "@/lib/auth/network-session";
+import { PreviewDataNotice } from "@/components/organization-preview-notice";
 import { isRecordReady } from "@/lib/challenges/validation";
 import { directOfferById, proposalById, readSolverState } from "@/lib/solver/repository";
 
@@ -90,12 +92,70 @@ const solverProfileSections: Record<string, SolverProfileSection> = {
   "/app/solver/settings": "settings",
 };
 
+/**
+ * Shown when a real session is signed in but its active workspace cannot reach
+ * the requested surface, and at least one of the user's workspaces can. It is
+ * a routing answer, not an authorization one: the server still decides every
+ * request that follows.
+ */
+function WorkspaceActivationRequired({
+  workspaces,
+  switching,
+  error,
+  onActivate,
+}: {
+  workspaces: readonly { readonly id: string; readonly name: string }[];
+  switching: boolean;
+  error: string;
+  onActivate: (workspaceId: string) => void;
+}) {
+  return (
+    <main className="route-fallback" id="main-content">
+      <p className="route-fallback__eyebrow">فضای کاری</p>
+      <h1>فضای کاری مرتبط را فعال کنید</h1>
+      <p>حساب شما به این بخش دسترسی دارد، اما فضای کاری فعال فعلی شما این بخش نیست.</p>
+      <div className="route-fallback__actions">
+        {workspaces.map((workspace) => (
+          <button
+            key={workspace.id}
+            type="button"
+            className="app-button app-button--primary"
+            disabled={switching}
+            onClick={() => onActivate(workspace.id)}
+          >
+            {workspace.name}
+          </button>
+        ))}
+      </div>
+      {error && (
+        <p role="alert" className="route-fallback__error">
+          {error}
+        </p>
+      )}
+    </main>
+  );
+}
+
 export function InternalApp({ route }: { route: InternalRoute }) {
   const legacy = getLegacyResolution(route.path);
-  const [session, setSession] = useState<DemoSession | null | undefined>(undefined);
+  const runtime = useWebRuntime();
+  const [switchingWorkspace, setSwitchingWorkspace] = useState(false);
+  const [switchError, setSwitchError] = useState("");
+  const activateWorkspace = useCallback(
+    (workspaceId: string) => {
+      setSwitchingWorkspace(true);
+      setSwitchError("");
+      void runtime.switchWorkspace(workspaceId).then((problem) => {
+        setSwitchingWorkspace(false);
+        setSwitchError(problem?.message ?? "");
+      });
+    },
+    [runtime],
+  );
+  const [demoSession, setDemoSession] = useState<DemoSession | null | undefined>(undefined);
   useEffect(() => {
     if (process.env.NODE_ENV === "test") {
-      setSession({
+      setDemoSession({
         version: 1,
         userId: `test-${route.role}`,
         role: route.role,
@@ -105,8 +165,31 @@ export function InternalApp({ route }: { route: InternalRoute }) {
       });
       return;
     }
-    setSession(readDemoSession());
+    setDemoSession(readDemoSession());
   }, [route.role]);
+
+  /**
+   * In the connected runtime the authority is the server's `/me`, not a
+   * browser flag. The demo session stays for the static export, which has no
+   * API behind it — but it must never decide access where a real one exists.
+   */
+  const network = isNetworkWebRuntime;
+  const networkSession = networkInternalSession(runtime.me);
+  const session: DemoSession | null | undefined = network
+    ? networkSession
+      ? {
+          version: 2,
+          userId: networkSession.userId,
+          role: networkSession.persona,
+          workspaceId: networkSession.workspaceId,
+          twoFactorVerified: true,
+          expiresAt: Number.POSITIVE_INFINITY,
+        }
+      : runtime.sessionStatus === "loading"
+        ? undefined
+        : null
+    : demoSession;
+
   if (legacy?.kind === "redirect") return <LegacyRedirect target={legacy.target} />;
   if (legacy?.kind === "unavailable") return <LegacyUnavailable resolution={legacy} />;
   if (isNetworkWebRuntime && route.path === "/app/ops/publication") {
@@ -115,6 +198,24 @@ export function InternalApp({ route }: { route: InternalRoute }) {
         <PlatformApprovalQueue />
       </ConfiguredRoleShell>
     );
+  }
+  // A real session acting in the wrong workspace is not a denial — it is one
+  // switch away. Offering that switch is the difference between "you may not"
+  // and "you are in the wrong room". Only when the user holds no workspace
+  // that could reach this persona at all is it a genuine permission answer.
+  if (network && runtime.sessionStatus === "authenticated") {
+    const reachable = workspacesForPersona(runtime.me, route.role);
+    if (!networkSession || networkSession.persona !== route.role) {
+      if (reachable.length === 0) return <PermissionDenied />;
+      return (
+        <WorkspaceActivationRequired
+          workspaces={reachable}
+          switching={switchingWorkspace}
+          error={switchError}
+          onActivate={activateWorkspace}
+        />
+      );
+    }
   }
   if (session === undefined) return <RouteResolving />;
   const sharedRoute =
@@ -132,7 +233,16 @@ export function InternalApp({ route }: { route: InternalRoute }) {
         {isOrganizationWorkspacePath(route.path) ? (
           <OrganizationWorkspaceExperience route={route} />
         ) : (
-          <InternalExperience route={route} />
+          <>
+            {/* The case pages — timeline, proposals, review, pilot and the
+                rest — are keyed to a fixture challenge that exists in no
+                database, and their server authorities are Phase 3 to 5. They
+                get the same label as every other sample page rather than
+                letting a person click out of a marked page into an unmarked
+                one. */}
+            {network && <PreviewDataNotice />}
+            <InternalExperience route={route} />
+          </>
         )}
       </OrganizationShell>
     );

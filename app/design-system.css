@@ -313,3 +313,158 @@ textarea {
   font-weight: 750;
   text-decoration: none;
 }
+
+/* --------------------------------------------------------------------------
+   Route fallbacks — 404, session required, permission denied, legacy path.
+   These had no styles at all and rendered as bare browser defaults, which is
+   the worst place for that: a person only sees them when something has
+   already gone wrong. They are deliberately one composition rather than four,
+   so every dead end in the product looks like a considered answer.
+   -------------------------------------------------------------------------- */
+.route-fallback {
+  min-block-size: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  padding: var(--space-12) var(--space-6);
+  text-align: center;
+  color: var(--color-text);
+  background: var(--color-background);
+}
+
+/* Caps the measure so a Persian paragraph stays readable on a wide screen
+   instead of running the full window width. */
+.route-fallback > * {
+  max-inline-size: 34rem;
+}
+
+.route-fallback__code {
+  margin: 0;
+  font-size: clamp(3.5rem, 12vw, 5.5rem);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  /* The code is scene-setting, not the message: it reads as a watermark so the
+     sentence below it stays the thing you actually read first. */
+  color: color-mix(in srgb, var(--color-brand-navy) 16%, transparent);
+}
+
+.route-fallback__eyebrow {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--color-brand-teal);
+}
+
+.route-fallback h1 {
+  margin: 0;
+  font-size: var(--text-2xl);
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.route-fallback p:not(.route-fallback__code):not(.route-fallback__eyebrow) {
+  margin: 0;
+  font-size: var(--text-base);
+  line-height: 1.9;
+  color: var(--color-muted);
+}
+
+/* A URL or an id is Latin inside Persian text: isolate it so the surrounding
+   sentence cannot reorder it, and let it wrap rather than widen the page. */
+.route-fallback__path {
+  display: block;
+  max-inline-size: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+  overflow-wrap: anywhere;
+}
+
+.route-fallback__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  justify-content: center;
+  margin-block-start: var(--space-2);
+}
+
+.route-fallback__error {
+  color: #b42318;
+}
+
+/* The fallbacks are rendered outside the app shell, so they cannot rely on
+   `.app-button` being loaded — internal.css owns that class and public pages
+   never import it. */
+.route-fallback .app-button {
+  min-block-size: var(--control-height);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding-inline: var(--space-6);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  font-weight: 750;
+  font-size: var(--text-sm);
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
+}
+.route-fallback .app-button--primary {
+  color: #fff;
+  background: var(--color-action-primary);
+}
+.route-fallback .app-button--primary:hover {
+  background: var(--color-action-primary-hover);
+}
+.route-fallback .app-button--secondary {
+  color: var(--color-text);
+  background: var(--color-surface);
+  border-color: var(--color-border);
+}
+.route-fallback .app-button--secondary:hover {
+  border-color: var(--color-brand-blue);
+}
+.route-fallback .app-button:focus-visible {
+  outline: 2px solid var(--color-brand-blue);
+  outline-offset: 2px;
+}
+
+.route-fallback--loading {
+  justify-content: center;
+}
+.route-fallback__skeleton {
+  inline-size: min(22rem, 80vw);
+  block-size: var(--space-8);
+  border-radius: var(--radius-control);
+  background: linear-gradient(
+    90deg,
+    var(--color-surface) 25%,
+    color-mix(in srgb, var(--color-border) 60%, transparent) 50%,
+    var(--color-surface) 75%
+  );
+  background-size: 200% 100%;
+  animation: route-fallback-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes route-fallback-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .route-fallback__skeleton {
+    animation: none;
+  }
+}

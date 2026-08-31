@@ -67,3 +67,13 @@ export function LiveCallControls(): never {
 export function PlatformApprovalQueue(): never {
   return unreachable("PlatformApprovalQueue");
 }
+
+/** Stands in for `@/components/organization-preview-notice`. */
+export function PreviewDataNotice(): never {
+  return unreachable("PreviewDataNotice");
+}
+
+/** Stands in for `@/components/challenge-flow/connected-record-links`. */
+export function ConnectedRecordLinks(): never {
+  return unreachable("ConnectedRecordLinks");
+}
