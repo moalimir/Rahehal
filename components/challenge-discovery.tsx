@@ -11,7 +11,9 @@ import {
 } from "@/components/solver-shell";
 import { SiteHeader } from "@/components/site-header";
 import { PublicFooter } from "@/components/site-footer";
+import { PublicChallengeCatalogue } from "@/components/public-challenge-catalogue";
 import { buildSolverHref } from "@/lib/solver/context";
+import { isNetworkWebRuntime } from "@/lib/runtime/mode";
 import { activeWorkspaces, readSolverState } from "@/lib/solver/repository";
 
 export { challengeDiscoveryPaths };
@@ -39,21 +41,24 @@ export function ChallengeDiscoveryApp({
         : ({ type: "individual", workspaceId: state.personalWorkspace.id } as const);
   const basePath = embedded ? "/app/solver/opportunities" : "/challenges";
   const contextQuery = embedded ? buildSolverHref("/", context).replace(/^\/\?/, "?") : "";
-  const content = challengeKey ? (
-    <ChallengeDetail
-      challengeKey={challengeKey}
-      basePath={basePath}
-      requiresAuth={publicMode}
-      activeContext={context}
-      contextQuery={contextQuery}
-    />
-  ) : (
-    <ChallengeDirectory
-      basePath={basePath}
-      contextQuery={contextQuery}
-      workspaceId={context.workspaceId}
-    />
-  );
+  const content =
+    publicMode && isNetworkWebRuntime && !challengeKey ? (
+      <PublicChallengeCatalogue />
+    ) : challengeKey ? (
+      <ChallengeDetail
+        challengeKey={challengeKey}
+        basePath={basePath}
+        requiresAuth={publicMode}
+        activeContext={context}
+        contextQuery={contextQuery}
+      />
+    ) : (
+      <ChallengeDirectory
+        basePath={basePath}
+        contextQuery={contextQuery}
+        workspaceId={context.workspaceId}
+      />
+    );
   if (publicMode) {
     return (
       <div className="public-challenge-shell">

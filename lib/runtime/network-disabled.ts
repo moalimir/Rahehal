@@ -43,6 +43,26 @@ export function readPublicChallenge(): never {
   return unreachable("readPublicChallenge");
 }
 
+/** Stands in for `@/lib/challenges/adapters/network-public-challenges`. */
+export function listPublicChallenges(): never {
+  return unreachable("listPublicChallenges");
+}
+
+/** Stands in for `@/components/public-challenge-catalogue`. */
+export function PublicChallengeCatalogue(): never {
+  return unreachable("PublicChallengeCatalogue");
+}
+
+/** Stands in for `@/components/public-challenge-record`. */
+export function PublicChallengeRecordRoute(): string {
+  return "نمایش فراخوان سرور فقط در اجرای متصل در دسترس است.";
+}
+
+/** Stands in for `@/components/challenge-flow/live-call-controls`. */
+export function LiveCallControls(): never {
+  return unreachable("LiveCallControls");
+}
+
 /** Stands in for `@/components/platform-approval-queue`. */
 export function PlatformApprovalQueue(): never {
   return unreachable("PlatformApprovalQueue");

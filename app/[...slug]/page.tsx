@@ -18,6 +18,7 @@ import { getPublicProductRoute, publicProductRoutes } from "@/data/public-produc
 import { routeDefinitions } from "@/data/routes";
 import { challenges } from "@/data/mock";
 import { CHALLENGE_ROUTE_IDS } from "@/lib/challenges/ids";
+import { isNetworkWebRuntime } from "@/lib/runtime/mode";
 import { getLegacyResolution, legacyRouteEntries } from "@/data/legacy-redirects";
 
 export const dynamicParams = false;
@@ -90,6 +91,9 @@ export default async function RoutedPage({ params }: { params: Promise<{ slug: s
   // record path does: server ids cannot be pre-generated at build time.
   if (path === PUBLIC_CHALLENGE_RECORD_PATH) return <PublicChallengeRecordRoute />;
   if (path.startsWith("/challenges/")) {
+    // Fixture detail routes belong only to the static demo. A connected build
+    // must never expose them as an apparent production record.
+    if (isNetworkWebRuntime) notFound();
     return (
       <ChallengeDiscoveryApp challengeKey={path.split("/").filter(Boolean).at(-1)} publicMode />
     );

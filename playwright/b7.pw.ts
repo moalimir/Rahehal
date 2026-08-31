@@ -239,6 +239,32 @@ test.describe("B7 governed challenge journey", () => {
     await expect(publish).toBeEnabled();
     await publish.click();
     await expect(page.getByText("این پرونده منتشر شده است.")).toBeVisible();
+
+    // B6 is also a visible publisher workflow. Exercise reversible controls
+    // and deadline extension, then leave the call open for the public test.
+    const liveCall = page.getByRole("region", { name: "مدیریت فراخوان منتشرشده" });
+    await expect(liveCall).toHaveAttribute("data-publication-state", "open");
+    const publicationReason = page.getByLabel("دلیل اقدام");
+    await publicationReason.fill("توقف کوتاه برای هماهنگی پاسخ‌گویی سازمان.");
+    await page.getByRole("button", { name: "توقف موقت" }).click();
+    await expect(liveCall).toHaveAttribute("data-publication-state", "paused");
+
+    await page.getByLabel("دلیل اقدام").fill("هماهنگی انجام شد و پذیرش می‌تواند ادامه یابد.");
+    await page.getByRole("button", { name: "ازسرگیری فراخوان" }).click();
+    await expect(liveCall).toHaveAttribute("data-publication-state", "open");
+
+    await page.getByLabel("مهلت تازه").fill("2030-03-01T12:00");
+    await page.getByLabel("دلیل تمدید").fill("فرصت بیشتر برای دریافت پیشنهادهای کامل.");
+    await page.getByRole("button", { name: "تمدید مهلت" }).click();
+    await expect(page.getByText("مهلت تازه با موفقیت ثبت شد.")).toBeVisible();
+
+    await page.getByLabel("دلیل اقدام").fill("پایان یا لغو فراخوان نیازمند تأیید صریح ناشر است.");
+    await page.getByRole("button", { name: "بستن فراخوان" }).click();
+    await expect(page.getByRole("dialog", { name: "بستن قطعی فراخوان؟" })).toBeVisible();
+    await page.getByRole("button", { name: "انصراف" }).click();
+    await page.getByRole("button", { name: "لغو فراخوان" }).click();
+    await expect(page.getByRole("dialog", { name: "لغو قطعی فراخوان؟" })).toBeVisible();
+    await page.getByRole("button", { name: "انصراف" }).click();
   });
 
   test("the public sees the published projection and nothing confidential", async ({ browser }) => {
@@ -246,7 +272,17 @@ test.describe("B7 governed challenge journey", () => {
     // A fresh context: no cookies, so this is a genuinely anonymous reader.
     const context = await browser.newContext();
     const page = await context.newPage();
-    await page.goto(`/challenges/record/?id=${challengeId}`);
+    await page.goto("/challenges/");
+
+    // B5's catalogue and record both read the public projection; neither
+    // maps through the richer fixture view model.
+    const catalogueLink = page
+      .locator(`a[href*="id=${challengeId}"]`)
+      .filter({ hasText: readyContent.title })
+      .first();
+    await expect(catalogueLink).toBeVisible();
+    await catalogueLink.click();
+    await page.waitForURL(new RegExp(`/challenges/record/\\?id=${challengeId}`));
 
     await expect(page.getByRole("heading", { name: readyContent.title })).toBeVisible();
     await expect(page.getByText(readyContent.public_summary)).toBeVisible();
@@ -265,13 +301,15 @@ test.describe("B7 governed challenge journey", () => {
     await context.close();
   });
 
-  test("an unknown challenge id is indistinguishable from an unpublished one", async ({
+  test("unknown records stay non-enumerating and connected mode never falls back to fixtures", async ({
     browser,
   }) => {
     const context = await browser.newContext();
     const page = await context.newPage();
     await page.goto("/challenges/record/?id=chl_absent_00000000001");
     await expect(page.getByRole("heading", { name: "این فراخوان در دسترس نیست" })).toBeVisible();
+    const fixtureResponse = await page.goto("/challenges/smart-water-recovery/");
+    expect(fixtureResponse?.status()).toBe(404);
     await context.close();
   });
 });

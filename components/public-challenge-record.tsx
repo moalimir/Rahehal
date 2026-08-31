@@ -1,7 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { ChallengePublicProjectionResource } from "@rahhal/contracts";
+import { SiteHeader } from "@/components/site-header";
+import { PublicFooter } from "@/components/site-footer";
 import { readPublicChallenge } from "@/lib/challenges/adapters/network-public-challenges";
 import { formatDateTime } from "@/lib/challenges/model";
 
@@ -40,24 +43,37 @@ export function PublicChallengeRecord({ id }: { id: string }) {
 
   if (error) {
     return (
-      <main className="container" id="main-content">
+      <section className="rh-empty">
         <h1>این فراخوان در دسترس نیست</h1>
         <p>{error}</p>
-      </main>
+        <Link className="button button--secondary button--sm" href="/challenges">
+          بازگشت به فهرست چالش‌ها
+        </Link>
+      </section>
     );
   }
   if (!record) {
     return (
-      <main className="container" id="main-content">
+      <section className="rh-empty" role="status">
         <p>در حال دریافت فراخوان…</p>
-      </main>
+      </section>
     );
   }
 
   return (
-    <main className="container" id="main-content" data-public-challenge={record.challenge_id}>
-      <h1>{record.title}</h1>
-      <p>{record.public_summary}</p>
+    <article data-public-challenge={record.challenge_id}>
+      <section className="rh-challenge-heading">
+        <div>
+          <nav aria-label="مسیر صفحه">
+            <Link href="/challenges">چالش‌ها</Link>
+            <span>/</span>
+            <span>جزئیات فراخوان</span>
+          </nav>
+          <h1>{record.title}</h1>
+          <p>{record.public_summary}</p>
+          <span className="rh-demo-badge">فراخوان منتشرشده</span>
+        </div>
+      </section>
       <dl className="challenge-record-bar">
         <div>
           <dt>دسته‌بندی</dt>
@@ -78,7 +94,7 @@ export function PublicChallengeRecord({ id }: { id: string }) {
           </dd>
         </div>
       </dl>
-    </main>
+    </article>
   );
 }
 
@@ -97,14 +113,27 @@ export function PublicChallengeRecordRoute() {
     setId(serverChallengeId.test(value) ? value : "");
   }, []);
 
-  if (id === null) return null;
-  if (!id) {
-    return (
-      <main className="container" id="main-content">
-        <h1>این فراخوان در دسترس نیست</h1>
-        <p>نشانی فراخوان معتبر نیست.</p>
+  return (
+    <div className="public-challenge-shell">
+      <SiteHeader />
+      <main id="main-content" className="public-challenge-main">
+        {id === null ? (
+          <section className="rh-empty" role="status">
+            <p>در حال آماده‌سازی فراخوان…</p>
+          </section>
+        ) : !id ? (
+          <section className="rh-empty">
+            <h1>این فراخوان در دسترس نیست</h1>
+            <p>نشانی فراخوان معتبر نیست.</p>
+            <Link className="button button--secondary button--sm" href="/challenges">
+              بازگشت به فهرست چالش‌ها
+            </Link>
+          </section>
+        ) : (
+          <PublicChallengeRecord id={id} />
+        )}
       </main>
-    );
-  }
-  return <PublicChallengeRecord id={id} />;
+      <PublicFooter />
+    </div>
+  );
 }
