@@ -36,6 +36,7 @@ import {
   gateApproverRoles,
   isGateApproverRole,
   isPlatformRole,
+  organizationCapabilities,
   type ChallengeId,
   type CorrelationId,
 } from "@rahhal/domain";
@@ -211,16 +212,20 @@ const platformGateApproverRoles = [...new Set(Object.values(gateApproverRoles).f
 );
 
 const canEditChallenge = (access: WorkspaceAccess) =>
-  access.workspace.kind === "org" && (access.role === "org:owner" || access.role === "org:member");
+  access.workspace.kind === "org" && organizationCapabilities(access.role).authorChallenges;
 
 /**
  * Publication is `org:publisher` only -- the one role on the
  * `approvals -> published` transition. Deliberately not `canEditChallenge`:
  * the actor who authored the brief must not also be the actor who releases it
  * (70_SECURITY_AND_AUTHZ §6).
+ *
+ * Both predicates read `organizationCapabilities`, the same shared definition
+ * the web navigation derives from, so what a role is offered and what the
+ * server accepts cannot drift apart.
  */
 const canPublishChallenge = (access: WorkspaceAccess) =>
-  access.workspace.kind === "org" && access.role === "org:publisher";
+  access.workspace.kind === "org" && organizationCapabilities(access.role).publishChallenges;
 
 function idempotencyCommand(request: FastifyRequest) {
   const idempotencyKey = requiredHeader(request, "Idempotency-Key");
