@@ -177,6 +177,47 @@ export type PlatformChallengeApprovalQueueResource = {
   readonly items: readonly PlatformChallengeApprovalQueueItem[];
 };
 
+/**
+ * One row of an organization's own challenge list. Deliberately not a
+ * `ChallengeResource`: a list has no use for the full brief, and shipping
+ * every draft's confidential narrative to render a table is the kind of
+ * over-fetch that later leaks through a cache or an export. The two title
+ * fields come from the current version; everything else is aggregate state
+ * the list actually renders or filters on.
+ */
+export type ChallengeListItemResource = {
+  readonly id: ChallengeId;
+  readonly current_version_id: ChallengeVersionId;
+  readonly stage: ChallengeManagedStage;
+  readonly authoring_status: ChallengeDraftAuthoringStatus;
+  readonly publication_state: ChallengePublicationState | null;
+  readonly proposal_deadline_at: string | null;
+  readonly version: number;
+  readonly title: string;
+  readonly category: string;
+  readonly ready: boolean;
+  readonly publication_readiness: PublicationReadinessResource;
+  readonly created_at: string;
+  readonly updated_at: string;
+};
+
+/**
+ * One page of an organization's challenges. Ordered newest-first on
+ * `created_at`, which never changes — a keyset cursor over `updated_at` would
+ * skip or repeat a row as soon as someone edited a draft mid-scan.
+ */
+export type ChallengePage = {
+  readonly items: readonly ChallengeListItemResource[];
+  readonly next_cursor: string | null;
+};
+
+export type ChallengeListQuery = {
+  readonly stage?: ChallengeManagedStage;
+  readonly cursor?: string;
+};
+
+export type ChallengePageSuccessEnvelope = SuccessEnvelope<ChallengePage>;
+
 export type CreateChallengeBody = {
   readonly expected_version: 0;
   readonly draft?: ChallengeDraftPatch;

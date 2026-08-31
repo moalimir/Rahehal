@@ -6,6 +6,9 @@ import type {
   ChallengeApprovalSummaryResource,
   ChallengeDraftContentResource,
   ChallengeNextAction,
+  ChallengeListItemResource,
+  ChallengeListQuery,
+  ChallengePage,
   ChallengeResource,
   ChallengeTransitionBody,
   ChallengePublicationStateBody,
@@ -60,6 +63,11 @@ import {
   mergeChallengeDraftPatch,
   satisfiedTransitionPreconditions,
 } from "../challenge-draft.js";
+import {
+  challengePageSize,
+  decodeChallengeCursor,
+  encodeChallengeCursor,
+} from "../challenge-list.js";
 import { ApiProblem, forbidden, idempotencyConflict, notFound, staleVersion } from "../errors.js";
 import { commandFingerprint } from "../primitives.js";
 import type {
@@ -90,6 +98,20 @@ type ChallengeRow = {
   readonly created_by_user_id: string;
   readonly created_at: Date;
   readonly updated_at: Date;
+};
+
+type ChallengeListRow = {
+  readonly id: string;
+  readonly current_version_id: string;
+  readonly stage: string;
+  readonly publication_state: string | null;
+  readonly proposal_deadline_at: Date | null;
+  readonly lock_version: number;
+  readonly created_at: Date;
+  readonly updated_at: Date;
+  readonly authoring_status: string;
+  readonly content: unknown;
+  readonly approved_gates: readonly string[];
 };
 
 type IdempotencyRow = {
@@ -237,6 +259,48 @@ function challengeResource(
     readiness: challengeReadiness(content, version),
     content,
     created_by: parseUserId(row.created_by_user_id),
+    created_at: timestamp(row.created_at),
+    updated_at: timestamp(row.updated_at),
+  };
+}
+
+/**
+ * A list row. The version content is read to evaluate readiness and to pick
+ * the two display fields; nothing else from it crosses the wire, so adding a
+ * confidential content field cannot widen this response.
+ */
+function challengeListItem(row: ChallengeListRow): ChallengeListItemResource {
+  if (!challengeManagedStages.includes(row.stage as (typeof challengeManagedStages)[number])) {
+    throw new Error("Authoring API listed a challenge outside its lifecycle boundary");
+  }
+  if (!isChallengeDraftAuthoringStatus(row.authoring_status)) {
+    throw new Error("Database returned an invalid challenge authoring status");
+  }
+  if (typeof row.content !== "object" || row.content === null || Array.isArray(row.content)) {
+    throw new Error("Database returned invalid challenge content");
+  }
+  const version = challengeVersion(row.lock_version);
+  const content = {
+    verification_required: false,
+    document_gate_required: false,
+    ...structuredClone(row.content),
+  } as ChallengeDraftContentResource;
+  const approvals = row.approved_gates.filter(isPublicationGate).map((gate) => ({
+    gate,
+    decision: "approved" as const,
+  }));
+  return {
+    id: parseChallengeId(row.id),
+    current_version_id: parseChallengeVersionId(row.current_version_id),
+    stage: row.stage as ChallengeListItemResource["stage"],
+    authoring_status: row.authoring_status,
+    publication_state: publicationState(row.publication_state),
+    proposal_deadline_at: row.proposal_deadline_at?.toISOString() ?? null,
+    version,
+    title: content.title,
+    category: content.category,
+    ready: challengeReadiness(content, version).ready,
+    publication_readiness: evaluatePublicationReadiness(approvals),
     created_at: timestamp(row.created_at),
     updated_at: timestamp(row.updated_at),
   };
@@ -865,6 +929,74 @@ export class PostgresChallengeAdapter implements ChallengePort {
     return this.unitOfWork.run(() =>
       this.findScoped(this.unitOfWork.currentClient(), scope, id, false),
     );
+  }
+
+  /**
+   * The workspace's own challenges, newest first. The scope predicate is the
+   * same `(tenant_id, workspace_id)` pair every protected read uses, applied
+   * before anything else — a list is where a forgotten scope silently becomes
+   * a cross-tenant catalogue.
+   *
+   * The approved gates come from one lateral aggregate rather than a query per
+   * row, and the brief content stays server-side: readiness is evaluated here
+   * and only its boolean crosses the wire.
+   */
+  async listScoped(scope: ChallengeScope, query: ChallengeListQuery): Promise<ChallengePage> {
+    const cursor = decodeChallengeCursor(query.cursor);
+    return this.unitOfWork.run(async () => {
+      const result = await this.unitOfWork.currentClient().query<ChallengeListRow>(
+        `
+          SELECT
+            challenge.id,
+            challenge.current_version_id,
+            challenge.stage,
+            challenge.publication_state,
+            challenge.proposal_deadline_at,
+            challenge.lock_version,
+            challenge.created_at,
+            challenge.updated_at,
+            version.authoring_status,
+            version.content,
+            COALESCE(gates.approved, ARRAY[]::text[]) AS approved_gates
+          FROM challenge
+          JOIN challenge_version AS version
+            ON version.id = challenge.current_version_id
+           AND version.challenge_id = challenge.id
+          LEFT JOIN LATERAL (
+            SELECT array_agg(gate) AS approved
+            FROM challenge_approval
+            WHERE challenge_version_id = challenge.current_version_id
+              AND decision = 'approved'
+          ) AS gates ON true
+          WHERE challenge.tenant_id = $1
+            AND challenge.workspace_id = $2
+            AND ($3::text IS NULL OR challenge.stage = $3)
+            AND (
+              $4::timestamptz IS NULL
+              OR (challenge.created_at, challenge.id) < ($4::timestamptz, $5::text)
+            )
+          ORDER BY challenge.created_at DESC, challenge.id DESC
+          LIMIT $6
+        `,
+        [
+          scope.tenantId,
+          scope.workspaceId,
+          query.stage ?? null,
+          cursor?.created_at ?? null,
+          cursor?.id ?? null,
+          challengePageSize + 1,
+        ],
+      );
+
+      // One row beyond the page answers "is there more?" without a count.
+      const items = result.rows.slice(0, challengePageSize).map((row) => challengeListItem(row));
+      const last = items.at(-1);
+      return {
+        items,
+        next_cursor:
+          result.rows.length > challengePageSize && last ? encodeChallengeCursor(last) : null,
+      };
+    });
   }
 
   async getApprovalBrief(

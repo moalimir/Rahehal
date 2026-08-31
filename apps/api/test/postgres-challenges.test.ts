@@ -139,6 +139,68 @@ afterAll(async () => {
   }
 });
 
+describe("PostgreSQL organization challenge list", () => {
+  it("lists only the scoped workspace's challenges, newest first, and pages by cursor", async () => {
+    const challenges = adapter();
+    const created: string[] = [];
+    for (let index = 0; index < 3; index += 1) {
+      const outcome = await challenges.create(
+        { expected_version: 0, draft: { title: `پرونده ${index}` } },
+        context(`list-create-0${index}`, 100 + index),
+      );
+      created.push(outcome.receipt.entity_id);
+    }
+
+    const page = await challenges.listScoped(context("unused", 200), {});
+    const ids = page.items.map((item) => item.id);
+    // The three just created come back newest-first, ahead of the seeded row
+    // that already belonged to this workspace.
+    expect(ids.slice(0, 3)).toEqual([...created].reverse());
+    expect(ids).toContain("chl_synthetic_alpha");
+    expect(page.next_cursor).toBeNull();
+    // The list row is narrow by construction: the brief never crosses it.
+    expect(page.items[0]).not.toHaveProperty("content");
+    expect(page.items[0]).not.toHaveProperty("approvals");
+
+    // Beta's owner sees beta's own rows and none of alpha's — the scope
+    // predicate, not a filter applied after the fact.
+    const foreign = await challenges.listScoped(
+      {
+        ...context("unused", 201),
+        tenantId: parseTenantId("ten_org_beta"),
+        workspaceId: parseWorkspaceId("wsp_org_beta"),
+      },
+      {},
+    );
+    for (const id of ids) {
+      expect(foreign.items.map((item) => item.id)).not.toContain(id);
+    }
+  });
+
+  it("filters by stage and reports no approved gate on a version that has none", async () => {
+    const challenges = adapter();
+    const created = await challenges.create(
+      { expected_version: 0, draft: { title: "پرونده مرحله‌ای" } },
+      context("list-stage-create", 220),
+    );
+    const challengeId = created.receipt.entity_id;
+
+    const drafts = await challenges.listScoped(context("unused", 221), { stage: "draft" });
+    const row = drafts.items.find((item) => item.id === challengeId);
+    expect(row).toBeDefined();
+    // A brand new draft has no gates and is not yet ready; both come from the
+    // lateral aggregate and the shared readiness contract rather than a guess.
+    expect(row?.publication_readiness).toMatchObject({ ready: false, satisfied: [] });
+    expect(row?.ready).toBe(false);
+    expect(row?.publication_state).toBeNull();
+
+    const published = await challenges.listScoped(context("unused", 222), {
+      stage: "published",
+    });
+    expect(published.items.map((item) => item.id)).not.toContain(challengeId);
+  });
+});
+
 describe("A1c authoritative PostgreSQL challenge adapter", () => {
   it("creates and saves scoped immutable versions with atomic evidence", async () => {
     const challenges = adapter();

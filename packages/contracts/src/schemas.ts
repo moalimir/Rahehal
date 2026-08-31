@@ -497,6 +497,47 @@ const publicationReadinessSchema = {
 } as const;
 
 /**
+ * One row of an organization's own challenge list. Closed like every other
+ * read model: a list is the easiest place for a confidential field to arrive
+ * unnoticed, so the two content-derived fields it carries (`title`,
+ * `category`) are named here rather than spread from the content schema.
+ */
+const challengeListItemSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "current_version_id",
+    "stage",
+    "authoring_status",
+    "publication_state",
+    "proposal_deadline_at",
+    "version",
+    "title",
+    "category",
+    "ready",
+    "publication_readiness",
+    "created_at",
+    "updated_at",
+  ],
+  properties: {
+    id: { type: "string", pattern: "^chl_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$" },
+    current_version_id: { type: "string", pattern: "^chv_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$" },
+    stage: { type: "string", enum: challengeManagedStages },
+    authoring_status: { type: "string", enum: challengeDraftAuthoringStatuses },
+    publication_state: { type: ["string", "null"], enum: [...challengePublicationStates, null] },
+    proposal_deadline_at: { type: ["string", "null"], format: "date-time" },
+    version: { type: "integer", minimum: 1 },
+    title: { type: "string", maxLength: 500 },
+    category: { type: "string", maxLength: 500 },
+    ready: { type: "boolean" },
+    publication_readiness: publicationReadinessSchema,
+    created_at: { type: "string", format: "date-time" },
+    updated_at: { type: "string", format: "date-time" },
+  },
+} as const;
+
+/**
  * The published public projection's exact, closed field set. It is written out
  * literally rather than picked from `challengeContentProperties`, so a new
  * confidential content field cannot reach the public surface by inheriting a
@@ -965,6 +1006,23 @@ export const apiSchemas = {
       cursor: { type: "string", minLength: 1, maxLength: 200 },
     },
   },
+  ChallengeListQuery: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      stage: { type: "string", enum: challengeManagedStages },
+      cursor: { type: "string", minLength: 1, maxLength: 200 },
+    },
+  },
+  ChallengePageSuccessEnvelope: successEnvelopeFor({
+    type: "object",
+    additionalProperties: false,
+    required: ["items", "next_cursor"],
+    properties: {
+      items: { type: "array", items: challengeListItemSchema },
+      next_cursor: { type: ["string", "null"], maxLength: 200 },
+    },
+  }),
   PublicationReadiness: publicationReadinessSchema,
   RecordChallengeApprovalBody: {
     type: "object",
