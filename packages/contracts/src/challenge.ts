@@ -106,10 +106,16 @@ export type ChallengeApprovalResource = {
  * The content a standing platform gate approver may review. Contact details,
  * invitees, and private file identifiers are deliberately absent.
  */
-export type ChallengeApprovalBriefContentResource = Omit<
+export type ChallengeApprovalBriefContentResource = Pick<
   ChallengeDraftContentResource,
-  "contact" | "invitees" | "attachment_ids"
->;
+  "title" | "summary" | "category"
+> &
+  Partial<
+    Omit<
+      ChallengeDraftContentResource,
+      "title" | "summary" | "category" | "contact" | "invitees" | "attachment_ids"
+    >
+  >;
 
 /** Platform-facing approval evidence without another user's stable identifier. */
 export type ChallengeApprovalSummaryResource = {
@@ -141,6 +147,7 @@ export type ChallengeResource = {
   readonly version: number;
   readonly content_version: number;
   readonly readiness: ApiReadiness;
+  readonly triage_readiness: ApiReadiness;
   readonly content: ChallengeDraftContentResource;
   readonly approvals: readonly ChallengeApprovalResource[];
   readonly publication_readiness: PublicationReadinessResource;
@@ -154,7 +161,8 @@ export type ChallengeApprovalBriefResource = {
   readonly id: ChallengeId;
   readonly current_version_id: ChallengeVersionId;
   readonly workspace_id: WorkspaceId;
-  readonly stage: "approvals";
+  readonly stage: "triage" | "approvals";
+  readonly gate: PublicationGate;
   readonly version: number;
   readonly content: ChallengeApprovalBriefContentResource;
   readonly approvals: readonly ChallengeApprovalSummaryResource[];
@@ -167,6 +175,7 @@ export type PlatformChallengeApprovalQueueItem = {
   readonly current_version_id: ChallengeVersionId;
   readonly workspace_id: WorkspaceId;
   readonly version: number;
+  readonly stage: "triage" | "approvals";
   readonly title: string;
   readonly category: string;
   readonly gate: PublicationGate;
@@ -256,7 +265,10 @@ export type ChallengePublicProjectionResource = {
   readonly published_at: string;
 };
 
-export type ChallengeApprovalNextAction = "await_remaining_gates" | "ready_for_publish";
+export type ChallengeApprovalNextAction =
+  | "await_remaining_gates"
+  | "ready_for_publish"
+  | "revise";
 
 export type ChallengeSuccessEnvelope = {
   readonly ok: true;

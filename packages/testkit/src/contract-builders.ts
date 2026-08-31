@@ -166,6 +166,7 @@ export function buildChallengeResource(
     version: 1,
     content_version: 1,
     readiness: { ready: true, evaluated_version: 1, issues: [] },
+    triage_readiness: { ready: true, evaluated_version: 1, issues: [] },
     content: buildChallengeContentResource(contentOverrides),
     approvals: [],
     publication_readiness: {

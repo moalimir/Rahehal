@@ -30,7 +30,8 @@ function Value({ children, empty = "ثبت نشده" }: { children?: React.React
 
 export function ChallengePreviewPage({ id }: { id: string }) {
   const challengeGateway = useChallengeGateway();
-  const { record, lastSavedLabel, loadError, readiness, stage } = useChallengeRecord(id);
+  const { record, lastSavedLabel, loadError, readiness, triageReadiness, stage } =
+    useChallengeRecord(id);
   const [mode, setMode] = useState<"public" | "full">("full");
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [submitError, setSubmitError] = useState("");
@@ -53,8 +54,9 @@ export function ChallengePreviewPage({ id }: { id: string }) {
   if (loadError) return <ChallengeLoadErrorState message={loadError} />;
   if (!record) return <NotFoundState />;
 
-  const canSubmit = readiness
-    ? readiness.ready && (stage === "draft" || stage === "formulation")
+  const submissionReadiness = stage === "draft" ? triageReadiness : readiness;
+  const canSubmit = submissionReadiness
+    ? submissionReadiness.ready && (stage === "draft" || stage === "formulation")
     : issues.length === 0 && ["draft", "ready", "needs_changes"].includes(record.status);
   const requestingApprovals = stage === "formulation";
   return (

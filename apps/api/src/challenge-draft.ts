@@ -1,5 +1,6 @@
 import type {
   ApiReadiness,
+  ChallengeApprovalBriefContentResource,
   ChallengeDraftContentResource,
   ChallengeDraftPatch,
   ChallengePublicProjectionResource,
@@ -8,6 +9,7 @@ import type {
 import {
   applicantScopeForTypes,
   evaluateChallengeReadiness,
+  evaluateChallengeTriageReadiness,
   isApplicantScope,
   isMoneyAmountMinor,
   isPubliclyProjectable,
@@ -16,6 +18,7 @@ import {
   type ChallengeId,
   type ChallengePublicationState,
   type ChallengeVersionId,
+  type PublicationGate,
 } from "@rahhal/domain";
 
 import { ApiProblem } from "./errors.js";
@@ -98,6 +101,14 @@ export function challengeReadiness(
     attachmentIds: content.attachment_ids,
   };
   return { ...evaluateChallengeReadiness(domainContent), evaluated_version: aggregateVersion };
+}
+
+export function challengeTriageReadiness(
+  content: ChallengeDraftContentResource,
+  version: number,
+): ApiReadiness {
+  const readiness = evaluateChallengeTriageReadiness(contractContentToDomain(content));
+  return { ...readiness, evaluated_version: version };
 }
 
 export function mergeChallengeDraftPatch(
@@ -209,6 +220,66 @@ export function satisfiedTransitionPreconditions(
     ...(stage === "triage" ? ["triage-passed"] : []),
     ...(publicationReadiness?.satisfied ?? []).map((gate) => publicationGatePreconditions[gate]),
   ];
+}
+
+export function challengeApprovalBriefContent(
+  content: ChallengeDraftContentResource,
+  gate: PublicationGate,
+): ChallengeApprovalBriefContentResource {
+  const common = {
+    title: content.title,
+    summary: content.summary,
+    category: content.category,
+  };
+  if (gate === "finance") {
+    return {
+      ...common,
+      sourcing_model: content.sourcing_model,
+      proposal_deadline: content.proposal_deadline,
+      preferred_start_date: content.preferred_start_date,
+      budget: content.budget,
+    };
+  }
+  if (gate === "legal") {
+    return {
+      ...common,
+      visibility: content.visibility,
+      public_summary: content.public_summary,
+      nda_required: content.nda_required,
+      ip_terms: content.ip_terms,
+      legal_notes: content.legal_notes,
+    };
+  }
+  if (gate === "quality") {
+    return {
+      ...common,
+      location: content.location,
+      sourcing_model: content.sourcing_model,
+      applicant_scope: content.applicant_scope,
+      allowed_applicant_types: content.allowed_applicant_types,
+      proposal_deadline: content.proposal_deadline,
+      visibility: content.visibility,
+      public_summary: content.public_summary,
+      verification_required: content.verification_required,
+      nda_required: content.nda_required,
+      document_gate_required: content.document_gate_required,
+      accuracy_confirmed: content.accuracy_confirmed,
+    };
+  }
+  return {
+    ...common,
+    desired_outcome: content.desired_outcome,
+    current_state: content.current_state,
+    consequence: content.consequence,
+    expected_output: content.expected_output,
+    success_criteria: content.success_criteria,
+    in_scope: content.in_scope,
+    constraints: content.constraints,
+    organization_support: content.organization_support,
+    previous_attempts: content.previous_attempts,
+    output_type: content.output_type,
+    work_mode: content.work_mode,
+  };
 }
 
 /**

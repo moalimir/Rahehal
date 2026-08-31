@@ -12,6 +12,7 @@ import {
   parseTenantId,
   parseUserId,
   parseWorkspaceId,
+  publicationGates,
   type UserId,
   type WorkspaceRole,
 } from "@rahhal/domain";
@@ -225,84 +226,29 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
     );
     expect(evidence.rows[0]).toEqual({
       versions: "2",
-      eligibility_rules: "2",
+      eligibility_rules: "0",
       audits: "2",
       receipts: "2",
       events: "2",
       replays: "2",
     });
 
-    const latestRule = await database.query<{
-      allowed_applicant_types: string[];
-      verification_required: boolean;
-      nda_required: boolean;
-      document_gate_required: boolean;
-      proposal_deadline: Date;
-    }>(
-      `
-        SELECT
-          allowed_applicant_types,
-          verification_required,
-          nda_required,
-          document_gate_required,
-          proposal_deadline
-        FROM eligibility_rule
-        WHERE challenge_version_id = $1
-      `,
-      [current?.current_version_id],
-    );
-    expect(latestRule.rows[0]).toEqual({
-      allowed_applicant_types: ["individual", "expert-team"],
-      verification_required: true,
-      nda_required: true,
-      document_gate_required: true,
-      proposal_deadline: new Date("2030-02-01T00:00:00.000Z"),
-    });
   });
 
-  it("rejects expired or closed eligibility rules on editable challenges", async () => {
+  it("saves expired drafts but refuses invalid governed eligibility snapshots", async () => {
     const challenges = adapter();
-    await expect(
-      challenges.create(
-        {
-          expected_version: 0,
-          draft: { proposal_deadline: "2026-08-27T08:29:59.000Z" },
-        },
-        context("b3-expired-rule", 5),
-      ),
-    ).rejects.toMatchObject({ statusCode: 422, code: "VALIDATION" });
-
-    const challenge = await database.query<{ id: string; version_id: string }>(
-      `
-        SELECT challenge.id, version.id AS version_id
-        FROM challenge
-        JOIN challenge_version AS version ON version.challenge_id = challenge.id
-        WHERE challenge.id = 'chl_synthetic_alpha'
-        LIMIT 1
-      `,
+    const created = await challenges.create(
+      {
+        expected_version: 0,
+        draft: { proposal_deadline: "2026-08-27T08:29:59.000Z" },
+      },
+      context("b3-expired-rule", 5),
     );
-    const seed = challenge.rows[0];
-    expect(seed).toBeDefined();
-    await database.query(
-      "ALTER TABLE challenge_version DISABLE TRIGGER challenge_version_create_eligibility_rule",
+    const draft = await challenges.getScoped(
+      context("b3-expired-rule-read", 6),
+      created.receipt.entity_id,
     );
-    await database.query(
-      `
-        INSERT INTO challenge_version (
-          id, challenge_id, version_number, authoring_status, content,
-          created_by_user_id, created_at
-        )
-        SELECT
-          'chv_b3_closed_rule', challenge_id, 99, authoring_status, content,
-          created_by_user_id, clock_timestamp()
-        FROM challenge_version
-        WHERE id = $1
-      `,
-      [seed?.version_id],
-    );
-    await database.query(
-      "ALTER TABLE challenge_version ENABLE TRIGGER challenge_version_create_eligibility_rule",
-    );
+    expect(draft).not.toBeNull();
     await expectDatabaseError(
       database.query(
         `
@@ -312,11 +258,11 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
             document_gate_required, proposal_deadline, state
           ) VALUES (
             'elr_b3_expired_rule', 'ten_org_alpha', 'wsp_org_alpha', $1,
-            'chv_b3_closed_rule', '{}', false, false, false,
+            $2, '{}', false, false, false,
             '2025-01-01T00:00:00Z', 'open'
           )
         `,
-        [seed?.id],
+        [draft?.id, draft?.current_version_id],
       ),
       "23514",
     );
@@ -329,22 +275,29 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
             document_gate_required, proposal_deadline, state
           ) VALUES (
             'elr_b3_closed_rule', 'ten_org_alpha', 'wsp_org_alpha', $1,
-            'chv_b3_closed_rule', '{}', false, false, false, NULL, 'closed'
+            $2, '{}', false, false, false, NULL, 'closed'
           )
         `,
-        [seed?.id],
+        [draft?.id, draft?.current_version_id],
       ),
       "23514",
     );
 
-    const seedRule = await database.query<{ id: string }>(
-      "SELECT id FROM eligibility_rule WHERE challenge_version_id = $1",
-      [seed?.version_id],
-    );
+    await database.query(`
+      INSERT INTO eligibility_rule (
+        id, tenant_id, workspace_id, challenge_id, challenge_version_id,
+        allowed_applicant_types, verification_required, nda_required,
+        document_gate_required, proposal_deadline, state
+      ) VALUES (
+        'elr_b3_seed_rule', 'ten_org_alpha', 'wsp_org_alpha',
+        'chl_synthetic_alpha', 'chv_synthetic_alpha_v1', '{}', false, false,
+        false, NULL, 'open'
+      )
+    `);
     await expectDatabaseError(
-      database.query("UPDATE eligibility_rule SET nda_required = true WHERE id = $1", [
-        seedRule.rows[0]?.id,
-      ]),
+      database.query(
+        "UPDATE eligibility_rule SET nda_required = true WHERE id = 'elr_b3_seed_rule'",
+      ),
       "55000",
     );
   });
@@ -719,6 +672,53 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
     await expect(
       database.query(`DELETE FROM challenge_approval WHERE challenge_id = $1`, [challengeId]),
     ).rejects.toThrow(/append-only/);
+  });
+
+  it("returns a rejected version to formulation through a fresh immutable version", async () => {
+    const challenges = adapter();
+    const challengeId = await advanceToApprovals(challenges, "b2-rework", 109);
+    const rejectedVersion = await challenges.getScoped(
+      context("b2-rework-read", 113),
+      challengeId,
+    );
+
+    const rejection = await challenges.recordApproval(
+      challengeId,
+      {
+        expected_version: 4,
+        gate: "technical",
+        decision: "rejected",
+        reason: "The technical scope needs correction.",
+      },
+      context("b2-rework-reject", 114, { role: "org:approver_technical" }),
+    );
+    expect(rejection.receipt.next_actions).toEqual(["revise"]);
+
+    await challenges.patch(
+      challengeId,
+      { expected_version: 4, patch: { title: "Corrected technical scope" } },
+      context("b2-rework-patch", 115),
+    );
+    const revised = await challenges.getScoped(context("b2-rework-reread", 116), challengeId);
+    expect(revised).toMatchObject({
+      stage: "formulation",
+      version: 5,
+      content_version: 2,
+      content: { title: "Corrected technical scope" },
+      approvals: [],
+      publication_readiness: { ready: false, satisfied: [], missing: publicationGates },
+    });
+    expect(revised?.current_version_id).not.toBe(rejectedVersion?.current_version_id);
+
+    const evidence = await database.query<{ approvals: string; rules: string }>(
+      `
+        SELECT
+          (SELECT count(*) FROM challenge_approval WHERE challenge_id = $1) AS approvals,
+          (SELECT count(*) FROM eligibility_rule WHERE challenge_id = $1) AS rules
+      `,
+      [challengeId],
+    );
+    expect(evidence.rows[0]).toEqual({ approvals: "1", rules: "1" });
   });
 
   it("rejects a duplicate gate and separation-of-duty violations under real constraints", async () => {
@@ -1230,6 +1230,32 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
     );
   });
 
+  it("refuses publication when the approved call deadline has passed", async () => {
+    let now = new Date("2026-08-27T08:30:00.000Z");
+    const challenges = new PostgresChallengeAdapter(
+      new PostgresUnitOfWork(database),
+      { now: () => now },
+      new MonotonicIdFactory(),
+    );
+    const challengeId = await advanceToApprovals(
+      challenges,
+      "b4-expired-publication",
+      290,
+      buildChallengeContentResource({ proposal_deadline: "2026-08-28T08:30:00.000Z" }),
+    );
+    await approveAllGates(challenges, challengeId, "b4-expired-publication", 294);
+
+    now = new Date("2026-08-29T08:30:00.000Z");
+    await expect(
+      challenges.publish(
+        challengeId,
+        { expected_version: 4 },
+        context("b4-expired-publication-publish", 299, { role: "org:publisher" }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 422, code: "VALIDATION" });
+    await expect(publicAdapter().get("anonymous", challengeId)).resolves.toBeNull();
+  });
+
   it("publishes an NDA challenge without creating a public projection row", async () => {
     const challenges = adapter();
     const created = await challenges.create(
@@ -1273,6 +1299,30 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
       [challengeId],
     );
     expect(state.rows[0]).toEqual({ stage: "published", projections: "0" });
+    const nda = await challenges.getScoped(context("b4-nda-read", 321), challengeId);
+
+    await expectDatabaseError(
+      database.query(
+        `
+          INSERT INTO challenge_public_projection (
+            challenge_id, tenant_id, challenge_version_id, title, category, location,
+            public_summary, output_type, sourcing_model, applicant_scope,
+            allowed_applicant_types, work_mode, proposal_deadline, preferred_start_date,
+            budget_status, budget_amount_minor, budget_currency, visibility,
+            verification_required, nda_required, document_gate_required, ip_terms,
+            state, published_at
+          ) VALUES (
+            $1, 'ten_org_alpha', $2, 'Forged projection', 'energy', 'Plant',
+            'This row disagrees with the authoritative live call.', 'pilot', 'public', 'both',
+            ARRAY['individual'], 'hybrid', '2031-01-01T00:00:00Z', NULL,
+            'undecided', NULL, 'IRR', 'public', false, false, false,
+            'solver_license', 'paused', clock_timestamp()
+          )
+        `,
+        [challengeId, nda?.published_version_id],
+      ),
+      "23514",
+    );
   });
 
   it("answers public discovery without reading the private aggregate at all", async () => {
@@ -1375,8 +1425,7 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
 
   it("pages the catalogue by keyset cursor and filters by category", async () => {
     const challenges = adapter();
-    // Distinct deadlines give the ordering something to sort by; the newest
-    // deadline must come first.
+    // Publication order is immutable; ids break ties under this fixed test clock.
     const oldest = await publishedChallenge(
       challenges,
       "b5-page-oldest",
@@ -1422,6 +1471,8 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
 
     const logistics = await catalogue.list("anonymous", { category: "logistics" });
     expect(logistics.items.map((row) => row.challenge_id)).toEqual([middle, oldest]);
+    const normalized = await catalogue.list("anonymous", { category: " LOGISTICS " });
+    expect(normalized.items.map((row) => row.challenge_id)).toEqual([middle, oldest]);
 
     await expect(catalogue.list("anonymous", { cursor: "%%%not-base64%%%" })).rejects.toMatchObject(
       {
@@ -1679,6 +1730,8 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
     // The suite normally migrates an empty database, so the backfill path --
     // and the ordering bug where the pairing constraint was added before it --
     // is invisible without this.
+    const reviewClosureDown = await runMigrations(database, "down");
+    expect(reviewClosureDown.applied).toEqual(["0012_phase2_review_closure"]);
     const proposalDown = await runMigrations(database, "down");
     expect(proposalDown.applied).toEqual(["0011_c_proposal_foundation"]);
     const closureDown = await runMigrations(database, "down");
@@ -1690,6 +1743,7 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
       "0009_b6_publication_lifecycle",
       "0010_phase2_closure",
       "0011_c_proposal_foundation",
+      "0012_phase2_review_closure",
     ]);
 
     const restored = await database.query<{

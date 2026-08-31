@@ -628,7 +628,7 @@ describe("authoritative Fastify API foundation", () => {
     expect(composition.challenges.snapshot().auditEvents).toHaveLength(1);
   });
 
-  it("rejects an expired eligibility deadline before creating a challenge version", async () => {
+  it("allows an expired draft to be saved so its deadline can be corrected", async () => {
     const versionsBefore = composition.challenges.snapshot().versions.length;
     const response = await app.inject({
       method: "POST",
@@ -639,12 +639,8 @@ describe("authoritative Fastify API foundation", () => {
       }),
     });
 
-    expect(response.statusCode).toBe(422);
-    expect(response.json<ErrorEnvelope>().error).toMatchObject({
-      code: "VALIDATION",
-      fields: [expect.objectContaining({ path: "/content/proposal_deadline", code: "future" })],
-    });
-    expect(composition.challenges.snapshot().versions).toHaveLength(versionsBefore);
+    expect(response.statusCode).toBe(201);
+    expect(composition.challenges.snapshot().versions).toHaveLength(versionsBefore + 1);
   });
 
   it("advances only along the canonical B1 lifecycle with versioned atomic receipts", async () => {
@@ -1420,6 +1416,8 @@ describe("authoritative Fastify API foundation", () => {
     expect(resource.content).not.toHaveProperty("contact");
     expect(resource.content).not.toHaveProperty("invitees");
     expect(resource.content).not.toHaveProperty("attachment_ids");
+    expect(resource.content).not.toHaveProperty("legal_notes");
+    expect(resource.content).not.toHaveProperty("previous_attempts");
     expect(resource).not.toHaveProperty("tenant_id");
     expect(resource).not.toHaveProperty("created_by");
     expect(resource.approvals[0]).toMatchObject({
@@ -1428,6 +1426,18 @@ describe("authoritative Fastify API foundation", () => {
       recorded_by_current_actor: false,
     });
     expect(resource.approvals[0]).not.toHaveProperty("recorded_by");
+
+    const financeRead = await app.inject({
+      method: "GET",
+      url: apiRoutes.platformChallengeApprovalBrief.replace("{challengeId}", challengeId),
+      headers: gateHeaders(demoApiCredentials.platformFinance),
+    });
+    expect(financeRead.statusCode).toBe(200);
+    const financeBrief = financeRead.json<SuccessEnvelope<ChallengeApprovalBriefResource>>().data;
+    expect(financeBrief.gate).toBe("finance");
+    expect(financeBrief.content).toHaveProperty("budget");
+    expect(financeBrief.content).not.toHaveProperty("legal_notes");
+    expect(financeBrief.content).not.toHaveProperty("previous_attempts");
 
     for (const credential of [
       demoApiCredentials.platformLegal,
@@ -2217,6 +2227,10 @@ describe("authoritative Fastify API foundation", () => {
       },
     });
 
+    const accessSuccessBefore = composition.decisionAudit
+      .snapshot()
+      .filter((record) => record.action === "challenge:create" && record.outcome === "success")
+      .length;
     const missingKey = await app.inject({
       method: "POST",
       url: apiRoutes.challenges,
@@ -2228,6 +2242,11 @@ describe("authoritative Fastify API foundation", () => {
       code: "VALIDATION",
       fields: [{ path: "Idempotency-Key", code: "required" }],
     });
+    expect(
+      composition.decisionAudit
+        .snapshot()
+        .filter((record) => record.action === "challenge:create" && record.outcome === "success"),
+    ).toHaveLength(accessSuccessBefore);
 
     for (const [idempotencyKey, code] of [
       ["short", "minLength"],

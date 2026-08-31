@@ -23,16 +23,16 @@ export function visibleVisibilities(
 }
 
 /**
- * Keyset cursor over `(proposal_deadline DESC, challenge_id DESC)`. Keyset
+ * Keyset cursor over `(published_at DESC, challenge_id DESC)`. Keyset
  * rather than offset because the catalogue grows while it is being scanned:
  * an offset would silently skip or repeat a challenge when a new one is
  * published mid-scan.
  *
- * The encoding is opaque but not secret — it carries only a deadline and a
+ * The encoding is opaque but not secret — it carries only a publication time and a
  * challenge id that the same response already exposed.
  */
 export function encodePublicChallengeCursor(row: PublicChallengeOrderKey): string {
-  return Buffer.from(`${row.proposal_deadline}|${row.challenge_id}`, "utf8").toString("base64url");
+  return Buffer.from(`${row.published_at}|${row.challenge_id}`, "utf8").toString("base64url");
 }
 
 export function decodePublicChallengeCursor(
@@ -52,11 +52,11 @@ export function decodePublicChallengeCursor(
   }
   const separator = decoded.indexOf("|");
   if (separator <= 0) throw invalid();
-  const proposalDeadline = decoded.slice(0, separator);
+  const publishedAt = decoded.slice(0, separator);
   const challengeId = decoded.slice(separator + 1);
   if (!/^chl_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$/.test(challengeId)) throw invalid();
-  if (!Number.isFinite(Date.parse(proposalDeadline))) throw invalid();
-  return { proposal_deadline: proposalDeadline, challenge_id: parseChallengeId(challengeId) };
+  if (!Number.isFinite(Date.parse(publishedAt))) throw invalid();
+  return { published_at: publishedAt, challenge_id: parseChallengeId(challengeId) };
 }
 
 /**
@@ -66,14 +66,16 @@ export function decodePublicChallengeCursor(
  */
 export type PublicChallengeOrderKey = Pick<
   ChallengePublicProjectionResource,
-  "proposal_deadline" | "challenge_id"
+  "published_at" | "challenge_id"
 >;
 
-/** Newest deadline first, challenge id breaking ties so the order is total. */
+/** Most recently published first, challenge id breaking ties so the order is total. */
 export function comparePublicChallenges(
   left: PublicChallengeOrderKey,
   right: PublicChallengeOrderKey,
 ): number {
-  const byDeadline = Date.parse(right.proposal_deadline) - Date.parse(left.proposal_deadline);
-  return byDeadline !== 0 ? byDeadline : right.challenge_id.localeCompare(left.challenge_id);
+  const byPublication = Date.parse(right.published_at) - Date.parse(left.published_at);
+  return byPublication !== 0
+    ? byPublication
+    : right.challenge_id.localeCompare(left.challenge_id);
 }
