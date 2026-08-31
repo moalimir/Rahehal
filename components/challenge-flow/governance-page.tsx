@@ -4,10 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 import type {
   ChallengeApprovalResource,
   ChallengeApprovalSummaryResource,
+  ChallengeResource,
 } from "@rahhal/contracts";
 import { gateApproverRoles, publicationGates, type PublicationGate } from "@rahhal/domain";
 import { ChallengeLoadErrorState, ChallengeShell } from "@/components/challenge-flow/shell";
 import { Toast } from "@/components/challenge-flow/fields";
+import { LiveCallControls } from "@/components/challenge-flow/live-call-controls";
 import { useChallengeGovernance, useWebRuntime } from "@/components/runtime-provider";
 import type { ChallengeGovernanceResource } from "@/lib/challenges/governance";
 
@@ -17,6 +19,12 @@ const gateLabels: Record<PublicationGate, string> = {
   finance: "تأیید مالی",
   quality: "دروازه کیفیت",
 };
+
+function isOrganizationChallenge(
+  resource: ChallengeGovernanceResource,
+): resource is ChallengeResource {
+  return "publication_state" in resource;
+}
 
 /**
  * Which gate this actor may record, inverted from the domain's own
@@ -134,14 +142,18 @@ export function ChallengeGovernancePage({
     !recorded.has(actorGate!) &&
     !alreadyRecordedByActor;
   const canPublish = role === "org:publisher" && readiness.ready && resource.stage === "approvals";
+  const organizationChallenge = isOrganizationChallenge(resource) ? resource : null;
 
-  const run = async (operation: () => Promise<{ ok: boolean; error?: { message: string } }>) => {
+  const run = async (
+    operation: () => Promise<{ ok: boolean; error?: { message: string } }>,
+    successMessage = "",
+  ) => {
     if (busy) return;
     setBusy(true);
     try {
       const result = await operation();
       if (!result.ok) setToast(result.error?.message ?? "اقدام انجام نشد.");
-      else setToast("");
+      else setToast(successMessage);
     } finally {
       setBusy(false);
     }
@@ -248,6 +260,16 @@ export function ChallengeGovernancePage({
           </small>
         )}
       </div>
+
+      {organizationChallenge && (
+        <LiveCallControls
+          challenge={organizationChallenge}
+          canManage={role === "org:publisher"}
+          gateway={governance}
+          onChange={setResource}
+          onMessage={setToast}
+        />
+      )}
 
       <Toast message={toast} />
     </ChallengeShell>

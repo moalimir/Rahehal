@@ -115,7 +115,7 @@ npm run docker:smoke
 RAHHAL_CONNECTED_E2E=1 npm run test:browser:b7
 ```
 
-The B7 suite creates its own challenge, uses four distinct visible approval forms (org technical plus platform legal/finance/quality from `/app/ops/publication`), publishes as `org:publisher`, and verifies the anonymous projection excludes confidential fields. A disabled publish button is a failing acceptance result, not something to bypass with an API call.
+The B7 suite creates its own challenge, uses four distinct visible approval forms (org technical plus platform legal/finance/quality from `/app/ops/publication`), publishes as `org:publisher`, pauses/resumes and extends the live call, then finds it in the anonymous public catalogue and verifies its detail excludes confidential fields. A disabled publish or live-call control is a failing acceptance result, not something to bypass with an API call.
 
 On Docker Desktop for macOS, a build that stalls before the first `FROM` while host-side registry requests succeed can be a Docker credential-helper problem rather than WireGuard or BuildKit cache. Confirm with `docker pull node:22.18.0-bookworm-slim`; repair Docker Desktop's credential integration before treating old images as acceptance evidence. Do not prune volumes or weaken loopback bindings as a workaround.
 

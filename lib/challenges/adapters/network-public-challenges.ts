@@ -1,4 +1,10 @@
-import type { ChallengePublicProjectionResource, ErrorEnvelope } from "@rahhal/contracts";
+import type {
+  ChallengePublicPage,
+  ChallengePublicPageSuccessEnvelope,
+  ChallengePublicProjectionResource,
+  ErrorEnvelope,
+  PublicChallengeQuery,
+} from "@rahhal/contracts";
 import { apiRoutes } from "@rahhal/contracts";
 
 import type { ChallengeGatewayErrorCode, ChallengeResult } from "@/lib/challenges/gateway";
@@ -9,6 +15,29 @@ type PublicChallengeEnvelope = {
   readonly data: ChallengePublicProjectionResource;
   readonly meta: { readonly server_time: string; readonly correlation_id: string };
 };
+
+function failure<Data>(error: ErrorEnvelope): ChallengeResult<Data> {
+  return {
+    ok: false,
+    error: { ...error.error, code: error.error.code as ChallengeGatewayErrorCode },
+    meta: error.meta,
+  };
+}
+
+/** Lists discoverable challenges from B5's public projection only. */
+export async function listPublicChallenges(
+  query: PublicChallengeQuery = {},
+): Promise<ChallengeResult<ChallengePublicPage>> {
+  const search = new URLSearchParams();
+  if (query.category) search.set("category", query.category);
+  if (query.cursor) search.set("cursor", query.cursor);
+  const suffix = search.size ? `?${search.toString()}` : "";
+  const result = await requestApi<ChallengePublicPageSuccessEnvelope>(
+    `${apiRoutes.publicChallenges}${suffix}`,
+  );
+  if (!result.ok) return failure(result);
+  return { ok: true, data: result.data, meta: result.meta };
+}
 
 /**
  * Reads one published challenge from B5's public projection.
@@ -25,13 +54,6 @@ export async function readPublicChallenge(
   const result = await requestApi<PublicChallengeEnvelope>(
     apiRoutes.publicChallengeById.replace("{challengeId}", encodeURIComponent(id)),
   );
-  if (!result.ok) {
-    const error = result as ErrorEnvelope;
-    return {
-      ok: false,
-      error: { ...error.error, code: error.error.code as ChallengeGatewayErrorCode },
-      meta: error.meta,
-    };
-  }
+  if (!result.ok) return failure(result);
   return { ok: true, data: result.data, meta: result.meta };
 }

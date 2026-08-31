@@ -39,6 +39,21 @@ function approvalsStage() {
   });
 }
 
+function publishedStage(
+  publicationState: "open" | "paused" | "closed" | "cancelled" = "open",
+  version = 7,
+) {
+  return buildChallengeResource({
+    id: challengeId,
+    workspace_id: workspaceId,
+    stage: "published",
+    published_version_id: approvalsStage().current_version_id,
+    publication_state: publicationState,
+    proposal_deadline_at: "2030-02-01T00:00:00.000Z",
+    version,
+  });
+}
+
 function approvalBrief() {
   const resource = approvalsStage();
   const { contact, invitees, attachment_ids: attachmentIds, ...content } = resource.content;
@@ -161,6 +176,86 @@ describe("B7 network challenge governance gateway", () => {
     const [url, init] = fetchMock.mock.calls[1] ?? [];
     expect(url).toBe(`/api/v1/challenges/${challengeId}:publish`);
     expect(JSON.parse(String(init?.body))).toEqual({ expected_version: 4 });
+  });
+
+  it("extends a live deadline through the versioned server command", async () => {
+    const extended = {
+      ...publishedStage("open", 8),
+      proposal_deadline_at: "2030-03-01T00:00:00.000Z",
+    };
+    const responses = [
+      jsonResponse({ ok: true, data: publishedStage(), meta } satisfies ChallengeSuccessEnvelope),
+      jsonResponse(buildMutationSuccess({ entity_id: challengeId, next_actions: [] }, meta)),
+      jsonResponse({ ok: true, data: extended, meta } satisfies ChallengeSuccessEnvelope),
+    ];
+    const fetchMock = vi.fn<GatewayFetch>(async () => responses.shift() ?? jsonResponse({}, 500));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("crypto", { randomUUID: () => "00000000-0000-4000-8000-00000000b704" });
+
+    const gateway = createNetworkChallengeGovernanceGateway({
+      activeWorkspaceId: () => workspaceId,
+    });
+    await gateway.read(challengeId);
+    const result = await gateway.extendDeadline(
+      challengeId,
+      "2030-03-01T00:00:00.000Z",
+      "زمان بیشتری برای دریافت پیشنهادهای کامل لازم است.",
+    );
+
+    expect(
+      result.ok && "proposal_deadline_at" in result.data && result.data.proposal_deadline_at,
+    ).toBe("2030-03-01T00:00:00.000Z");
+    const [url, init] = fetchMock.mock.calls[1] ?? [];
+    expect(url).toBe(`/api/v1/challenges/${challengeId}:extend-deadline`);
+    expect(JSON.parse(String(init?.body))).toEqual({
+      proposal_deadline: "2030-03-01T00:00:00.000Z",
+      reason: "زمان بیشتری برای دریافت پیشنهادهای کامل لازم است.",
+      expected_version: 7,
+    });
+  });
+
+  it.each([
+    ["pause", "open", "paused"],
+    ["resume", "paused", "open"],
+    ["close", "open", "closed"],
+    ["cancel", "open", "cancelled"],
+  ] as const)("sends the %s command and reloads authoritative state", async (command, from, to) => {
+    const responses = [
+      jsonResponse({
+        ok: true,
+        data: publishedStage(from),
+        meta,
+      } satisfies ChallengeSuccessEnvelope),
+      jsonResponse(buildMutationSuccess({ entity_id: challengeId, next_actions: [] }, meta)),
+      jsonResponse({
+        ok: true,
+        data: publishedStage(to, 8),
+        meta,
+      } satisfies ChallengeSuccessEnvelope),
+    ];
+    const fetchMock = vi.fn<GatewayFetch>(async () => responses.shift() ?? jsonResponse({}, 500));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("crypto", { randomUUID: () => `00000000-0000-4000-8000-${command}0000001` });
+
+    const gateway = createNetworkChallengeGovernanceGateway({
+      activeWorkspaceId: () => workspaceId,
+    });
+    await gateway.read(challengeId);
+    const result = await gateway.changePublicationState(
+      challengeId,
+      command,
+      "دلیل روشن و قابل حسابرسی برای تغییر وضعیت.",
+    );
+
+    expect(result.ok && "publication_state" in result.data && result.data.publication_state).toBe(
+      to,
+    );
+    const [url, init] = fetchMock.mock.calls[1] ?? [];
+    expect(url).toBe(`/api/v1/challenges/${challengeId}:${command}`);
+    expect(JSON.parse(String(init?.body))).toEqual({
+      reason: "دلیل روشن و قابل حسابرسی برای تغییر وضعیت.",
+      expected_version: 7,
+    });
   });
 
   it("uses the platform brief route and lists the active role's queue", async () => {

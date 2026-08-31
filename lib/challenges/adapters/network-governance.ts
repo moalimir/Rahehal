@@ -9,6 +9,7 @@ import { apiRoutes } from "@rahhal/contracts";
 
 import type { ChallengeGatewayErrorCode, ChallengeResult } from "@/lib/challenges/gateway";
 import type {
+  ChallengePublicationCommand,
   ChallengeGovernanceGateway,
   ChallengeGovernanceResource,
   RecordApprovalInput,
@@ -129,6 +130,28 @@ export function createNetworkChallengeGovernanceGateway(
         apiRoutes.publishChallenge.replace("{challengeId}", encodeURIComponent(id)),
         {},
         "challenge-publish",
+      );
+    },
+    async extendDeadline(id, proposalDeadline, reason) {
+      return command(
+        id,
+        apiRoutes.extendChallengeDeadline.replace("{challengeId}", encodeURIComponent(id)),
+        { proposal_deadline: proposalDeadline, reason },
+        "challenge-extend-deadline",
+      );
+    },
+    async changePublicationState(id, publicationCommand: ChallengePublicationCommand, reason) {
+      const routes = {
+        pause: apiRoutes.pauseChallenge,
+        resume: apiRoutes.resumeChallenge,
+        close: apiRoutes.closeChallenge,
+        cancel: apiRoutes.cancelChallenge,
+      } as const;
+      return command(
+        id,
+        routes[publicationCommand].replace("{challengeId}", encodeURIComponent(id)),
+        { reason },
+        `challenge-${publicationCommand}`,
       );
     },
   };

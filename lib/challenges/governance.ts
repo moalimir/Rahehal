@@ -24,6 +24,8 @@ export type RecordApprovalInput = {
   readonly reason: string;
 };
 
+export type ChallengePublicationCommand = "pause" | "resume" | "close" | "cancel";
+
 export type ChallengeGovernanceResource = ChallengeResource | ChallengeApprovalBriefResource;
 
 export interface ChallengeGovernanceGateway {
@@ -45,4 +47,14 @@ export interface ChallengeGovernanceGateway {
     targetWorkspaceId?: string,
   ): Promise<ChallengeResult<ChallengeGovernanceResource>>;
   publish(id: string): Promise<ChallengeResult<ChallengeGovernanceResource>>;
+  extendDeadline(
+    id: string,
+    proposalDeadline: string,
+    reason: string,
+  ): Promise<ChallengeResult<ChallengeGovernanceResource>>;
+  changePublicationState(
+    id: string,
+    command: ChallengePublicationCommand,
+    reason: string,
+  ): Promise<ChallengeResult<ChallengeGovernanceResource>>;
 }
