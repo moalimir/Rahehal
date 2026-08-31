@@ -9,7 +9,7 @@ import type {
   ChallengeGovernanceGateway,
   ChallengePublicationCommand,
 } from "@/lib/challenges/governance";
-import { formatDateTime } from "@/lib/challenges/model";
+import { formatDateTime, tehranTimeLabel, tehranWallClockToIso } from "@/lib/challenges/model";
 
 const stateLabels: Record<ChallengePublicationState, string> = {
   open: "باز و در حال پذیرش پیشنهاد",
@@ -84,7 +84,10 @@ export function LiveCallControls({
       <dl>
         <div>
           <dt>مهلت فعلی ارسال پیشنهاد</dt>
-          <dd>{formatDateTime(challenge.proposal_deadline_at ?? undefined)}</dd>
+          <dd>
+            {formatDateTime(challenge.proposal_deadline_at ?? undefined)}{" "}
+            <small>{tehranTimeLabel}</small>
+          </dd>
         </div>
         <div>
           <dt>نسخه جاری پرونده</dt>
@@ -99,19 +102,17 @@ export function LiveCallControls({
               className="challenge-live-call__form"
               onSubmit={(event) => {
                 event.preventDefault();
-                const parsedDeadline = new Date(proposalDeadline);
-                if (!proposalDeadline || !Number.isFinite(parsedDeadline.getTime())) {
+                // `datetime-local` carries no zone, so the browser would read
+                // it in the publisher's own. Solvers were promised a Tehran
+                // deadline, so that is what the entered wall clock means.
+                const deadlineIso = tehranWallClockToIso(proposalDeadline);
+                if (!deadlineIso) {
                   onMessage("مهلت تازه را با تاریخ و ساعت معتبر وارد کنید.");
                   return;
                 }
                 void (async () => {
                   const extended = await run(
-                    () =>
-                      gateway.extendDeadline(
-                        challenge.id,
-                        parsedDeadline.toISOString(),
-                        extensionReason.trim(),
-                      ),
+                    () => gateway.extendDeadline(challenge.id, deadlineIso, extensionReason.trim()),
                     "مهلت تازه با موفقیت ثبت شد.",
                   );
                   if (extended) {
@@ -123,7 +124,7 @@ export function LiveCallControls({
             >
               <label className="challenge-field">
                 <span className="challenge-field__label">
-                  مهلت تازه <b aria-label="الزامی">*</b>
+                  مهلت تازه ({tehranTimeLabel}) <b aria-label="الزامی">*</b>
                 </span>
                 <input
                   type="datetime-local"
@@ -131,7 +132,10 @@ export function LiveCallControls({
                   required
                   onChange={(event) => setProposalDeadline(event.target.value)}
                 />
-                <small>مهلت فقط رو به جلو تمدید می‌شود؛ زمان سرور ملاک نهایی است.</small>
+                <small>
+                  تاریخ و ساعت {tehranTimeLabel} تفسیر می‌شود. مهلت فقط رو به جلو تمدید می‌شود؛ زمان
+                  سرور ملاک نهایی است.
+                </small>
               </label>
               <label className="challenge-field">
                 <span className="challenge-field__label">

@@ -64,7 +64,8 @@ const readyContent = {
   sourcing_model: "public",
   allowed_applicant_types: ["individual", "expert-team"],
   work_mode: "hybrid",
-  proposal_deadline: "2030-02-01T00:00:00.000Z",
+  // The end of 2030-02-01 in Tehran, as the intake form would write it.
+  proposal_deadline: "2030-02-01T20:29:59.999Z",
   visibility: "public",
   public_summary: "فراخوان عمومی برای کاهش مصرف آب در خط رنگ کارخانه.",
   ip_terms: "solver_license",

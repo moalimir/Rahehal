@@ -6,7 +6,7 @@ import type { ChallengePublicProjectionResource } from "@rahhal/contracts";
 import { SiteHeader } from "@/components/site-header";
 import { PublicFooter } from "@/components/site-footer";
 import { readPublicChallenge } from "@/lib/challenges/adapters/network-public-challenges";
-import { formatDateTime } from "@/lib/challenges/model";
+import { formatDateTime, publicationStateLabels, tehranTimeLabel } from "@/lib/challenges/model";
 
 const applicantLabels: Record<string, string> = {
   individual: "فرد مستقل",
@@ -60,8 +60,13 @@ export function PublicChallengeRecord({ id }: { id: string }) {
     );
   }
 
+  // A paused, closed or cancelled call still resolves by direct link — that is
+  // the whole reason B6 keeps the projection row. Saying "published" for all
+  // four states hands a solver a call they cannot actually apply to.
+  const accepting = record.state === "open";
+
   return (
-    <article data-public-challenge={record.challenge_id}>
+    <article data-public-challenge={record.challenge_id} data-publication-state={record.state}>
       <section className="rh-challenge-heading">
         <div>
           <nav aria-label="مسیر صفحه">
@@ -71,7 +76,12 @@ export function PublicChallengeRecord({ id }: { id: string }) {
           </nav>
           <h1>{record.title}</h1>
           <p>{record.public_summary}</p>
-          <span className="rh-demo-badge">فراخوان منتشرشده</span>
+          <span className="rh-demo-badge">{publicationStateLabels[record.state]}</span>
+          {!accepting && (
+            <p className="rh-challenge-closed-note" role="status">
+              این فراخوان در حال حاضر پیشنهاد تازه نمی‌پذیرد.
+            </p>
+          )}
         </div>
       </section>
       <dl className="challenge-record-bar">
@@ -85,7 +95,9 @@ export function PublicChallengeRecord({ id }: { id: string }) {
         </div>
         <div>
           <dt>مهلت ارسال پیشنهاد</dt>
-          <dd>{formatDateTime(record.proposal_deadline)}</dd>
+          <dd>
+            {formatDateTime(record.proposal_deadline)} <small>{tehranTimeLabel}</small>
+          </dd>
         </div>
         <div>
           <dt>مشارکت‌کنندگان مجاز</dt>

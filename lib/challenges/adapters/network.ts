@@ -9,7 +9,14 @@ import type {
   PatchChallengeBody,
 } from "@rahhal/contracts";
 import type { ChallengeRecord } from "@/domain/challenge";
-import { emptyChallenge } from "@/lib/challenges/model";
+import {
+  emptyChallenge,
+  majorAmountToMinor,
+  minorAmountToMajor,
+  tehranDateInput,
+  tehranEndOfDayToIso,
+  tehranStartOfDayToIso,
+} from "@/lib/challenges/model";
 import type {
   ChallengeGateway,
   ChallengeGatewayErrorCode,
@@ -22,22 +29,7 @@ type NetworkChallengeGatewayOptions = {
   readonly activeWorkspaceId: () => string | null;
 };
 
-function dateInput(value: string | null): string {
-  return value ? value.slice(0, 10) : "";
-}
-
-function dateTime(value: string): string | null {
-  return value ? `${value}T00:00:00.000Z` : null;
-}
-
-function amountMinor(value: string): number | null {
-  const normalized = value
-    .replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit)))
-    .replace(/[٬,\s]/g, "");
-  if (!normalized) return null;
-  const parsed = Number(normalized);
-  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
-}
+const dateInput = tehranDateInput;
 
 function inferLastStep(content: ChallengeDraftContentResource): 1 | 2 | 3 | 4 {
   if (content.visibility || content.contact.email || content.accuracy_confirmed) return 4;
@@ -80,7 +72,10 @@ export function challengeResourceToRecord(resource: ChallengeResource): Challeng
     proposalDeadline: dateInput(content.proposal_deadline),
     preferredStartDate: dateInput(content.preferred_start_date),
     budgetStatus: content.budget.status,
-    budgetAmount: content.budget.amount_minor?.toString() ?? "",
+    budgetAmount:
+      content.budget.amount_minor === null
+        ? ""
+        : minorAmountToMajor(content.budget.amount_minor).toString(),
     currency: content.budget.currency,
     invitees: content.invitees.join("، "),
     visibility: content.visibility ?? "",
@@ -121,11 +116,12 @@ export function challengeRecordToPatch(record: ChallengeRecord): ChallengeDraftP
     applicant_scope: record.applicantScope || null,
     allowed_applicant_types: record.allowedApplicantTypes,
     work_mode: record.workMode || null,
-    proposal_deadline: dateTime(record.proposalDeadline),
-    preferred_start_date: dateTime(record.preferredStartDate),
+    proposal_deadline: tehranEndOfDayToIso(record.proposalDeadline),
+    preferred_start_date: tehranStartOfDayToIso(record.preferredStartDate),
     budget: {
       status: record.budgetStatus || "undecided",
-      amount_minor: record.budgetStatus === "fixed" ? amountMinor(record.budgetAmount) : null,
+      amount_minor:
+        record.budgetStatus === "fixed" ? majorAmountToMinor(record.budgetAmount) : null,
       currency: record.currency,
     },
     invitees: record.invitees

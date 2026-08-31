@@ -5,24 +5,35 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChallengePublicProjectionResource } from "@rahhal/contracts";
 
 import { Icon } from "@/components/icons";
-import { applicantTypeLabels, budgetStatusLabels } from "@/domain/challenge";
+import { applicantTypeLabels, budgetStatusLabels, currencyLabels } from "@/domain/challenge";
 import { listPublicChallenges } from "@/lib/challenges/adapters/network-public-challenges";
-import { formatDateTime } from "@/lib/challenges/model";
+import {
+  formatDateTime,
+  formatMinorAmount,
+  publicationStateLabels,
+  tehranTimeLabel,
+} from "@/lib/challenges/model";
 
 function budgetLabel(challenge: ChallengePublicProjectionResource): string {
   if (challenge.budget.status !== "fixed" || challenge.budget.amount_minor === null) {
     return budgetStatusLabels[challenge.budget.status];
   }
-  return `${challenge.budget.amount_minor.toLocaleString("fa-IR")} ${challenge.budget.currency}`;
+  return `${formatMinorAmount(challenge.budget.amount_minor)} ${
+    currencyLabels[challenge.budget.currency]
+  }`;
 }
 
 function PublicChallengeCard({ challenge }: { challenge: ChallengePublicProjectionResource }) {
   const href = `/challenges/record/?id=${encodeURIComponent(challenge.challenge_id)}`;
   return (
-    <article className="rh-challenge-card is-new">
+    <article className="rh-challenge-card is-new" data-publication-state={challenge.state}>
       <section className="rh-challenge-card__primary" aria-label="مشخصات چالش">
         <header className="rh-challenge-card__status">
-          <span className="rh-active-pill">پذیرش پیشنهاد</span>
+          {/* The listing only returns open calls today, but the pill still
+              reads the record rather than asserting it — a hardcoded
+              "accepting proposals" becomes a lie the moment the filter or a
+              cached page disagrees. */}
+          <span className="rh-active-pill">{publicationStateLabels[challenge.state]}</span>
         </header>
         <h2>
           <Link href={href}>{challenge.title}</Link>
@@ -55,7 +66,9 @@ function PublicChallengeCard({ challenge }: { challenge: ChallengePublicProjecti
             <dt>
               <Icon name="history" /> مهلت
             </dt>
-            <dd>{formatDateTime(challenge.proposal_deadline)}</dd>
+            <dd>
+              {formatDateTime(challenge.proposal_deadline)} <small>{tehranTimeLabel}</small>
+            </dd>
           </div>
         </dl>
       </section>

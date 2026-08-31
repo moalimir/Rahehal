@@ -85,6 +85,47 @@ describe("A3 network challenge gateway", () => {
     });
   });
 
+  /**
+   * The two units the gateway is responsible for translating. A wrong-direction
+   * wiring still satisfies the helpers' own unit tests, so the direction is
+   * asserted here, on the wire.
+   */
+  it("sends budget as minor units and the deadline as the end of its Tehran day", async () => {
+    const resource = buildChallengeResource({
+      id: parseChallengeId("chl_a3_gateway_units"),
+      workspace_id: workspaceId,
+      content: {
+        title: "کاهش مصرف بخار",
+        budget: { status: "fixed", amount_minor: 85_000_000_000, currency: "IRR" },
+        proposal_deadline: "2030-02-01T20:29:59.999Z",
+      },
+    });
+    const responses = [
+      jsonResponse({ ok: true, data: resource, meta } satisfies ChallengeSuccessEnvelope),
+      jsonResponse(buildMutationSuccess({ entity_id: resource.id, next_actions: ["edit"] }, meta)),
+      jsonResponse({ ok: true, data: resource, meta } satisfies ChallengeSuccessEnvelope),
+    ];
+    const fetchMock = vi.fn<GatewayFetch>(async () => responses.shift() ?? jsonResponse({}, 500));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("crypto", { randomUUID: () => "00000000-0000-4000-8000-000000000002" });
+
+    const gateway = createNetworkChallengeGateway({ activeWorkspaceId: () => workspaceId });
+    const loaded = await gateway.queries.get(resource.id);
+    if (!loaded.ok) throw new Error("the gateway must load the seeded resource");
+
+    // Read back: the person sees the major unit and the plain calendar date.
+    expect(loaded.data.budgetAmount).toBe("850000000");
+    expect(loaded.data.proposalDeadline).toBe("2030-02-01");
+
+    await gateway.commands.save(loaded.data);
+
+    const saveCall = fetchMock.mock.calls[1];
+    if (!saveCall) throw new Error("the gateway must issue a save request");
+    const body = JSON.parse(String(saveCall[1]?.body));
+    expect(body.patch.budget).toMatchObject({ amount_minor: 85_000_000_000, currency: "IRR" });
+    expect(body.patch.proposal_deadline).toBe("2030-02-01T20:29:59.999Z");
+  });
+
   it("surfaces stale versions as typed conflicts and never falls back to fixtures", async () => {
     const resource = buildChallengeResource({
       id: parseChallengeId("chl_a3_gateway_conflict"),
