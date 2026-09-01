@@ -15,6 +15,10 @@ Audit and consolidate every user-visible page in the frontend (root `app/`, `com
 - **No new dependency added preemptively.** Framer Motion is not added up front; it's a candidate only if a specific page's interaction genuinely can't be done with CSS (existing `prefers-reduced-motion` handling in `app/internal.css`, `app/solver-workspace.css`, `app/challenge-flow.css`, `app/globals.css` already covers the current motion surface).
 - **Does not gate or replace the visual Golden Master baseline** (`T-E` in [82_PHASE0_COMPLETION](82_PHASE0_COMPLETION.md)). It should land _before_ that baseline is finally committed, so the baseline doesn't freeze in known-inconsistent states — but the two are tracked separately.
 
+### Relationship to the Phase-3 connected MVP audit
+
+This document owns visual, interaction, RTL, accessibility, responsive, and design-system consistency across the whole frontend. [84_PHASE3_CONNECTED_MVP_AUDIT](84_PHASE3_CONNECTED_MVP_AUDIT.md) separately owns whether a Phase-3 route is connected to authoritative data, session-aware, persistent, and truthful about live versus demo behavior. C9 applies this document's rubric while performing that synchronization; a page does not pass C9 merely because it looks correct, and it does not pass this audit merely because its API works.
+
 ## 3. Baseline findings (2026-08-29)
 
 ### 3.1 Inventory

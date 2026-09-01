@@ -176,7 +176,14 @@ ApplicantType = individual | expert-team | company | lab | academic-group
 - The solver-side collision is implemented as **`TeamKind`** in `packages/domain/src/taxonomy.ts`, and `SolverTeam.teamKind` answers "what kind of team is this". Solver demo-store v5 migrates valid v4 flat team roles to canonical `team:*` values; direct v3 upgrade also maps `teamType` to `teamKind`. An authoritative v5 persist makes a best-effort v4 rollback mirror with canonical `teamKind` and down-mapped flat roles. Invalid/missing kinds or roles reject the snapshot instead of widening access, corrupt-current recovery requires a fresh v4 mirror, and the v5-seen guard prevents stale v3 resurrection.
 - `SolverTeamType` in `components/portal/registration-experiences.tsx` is deliberately **not** `TeamKind`: its `formal-company` / `independent` / university-supervision values are an ephemeral onboarding UI draft, are not persisted into `SolverState`, and remain deferred until team onboarding has a canonical affiliation/verification contract. These presentation variants must not extend `TeamKind` or enter an API/database schema.
 
-**Decision status:** the derived rule above is implemented as the fail-closed engineering default (DEC-2026-010). Product-owner sign-off remains the release gate. Existing v9 records are normalized and rewritten on read; the detailed allow-set is never inferred from a coarse legacy scope, so migration cannot broaden eligibility.
+**Solver onboarding and verification boundary (DEC-2026-016):**
+
+- A signup selection describes onboarding intent, never a second identity or credential namespace. A provider-verified human receives exactly one permanent individual solver workspace and may own or join additional team workspaces through memberships.
+- Verified contact, profile readiness, and workspace verification are distinct facts. A newly activated individual or team workspace may have verification state `not_started`; no UI may infer `verified` from signup completion, team creation, affiliation, or an authenticated session.
+- An unverified workspace may maintain its profile, collaborate, discover/save opportunities, and draft. Verification gates submission only when the exact governed challenge version has `verification_required=true`; the submission transaction re-evaluates that fact against server-owned state.
+- Team onboarding persists only canonical `TeamKind`: `formal-company → company`, `independent → expert-team`, and university variants → `academic-group`. Supervisor, institution, employer, and legal-affiliation details are separate profile or verification facts. `lab` remains an explicit canonical kind and is never inferred from “university”.
+
+**Decision status:** the derived applicant-scope rule is accepted and implemented (DEC-2026-010); the onboarding/verification boundary is accepted for Phase 3 (DEC-2026-016). Existing v9 records are normalized and rewritten on read; the detailed allow-set is never inferred from a coarse legacy scope, so migration cannot broaden eligibility.
 
 ## 6. Core entity graph (canonical)
 
