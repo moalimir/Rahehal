@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Brand } from "@/components/brand";
 import { Icon } from "@/components/icons";
+import { SessionAware } from "@/components/site-header-session-boundary";
 
 export function SiteHeader({
   variant = "default",
@@ -86,21 +87,25 @@ export function SiteHeader({
       <div className="site-header__inner container">
         <Brand reference={isReference} />
         {isHome && (
-          <nav
-            className="home-role-actions home-role-actions--organization"
-            aria-label="ورود و ثبت‌نام سازمان"
-          >
-            <Link href="/auth/organization/login" aria-label="ورود سازمان">
-              ورود سازمان
-            </Link>
-            <Link
-              className="is-primary"
-              href="/auth/organization/register/representative"
-              aria-label="ثبت نام سازمان"
-            >
-              ثبت نام سازمان
-            </Link>
-          </nav>
+          <SessionAware
+            fallback={
+              <nav
+                className="home-role-actions home-role-actions--organization"
+                aria-label="ورود و ثبت‌نام سازمان"
+              >
+                <Link href="/auth/organization/login" aria-label="ورود سازمان">
+                  ورود سازمان
+                </Link>
+                <Link
+                  className="is-primary"
+                  href="/auth/organization/register/representative"
+                  aria-label="ثبت نام سازمان"
+                >
+                  ثبت نام سازمان
+                </Link>
+              </nav>
+            }
+          />
         )}
         <nav className="desktop-nav" aria-label="ناوبری اصلی">
           {navigation.map(([label, href]) => (
@@ -126,38 +131,46 @@ export function SiteHeader({
         </nav>
         <div className="header-actions">
           {isHome ? (
-            <nav
-              className="home-role-actions home-role-actions--solver"
-              aria-label="ورود و ثبت‌نام فرد یا تیم"
-            >
-              <Link href="/auth/login?role=solver" aria-label="ورود فرد یا تیم">
-                ورود فرد یا تیم
-              </Link>
-              <Link
-                className="is-primary"
-                href="/auth/solver/register/type"
-                aria-label="ثبت نام فرد یا تیم"
-              >
-                ثبت نام فرد یا تیم
-              </Link>
-            </nav>
+            <SessionAware
+              fallback={
+                <nav
+                  className="home-role-actions home-role-actions--solver"
+                  aria-label="ورود و ثبت‌نام فرد یا تیم"
+                >
+                  <Link href="/auth/login?role=solver" aria-label="ورود فرد یا تیم">
+                    ورود فرد یا تیم
+                  </Link>
+                  <Link
+                    className="is-primary"
+                    href="/auth/solver/register/type"
+                    aria-label="ثبت نام فرد یا تیم"
+                  >
+                    ثبت نام فرد یا تیم
+                  </Link>
+                </nav>
+              }
+            />
           ) : (
-            <nav className="header-login-options" aria-label="انتخاب مسیر ورود">
-              <Link
-                className="header-login-option header-login-option--organization"
-                href="/auth/organization/login"
-                aria-label="ورود سازمان مسئله‌گذار"
-              >
-                <span>ورود</span> سازمان
-              </Link>
-              <Link
-                className="header-login-option header-login-option--solver"
-                href="/auth/login?role=solver"
-                aria-label="ورود فرد یا تیم حل‌کننده"
-              >
-                <span>ورود</span> فرد یا تیم
-              </Link>
-            </nav>
+            <SessionAware
+              fallback={
+                <nav className="header-login-options" aria-label="انتخاب مسیر ورود">
+                  <Link
+                    className="header-login-option header-login-option--organization"
+                    href="/auth/organization/login"
+                    aria-label="ورود سازمان مسئله‌گذار"
+                  >
+                    <span>ورود</span> سازمان
+                  </Link>
+                  <Link
+                    className="header-login-option header-login-option--solver"
+                    href="/auth/login?role=solver"
+                    aria-label="ورود فرد یا تیم حل‌کننده"
+                  >
+                    <span>ورود</span> فرد یا تیم
+                  </Link>
+                </nav>
+              }
+            />
           )}
           {isDirectory && (
             <Link

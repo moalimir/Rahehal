@@ -102,3 +102,8 @@ export function ConnectedRecordLinks(): never {
 export function NetworkInternalBoundary(): never {
   return unreachable("NetworkInternalBoundary");
 }
+
+/** Stands in for `@/components/site-header-session`. */
+export function SessionHeaderActions(): never {
+  return unreachable("SessionHeaderActions");
+}
