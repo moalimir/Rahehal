@@ -1048,12 +1048,12 @@
   --color-text-950: #111827;
   --color-text-700: #374151;
   --color-text-500: #667085;
-  --color-surface: #ffffff;
   --color-surface-subtle: #f6f8fb;
-  --color-border: #dce3ee;
-  --radius-card: 14px;
-  --radius-panel: 22px;
   --shadow-float: 0 24px 64px rgba(5, 23, 52, 0.14);
+  /* --color-surface, --color-border, --radius-card and --radius-panel are
+     declared once, in design-system.css. They used to be declared here too,
+     and because this file loads second these copies won — so design-system's
+     own stated values for border and card radius were dead. */
 }
 
 * {
