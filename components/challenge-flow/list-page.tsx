@@ -212,10 +212,16 @@ export function ChallengeListPage() {
             return (
               <article key={record.id} className="challenge-data-row">
                 <div className="challenge-data-row__title">
+                  {/* Deliberately not wrapped in <bdi>: the cell truncates with
+                      an ellipsis, and an isolated inline box makes a Latin
+                      title clip from its start instead of its end. An untitled
+                      draft still needs something clickable. */}
                   <Link href={challengeHref(`/app/org/challenges/${record.id}`)}>
-                    {record.title}
+                    {record.title.trim() || "پیش‌نویس بدون عنوان"}
                   </Link>
-                  <bdi>{record.id}</bdi>
+                  {/* Truncated in CSS; the full id stays available to a pointer
+                      and to assistive technology. */}
+                  <bdi title={record.id}>{record.id}</bdi>
                 </div>
                 <div data-label="دسته‌بندی">{record.category}</div>
                 <div data-label="وضعیت">

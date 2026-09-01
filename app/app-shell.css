@@ -537,3 +537,14 @@
     grid-template-columns: minmax(230px, 270px) minmax(0, 1fr);
   }
 }
+
+/* WCAG 2.5.8 target size: these three sat at 29-42px on every workspace page.
+   (The wizard's 17px radios already pass — their 46px label is the target.) */
+.unified-topbar__profile,
+.unified-space-switcher--select select {
+  min-block-size: 44px;
+}
+.unified-sidebar .text-button {
+  min-block-size: 44px;
+  padding-inline: var(--space-2);
+}
