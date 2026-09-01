@@ -311,6 +311,8 @@ npm run test:smoke
 npm run verify:offline
 npm run test:standalone-interactive
 npm run check:budgets
+npm run build:web:network
+npm run check:budgets:network
 npm run test:browser
 ```
 

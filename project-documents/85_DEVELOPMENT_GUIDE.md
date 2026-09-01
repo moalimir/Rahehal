@@ -168,7 +168,11 @@ npm run verify:offline
 npm run test:standalone-interactive
 npm run analyze:build
 npm run check:budgets
+npm run build:web:network
+npm run check:budgets:network
 ```
+
+The demo and connected JavaScript budgets are intentionally separate. Each hard-gates the largest asset, the script assets shared by every configured representative route, and the initial script/preload assets of landing, public, solver, organization, reviewer, and operations routes. The demo command also owns static/offline and CSS ceilings. Complete emitted JavaScript is logged against the DEC-2026-014 reference as a non-blocking trend; this avoids penalizing route chunks that a visit does not load. Run the matching build immediately before its budget command.
 
 Serve the generated export:
 

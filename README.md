@@ -208,10 +208,17 @@ npm run analyze:source
 npm run analyze:source:check
 npm run analyze:build
 npm run check:budgets
+npm run build:web:network
+npm run check:budgets:network
 npm run analyze:bundle
 ```
 
 `analyze:bundle` performs a production build with the bundle analyzer enabled.
+`check:budgets` measures the demo export; the network check requires the connected
+build immediately before it. Both enforce initial JavaScript per representative
+route plus shared/largest-asset limits. Total emitted JavaScript is reported as a
+trend, because code-split routes should not fail merely for existing as separate
+chunks.
 Generated JSON reports are written under `reports/generated/` and remain ignored.
 
 Dependency health:

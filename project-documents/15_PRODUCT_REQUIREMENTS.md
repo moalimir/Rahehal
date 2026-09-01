@@ -168,7 +168,7 @@ Contract, pilot, deliverable, and payment can follow as the second production sl
 - **NFR-AUD-001:** Business-critical mutations generate correlated audit events with actor, tenant, entity, action, version, outcome, time, and reason.
 - **NFR-A11Y-001:** Meet WCAG 2.2 AA for supported flows, including keyboard, focus, dialog behavior, semantics, error association, target size, contrast, zoom, and reduced motion.
 - **NFR-I18N-001:** Persian and RTL are first class; codes, email, amounts, and mixed-direction content use bidi isolation. Dates, numbers, currency, and Tehran time are explicit.
-- **NFR-PERF-001:** Establish user-centric LCP, INP, CLS, payload, and offline-size budgets per device/network; current byte budgets remain release-blocking until intentionally revised.
+- **NFR-PERF-001:** Establish user-centric LCP, INP, CLS, payload, and offline-size budgets per device/network. Demo and connected builds enforce representative-route initial JavaScript, shared JavaScript, largest-asset, CSS, and offline-size limits; total emitted JavaScript is a visible trend rather than a release gate because unloaded code-split routes do not affect one visit.
 - **NFR-OBS-001:** Provide structured logs, metrics, traces, audit correlation, error monitoring, synthetic journeys, alert ownership, and privacy-safe analytics.
 - **NFR-DEL-001:** Every merge passes type, lint, unit/integration, build, route/link, accessibility, browser behavior, migration, security, and relevant visual gates in CI.
 - **NFR-COMP-001:** Contracts, IP, identity, tax, payment, disputes, privacy, and use of organization marks receive qualified local review.
