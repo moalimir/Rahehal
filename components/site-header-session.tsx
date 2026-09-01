@@ -17,6 +17,13 @@ const workspaceHome: Record<string, string> = {
   ops: "/app/ops/publication",
 };
 
+const workspaceEntryLabel: Record<string, string> = {
+  org: "پنل سازمان",
+  solver: "پنل حل‌کننده",
+  reviewer: "پنل داوری",
+  ops: "پنل عملیات",
+};
+
 /**
  * The public header's sign-in area, once a real session exists.
  *
@@ -40,15 +47,11 @@ export function SessionHeaderActions({ fallback }: { fallback: ReactNode }) {
 
   return (
     <nav className="header-session" aria-label="حساب کاربری">
-      <span className="header-session__identity">
-        <strong>{session.displayName}</strong>
-        <small>{session.workspaceName}</small>
-      </span>
       <Link
         className="header-session__enter is-primary"
         href={workspaceHome[session.persona] ?? "/app"}
       >
-        ورود به فضای کاری
+        {workspaceEntryLabel[session.persona] ?? "پنل کاربری"}
       </Link>
     </nav>
   );

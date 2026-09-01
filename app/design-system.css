@@ -478,28 +478,6 @@ textarea {
 .header-session {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-}
-.header-session__identity {
-  display: grid;
-  gap: 1px;
-  max-inline-size: 14rem;
-  text-align: start;
-  line-height: 1.5;
-}
-.header-session__identity strong,
-.header-session__identity small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.header-session__identity strong {
-  font-size: var(--text-sm);
-  color: var(--color-text);
-}
-.header-session__identity small {
-  font-size: var(--text-xs);
-  color: var(--color-muted);
 }
 .header-session__enter {
   min-block-size: 38px;
@@ -520,9 +498,4 @@ textarea {
 .header-session__enter:focus-visible {
   outline: 2px solid var(--color-brand-blue);
   outline-offset: 2px;
-}
-@media (max-width: 720px) {
-  .header-session__identity {
-    display: none;
-  }
 }
