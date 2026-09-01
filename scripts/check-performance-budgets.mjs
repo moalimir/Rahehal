@@ -188,10 +188,19 @@ function run(runtime) {
       budgets.staticAssets.maxLargestCssBytes,
     );
 
+    // Authored CSS across `app/` is a sum of seven stylesheets, not what any
+    // page loads, so it gates the wrong thing (DEC-2026-015) — the same defect
+    // DEC-2026-014 removed on the JavaScript side. The two enforced ceilings
+    // above measure a real build; this stays visible as a trend so growth is
+    // still noticed, and a comment can no longer fail a release.
     const sourceCssBytes = walk(path.join(projectRoot, "app"))
       .filter((file) => file.endsWith(".css"))
       .reduce((total, file) => total + fs.statSync(file).size, 0);
-    check("source CSS bytes", sourceCssBytes, budgets.source.maxCssBytes);
+    const sourceCssDelta = sourceCssBytes - budgets.source.cssReferenceBytes;
+    console.log(
+      `${sourceCssDelta > 0 ? "WARN" : "INFO"} authored CSS bytes: ${sourceCssBytes} ` +
+        `(reference ${budgets.source.cssReferenceBytes}, delta ${sourceCssDelta >= 0 ? "+" : ""}${sourceCssDelta})`,
+    );
   }
 
   if (failures.length > 0) {

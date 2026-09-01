@@ -14,7 +14,7 @@ import { LiveCallControls } from "@/components/challenge-flow/live-call-controls
 import { useChallengeGovernance, useWebRuntime } from "@/components/runtime-provider";
 import { budgetStatusLabels, currencyLabels } from "@/domain/challenge";
 import type { ChallengeGovernanceResource } from "@/lib/challenges/governance";
-import { formatMinorAmount } from "@/lib/challenges/model";
+import { formatDateTime, formatMinorAmount, tehranTimeLabel } from "@/lib/challenges/model";
 import { navigateChallenge } from "@/lib/challenges/navigation";
 
 const gateLabels: Record<PublicationGate, string> = {
@@ -56,7 +56,12 @@ function GateRow({
         <span className="challenge-gate-row__state" data-decision={approval.decision}>
           {approval.decision === "approved" ? "تأییدشده" : "ردشده"} ·{" "}
           <bdi>{"recorded_by" in approval ? approval.recorded_by : approval.recorded_by_role}</bdi>
-          <small>{approval.reason}</small>
+          {/* A reason is free text an approver typed; it routinely mixes a
+              Persian sentence with a Latin gate name or code, which reorders
+              without isolation. */}
+          <small>
+            <bdi>{approval.reason}</bdi>
+          </small>
         </span>
       ) : (
         <span className="challenge-gate-row__state" data-decision="pending">
@@ -210,7 +215,13 @@ export function ChallengeGovernancePage({
           {resource.content.proposal_deadline !== undefined && (
             <div>
               <dt>مهلت پیشنهاد</dt>
-              <dd>{resource.content.proposal_deadline}</dd>
+              {/* The approvers read this to decide whether the window is
+                  sane. It was the one field on the brief still rendered as
+                  the raw instant the API returns. */}
+              <dd>
+                {formatDateTime(resource.content.proposal_deadline ?? undefined)}{" "}
+                <small>{tehranTimeLabel}</small>
+              </dd>
             </div>
           )}
           {resource.content.budget !== undefined && (

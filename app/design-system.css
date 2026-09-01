@@ -7,7 +7,10 @@
   --color-action-primary-hover: #006671;
   --color-surface: #ffffff;
   --color-background: #f4f7fb;
-  --color-border: #d8e2ee;
+  /* #dce3ee, not the #d8e2ee this file used to declare: globals.css redeclared
+     both this and --radius-card and, loading later, silently won. The values
+     here are the ones that were actually rendering; the duplicates are gone. */
+  --color-border: #dce3ee;
   --color-text: #10213d;
   --color-muted: #63748b;
   --space-1: 4px;
@@ -18,7 +21,8 @@
   --space-8: 32px;
   --space-12: 48px;
   --radius-control: 10px;
-  --radius-card: 16px;
+  --radius-card: 14px;
+  --radius-panel: 22px;
   --radius-modal: 20px;
   --shadow-card: 0 12px 32px rgba(16, 33, 61, 0.08);
   --shadow-overlay: 0 24px 64px rgba(4, 20, 48, 0.24);

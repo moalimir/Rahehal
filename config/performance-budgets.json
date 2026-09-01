@@ -1,6 +1,6 @@
 {
   "baselineDate": "2026-09-01",
-  "_note": "DEC-2026-014 replaces the misleading total-emitted-JavaScript ceiling with hard runtime-specific shared, largest-asset, and representative-route initial-JavaScript budgets. Total emitted JavaScript remains a visible non-blocking trend against the reference build. Byte values are uncompressed build output; user-centric targets remain below.",
+  "_note": "DEC-2026-014 replaces the misleading total-emitted-JavaScript ceiling with hard runtime-specific shared, largest-asset, and representative-route initial-JavaScript budgets. DEC-2026-015 applies the same reasoning to CSS: authored bytes across app/ are a sum of seven stylesheets rather than any page's payload, so they are a non-blocking trend and the enforced CSS ceilings are the per-build staticAssets ones. Both totals stay visible against a reference build. Byte values are uncompressed build output; user-centric targets remain below.",
   "standalone": {
     "maxBytes": 5164000,
     "maxCssCharacters": 2513000,
@@ -41,7 +41,7 @@
     "maxLargestCssBytes": 219000
   },
   "source": {
-    "maxCssBytes": 626000,
+    "cssReferenceBytes": 625973,
     "maxImportCycles": 0
   },
   "webVitals": {

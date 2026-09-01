@@ -478,9 +478,15 @@
 }
 
 .challenge-data-row__title bdi {
+  /* A 36-character server id in a narrower column: clipped mid-string with no
+     ellipsis, it read as corrupted rather than shortened. */
+  overflow: hidden;
+  max-inline-size: 100%;
   color: var(--challenge-muted);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .challenge-data-row__actions {
