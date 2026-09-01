@@ -11,7 +11,7 @@ import {
 import { useChallengeRecord } from "@/components/challenge-flow/hooks";
 import { useWebRuntime } from "@/components/runtime-provider";
 import { formatDateTime } from "@/lib/challenges/model";
-import { navigateChallenge } from "@/lib/challenges/navigation";
+import { challengeHref, navigateChallenge } from "@/lib/challenges/navigation";
 
 export function ChallengeSubmittedPage({ id }: { id: string }) {
   const runtime = useWebRuntime();
@@ -39,7 +39,7 @@ export function ChallengeSubmittedPage({ id }: { id: string }) {
           <p>برای ادامه به پیش‌نمایش پرونده بروید.</p>
           <Link
             className="challenge-button challenge-button--primary"
-            href={`/app/org/challenges/${record.id}/preview`}
+            href={challengeHref(`/app/org/challenges/${record.id}/preview`)}
           >
             مشاهده پیش‌نمایش
           </Link>
@@ -115,7 +115,7 @@ export function ChallengeSubmittedPage({ id }: { id: string }) {
           )}
           <Link
             className="challenge-button challenge-button--primary"
-            href={`/app/org/challenges/${record.id}`}
+            href={challengeHref(`/app/org/challenges/${record.id}`)}
           >
             مشاهده پرونده
           </Link>

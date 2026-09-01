@@ -5,7 +5,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ChallengeDiscoveryApp } from "@/components/challenge-discovery";
 import { Icon } from "@/components/icons";
 import { LegacyRedirect } from "@/components/legacy-redirect";
-import { PlatformApprovalQueue } from "@/components/platform-approval-queue";
 import {
   LegacyUnavailable,
   PermissionDenied,
@@ -14,6 +13,7 @@ import {
   SessionRequired,
 } from "@/components/route-fallbacks";
 import { InternalPage, type ActionHandler } from "@/components/internal/pages";
+import { NetworkInternalBoundary } from "@/components/internal/network-internal-boundary";
 import {
   isOrganizationWorkspacePath,
   OrganizationWorkspaceExperience,
@@ -41,6 +41,7 @@ import {
 import { isQaHarnessEnabled } from "@/lib/qa-harness";
 import { isNetworkWebRuntime } from "@/lib/runtime/mode";
 import { canAccessInternalRole, readDemoSession, type DemoSession } from "@/lib/auth/session";
+import { PreviewDataNotice } from "@/components/organization-preview-notice";
 import { isRecordReady } from "@/lib/challenges/validation";
 import { directOfferById, proposalById, readSolverState } from "@/lib/solver/repository";
 
@@ -92,10 +93,10 @@ const solverProfileSections: Record<string, SolverProfileSection> = {
 
 export function InternalApp({ route }: { route: InternalRoute }) {
   const legacy = getLegacyResolution(route.path);
-  const [session, setSession] = useState<DemoSession | null | undefined>(undefined);
+  const [demoSession, setDemoSession] = useState<DemoSession | null | undefined>(undefined);
   useEffect(() => {
     if (process.env.NODE_ENV === "test") {
-      setSession({
+      setDemoSession({
         version: 1,
         userId: `test-${route.role}`,
         role: route.role,
@@ -105,17 +106,25 @@ export function InternalApp({ route }: { route: InternalRoute }) {
       });
       return;
     }
-    setSession(readDemoSession());
+    setDemoSession(readDemoSession());
   }, [route.role]);
+
   if (legacy?.kind === "redirect") return <LegacyRedirect target={legacy.target} />;
   if (legacy?.kind === "unavailable") return <LegacyUnavailable resolution={legacy} />;
-  if (isNetworkWebRuntime && route.path === "/app/ops/publication") {
+  if (isNetworkWebRuntime)
     return (
-      <ConfiguredRoleShell role="ops" currentPath={route.path}>
-        <PlatformApprovalQueue />
-      </ConfiguredRoleShell>
+      <NetworkInternalBoundary route={route}>
+        {(session) => renderInternalRoute(route, session, true)}
+      </NetworkInternalBoundary>
     );
-  }
+  return renderInternalRoute(route, demoSession, false);
+}
+
+function renderInternalRoute(
+  route: InternalRoute,
+  session: DemoSession | null | undefined,
+  network: boolean,
+) {
   if (session === undefined) return <RouteResolving />;
   const sharedRoute =
     /^\/app\/(?:search|tasks|calendar|messages|notifications|documents|help|account)(?:\/|$)/.test(
@@ -132,7 +141,16 @@ export function InternalApp({ route }: { route: InternalRoute }) {
         {isOrganizationWorkspacePath(route.path) ? (
           <OrganizationWorkspaceExperience route={route} />
         ) : (
-          <InternalExperience route={route} />
+          <>
+            {/* The case pages — timeline, proposals, review, pilot and the
+                rest — are keyed to a fixture challenge that exists in no
+                database, and their server authorities are Phase 3 to 5. They
+                get the same label as every other sample page rather than
+                letting a person click out of a marked page into an unmarked
+                one. */}
+            {network && <PreviewDataNotice />}
+            <InternalExperience route={route} />
+          </>
         )}
       </OrganizationShell>
     );

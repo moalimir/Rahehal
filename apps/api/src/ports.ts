@@ -1,5 +1,7 @@
 import type {
   ChallengeApprovalBriefResource,
+  ChallengeListQuery,
+  ChallengePage,
   ChallengeApprovalNextAction,
   PlatformChallengeApprovalQueueResource,
   ChallengePublicPage,
@@ -214,6 +216,12 @@ export interface ChallengePort {
     context: ChallengeCommandContext,
   ): Promise<MutationOutcome<ChallengeId, ChallengeNextAction>>;
   getScoped(scope: ChallengeScope, id: string): Promise<ChallengeResource | null>;
+  /**
+   * The active workspace's own challenges. Scoped by `(tenant, workspace)`
+   * like every other protected read, so this is a list of what the caller
+   * owns rather than a catalogue that happens to be filtered.
+   */
+  listScoped(scope: ChallengeScope, query: ChallengeListQuery): Promise<ChallengePage>;
   getApprovalBrief(
     scope: ChallengeScope,
     id: string,

@@ -277,7 +277,33 @@ The product is Persian-first and RTL. It uses local Estedad WOFF2 files in weigh
 400, 500, 600, 700, and 800, followed by Tahoma and sans-serif fallbacks. Font
 synthesis is disabled.
 
-### Core tokens
+### Token namespaces and who owns them
+
+There is no single token scale yet; there are five, each owned by exactly one
+stylesheet. That is the vocabulary — knowing which file declares a name is what
+stops the same concept being defined twice with different values. Every token
+below is declared in **one** place, and `app/layout.tsx` fixes the load order.
+
+| Namespace                                                                                                   | Declared in                    | Scope               | Used by                                 |
+| ----------------------------------------------------------------------------------------------------------- | ------------------------------ | ------------------- | --------------------------------------- |
+| `--color-brand-*`, `--color-action-*`, `--space-*`, `--text-*`, `--radius-*`, `--shadow-*`, layout, `--z-*` | `design-system.css` `:root`    | global              | public, portal, route fallbacks         |
+| `--color-navy-*`, `--color-primary-*`, `--color-text-*`, `--color-surface-subtle`                           | `globals.css` `:root`          | global              | landing and marketing pages             |
+| `--app-*`                                                                                                   | `internal.css` `.app-shell`    | scoped to the shell | org, solver, reviewer, ops workspaces   |
+| `--challenge-*`                                                                                             | `challenge-flow.css` `:root`   | global              | the challenge authoring/governance flow |
+| `--rh-*`                                                                                                    | `solver-workspace.css` `:root` | global              | solver workspace                        |
+
+`--color-surface`, `--color-border`, `--radius-card` and `--radius-panel` were
+once declared in both `design-system.css` and `globals.css`. Because `globals`
+loads second it won, so `design-system`'s stated border colour and card radius
+were dead text — anyone reading that file got a value the page never used. They
+are now declared once, in `design-system.css`, at the values that were already
+rendering.
+
+`tailwind.config.ts` aliases these custom properties rather than restating hex
+values, so it cannot drift from them. Tailwind is here for its preflight reset;
+the interface uses effectively no utility classes.
+
+### Internal workspace tokens
 
 | Purpose        | Token          | Value/meaning   |
 | -------------- | -------------- | --------------- |
@@ -289,6 +315,11 @@ synthesis is disabled.
 | Success        | `--app-green`  | `#07866f`       |
 | Warning        | `--app-amber`  | `#ad6504`       |
 | Danger         | `--app-red`    | `#c1384f`       |
+
+`.app-shell--solver`, `--reviewer` and `--ops` re-point `--app-blue`/`--app-navy`
+per role; `.app-dialog` re-points a few for contrast on its overlay. Those are
+the only legitimate redefinitions — they change a role's accent, not the meaning
+of a token.
 
 Shared patterns include panels, metric cards, status badges, case headers and
 navigation, gate checklists, confirmation dialogs, receipt panels, and notices for

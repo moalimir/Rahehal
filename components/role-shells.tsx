@@ -3,6 +3,10 @@
 import type { ReactNode } from "react";
 import { RoleAppShell, type AppNavigationItem, type AppShellRole } from "@/components/app-shell";
 import { useWebRuntime } from "@/components/runtime-provider";
+import {
+  networkOrganizationNavigation,
+  networkOrganizationRoleLabel,
+} from "@/lib/auth/network-organization-shell";
 
 const navigation: Record<Exclude<AppShellRole, "solver">, AppNavigationItem[]> = {
   org: [
@@ -147,18 +151,24 @@ export function ConfiguredRoleShell({
         workspaceLabel: "فضای سازمانی فعال",
         workspaceName: activeWorkspace?.name ?? "انتخاب فضای کاری",
         userName: runtime.me?.user.display_name ?? "کاربر راه‌حل",
-        userRole:
-          activeMembership?.role === "org:owner"
-            ? "مالک سازمان"
-            : activeMembership?.role === "org:member"
-              ? "عضو سازمان"
-              : "عضو بدون فضای فعال",
+        // Every organization role gets its own name. The old mapping knew only
+        // owner and member, so a publisher or an approver — the two roles the
+        // separation of duty exists for — were labelled as having no active
+        // workspace while they were signed into one.
+        userRole: activeMembership
+          ? networkOrganizationRoleLabel(activeMembership.role)
+          : "عضو بدون فضای فعال",
       }
     : accounts[role];
+
+  const roleScopedNavigation = connectedOrganization
+    ? networkOrganizationNavigation(navigation[role], activeMembership?.role)
+    : navigation[role];
+
   return (
     <RoleAppShell
       role={role}
-      navigation={navigation[role]}
+      navigation={roleScopedNavigation}
       currentPath={currentPath}
       account={account}
       rootClassName={organizationShell ? "rh-shell rh-org-shell" : `app-shell app-shell--${role}`}

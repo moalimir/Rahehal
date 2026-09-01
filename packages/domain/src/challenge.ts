@@ -374,6 +374,14 @@ export function evaluateChallengeReadiness(content: ChallengeDraftContent): Chal
   return { ready: issues.length === 0, issues };
 }
 
+/** A rough brief can enter screening once its first-step ownership facts exist. */
+export function evaluateChallengeTriageReadiness(
+  content: ChallengeDraftContent,
+): ChallengeReadiness {
+  const issues = evaluateChallengeReadiness(content).issues.filter((issue) => issue.step === 1);
+  return { ready: issues.length === 0, issues };
+}
+
 export type ChallengeDraft = {
   readonly id: ChallengeId;
   readonly currentVersionId: ChallengeVersionId;
@@ -483,9 +491,9 @@ export type PublicationReadiness = {
 /**
  * Publication requires all four gates recorded with an "approved" decision
  * (canonical model invariant #2). A recorded "rejected" decision still
- * occupies that gate's one row per version — the version cannot be
- * re-approved; a reasoned decision must send the challenge back through
- * formulation as a new version instead (out of B2's scope).
+ * occupies that gate's one row per version — the rejected version cannot be
+ * re-approved. Editing a rejected approvals version creates a new immutable
+ * version in formulation, whose gates start empty.
  */
 export function evaluatePublicationReadiness(
   approvals: readonly ChallengeApprovalRecord[],
@@ -603,4 +611,47 @@ export function canChangePublicationState(
 /** Only an `open` call is listed in discovery; the rest keep their record. */
 export function isDiscoverablePublicationState(state: ChallengePublicationState): boolean {
   return state === "open";
+}
+
+/**
+ * What an organization role may do, in one place, because the server and the
+ * navigation both need the answer and two copies of it drift.
+ *
+ * These are the predicates `apps/api` already enforces on every request; the
+ * web reads them only to decide what to *offer*. A hidden link is never a
+ * control — removing one changes what a person is invited to do, not what the
+ * server will accept (70_SECURITY_AND_AUTHZ §2: frontend guards improve UX and
+ * never count as enforcement).
+ *
+ * The separations here are deliberate and come from §6:
+ * - `org:owner` authors but cannot publish. The actor who writes the brief is
+ *   not the actor who releases it.
+ * - `org:publisher` publishes but cannot author, for the same reason.
+ * - An approver records exactly one gate and authors nothing, so no single
+ *   actor can both prepare a version and clear a gate on it.
+ */
+export type OrganizationCapabilities = {
+  /** Every org member reads the workspace's own challenges (list + record). */
+  readonly readChallenges: boolean;
+  /** Create, autosave, and move a challenge through the authoring stages. */
+  readonly authorChallenges: boolean;
+  /** The one publication gate this role records, if any. */
+  readonly recordsGate: PublicationGate | null;
+  /** Publish an approved version and run the live call (B4/B6). */
+  readonly publishChallenges: boolean;
+  /** Membership, roles, and organization-wide settings. */
+  readonly manageOrganization: boolean;
+};
+
+export function organizationCapabilities(role: WorkspaceRole): OrganizationCapabilities {
+  const gate = publicationGates.find(
+    (candidate) => gateApproverRoles[candidate].includes(role) && role.startsWith("org:"),
+  );
+  return {
+    readChallenges: role.startsWith("org:"),
+    authorChallenges: role === "org:owner" || role === "org:member",
+    recordsGate: gate ?? null,
+    publishChallenges: role === "org:publisher",
+    manageOrganization: role === "org:owner",
+  };
 }

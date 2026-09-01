@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChallengeShell } from "@/components/challenge-flow/shell";
 import {
   ErrorSummary,
@@ -14,7 +14,8 @@ import { categoryOptions, currentUser, type ChallengeRecord } from "@/domain/cha
 import type { InitialChallengeInput } from "@/lib/challenges/gateway";
 import { createAttachment, emptyChallenge } from "@/lib/challenges/model";
 import { navigateChallenge } from "@/lib/challenges/navigation";
-import { useChallengeGateway } from "@/components/runtime-provider";
+import { useChallengeGateway, useWebRuntime } from "@/components/runtime-provider";
+import { isNetworkWebRuntime } from "@/lib/runtime/mode";
 import { issueFor, validateStep } from "@/lib/challenges/validation";
 import { CHALLENGE_UPLOAD_ACCEPT, challengeUploadError } from "@/lib/validation/upload";
 
@@ -23,7 +24,12 @@ const initialForm: InitialChallengeInput = {
   summary: "",
   category: "",
   location: "",
-  ownerName: currentUser.name,
+  // Blank in the connected runtime until `/me` answers. This field is written
+  // to `contact.name` on the created challenge, so a fixture default here does
+  // not just look wrong — it records a person who does not exist as the owner
+  // of a real record in PostgreSQL. The static demo keeps its sample name,
+  // because there is no session to ask.
+  ownerName: isNetworkWebRuntime ? "" : currentUser.name,
   desiredOutcome: "",
   urgency: "normal",
   attachments: [],
@@ -31,7 +37,24 @@ const initialForm: InitialChallengeInput = {
 
 export function ChallengeIntakePage() {
   const challengeGateway = useChallengeGateway();
+  const runtime = useWebRuntime();
   const [form, setForm] = useState<InitialChallengeInput>(initialForm);
+  const [ownerEdited, setOwnerEdited] = useState(false);
+
+  /**
+   * `/me` resolves after mount, so the signed-in name is filled in when it
+   * arrives — but never over something the person has already typed. The owner
+   * is a real field they may legitimately change to a colleague.
+   */
+  const sessionOwnerName = isNetworkWebRuntime ? (runtime.me?.user.display_name ?? "") : "";
+  useEffect(() => {
+    if (!sessionOwnerName || ownerEdited) return;
+    setForm((current) =>
+      current.ownerName === sessionOwnerName
+        ? current
+        : { ...current, ownerName: sessionOwnerName },
+    );
+  }, [sessionOwnerName, ownerEdited]);
   const [submitted, setSubmitted] = useState(false);
   const [fatalError, setFatalError] = useState("");
   const [fileError, setFileError] = useState("");
@@ -116,7 +139,10 @@ export function ChallengeIntakePage() {
             label="مالک مسئله"
             required
             value={form.ownerName}
-            onChange={(value) => update("ownerName", value)}
+            onChange={(value) => {
+              setOwnerEdited(true);
+              update("ownerName", value);
+            }}
             error={issueFor(issues, "ownerName")}
             hint="فردی که پاسخ‌گوی تکمیل و پیگیری پرونده است."
           />

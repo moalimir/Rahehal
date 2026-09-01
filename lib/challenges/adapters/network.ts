@@ -1,6 +1,8 @@
 import type {
   ChallengeDraftContentResource,
   ChallengeDraftPatch,
+  ChallengeListItemResource,
+  ChallengePageSuccessEnvelope,
   ChallengeResource,
   ChallengeSuccessEnvelope,
   CreateChallengeBody,
@@ -8,6 +10,7 @@ import type {
   MutationSuccessEnvelope,
   PatchChallengeBody,
 } from "@rahhal/contracts";
+import { apiRoutes } from "@rahhal/contracts";
 import type { ChallengeRecord } from "@/domain/challenge";
 import {
   emptyChallenge,
@@ -91,6 +94,34 @@ export function challengeResourceToRecord(resource: ChallengeResource): Challeng
     updatedAt: resource.updated_at,
     ...(resource.stage === "draft" ? {} : { submittedAt: resource.updated_at }),
     lastStep: inferLastStep(content),
+  };
+}
+
+/**
+ * A list row into the record shape the list page already renders. The row is
+ * deliberately narrow — the brief never crosses the list endpoint — so the
+ * fields the table does not show stay at their empty defaults rather than
+ * being invented here.
+ *
+ * `lastStep` is one of those: it is inferred from content the list does not
+ * carry, so a draft's edit link opens at the first step and the editor, which
+ * loads the authoritative record, resumes from there.
+ */
+export function challengeListItemToRecord(item: ChallengeListItemResource): ChallengeRecord {
+  const status: ChallengeRecord["status"] =
+    item.stage === "published"
+      ? "published"
+      : item.stage === "triage" || item.stage === "approvals"
+        ? "under_review"
+        : item.authoring_status;
+  return {
+    ...emptyChallenge(item.id, item.created_at),
+    id: item.id,
+    status,
+    title: item.title,
+    category: item.category,
+    proposalDeadline: dateInput(item.proposal_deadline_at),
+    updatedAt: item.updated_at,
   };
 }
 
@@ -199,17 +230,36 @@ export function createNetworkChallengeGateway(
     return {
       ok: true,
       data: challengeResourceToRecord(result.data),
-      meta: { ...result.meta, readiness: result.data.readiness, stage: result.data.stage },
+      meta: {
+        ...result.meta,
+        readiness: result.data.readiness,
+        triage_readiness: result.data.triage_readiness,
+        stage: result.data.stage,
+      },
     };
   };
 
   return {
     queries: {
+      /**
+       * The workspace's own challenges, from the server. The page size is
+       * fixed server-side; the list screen renders one page and the cursor is
+       * carried by the caller when it needs more, so this never silently
+       * presents a truncated set as the whole workspace.
+       */
       async list() {
-        return localFailure(
-          "INVALID_STATE",
-          "فهرست پیش‌نویس‌ها در فاز ۲ به قرارداد سرور افزوده می‌شود؛ از پیوند مستقیم پرونده استفاده کنید.",
-        );
+        const headers = workspaceHeaders();
+        if (!headers) return localFailure("NO_ACCESS", "ابتدا یک فضای کاری سازمانی انتخاب کنید.");
+        const result = await requestApi<ChallengePageSuccessEnvelope>(apiRoutes.challenges, {
+          method: "GET",
+          headers,
+        });
+        if (!result.ok) return failure(result);
+        return {
+          ok: true as const,
+          data: result.data.items.map(challengeListItemToRecord),
+          meta: result.meta,
+        };
       },
       get,
     },

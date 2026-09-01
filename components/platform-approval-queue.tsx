@@ -95,8 +95,8 @@ export function PlatformApprovalQueue() {
 
   return (
     <section aria-labelledby="platform-approval-queue-title">
-      <h1 id="platform-approval-queue-title">صف تأیید انتشار</h1>
-      <p>پرونده‌های این صف فقط برای دروازه نقش فعال شما نمایش داده می‌شوند.</p>
+      <h1 id="platform-approval-queue-title">صف بررسی انتشار</h1>
+      <p>این صف فقط کارهای غربالگری یا دروازه انتشارِ نقش فعال شما را نمایش می‌دهد.</p>
       {queue.items.length === 0 ? (
         <p className="challenge-empty-state">موردی در انتظار تأیید شما نیست.</p>
       ) : (
@@ -105,13 +105,14 @@ export function PlatformApprovalQueue() {
             <li key={item.challenge_id}>
               <h2>{item.title}</h2>
               <p>
-                {item.category} · دروازه {gateLabels[item.gate]}
+                {item.category} ·{" "}
+                {item.stage === "triage" ? "غربالگری اولیه" : `دروازه ${gateLabels[item.gate]}`}
               </p>
               <Link
                 className="challenge-button challenge-button--primary"
                 href={`/app/org/challenges/record/governance/?id=${encodeURIComponent(item.challenge_id)}&workspace=${encodeURIComponent(item.workspace_id)}`}
               >
-                بررسی پرونده
+                {item.stage === "triage" ? "بررسی غربالگری" : "بررسی پرونده"}
               </Link>
             </li>
           ))}

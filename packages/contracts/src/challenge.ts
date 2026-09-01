@@ -106,10 +106,16 @@ export type ChallengeApprovalResource = {
  * The content a standing platform gate approver may review. Contact details,
  * invitees, and private file identifiers are deliberately absent.
  */
-export type ChallengeApprovalBriefContentResource = Omit<
+export type ChallengeApprovalBriefContentResource = Pick<
   ChallengeDraftContentResource,
-  "contact" | "invitees" | "attachment_ids"
->;
+  "title" | "summary" | "category"
+> &
+  Partial<
+    Omit<
+      ChallengeDraftContentResource,
+      "title" | "summary" | "category" | "contact" | "invitees" | "attachment_ids"
+    >
+  >;
 
 /** Platform-facing approval evidence without another user's stable identifier. */
 export type ChallengeApprovalSummaryResource = {
@@ -141,6 +147,7 @@ export type ChallengeResource = {
   readonly version: number;
   readonly content_version: number;
   readonly readiness: ApiReadiness;
+  readonly triage_readiness: ApiReadiness;
   readonly content: ChallengeDraftContentResource;
   readonly approvals: readonly ChallengeApprovalResource[];
   readonly publication_readiness: PublicationReadinessResource;
@@ -154,7 +161,8 @@ export type ChallengeApprovalBriefResource = {
   readonly id: ChallengeId;
   readonly current_version_id: ChallengeVersionId;
   readonly workspace_id: WorkspaceId;
-  readonly stage: "approvals";
+  readonly stage: "triage" | "approvals";
+  readonly gate: PublicationGate;
   readonly version: number;
   readonly content: ChallengeApprovalBriefContentResource;
   readonly approvals: readonly ChallengeApprovalSummaryResource[];
@@ -167,6 +175,7 @@ export type PlatformChallengeApprovalQueueItem = {
   readonly current_version_id: ChallengeVersionId;
   readonly workspace_id: WorkspaceId;
   readonly version: number;
+  readonly stage: "triage" | "approvals";
   readonly title: string;
   readonly category: string;
   readonly gate: PublicationGate;
@@ -176,6 +185,47 @@ export type PlatformChallengeApprovalQueueItem = {
 export type PlatformChallengeApprovalQueueResource = {
   readonly items: readonly PlatformChallengeApprovalQueueItem[];
 };
+
+/**
+ * One row of an organization's own challenge list. Deliberately not a
+ * `ChallengeResource`: a list has no use for the full brief, and shipping
+ * every draft's confidential narrative to render a table is the kind of
+ * over-fetch that later leaks through a cache or an export. The two title
+ * fields come from the current version; everything else is aggregate state
+ * the list actually renders or filters on.
+ */
+export type ChallengeListItemResource = {
+  readonly id: ChallengeId;
+  readonly current_version_id: ChallengeVersionId;
+  readonly stage: ChallengeManagedStage;
+  readonly authoring_status: ChallengeDraftAuthoringStatus;
+  readonly publication_state: ChallengePublicationState | null;
+  readonly proposal_deadline_at: string | null;
+  readonly version: number;
+  readonly title: string;
+  readonly category: string;
+  readonly ready: boolean;
+  readonly publication_readiness: PublicationReadinessResource;
+  readonly created_at: string;
+  readonly updated_at: string;
+};
+
+/**
+ * One page of an organization's challenges. Ordered newest-first on
+ * `created_at`, which never changes — a keyset cursor over `updated_at` would
+ * skip or repeat a row as soon as someone edited a draft mid-scan.
+ */
+export type ChallengePage = {
+  readonly items: readonly ChallengeListItemResource[];
+  readonly next_cursor: string | null;
+};
+
+export type ChallengeListQuery = {
+  readonly stage?: ChallengeManagedStage;
+  readonly cursor?: string;
+};
+
+export type ChallengePageSuccessEnvelope = SuccessEnvelope<ChallengePage>;
 
 export type CreateChallengeBody = {
   readonly expected_version: 0;
@@ -256,7 +306,7 @@ export type ChallengePublicProjectionResource = {
   readonly published_at: string;
 };
 
-export type ChallengeApprovalNextAction = "await_remaining_gates" | "ready_for_publish";
+export type ChallengeApprovalNextAction = "await_remaining_gates" | "ready_for_publish" | "revise";
 
 export type ChallengeSuccessEnvelope = {
   readonly ok: true;

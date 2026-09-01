@@ -120,6 +120,23 @@ beforeEach(async () => {
        'chl_synthetic_alpha', 'chv_synthetic_alpha_v1', 'quality', 'approved',
        'Synthetic approval', 'usr_platform_ops', 'platform:ops', clock_timestamp())
   `);
+  // Migration 0012 stopped creating an eligibility rule on every version and
+  // now snapshots one when a version enters approvals, then requires a
+  // published version to have that snapshot. This fixture publishes by direct
+  // SQL, so it has to write the snapshot the approvals transition would have.
+  await database.query(`
+    INSERT INTO eligibility_rule (
+      id, tenant_id, workspace_id, challenge_id, challenge_version_id,
+      allowed_applicant_types, verification_required, nda_required,
+      document_gate_required, proposal_deadline, state, created_at
+    ) VALUES (
+      'elr_synthetic_alpha_v1', 'ten_org_alpha', 'wsp_org_alpha',
+      'chl_synthetic_alpha', 'chv_synthetic_alpha_v1',
+      ARRAY['individual', 'expert-team']::text[], false, false, false,
+      '2099-01-01T00:00:00Z', 'open', clock_timestamp()
+    )
+    ON CONFLICT (challenge_version_id) DO NOTHING
+  `);
   await database.query(`
     UPDATE challenge
     SET stage = 'published',

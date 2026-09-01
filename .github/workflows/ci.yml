@@ -98,6 +98,8 @@ jobs:
       - run: npm run verify:offline
       - run: npm run test:standalone-interactive
       - run: npm run check:budgets
+      - run: npm run build:web:network
+      - run: npm run check:budgets:network
       - name: Upload build output
         if: always()
         uses: actions/upload-artifact@v4

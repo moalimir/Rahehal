@@ -87,7 +87,7 @@ draft → triage → formulation → approvals → published → evaluating → 
 | Canonical stage | Meaning                                                     | Owner                        | Entry gate                                       |
 | --------------- | ----------------------------------------------------------- | ---------------------------- | ------------------------------------------------ |
 | `draft`         | Intake authoring in progress                                | org:member                   | —                                                |
-| `triage`        | Screening the brief for fit/quality                         | org:member + platform:ops    | brief-valid                                      |
+| `triage`        | Screening the rough brief for fit/quality                   | org:member + platform:ops    | rough-brief-valid                                |
 | `formulation`   | Sharpening problem, success criteria, scope                 | org:member                   | triage-passed                                    |
 | `approvals`     | Independent technical/legal/finance + ops publication gates | org approvers + platform:ops | formulation-complete                             |
 | `published`     | Live to eligible solvers; approved version locked           | org:publisher                | technical+legal+finance approved, quality passed |
@@ -120,6 +120,8 @@ draft → triage → formulation → approvals → published → evaluating → 
 - The former `product.ts` `quality-review` value folds into `approvals`; its entire duplicate `CaseState`/adjacency model is now removed.
 - X-01 is resolved: `packages/domain/src/challenge.ts` owns the exact 11-stage vocabulary and the ten guarded edges; root `state-machines.ts` re-exports that shared server-safe definition.
 - X-02 is resolved: only the generic table-driven `state-machines.ts` `canTransition` remains; the two-argument adjacency helper and `caseTransitions` are removed.
+- `triage_readiness` is deliberately narrower than full formulation readiness: it proves the five rough-brief fields needed for screening, while `readiness` must pass before `formulation → approvals`. The organization submits the rough brief; `platform:ops` may accept the purpose-scoped triage item and return it to the organization for formulation.
+- A rejected publication gate is final evidence for that exact challenge version. The canonical graph does not gain a backwards edge: an authorized edit of the rejected aggregate creates a new immutable version in `formulation`, and the new version starts with no approval rows.
 
 ### 4.2 Sub-entity state machines (canonical)
 
@@ -232,6 +234,7 @@ Drawn from executable rules already in the prototype — promoted from client hi
 8. Closing a case requires resolved deliverables and reconciled payments.
 9. Every sensitive mutation is **idempotent** (dedupe on idempotency key) and emits a correlated **audit event** + **receipt**.
 10. Sensitive actions may require **step-up** (2FA freshness) and a **structured reason** (`sensitiveActions` set in `product.ts:42`).
+11. Eligibility conditions are snapshotted against the exact version entering approvals. After publication, mutable call state and deadline live on the challenge aggregate; an eligibility or submission decision must require both the published rule snapshot and the aggregate's current open/unexpired state.
 
 ## 9. Standard result & error contract
 

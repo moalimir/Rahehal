@@ -1048,12 +1048,12 @@
   --color-text-950: #111827;
   --color-text-700: #374151;
   --color-text-500: #667085;
-  --color-surface: #ffffff;
   --color-surface-subtle: #f6f8fb;
-  --color-border: #dce3ee;
-  --radius-card: 14px;
-  --radius-panel: 22px;
   --shadow-float: 0 24px 64px rgba(5, 23, 52, 0.14);
+  /* --color-surface, --color-border, --radius-card and --radius-panel are
+     declared once, in design-system.css. They used to be declared here too,
+     and because this file loads second these copies won — so design-system's
+     own stated values for border and card radius were dead. */
 }
 
 * {
@@ -10555,6 +10555,15 @@ bdi {
 .organization-auth-secondary {
   width: 100%;
   min-height: 56px;
+  /* Centred explicitly because this class is worn by both a <button> and an
+     <a>. A button centres its label on its own; a link does not, so once the
+     signed-in state swapped the button for "ادامه به ثبت مسئله" the label sat
+     at the top corner of a 56px box. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  text-decoration: none;
   border: 1px solid #04a8b4;
   border-radius: 7px;
   background: #05a9b4;

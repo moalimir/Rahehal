@@ -1,5 +1,6 @@
 "use client";
 
+import { challengeHref } from "@/lib/challenges/navigation";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { ConfirmModal, Toast } from "@/components/challenge-flow/fields";
@@ -26,12 +27,12 @@ function primaryAction(record: ChallengeRecord) {
   if (isDraftStatus(record.status)) {
     return {
       label: "ادامه تکمیل",
-      href: `/app/org/challenges/${record.id}/edit?step=${record.lastStep}`,
+      href: challengeHref(`/app/org/challenges/${record.id}/edit?step=${record.lastStep}`),
     };
   }
   return {
     label: record.status === "published" ? "مشاهده جزئیات" : "مشاهده پرونده",
-    href: `/app/org/challenges/${record.id}`,
+    href: challengeHref(`/app/org/challenges/${record.id}`),
   };
 }
 
@@ -211,8 +212,16 @@ export function ChallengeListPage() {
             return (
               <article key={record.id} className="challenge-data-row">
                 <div className="challenge-data-row__title">
-                  <Link href={`/app/org/challenges/${record.id}`}>{record.title}</Link>
-                  <bdi>{record.id}</bdi>
+                  {/* Deliberately not wrapped in <bdi>: the cell truncates with
+                      an ellipsis, and an isolated inline box makes a Latin
+                      title clip from its start instead of its end. An untitled
+                      draft still needs something clickable. */}
+                  <Link href={challengeHref(`/app/org/challenges/${record.id}`)}>
+                    {record.title.trim() || "پیش‌نویس بدون عنوان"}
+                  </Link>
+                  {/* Truncated in CSS; the full id stays available to a pointer
+                      and to assistive technology. */}
+                  <bdi title={record.id}>{record.id}</bdi>
                 </div>
                 <div data-label="دسته‌بندی">{record.category}</div>
                 <div data-label="وضعیت">

@@ -125,12 +125,16 @@ npm run db:migrate:up
 npm run db:seed
 npm run test:postgres
 npm run db:migrate:down
+npm run db:reset
 npm run db:down
 ```
 
-`test:postgres` creates and drops its own ephemeral database and refuses non-loopback hosts. The down
-command reverts only the latest migration. Synthetic seeds are deterministic and safe to rerun; they
-must never be used as real identities, credentials, or production data.
+The migration, seed, reset, and PostgreSQL-test commands load the repository's ignored `.env` when
+present, so they use the same `DATABASE_URL`/Compose port. `test:postgres` creates and drops its own
+ephemeral database and refuses non-loopback hosts. `db:migrate:down` reverts only the latest
+migration. `db:reset` is the explicit full local reset (all migrations down, then up, then seed) and
+refuses non-loopback databases. Synthetic seeds are deterministic and safe to rerun; they must never
+be used as real identities, credentials, or production data.
 
 > **Restricted-network note:** the first build must reach `docker.io`/`registry-1.docker.io` for the
 > pinned base images and the npm registry for dependencies. An active WireGuard tunnel does not prove
@@ -204,10 +208,17 @@ npm run analyze:source
 npm run analyze:source:check
 npm run analyze:build
 npm run check:budgets
+npm run build:web:network
+npm run check:budgets:network
 npm run analyze:bundle
 ```
 
 `analyze:bundle` performs a production build with the bundle analyzer enabled.
+`check:budgets` measures the demo export; the network check requires the connected
+build immediately before it. Both enforce initial JavaScript per representative
+route plus shared/largest-asset limits. Total emitted JavaScript is reported as a
+trend, because code-split routes should not fail merely for existing as separate
+chunks.
 Generated JSON reports are written under `reports/generated/` and remain ignored.
 
 Dependency health:

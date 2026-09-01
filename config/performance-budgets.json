@@ -1,23 +1,51 @@
 {
-  "baselineDate": "2026-08-23",
-  "_note": "Rebaselined to 2026-08-23 build actuals + ~2% headroom (DEC-2026-009). These byte ceilings are anti-regression gates anchored to today, not a statement that the payload is acceptable. The real performance goal is webVitals below. Payload REDUCTION (role code-split + feature-CSS split) is a Phase-1 task in 80_DELIVERY_ROADMAP.md §4. Do NOT raise these ceilings to accommodate growth without an ADR — lower them as reduction lands.",
+  "baselineDate": "2026-09-01",
+  "_note": "DEC-2026-014 replaces the misleading total-emitted-JavaScript ceiling with hard runtime-specific shared, largest-asset, and representative-route initial-JavaScript budgets. DEC-2026-015 applies the same reasoning to CSS: authored bytes across app/ are a sum of seven stylesheets rather than any page's payload, so they are a non-blocking trend and the enforced CSS ceilings are the per-build staticAssets ones. Both totals stay visible against a reference build. Byte values are uncompressed build output; user-centric targets remain below.",
   "standalone": {
     "maxBytes": 5164000,
     "maxCssCharacters": 2513000,
     "maxJavaScriptCharacters": 2256000
   },
+  "javascript": {
+    "demo": {
+      "totalReferenceBytes": 1818758,
+      "maxLargestAssetBytes": 736000,
+      "maxSharedInitialBytes": 1344000,
+      "routes": {
+        "/": 1486000,
+        "/challenges/": 1344000,
+        "/challenges/smart-water-recovery/": 1344000,
+        "/app/solver/dashboard/": 1344000,
+        "/app/org/challenges/": 1344000,
+        "/app/reviewer/assignments/": 1344000,
+        "/app/ops/publication/": 1344000
+      }
+    },
+    "network": {
+      "totalReferenceBytes": 1864987,
+      "maxLargestAssetBytes": 736000,
+      "maxSharedInitialBytes": 570000,
+      "routes": {
+        "/": 1524000,
+        "/challenges/": 1382000,
+        "/challenges/smart-water-recovery/": 570000,
+        "/app/solver/dashboard/": 1382000,
+        "/app/org/challenges/": 1382000,
+        "/app/reviewer/assignments/": 1382000,
+        "/app/ops/publication/": 1382000
+      }
+    }
+  },
   "staticAssets": {
-    "maxJavaScriptBytes": 1819000,
-    "maxLargestJavaScriptBytes": 736000,
     "maxCssBytes": 513000,
     "maxLargestCssBytes": 219000
   },
   "source": {
-    "maxCssBytes": 626000,
+    "cssReferenceBytes": 625973,
     "maxImportCycles": 0
   },
   "webVitals": {
-    "_note": "User-centric p75 targets on Persian-market mobile (DEC-2026-009, 95 §7). Not enforced by check:budgets — needs a Lighthouse/RUM gate added in Phase 1.",
+    "_note": "User-centric p75 targets on Persian-market mobile (DEC-2026-009, 95 §7). Not enforced by check:budgets — Lighthouse/RUM evidence is required by the G5 pilot-hardening gate.",
     "p75": { "lcpMs": 2500, "inpMs": 200, "cls": 0.1 }
   }
 }

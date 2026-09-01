@@ -50,7 +50,7 @@ npm run docker:down
 
 `docker:build` refreshes changed targets. `docker:up` waits for Dex and PostgreSQL, runs the guarded one-shot migration/seed container, then starts the PostgreSQL-composed API and waits for HTTP health. `docker:smoke` creates a challenge with the synthetic session, restarts the API container, and reads the same record back. Dex exposes one synthetic local login (`owner-alpha@synthetic.invalid` / `rahhal-local-owner`) and an exact `http://localhost:3000/auth/browser/callback` redirect, which A3 connects to the web through the same-origin browser-session routes. The images run as unprivileged users on read-only root filesystems with all Linux capabilities dropped; writable temporary space is bounded `tmpfs`. Published ports bind to `127.0.0.1`, not the LAN. Do not weaken those defaults to simulate a server.
 
-The stack is intentionally incomplete but no longer browser-authoritative for the delivered challenge slice. Phase 1 supplies PostgreSQL identity/workspace authorization, transaction-scoped challenge draft create/read/save, local OIDC, and the connected browser gateway. Phase 2 carries that slice through readiness, four attributed approval gates, publication, a structurally separate public projection, live-call controls, and a purpose-scoped platform approval queue/brief. The managed production IdP, MFA/step-up, RLS, abuse controls, private file pipeline, and authoritative worker remain later gates; no application event crosses from the API process to the worker yet.
+The stack is intentionally incomplete but no longer browser-authoritative for the delivered challenge slice. Phase 1 supplies PostgreSQL identity/workspace authorization, transaction-scoped challenge draft create/read/save, local OIDC, and the connected browser gateway. Phase 2 carries that slice through ops triage, full readiness, four attributed approval gates, publication, a structurally separate public projection, live-call controls, and a purpose/gate-scoped platform queue/brief. The managed production IdP, MFA/step-up, RLS, abuse controls, private file pipeline, and authoritative worker remain later gates; no application event crosses from the API process to the worker yet.
 
 ### Local PostgreSQL workflow
 
@@ -64,8 +64,9 @@ npm run db:seed
 
 The default host endpoint is `127.0.0.1:5433`; `.env.example` documents overrides. The checked-in
 password and every seeded identity are local-only synthetic values. Migration commands accept
-`DATABASE_URL`, never print it, serialize with a PostgreSQL advisory lock, verify SHA-256 checksums,
-and run each change in a transaction.
+`DATABASE_URL`, load the repository's ignored `.env` when present, never print the credential,
+serialize with a PostgreSQL advisory lock, verify SHA-256 checksums, and run each change in a
+transaction.
 
 Prove a clean down/up cycle and constraints in an isolated ephemeral database:
 
@@ -81,12 +82,10 @@ concurrent create replay, scope denial, rollback, API-runtime restart persistenc
 issuer/audience/nonce/PKCE validation, verified-contact denial, one-time consumption, and login/session
 expiry. Stop PostgreSQL without deleting its named volume with
 `npm run db:down`. `npm run db:migrate:down` reverts one migration; run it only against the database
-whose rollback you intend to test.
-
-> The PostgreSQL suite talks to `127.0.0.1:5433` directly, while Compose publishes
-> `${RAHHAL_POSTGRES_PORT:-5433}`. If `.env` overrides that port the two endpoints diverge, and a run
-> pointed at the wrong one fails in confusing ways rather than loudly — check which database you are
-> connected to before trusting an empty result.
+whose rollback you intend to test. For a complete local rebuild, use `npm run db:reset`; it walks all
+migrations down, applies them up, and seeds deterministic data, and refuses non-loopback targets.
+The migration/seed/reset commands and PostgreSQL suite all consume the same `.env` endpoint, including
+an overridden `${RAHHAL_POSTGRES_PORT}` reflected in `DATABASE_URL`.
 
 ### Connected browser acceptance (A3 and Phase 2)
 
@@ -169,7 +168,11 @@ npm run verify:offline
 npm run test:standalone-interactive
 npm run analyze:build
 npm run check:budgets
+npm run build:web:network
+npm run check:budgets:network
 ```
+
+The demo and connected JavaScript budgets are intentionally separate. Each hard-gates the largest asset, the script assets shared by every configured representative route, and the initial script/preload assets of landing, public, solver, organization, reviewer, and operations routes. The demo command also owns static/offline and CSS ceilings. Complete emitted JavaScript is logged against the DEC-2026-014 reference as a non-blocking trend; this avoids penalizing route chunks that a visit does not load. Run the matching build immediately before its budget command.
 
 Serve the generated export:
 
@@ -312,7 +315,7 @@ type OpportunityGateway = {
 };
 ```
 
-Every operation resolves to a typed success/error envelope; unknown IDs return `NOT_FOUND`, never a fixture. The local browser composition is explicit in `lib/challenges/runtime.ts`, while public discovery receives only `OpportunityView` rather than trimming private `ChallengeRecord` aggregates in the component. The checked-in web composition selects those demo gateways unconditionally and is therefore demo-only; no production/network web composition exists yet. The future network implementation must be generated from or verified against the API schema, must fail closed in production, and must never fall back to mutable local demo data after an API error. Components consume a feature hook/application adapter, not choose between local and network storage themselves.
+Every operation resolves to a typed success/error envelope; unknown IDs return `NOT_FOUND`, never a fixture. The explicit demo composition remains in `lib/challenges/runtime.ts`. The connected composition selects HTTP gateways at build time with `RAHHAL_WEB_RUNTIME=network`, reads the active session/workspace from `/me`, and fails closed without falling back to local demo data after an API error. Organization lists use a bounded scoped projection, public discovery uses only the separate public projection, and connected-only modules are excluded from the default static bundle. Components consume a feature hook/application adapter; they do not choose persistence themselves.
 
 ## 7. Testing strategy
 

@@ -56,6 +56,7 @@ type ProjectionRow = {
   readonly ip_terms: string;
   readonly state: string;
   readonly published_at: Date;
+  readonly expired?: boolean;
 };
 
 /**
@@ -133,7 +134,9 @@ function projectionResource(row: ProjectionRow): ChallengePublicProjectionResour
     // A paused or closed call still resolves by direct link -- solvers who
     // already have it must be able to see that it stopped accepting proposals.
     // Only the *listing* filters on state.
-    state: oneOf(challengePublicationStates, row.state, "publication state"),
+    state: row.expired
+      ? "closed"
+      : oneOf(challengePublicationStates, row.state, "publication state"),
     published_at: row.published_at.toISOString(),
   };
 }
@@ -155,19 +158,20 @@ export class PostgresPublicChallengeAdapter implements PublicChallengePort {
           SELECT ${projectionColumns}
           FROM challenge_public_projection
           WHERE state = 'open'
+            AND proposal_deadline > clock_timestamp()
             AND visibility = ANY ($1::text[])
-            AND ($2::text IS NULL OR category = $2)
+            AND ($2::text IS NULL OR lower(btrim(category)) = lower(btrim($2)))
             AND (
               $3::timestamptz IS NULL
-              OR (proposal_deadline, challenge_id) < ($3::timestamptz, $4::text)
+              OR (published_at, challenge_id) < ($3::timestamptz, $4::text)
             )
-          ORDER BY proposal_deadline DESC, challenge_id DESC
+          ORDER BY published_at DESC, challenge_id DESC
           LIMIT $5
         `,
         [
           [...visibleVisibilities(audience)],
           query.category ?? null,
-          cursor?.proposal_deadline ?? null,
+          cursor?.published_at ?? null,
           cursor?.challenge_id ?? null,
           publicChallengePageSize + 1,
         ],
@@ -192,7 +196,8 @@ export class PostgresPublicChallengeAdapter implements PublicChallengePort {
     return this.unitOfWork.run(async () => {
       const result = await this.unitOfWork.currentClient().query<ProjectionRow>(
         `
-          SELECT ${projectionColumns}
+          SELECT ${projectionColumns},
+            state = 'open' AND proposal_deadline <= clock_timestamp() AS expired
           FROM challenge_public_projection
           WHERE challenge_id = $1 AND visibility = ANY ($2::text[])
         `,
