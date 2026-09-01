@@ -29,7 +29,10 @@ import {
 } from "@/components/portal/auth-experiences";
 import { OnboardingExperience } from "@/components/portal/onboarding-experience";
 import { SolverRegistrationExperience } from "@/components/portal/registration-experiences";
-import { NetworkOrganizationLogin } from "@/components/portal/network-organization-login";
+import {
+  NetworkOrganizationLogin,
+  NetworkOrganizationRegistration,
+} from "@/components/portal/network-organization-login";
 import { isNetworkWebRuntime } from "@/lib/runtime/mode";
 
 const sideNavigation: Record<Exclude<RoleSpace, "public">, Array<[string, string]>> = {
@@ -214,8 +217,12 @@ function PublicRoute({ definition }: { definition: RouteDefinition }) {
     );
   }
   if (isOrganizationAuth) {
-    if (isNetworkWebRuntime && definition.path === "/auth/organization/login") {
-      return <NetworkOrganizationLogin />;
+    if (isNetworkWebRuntime) {
+      return definition.path === "/auth/organization/login" ? (
+        <NetworkOrganizationLogin />
+      ) : (
+        <NetworkOrganizationRegistration />
+      );
     }
     return <OrganizationAuthExperience definition={definition} />;
   }

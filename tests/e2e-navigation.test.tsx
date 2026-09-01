@@ -22,7 +22,7 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("ناوبری واقعی لندینگ", () => {
-  it("بلوک‌های حذف‌شده را نمایش نمی‌دهد و چهار مسیر ورود و ثبت‌نام مستقل دارد", () => {
+  it("بلوک‌های حذف‌شده را نمایش نمی‌دهد و دو ورودی شفاف برای مخاطبان دارد", () => {
     render(createElement(LandingPage));
 
     for (const removed of [
@@ -36,22 +36,13 @@ describe("ناوبری واقعی لندینگ", () => {
       expect(screen.queryByText(removed)).not.toBeInTheDocument();
     }
 
-    for (const link of screen.getAllByRole("link", { name: "ورود سازمان" })) {
+    for (const link of screen.getAllByRole("link", { name: "ورود یا شروع همکاری سازمانی" })) {
       expect(link).toHaveAttribute("href", "/auth/organization/login");
     }
-    for (const link of screen.getAllByRole("link", { name: "ورود فرد یا تیم" })) {
+    for (const link of screen.getAllByRole("link", { name: "ورود یا ایجاد حساب حل‌کننده" })) {
       expect(link).toHaveAttribute("href", "/auth/login?role=solver");
     }
-    for (const link of screen.getAllByRole("link", { name: "ثبت نام سازمان" })) {
-      expect(link).toHaveAttribute("href", "/auth/organization/register/representative");
-    }
-    for (const link of screen.getAllByRole("link", { name: "ثبت نام فرد یا تیم" })) {
-      expect(link).toHaveAttribute("href", "/auth/solver/register/type");
-    }
-    expect(screen.getByRole("navigation", { name: "ورود و ثبت‌نام سازمان" })).toBeInTheDocument();
-    expect(
-      screen.getByRole("navigation", { name: "ورود و ثبت‌نام فرد یا تیم" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "ورود و شروع همکاری" })).toBeInTheDocument();
   });
 
   it("هیچ لینک محصولی را به anchor یا مقصد خالی نمی‌فرستد", () => {

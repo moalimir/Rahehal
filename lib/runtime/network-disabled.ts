@@ -102,3 +102,13 @@ export function ConnectedRecordLinks(): never {
 export function NetworkInternalBoundary(): never {
   return unreachable("NetworkInternalBoundary");
 }
+
+/** Stands in for `@/components/portal/network-organization-login`. */
+export function NetworkOrganizationLogin(): never {
+  return unreachable("NetworkOrganizationLogin");
+}
+
+/** Stands in for `@/components/portal/network-organization-login`. */
+export function NetworkOrganizationRegistration(): never {
+  return unreachable("NetworkOrganizationRegistration");
+}

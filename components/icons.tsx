@@ -18,11 +18,13 @@ type IconName =
   | "menu"
   | "match"
   | "notification"
+  | "organization"
   | "people"
   | "plus"
   | "search"
   | "decision"
   | "shield"
+  | "solver"
   | "spark"
   | "user"
   | "key"
@@ -135,6 +137,12 @@ const paths: Record<IconName, React.ReactNode> = {
       <path d="M10 21h4" />
     </>
   ),
+  organization: (
+    <>
+      <path d="M4 21h16M6 21V6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v15M10 21v-5h4v5" />
+      <path d="M9 8h2M13 8h2M9 12h2M13 12h2" />
+    </>
+  ),
   people: (
     <>
       <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
@@ -161,6 +169,14 @@ const paths: Record<IconName, React.ReactNode> = {
     </>
   ),
   shield: <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />,
+  solver: (
+    <>
+      <circle cx="9" cy="8" r="3.25" />
+      <path d="M3.5 20v-1a5.5 5.5 0 0 1 11 0v1" />
+      <path d="m18 3 .75 2.25L21 6l-2.25.75L18 9l-.75-2.25L15 6l2.25-.75L18 3Z" />
+      <path d="m19.5 13 .45 1.35 1.35.45-1.35.45-.45 1.35-.45-1.35-1.35-.45 1.35-.45.45-1.35Z" />
+    </>
+  ),
   spark: (
     <>
       <path d="m12 3 1.4 4.1L17.5 8.5l-4.1 1.4L12 14l-1.4-4.1-4.1-1.4 4.1-1.4L12 3Z" />

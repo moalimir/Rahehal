@@ -227,9 +227,13 @@ if (dom.window.document.querySelectorAll(".university-directory-card").length !=
 dom.window.location.hash = "";
 await waitFor(() => dom.window.document.querySelector(".reference-hero"));
 const organizationLoginLink = dom.window.document.querySelector(
-  'a[aria-label="ورود سازمان"][href^="/auth/organization/login"]',
+  'a[aria-label="ورود یا شروع همکاری سازمانی"][href^="/auth/organization/login"]',
 );
 if (!organizationLoginLink) throw new Error("مسیر ورود اختصاصی سازمان پیدا نشد.");
+const headerSolverAudienceLink = dom.window.document.querySelector(
+  'a[aria-label="ورود یا ایجاد حساب حل‌کننده"][href^="/auth/login"]',
+);
+if (!headerSolverAudienceLink) throw new Error("مسیر ورود و ایجاد حساب حل‌کننده پیدا نشد.");
 organizationLoginLink.dispatchEvent(
   new dom.window.MouseEvent("click", { bubbles: true, cancelable: true }),
 );
@@ -259,10 +263,18 @@ if (!dom.window.document.querySelector("h1")?.textContent?.includes("اطلاع�
 
 dom.window.location.hash = "";
 await waitFor(() => dom.window.document.querySelector(".reference-hero"));
-const solverRegisterLink = dom.window.document.querySelector(
-  'a[aria-label="ثبت نام فرد یا تیم"][href^="/auth/solver/register/type"]',
+const solverAudienceEntry = dom.window.document.querySelector(
+  'a[aria-label="ورود یا ایجاد حساب حل‌کننده"][href^="/auth/login"]',
 );
-if (!solverRegisterLink) throw new Error("مسیر ثبت نام فرد یا تیم پیدا نشد.");
+if (!solverAudienceEntry) throw new Error("مسیر حل‌کننده در سربرگ پیدا نشد.");
+solverAudienceEntry.dispatchEvent(
+  new dom.window.MouseEvent("click", { bubbles: true, cancelable: true }),
+);
+await waitFor(() => dom.window.document.querySelector(".solver-login-card"));
+const solverRegisterLink = dom.window.document.querySelector(
+  'a[href^="/auth/solver/register/type"]',
+);
+if (!solverRegisterLink) throw new Error("مسیر ایجاد حساب فرد یا تیم در صفحه ورود پیدا نشد.");
 solverRegisterLink.dispatchEvent(
   new dom.window.MouseEvent("click", { bubbles: true, cancelable: true }),
 );

@@ -98,7 +98,7 @@ async function api(
 async function signIn(page: Page, email: string) {
   await page.context().clearCookies();
   await page.goto("/auth/organization/login");
-  await page.getByRole("button", { name: /ورود با ارائه‌دهنده هویت محلی/ }).click();
+  await page.getByRole("button", { name: /ادامه برای ورود امن سازمانی/ }).click();
   await page.waitForURL(/\/dex\/auth/);
   await page.locator("#login").fill(email);
   await page.locator("#password").fill(password);
