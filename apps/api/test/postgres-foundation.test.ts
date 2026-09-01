@@ -53,15 +53,15 @@ beforeAll(async () => {
     "0008_b4_challenge_publication",
     "0009_b6_publication_lifecycle",
     "0010_phase2_closure",
-    "0011_c_proposal_foundation",
     "0012_phase2_review_closure",
+    "0013_c_proposal_foundation",
   ]);
 
-  // Newest first: 0012 was applied last, then 0011.
+  // Newest first: 0013 was applied last, then 0012.
+  const proposalDown = await runMigrations(database, "down");
+  expect(proposalDown.applied).toEqual(["0013_c_proposal_foundation"]);
   const reviewClosureDown = await runMigrations(database, "down");
   expect(reviewClosureDown.applied).toEqual(["0012_phase2_review_closure"]);
-  const proposalDown = await runMigrations(database, "down");
-  expect(proposalDown.applied).toEqual(["0011_c_proposal_foundation"]);
   const phase2Down = await runMigrations(database, "down");
   expect(phase2Down.applied).toEqual(["0010_phase2_closure"]);
   const b6Down = await runMigrations(database, "down");
@@ -106,8 +106,8 @@ beforeAll(async () => {
     "0008_b4_challenge_publication",
     "0009_b6_publication_lifecycle",
     "0010_phase2_closure",
-    "0011_c_proposal_foundation",
     "0012_phase2_review_closure",
+    "0013_c_proposal_foundation",
   ]);
   const noOpUp = await runMigrations(database, "up");
   expect(noOpUp.applied).toEqual([]);
@@ -203,11 +203,11 @@ describe("A1a PostgreSQL foundation", () => {
         checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
       },
       {
-        id: "0011_c_proposal_foundation",
+        id: "0012_phase2_review_closure",
         checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
       },
       {
-        id: "0012_phase2_review_closure",
+        id: "0013_c_proposal_foundation",
         checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
       },
     ]);
@@ -487,10 +487,10 @@ describe("A1a PostgreSQL foundation", () => {
   });
 
   it("fails the A1b migration atomically for an orphaned existing session", async () => {
+    const proposalDown = await runMigrations(database, "down");
+    expect(proposalDown.applied).toEqual(["0013_c_proposal_foundation"]);
     const reviewClosureDown = await runMigrations(database, "down");
     expect(reviewClosureDown.applied).toEqual(["0012_phase2_review_closure"]);
-    const proposalDown = await runMigrations(database, "down");
-    expect(proposalDown.applied).toEqual(["0011_c_proposal_foundation"]);
     const phase2Down = await runMigrations(database, "down");
     expect(phase2Down.applied).toEqual(["0010_phase2_closure"]);
     const b6Down = await runMigrations(database, "down");
@@ -563,8 +563,8 @@ describe("A1a PostgreSQL foundation", () => {
       "0008_b4_challenge_publication",
       "0009_b6_publication_lifecycle",
       "0010_phase2_closure",
-      "0011_c_proposal_foundation",
       "0012_phase2_review_closure",
+      "0013_c_proposal_foundation",
     ]);
   });
 });
