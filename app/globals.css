@@ -9834,6 +9834,14 @@ bdi {
   gap: 7px;
   white-space: nowrap;
 }
+.header-login-options--audiences {
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid #dce4ef;
+  border-radius: 14px;
+  background: #f6f8fb;
+  box-shadow: 0 6px 18px rgba(16, 41, 79, 0.06);
+}
 .header-login-option {
   min-height: 44px;
   display: inline-flex;
@@ -9850,10 +9858,28 @@ bdi {
     background 0.18s ease,
     color 0.18s ease;
 }
+.header-login-options--audiences .header-login-option {
+  min-height: 46px;
+  gap: 8px;
+  padding: 4px 11px 4px 8px;
+  border-radius: 10px;
+}
+.audience-entry-icon {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  box-sizing: content-box;
+  padding: 4px;
+  border-radius: 8px;
+}
 .header-login-option--organization {
   border-color: #17345f;
   background: #fff;
   color: #10294f;
+}
+.header-login-option--organization .audience-entry-icon {
+  background: #edf3fb;
+  color: #17345f;
 }
 .header-login-option--organization:hover {
   background: #edf4ff;
@@ -9867,10 +9893,9 @@ bdi {
   border-color: #075e5a;
   background: #075e5a;
 }
-.drawer-login-title {
-  margin-block-start: 6px;
-  color: #53627a;
-  font-size: 12px;
+.header-login-option--solver .audience-entry-icon {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
 }
 
 @media (min-width: 901px) {
@@ -10940,65 +10965,6 @@ bdi {
   min-height: 112px;
   padding-inline: 32px;
 }
-.home-role-actions {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  white-space: nowrap;
-}
-.home-role-actions--organization {
-  margin-inline-start: 24px;
-}
-.home-role-actions > span {
-  margin-inline-end: 3px;
-  color: #526076;
-  font-size: 12px;
-  font-weight: 800;
-}
-.home-role-actions a {
-  min-width: 62px;
-  min-height: 44px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 7px 12px;
-  border: 1px solid #17345f;
-  border-radius: 8px;
-  background: #fff;
-  color: #10294f;
-  font-size: 13px;
-  font-weight: 800;
-  text-decoration: none;
-}
-.home-role-actions a:hover,
-.home-role-actions a:focus-visible {
-  border-color: #0a9da8;
-  background: #eefbfc;
-  color: #087d86;
-}
-.home-role-actions a.is-primary {
-  border-color: #0a9da8;
-  background: #0a9da8;
-  color: #fff;
-}
-.home-role-actions a.is-primary:hover,
-.home-role-actions a.is-primary:focus-visible {
-  border-color: #087e87;
-  background: #087e87;
-  color: #fff;
-}
-.home-role-actions--solver > span {
-  color: #0a716d;
-}
-.home-role-actions--solver a {
-  border-color: #0a716d;
-  color: #0a716d;
-}
-.home-role-actions--solver a.is-primary {
-  border-color: #0a716d;
-  background: #0a716d;
-  color: #fff;
-}
 .site-header--home .desktop-nav {
   gap: 46px;
   margin-inline-start: 42px;
@@ -11291,20 +11257,10 @@ bdi {
   .site-header--home .site-header__inner {
     padding-inline: 24px;
   }
-  .home-role-actions--organization {
-    margin-inline-start: 14px;
-  }
-  .home-role-actions > span {
-    display: none;
-  }
   .site-header--home .desktop-nav {
     gap: 27px;
     margin-inline-start: 26px;
     font-size: 15px;
-  }
-  .home-role-actions a {
-    min-width: 56px;
-    padding-inline: 9px;
   }
   .university-showcase__heading h2 {
     font-size: 32px;
@@ -11321,14 +11277,11 @@ bdi {
   .site-header--home .desktop-nav {
     display: none;
   }
-  .home-role-actions--organization {
-    margin-inline-start: 18px;
-  }
   .site-header--home .header-actions {
     margin-inline-start: auto;
   }
-  .home-role-actions > span {
-    display: none;
+  .site-header--home .mobile-menu-button {
+    display: grid;
   }
   .university-showcase__heading {
     grid-template-columns: 1fr;
@@ -11348,9 +11301,6 @@ bdi {
 }
 
 @media (max-width: 900px) {
-  .home-role-actions {
-    display: none;
-  }
   .site-header--home .mobile-menu-button {
     display: grid;
   }
@@ -11420,17 +11370,6 @@ bdi {
 }
 
 /* v8: exact role CTAs, university CTA placement, and the solver registration flow. */
-.site-header--home .home-role-actions > span {
-  display: none;
-}
-.site-header--home .home-role-actions a {
-  min-width: 0;
-  padding-inline: 14px;
-  font-size: 12px;
-}
-.site-header--home .home-role-actions--organization {
-  margin-inline-start: 18px;
-}
 .site-header--home .desktop-nav {
   gap: clamp(22px, 2.5vw, 42px);
   margin-inline-start: clamp(22px, 2.4vw, 38px);
@@ -11765,16 +11704,6 @@ bdi {
 @media (max-width: 1320px) and (min-width: 901px) {
   .site-header--home .site-header__inner {
     padding-inline: 20px;
-  }
-  .site-header--home .home-role-actions--organization {
-    margin-inline-start: 10px;
-  }
-  .site-header--home .home-role-actions {
-    gap: 5px;
-  }
-  .site-header--home .home-role-actions a {
-    padding-inline: 9px;
-    font-size: 13px;
   }
   .site-header--home .desktop-nav {
     gap: 18px;

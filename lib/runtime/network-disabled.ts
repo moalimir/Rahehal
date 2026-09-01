@@ -77,3 +77,13 @@ export function PreviewDataNotice(): never {
 export function ConnectedRecordLinks(): never {
   return unreachable("ConnectedRecordLinks");
 }
+
+/** Stands in for `@/components/portal/network-organization-login`. */
+export function NetworkOrganizationLogin(): never {
+  return unreachable("NetworkOrganizationLogin");
+}
+
+/** Stands in for `@/components/portal/network-organization-login`. */
+export function NetworkOrganizationRegistration(): never {
+  return unreachable("NetworkOrganizationRegistration");
+}

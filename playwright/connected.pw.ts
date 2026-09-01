@@ -29,7 +29,7 @@ test.describe("A3 connected challenge slice", () => {
 
   async function signIn(page: import("@playwright/test").Page) {
     await page.goto("/auth/organization/login");
-    await page.getByRole("button", { name: /ورود با ارائه‌دهنده هویت محلی/ }).click();
+    await page.getByRole("button", { name: /ادامه برای ورود امن سازمانی/ }).click();
 
     await page.waitForURL(/\/dex\/auth/);
     await page.locator("#login").fill(identity.email);
