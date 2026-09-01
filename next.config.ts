@@ -53,7 +53,7 @@ const nextConfig: NextConfig = {
     if (!networkRuntime) {
       config.plugins.push(
         new webpack.NormalModuleReplacementPlugin(
-          /^@\/(?:components\/(?:challenge-flow\/(?:connected-record-links|live-call-controls)|internal\/network-internal-boundary|organization-preview-notice|site-header-session|platform-approval-queue|public-challenge-(?:catalogue|record))|lib\/(?:api\/http|auth\/(?:network-organization-shell|network-session)|challenges\/adapters\/network(?:-governance|-public-challenges)?))$/,
+          /^@\/(?:components\/(?:challenge-flow\/(?:connected-record-links|live-call-controls)|internal\/network-internal-boundary|organization-preview-notice|platform-approval-queue|portal\/network-organization-login|public-challenge-(?:catalogue|record)|site-header-session)|lib\/(?:api\/http|auth\/(?:network-organization-shell|network-session)|challenges\/adapters\/network(?:-governance|-public-challenges)?))$/,
           path.join(projectRoot, "lib/runtime/network-disabled.ts"),
         ),
       );

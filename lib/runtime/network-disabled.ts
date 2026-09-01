@@ -107,3 +107,13 @@ export function NetworkInternalBoundary(): never {
 export function SessionHeaderActions(): never {
   return unreachable("SessionHeaderActions");
 }
+
+/** Stands in for `@/components/portal/network-organization-login`. */
+export function NetworkOrganizationLogin(): never {
+  return unreachable("NetworkOrganizationLogin");
+}
+
+/** Stands in for `@/components/portal/network-organization-login`. */
+export function NetworkOrganizationRegistration(): never {
+  return unreachable("NetworkOrganizationRegistration");
+}
