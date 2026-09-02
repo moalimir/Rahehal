@@ -314,4 +314,116 @@ describe("C1 PostgreSQL solver workspace adapter", () => {
       "55000",
     );
   });
+
+  it("keeps a published confidential call unreachable and indistinguishable from nothing", async () => {
+    // B4 publishes `nda`/`invite_only` calls without a projection row, so a
+    // governed, open call can exist that no solver has been granted. C6's
+    // direct offer is the reachability path and it does not exist yet: until
+    // it does, eligibility must deny without confirming the call is there.
+    // `challenge_current_version_fk` is deferred, so the aggregate and its
+    // first version have to land in one transaction.
+    await database.query(`
+      BEGIN;
+      INSERT INTO challenge (
+        id, tenant_id, tenant_kind, workspace_id, workspace_kind, stage,
+        current_version_id, published_version_id, lock_version,
+        created_by_user_id, created_at, updated_at
+      ) VALUES (
+        'chl_confidential_alpha', 'ten_org_alpha', 'organization', 'wsp_org_alpha', 'org',
+        'draft', 'chv_confidential_alpha_v1', NULL, 1,
+        'usr_owner_alpha', clock_timestamp(), clock_timestamp()
+      );
+      INSERT INTO challenge_version (
+        id, challenge_id, version_number, content, created_by_user_id, created_at
+      )
+      SELECT 'chv_confidential_alpha_v1', 'chl_confidential_alpha', 1,
+             jsonb_set(content, '{visibility}', '"nda"'),
+             'usr_owner_alpha', clock_timestamp()
+      FROM challenge_version WHERE id = 'chv_synthetic_alpha_v1';
+      COMMIT;
+    `);
+    await database.query(`
+      INSERT INTO challenge_approval (
+        id, tenant_id, workspace_id, challenge_id, challenge_version_id, gate,
+        decision, reason, recorded_by_user_id, recorded_by_role, recorded_at
+      )
+      SELECT 'cap_confidential_' || gate.name, 'ten_org_alpha', 'wsp_org_alpha',
+             'chl_confidential_alpha', 'chv_confidential_alpha_v1', gate.name,
+             'approved', 'Synthetic approval', gate.actor, gate.role, clock_timestamp()
+      FROM (VALUES
+        ('technical', 'usr_approver_alpha', 'org:approver_technical'),
+        ('legal', 'usr_platform_legal', 'platform:legal'),
+        ('finance', 'usr_platform_finance', 'platform:finance'),
+        ('quality', 'usr_platform_ops', 'platform:ops')
+      ) AS gate(name, actor, role)
+    `);
+    await database.query(`
+      INSERT INTO eligibility_rule (
+        id, tenant_id, workspace_id, challenge_id, challenge_version_id,
+        allowed_applicant_types, verification_required, nda_required,
+        document_gate_required, proposal_deadline, state, created_at
+      ) VALUES (
+        'elr_confidential_v1', 'ten_org_alpha', 'wsp_org_alpha',
+        'chl_confidential_alpha', 'chv_confidential_alpha_v1',
+        ARRAY['individual', 'expert-team']::text[], false, true, false,
+        '2099-01-01T00:00:00Z', 'open', clock_timestamp()
+      )
+    `);
+    await database.query(`
+      UPDATE challenge
+      SET stage = 'published', published_version_id = 'chv_confidential_alpha_v1',
+          publication_state = 'open', proposal_deadline_at = '2099-01-01T00:00:00Z',
+          lock_version = lock_version + 1, updated_at = clock_timestamp()
+      WHERE id = 'chl_confidential_alpha'
+    `);
+
+    // Control: the aggregate really is a live governed call with an NDA gate,
+    // so the refusals below are about reachability, not a broken fixture.
+    const aggregate = await database.query(`
+      SELECT challenge.publication_state, challenge.published_version_id, rule.nda_required,
+             (SELECT count(*) FROM challenge_public_projection
+              WHERE challenge_id = 'chl_confidential_alpha') AS projected
+      FROM challenge
+      JOIN eligibility_rule AS rule ON rule.challenge_version_id = challenge.published_version_id
+      WHERE challenge.id = 'chl_confidential_alpha'
+    `);
+    expect(aggregate.rows[0]).toMatchObject({
+      publication_state: "open",
+      published_version_id: "chv_confidential_alpha_v1",
+      nda_required: true,
+      projected: "0",
+    });
+
+    const confidentialId = parseChallengeId("chl_confidential_alpha");
+    const unknownId = parseChallengeId("chl_does_not_exist_at_all");
+    expect(await adapter.evaluate(teamContext("c1-confidential-eval"), confidentialId)).toBeNull();
+    expect(await adapter.evaluate(teamContext("c1-unknown-eval"), unknownId)).toBeNull();
+
+    const denyGate = (challengeId: ReturnType<typeof parseChallengeId>, key: string) =>
+      adapter.acceptEligibilityGate(
+        challengeId,
+        "nda",
+        {
+          expected_version: 0,
+          challenge_version_id: parseChallengeVersionId("chv_confidential_alpha_v1"),
+        },
+        teamContext(key),
+      );
+    await expect(denyGate(confidentialId, "c1-confidential-nda")).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    await expect(denyGate(unknownId, "c1-unknown-nda")).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+
+    // A refused acknowledgement leaves no row and no evidence behind.
+    const residue = await database.query(`
+      SELECT
+        (SELECT count(*) FROM eligibility_gate_acceptance
+         WHERE challenge_id = 'chl_confidential_alpha') AS acceptances,
+        (SELECT count(*) FROM idempotency_key
+         WHERE idempotency_key IN ('c1-confidential-nda', 'c1-unknown-nda')) AS idempotency
+    `);
+    expect(residue.rows[0]).toEqual({ acceptances: "0", idempotency: "0" });
+  });
 });
