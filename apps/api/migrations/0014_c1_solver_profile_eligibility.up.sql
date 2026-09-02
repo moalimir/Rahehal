@@ -58,8 +58,13 @@ BEGIN
 END;
 $$;
 
+-- Insert-only: on UPDATE every input to the derivation (workspace_id,
+-- tenant_id, workspace_kind, applicant_type) is already frozen by
+-- solver_profile_identity_protected. Firing here as well only shadows that
+-- trigger's immutability error, because BEFORE triggers run in alphabetical
+-- order and `applicant_type_derived` sorts ahead of `identity_protected`.
 CREATE TRIGGER solver_profile_applicant_type_derived
-BEFORE INSERT OR UPDATE ON solver_workspace_profile
+BEFORE INSERT ON solver_workspace_profile
 FOR EACH ROW EXECUTE FUNCTION validate_solver_profile_applicant_type();
 
 CREATE FUNCTION protect_solver_profile_identity()

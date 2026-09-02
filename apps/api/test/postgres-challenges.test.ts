@@ -1834,9 +1834,11 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
     // The suite normally migrates an empty database, so the backfill path --
     // and the ordering bug where the pairing constraint was added before it --
     // is invisible without this.
-    // Two migrations sit above 0010, so the walk down is two steps longer than
-    // a single-branch tree: 0013 (the proposal foundation) then 0012 (phase-2
-    // review closure).
+    // Three migrations sit above 0010, so the walk down is three steps longer
+    // than a single-branch tree: 0014 (C1 solver profile/eligibility), 0013
+    // (the proposal foundation), then 0012 (phase-2 review closure).
+    const solverDown = await runMigrations(database, "down");
+    expect(solverDown.applied).toEqual(["0014_c1_solver_profile_eligibility"]);
     const proposalDown = await runMigrations(database, "down");
     expect(proposalDown.applied).toEqual(["0013_c_proposal_foundation"]);
     const reviewClosureDown = await runMigrations(database, "down");
@@ -1851,6 +1853,7 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
       "0010_phase2_closure",
       "0012_phase2_review_closure",
       "0013_c_proposal_foundation",
+      "0014_c1_solver_profile_eligibility",
     ]);
 
     const restored = await database.query<{
