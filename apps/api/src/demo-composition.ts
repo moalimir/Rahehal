@@ -17,6 +17,7 @@ import { InMemoryChallengeRepository } from "./in-memory-challenges.js";
 import { InMemoryCriticalSection } from "./in-memory-critical-section.js";
 import { InMemoryIdentityAdapter } from "./in-memory-identity.js";
 import { InMemorySolverWorkspaceAdapter } from "./in-memory-solver-workspaces.js";
+import { InMemoryTeamAdapter } from "./in-memory-teams.js";
 import { MonotonicIdFactory, systemClock } from "./primitives.js";
 import type { ApiPorts, Clock, DemoIdentitySeed, IdFactory } from "./ports.js";
 
@@ -80,6 +81,12 @@ export const demoApiCredentials = {
     refreshToken: "demo-refresh-solver-team-viewer-01",
     workspaceId: parseWorkspaceId("wsp_solver_team"),
     sessionId: parseSessionId("ses_solver_team_viewer"),
+  },
+  solverCandidate: {
+    accessToken: "demo-access-solver-candidate-001",
+    refreshToken: "demo-refresh-solver-candidate-001",
+    workspaceId: parseWorkspaceId("wsp_solver_candidate"),
+    sessionId: parseSessionId("ses_solver_candidate"),
   },
   exchange: {
     authorizationCode: "demo-oidc-code-owner-alpha",
@@ -168,6 +175,12 @@ const solverViewerUser: User = {
   primaryEmail: "solver-viewer@example.test",
   emailVerified: true,
 };
+const solverCandidateUser: User = {
+  id: parseUserId("usr_solver_candidate"),
+  displayName: "حل‌گر متقاضی نمونه",
+  primaryEmail: "solver-candidate@example.test",
+  emailVerified: true,
+};
 const individualSolverWorkspace: Workspace = {
   id: demoApiCredentials.solver.workspaceId,
   tenantId: parseTenantId("ten_solver_individual"),
@@ -182,6 +195,13 @@ const teamSolverWorkspace: Workspace = {
   name: "تیم تخصصی نمونه",
   teamKind: "expert-team",
   ownerUserId: solverUser.id,
+};
+const candidateSolverWorkspace: Workspace = {
+  id: demoApiCredentials.solverCandidate.workspaceId,
+  tenantId: parseTenantId("ten_solver_candidate"),
+  kind: "individual",
+  name: "فضای شخصی متقاضی",
+  ownerUserId: solverCandidateUser.id,
 };
 
 function membership(
@@ -367,6 +387,24 @@ function demoSeeds(now: string): readonly DemoIdentitySeed[] {
       accessToken: demoApiCredentials.solverTeamViewer.accessToken,
       refreshToken: demoApiCredentials.solverTeamViewer.refreshToken,
     },
+    {
+      user: solverCandidateUser,
+      workspace: candidateSolverWorkspace,
+      membership: membership(
+        "mem_solver_candidate",
+        solverCandidateUser,
+        candidateSolverWorkspace,
+        "individual",
+        now,
+      ),
+      authorizationCode: "demo-oidc-code-solver-candidate",
+      codeVerifier: "demo-code-verifier-solver-candidate-000000000000000",
+      redirectUri: demoApiCredentials.exchange.redirectUri,
+      oidcState: "demo-state-solver-candidate",
+      sessionId: demoApiCredentials.solverCandidate.sessionId,
+      accessToken: demoApiCredentials.solverCandidate.accessToken,
+      refreshToken: demoApiCredentials.solverCandidate.refreshToken,
+    },
   ];
 }
 
@@ -438,6 +476,7 @@ export type DemoApiComposition = {
   readonly decisionAudit: InMemoryAccessDecisionAudit;
   readonly criticalSection: InMemoryCriticalSection;
   readonly solverWorkspaces: InMemorySolverWorkspaceAdapter;
+  readonly teams: InMemoryTeamAdapter;
 };
 
 export function createDemoApiComposition(options: {
@@ -468,12 +507,14 @@ export function createDemoApiComposition(options: {
   const challenges = new InMemoryChallengeRepository(clock, ids);
   challenges.seed(foreignChallenge(clock.now().toISOString()));
   const solverWorkspaces = new InMemorySolverWorkspaceAdapter(seeds, challenges, clock, ids);
+  const teams = new InMemoryTeamAdapter(seeds, identity, solverWorkspaces, clock, ids);
   return {
     identity,
     challenges,
     decisionAudit,
     criticalSection,
     solverWorkspaces,
+    teams,
     ports: {
       oidcAuthorization: {
         async start() {
@@ -489,6 +530,7 @@ export function createDemoApiComposition(options: {
       publicChallenges: challenges,
       solverWorkspaces,
       eligibility: solverWorkspaces,
+      teams,
       decisionAudit,
       clock,
       ids,

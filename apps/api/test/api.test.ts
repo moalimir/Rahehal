@@ -15,6 +15,9 @@ import {
   type EligibilitySuccessEnvelope,
   type SolverVerificationSuccessEnvelope,
   type SolverWorkspaceProfileSuccessEnvelope,
+  type TeamInvitationListSuccessEnvelope,
+  type TeamMembershipRequestListSuccessEnvelope,
+  type TeamSuccessEnvelope,
 } from "@rahhal/contracts";
 import {
   challengeOutboxEventTypes,
@@ -63,6 +66,18 @@ function ownerHeaders(idempotencyKey?: string) {
   return {
     authorization: `Bearer ${demoApiCredentials.owner.accessToken}`,
     "x-workspace-id": demoApiCredentials.owner.workspaceId,
+    ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}),
+  };
+}
+
+function solverHeaders(
+  credential: { readonly accessToken: string; readonly workspaceId: string },
+  idempotencyKey?: string,
+  workspaceId: string = credential.workspaceId,
+) {
+  return {
+    authorization: `Bearer ${credential.accessToken}`,
+    "x-workspace-id": workspaceId,
     ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}),
   };
 }
@@ -215,7 +230,7 @@ describe("authoritative Fastify API foundation", () => {
     expect(firstBody.data.receipt.idempotent).toBe(false);
     expect(secondBody.data.receipt).toEqual({ ...firstBody.data.receipt, idempotent: true });
     expect(secondBody.data.tokens).toEqual(firstBody.data.tokens);
-    expect(composition.identity.snapshot().sessions).toHaveLength(11);
+    expect(composition.identity.snapshot().sessions).toHaveLength(12);
     expect(composition.identity.snapshot().auditEvents).toHaveLength(1);
     expect(composition.identity.snapshot().outboxEvents).toHaveLength(1);
   });
@@ -238,7 +253,7 @@ describe("authoritative Fastify API foundation", () => {
     expect(replayWithNewKey.statusCode).toBe(403);
     expect(replayWithNewKey.json<ErrorEnvelope>().error.code).toBe("NO_ACCESS");
     const snapshot = composition.identity.snapshot();
-    expect(snapshot.sessions).toHaveLength(11);
+    expect(snapshot.sessions).toHaveLength(12);
     expect(snapshot.auditEvents).toHaveLength(1);
     expect(snapshot.outboxEvents).toHaveLength(1);
     expect(snapshot.consumedOidcExchangeCount).toBe(1);
@@ -2996,5 +3011,603 @@ describe("in-memory challenge transaction", () => {
 
     expect(failingComposition.identity.snapshot()).toEqual(identityBefore);
     expect(failingComposition.decisionAudit.snapshot()).toEqual(decisionAuditBefore);
+  });
+});
+
+describe("C2 authoritative team lifecycle", () => {
+  let app: FastifyInstance;
+  let composition: DemoApiComposition;
+
+  beforeEach(() => {
+    composition = createDemoApiComposition({ mode: "demo", nodeEnv: "test", clock });
+    app = buildApi(composition.ports);
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it("creates a separate team workspace with owner authority and not-started verification", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: apiRoutes.solverTeams,
+      headers: solverHeaders(demoApiCredentials.solverCandidate, "c2-create-team-0001"),
+      payload: {
+        expected_version: 0,
+        name: "تیم تازه نمونه",
+        team_kind: "lab",
+        join_mode: "request",
+      },
+    });
+    expect(created.statusCode).toBe(200);
+    const workspaceId = created.json<MutationSuccessEnvelope>().data.entity_id;
+
+    const switched = await app.inject({
+      method: "POST",
+      url: apiRoutes.switchWorkspaceContext,
+      headers: solverHeaders(demoApiCredentials.solverCandidate, "c2-switch-team-0001"),
+      payload: { expected_version: 1, workspace_id: workspaceId },
+    });
+    expect(switched.statusCode).toBe(200);
+
+    const team = await app.inject({
+      method: "GET",
+      url: apiRoutes.solverTeam,
+      headers: solverHeaders(demoApiCredentials.solverCandidate, undefined, workspaceId),
+    });
+    expect(team.statusCode).toBe(200);
+    expect(team.json<TeamSuccessEnvelope>().data).toMatchObject({
+      workspace_id: workspaceId,
+      team_kind: "lab",
+      owner_user_id: "usr_solver_candidate",
+      status: "active",
+      members: [{ role: "team:owner", state: "active" }],
+    });
+
+    const verification = await app.inject({
+      method: "GET",
+      url: apiRoutes.solverVerification,
+      headers: solverHeaders(demoApiCredentials.solverCandidate, undefined, workspaceId),
+    });
+    expect(verification.statusCode).toBe(200);
+    expect(verification.json<SolverVerificationSuccessEnvelope>().data.state).toBe("not_started");
+  });
+
+  it("applies the durable team policy to proposal-manager profile authority", async () => {
+    const initial = await app.inject({
+      method: "GET",
+      url: apiRoutes.solverTeam,
+      headers: solverHeaders(demoApiCredentials.solverTeam),
+    });
+    const viewer = initial
+      .json<TeamSuccessEnvelope>()
+      .data.members.find((member) => member.role === "team:viewer")!;
+
+    const promoted = await app.inject({
+      method: "POST",
+      url: apiRoutes.changeSolverTeamMemberRole.replace("{membershipId}", viewer.id),
+      headers: solverHeaders(demoApiCredentials.solverTeam, "c2-promote-manager-0001"),
+      payload: {
+        expected_version: viewer.version,
+        role: "team:proposal-manager",
+        reason: "واگذاری مدیریت پروفایل تیم",
+      },
+    });
+    expect(promoted.statusCode).toBe(200);
+
+    const allowed = await app.inject({
+      method: "PATCH",
+      url: apiRoutes.solverProfile,
+      headers: solverHeaders(
+        demoApiCredentials.solverTeamViewer,
+        "c2-manager-profile-allowed-0001",
+      ),
+      payload: {
+        expected_version: 1,
+        patch: {
+          headline: "تیم تحلیل داده",
+          overview: "تیم تخصصی برای حل مسئله‌های داده‌محور صنعتی و عملیاتی.",
+          expertise: ["تحلیل داده"],
+          geography: ["ایران"],
+        },
+      },
+    });
+    expect(allowed.statusCode).toBe(200);
+
+    const disabled = await app.inject({
+      method: "PATCH",
+      url: apiRoutes.solverTeamPolicy,
+      headers: solverHeaders(demoApiCredentials.solverTeam, "c2-disable-manager-profile-0001"),
+      payload: {
+        expected_version: 2,
+        reason: "ویرایش پروفایل دوباره به مدیران ارشد محدود می‌شود",
+        policy: { proposalManagersCanEditProfile: false },
+      },
+    });
+    expect(disabled.statusCode).toBe(200);
+    const evidence = composition.teams.snapshot();
+    expect(evidence.auditEvents).toContainEqual(
+      expect.objectContaining({
+        action: "team.policy.updated",
+        metadata: expect.objectContaining({
+          reason: "ویرایش پروفایل دوباره به مدیران ارشد محدود می‌شود",
+        }),
+      }),
+    );
+    expect(
+      evidence.outboxEvents.find((event) => event.event_type === "team.policy.updated")?.payload,
+    ).not.toHaveProperty("reason");
+
+    const denied = await app.inject({
+      method: "PATCH",
+      url: apiRoutes.solverProfile,
+      headers: solverHeaders(demoApiCredentials.solverTeamViewer, "c2-manager-profile-denied-0001"),
+      payload: { expected_version: 2, patch: { headline: "تغییر غیرمجاز" } },
+    });
+    expect(denied.statusCode).toBe(403);
+    expect(denied.json<ErrorEnvelope>().error.code).toBe("NO_ACCESS");
+  });
+
+  it("binds invitation acceptance to the authenticated recipient and cuts removed access", async () => {
+    const sent = await app.inject({
+      method: "POST",
+      url: apiRoutes.solverTeamInvitations,
+      headers: solverHeaders(demoApiCredentials.solverTeam, "c2-invite-candidate-0001"),
+      payload: {
+        expected_version: 1,
+        recipient_email: "solver-candidate@example.test",
+        proposed_role: "team:contributor",
+        scope: "همکاری در پیشنهادها",
+        message: "دعوت به همکاری",
+        commitment: "تعهد زمانی هفتگی",
+        ip_notice: "شرایط مالکیت فکری تیم اعمال می‌شود",
+      },
+    });
+    expect(sent.statusCode).toBe(200);
+    const invitationId = sent.json<MutationSuccessEnvelope>().data.entity_id;
+
+    const incoming = await app.inject({
+      method: "GET",
+      url: apiRoutes.solverTeamIncomingInvitations,
+      headers: solverHeaders(demoApiCredentials.solverCandidate),
+    });
+    expect(incoming.statusCode).toBe(200);
+    expect(incoming.json<TeamInvitationListSuccessEnvelope>().data.items).toEqual([
+      expect.objectContaining({ id: invitationId, recipient_user_id: "usr_solver_candidate" }),
+    ]);
+
+    const wrongRecipient = await app.inject({
+      method: "POST",
+      url: apiRoutes.respondSolverTeamInvitation.replace("{teamInvitationId}", invitationId),
+      headers: solverHeaders(demoApiCredentials.solver, "c2-wrong-recipient-0001"),
+      payload: { expected_version: 1, decision: "accept" },
+    });
+    expect(wrongRecipient.statusCode).toBe(404);
+
+    const accepted = await app.inject({
+      method: "POST",
+      url: apiRoutes.respondSolverTeamInvitation.replace("{teamInvitationId}", invitationId),
+      headers: solverHeaders(demoApiCredentials.solverCandidate, "c2-accept-invite-0001"),
+      payload: { expected_version: 1, decision: "accept" },
+    });
+    expect(accepted.statusCode).toBe(200);
+
+    const me = await app.inject({
+      method: "GET",
+      url: apiRoutes.me,
+      headers: { authorization: `Bearer ${demoApiCredentials.solverCandidate.accessToken}` },
+    });
+    expect(me.json<SuccessEnvelope<MeResource>>().data.memberships).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          workspace_id: demoApiCredentials.solverTeam.workspaceId,
+          role: "team:contributor",
+          state: "active",
+        }),
+      ]),
+    );
+
+    const team = await app.inject({
+      method: "GET",
+      url: apiRoutes.solverTeam,
+      headers: solverHeaders(demoApiCredentials.solverTeam),
+    });
+    const candidateMembership = team
+      .json<TeamSuccessEnvelope>()
+      .data.members.find((member) => member.user_id === parseUserId("usr_solver_candidate"))!;
+    const removed = await app.inject({
+      method: "POST",
+      url: apiRoutes.removeSolverTeamMember.replace("{membershipId}", candidateMembership.id),
+      headers: solverHeaders(demoApiCredentials.solverTeam, "c2-remove-candidate-0001"),
+      payload: { expected_version: candidateMembership.version, reason: "پایان همکاری" },
+    });
+    expect(removed.statusCode).toBe(200);
+
+    const deniedSwitch = await app.inject({
+      method: "POST",
+      url: apiRoutes.switchWorkspaceContext,
+      headers: solverHeaders(demoApiCredentials.solverCandidate, "c2-switch-removed-0001"),
+      payload: { expected_version: 1, workspace_id: demoApiCredentials.solverTeam.workspaceId },
+    });
+    expect(deniedSwitch.statusCode).toBe(404);
+  });
+
+  it("requires a reason when an invitation is declined", async () => {
+    const sent = await app.inject({
+      method: "POST",
+      url: apiRoutes.solverTeamInvitations,
+      headers: solverHeaders(demoApiCredentials.solverTeam, "c2-invite-decline-0001"),
+      payload: {
+        expected_version: 1,
+        recipient_email: "solver-candidate@example.test",
+        proposed_role: "team:viewer",
+        scope: "مشاهده فعالیت تیم",
+        message: "دعوت به مشاهده",
+        commitment: "دو ساعت در هفته",
+        ip_notice: "شرایط مالکیت فکری تیم اعمال می‌شود",
+      },
+    });
+    expect(sent.statusCode).toBe(200);
+    const invitationId = sent.json<MutationSuccessEnvelope>().data.entity_id;
+    const responseUrl = apiRoutes.respondSolverTeamInvitation.replace(
+      "{teamInvitationId}",
+      invitationId,
+    );
+
+    const missingReason = await app.inject({
+      method: "POST",
+      url: responseUrl,
+      headers: solverHeaders(demoApiCredentials.solverCandidate, "c2-decline-no-reason-0001"),
+      payload: { expected_version: 1, decision: "decline" },
+    });
+    expect(missingReason.statusCode).toBe(422);
+    expect(missingReason.json<ErrorEnvelope>().error.code).toBe("VALIDATION");
+
+    const blankReason = await app.inject({
+      method: "POST",
+      url: responseUrl,
+      headers: solverHeaders(demoApiCredentials.solverCandidate, "c2-decline-blank-reason-0001"),
+      payload: { expected_version: 1, decision: "decline", reason: "   " },
+    });
+    expect(blankReason.statusCode).toBe(422);
+    expect(blankReason.json<ErrorEnvelope>().error.code).toBe("VALIDATION");
+
+    const declined = await app.inject({
+      method: "POST",
+      url: responseUrl,
+      headers: solverHeaders(demoApiCredentials.solverCandidate, "c2-decline-with-reason-0001"),
+      payload: {
+        expected_version: 1,
+        decision: "decline",
+        reason: "در حال حاضر ظرفیت همکاری ندارم",
+      },
+    });
+    expect(declined.statusCode).toBe(200);
+    const evidence = composition.teams.snapshot();
+    expect(evidence.auditEvents).toContainEqual(
+      expect.objectContaining({
+        action: "team.invitation.declined",
+        metadata: expect.objectContaining({ reason: "در حال حاضر ظرفیت همکاری ندارم" }),
+      }),
+    );
+    expect(
+      evidence.outboxEvents.find((event) => event.event_type === "team.invitation.declined")
+        ?.payload,
+    ).not.toHaveProperty("reason");
+  });
+
+  it("revokes a pending invitation and prevents a later response", async () => {
+    const sent = await app.inject({
+      method: "POST",
+      url: apiRoutes.solverTeamInvitations,
+      headers: solverHeaders(demoApiCredentials.solverTeam, "c2-invite-revoke-0001"),
+      payload: {
+        expected_version: 1,
+        recipient_email: "solver-candidate@example.test",
+        proposed_role: "team:viewer",
+        scope: "مشاهده فعالیت تیم",
+        message: "دعوت به مشاهده",
+        commitment: "دو ساعت در هفته",
+        ip_notice: "شرایط مالکیت فکری تیم اعمال می‌شود",
+      },
+    });
+    const invitationId = sent.json<MutationSuccessEnvelope>().data.entity_id;
+    const revoked = await app.inject({
+      method: "POST",
+      url: apiRoutes.revokeSolverTeamInvitation.replace("{teamInvitationId}", invitationId),
+      headers: solverHeaders(demoApiCredentials.solverTeam, "c2-revoke-invite-0001"),
+      payload: { expected_version: 1, reason: "نیاز تیم تغییر کرده است" },
+    });
+    expect(revoked.statusCode).toBe(200);
+
+    const response = await app.inject({
+      method: "POST",
+      url: apiRoutes.respondSolverTeamInvitation.replace("{teamInvitationId}", invitationId),
+      headers: solverHeaders(demoApiCredentials.solverCandidate, "c2-accept-revoked-0001"),
+      payload: { expected_version: 2, decision: "accept" },
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json<ErrorEnvelope>().error.code).toBe("INVALID_STATE");
+  });
+
+  it("supports request/decision/withdraw while denying invite-only and viewer management", async () => {
+    const viewerDenied = await app.inject({
+      method: "GET",
+      url: apiRoutes.solverTeamInvitations,
+      headers: solverHeaders(demoApiCredentials.solverTeamViewer),
+    });
+    expect(viewerDenied.statusCode).toBe(403);
+
+    const requested = await app.inject({
+      method: "POST",
+      url: apiRoutes.createSolverTeamMembershipRequest.replace(
+        "{workspaceId}",
+        demoApiCredentials.solverTeam.workspaceId,
+      ),
+      headers: solverHeaders(demoApiCredentials.solverCandidate, "c2-request-team-0001"),
+      payload: {
+        expected_version: 0,
+        requested_role: "team:contributor",
+        introduction: "تجربه مرتبط با تحلیل داده",
+        availability: "ده ساعت در هفته",
+      },
+    });
+    expect(requested.statusCode).toBe(200);
+    const requestId = requested.json<MutationSuccessEnvelope>().data.entity_id;
+
+    const ownRequests = await app.inject({
+      method: "GET",
+      url: apiRoutes.solverOwnTeamMembershipRequests,
+      headers: solverHeaders(demoApiCredentials.solverCandidate),
+    });
+    expect(ownRequests.statusCode).toBe(200);
+    expect(ownRequests.json<TeamMembershipRequestListSuccessEnvelope>().data.items).toEqual([
+      expect.objectContaining({ id: requestId, state: "requested" }),
+    ]);
+
+    const withdrawn = await app.inject({
+      method: "POST",
+      url: apiRoutes.withdrawSolverTeamMembershipRequest.replace(
+        "{teamMembershipRequestId}",
+        requestId,
+      ),
+      headers: solverHeaders(demoApiCredentials.solverCandidate, "c2-withdraw-request-0001"),
+      payload: { expected_version: 1, reason: "درخواست را پس می‌گیرم" },
+    });
+    expect(withdrawn.statusCode).toBe(200);
+
+    const requestedAgain = await app.inject({
+      method: "POST",
+      url: apiRoutes.createSolverTeamMembershipRequest.replace(
+        "{workspaceId}",
+        demoApiCredentials.solverTeam.workspaceId,
+      ),
+      headers: solverHeaders(demoApiCredentials.solverCandidate, "c2-request-team-again-0001"),
+      payload: {
+        expected_version: 0,
+        requested_role: "team:contributor",
+        introduction: "تجربه مرتبط با تحلیل داده",
+        availability: "ده ساعت در هفته",
+      },
+    });
+    expect(requestedAgain.statusCode).toBe(200);
+    const activeRequestId = requestedAgain.json<MutationSuccessEnvelope>().data.entity_id;
+
+    const listed = await app.inject({
+      method: "GET",
+      url: apiRoutes.solverTeamMembershipRequests,
+      headers: solverHeaders(demoApiCredentials.solverTeam),
+    });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json<TeamMembershipRequestListSuccessEnvelope>().data.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: requestId, state: "withdrawn" }),
+        expect.objectContaining({
+          id: activeRequestId,
+          requester_user_id: "usr_solver_candidate",
+          state: "requested",
+        }),
+      ]),
+    );
+
+    const decided = await app.inject({
+      method: "POST",
+      url: apiRoutes.decideSolverTeamMembershipRequest.replace(
+        "{teamMembershipRequestId}",
+        activeRequestId,
+      ),
+      headers: solverHeaders(demoApiCredentials.solverTeam, "c2-accept-request-0001"),
+      payload: {
+        expected_version: 1,
+        decision: "accept",
+        assigned_role: "team:viewer",
+        reason: "مهارت مرتبط تأیید شد",
+      },
+    });
+    expect(decided.statusCode).toBe(200);
+  });
+
+  it("hides invite-only teams from membership requests", async () => {
+    const updated = await app.inject({
+      method: "PATCH",
+      url: apiRoutes.solverTeamPolicy,
+      headers: solverHeaders(demoApiCredentials.solverTeam, "c2-invite-only-policy-0001"),
+      payload: {
+        expected_version: 1,
+        reason: "عضویت فقط با دعوت انجام می‌شود",
+        join_mode: "invite-only",
+      },
+    });
+    expect(updated.statusCode).toBe(200);
+
+    const denied = await app.inject({
+      method: "POST",
+      url: apiRoutes.createSolverTeamMembershipRequest.replace(
+        "{workspaceId}",
+        demoApiCredentials.solverTeam.workspaceId,
+      ),
+      headers: solverHeaders(demoApiCredentials.solverCandidate, "c2-request-invite-only-0001"),
+      payload: {
+        expected_version: 0,
+        requested_role: "team:viewer",
+        introduction: "درخواست مشاهده",
+        availability: "دو ساعت در هفته",
+      },
+    });
+    expect(denied.statusCode).toBe(404);
+    expect(denied.json<ErrorEnvelope>().error.code).toBe("NOT_FOUND");
+  });
+
+  it("suspends, restores, and lets a non-owner leave with immediate access cutoff", async () => {
+    const initial = await app.inject({
+      method: "GET",
+      url: apiRoutes.solverTeam,
+      headers: solverHeaders(demoApiCredentials.solverTeam),
+    });
+    const viewer = initial
+      .json<TeamSuccessEnvelope>()
+      .data.members.find((member) => member.role === "team:viewer")!;
+
+    const suspended = await app.inject({
+      method: "POST",
+      url: apiRoutes.suspendSolverTeamMember.replace("{membershipId}", viewer.id),
+      headers: solverHeaders(demoApiCredentials.solverTeam, "c2-suspend-viewer-0001"),
+      payload: { expected_version: viewer.version, reason: "تعلیق موقت دسترسی" },
+    });
+    expect(suspended.statusCode).toBe(200);
+    const deniedWhileSuspended = await app.inject({
+      method: "GET",
+      url: apiRoutes.solverTeam,
+      headers: solverHeaders(demoApiCredentials.solverTeamViewer),
+    });
+    expect(deniedWhileSuspended.statusCode).toBe(404);
+    expect(deniedWhileSuspended.json<ErrorEnvelope>().error.code).toBe("NOT_FOUND");
+
+    const restored = await app.inject({
+      method: "POST",
+      url: apiRoutes.restoreSolverTeamMember.replace("{membershipId}", viewer.id),
+      headers: solverHeaders(demoApiCredentials.solverTeam, "c2-restore-viewer-0001"),
+      payload: { expected_version: viewer.version + 1, reason: "بازگردانی دسترسی" },
+    });
+    expect(restored.statusCode).toBe(200);
+    const left = await app.inject({
+      method: "POST",
+      url: apiRoutes.leaveSolverTeam,
+      headers: solverHeaders(demoApiCredentials.solverTeamViewer, "c2-viewer-leave-0001"),
+      payload: { expected_version: viewer.version + 2, reason: "پایان همکاری داوطلبانه" },
+    });
+    expect(left.statusCode).toBe(200);
+    const deniedAfterLeave = await app.inject({
+      method: "GET",
+      url: apiRoutes.solverTeam,
+      headers: solverHeaders(demoApiCredentials.solverTeamViewer),
+    });
+    expect(deniedAfterLeave.statusCode).toBe(404);
+    expect(deniedAfterLeave.json<ErrorEnvelope>().error.code).toBe("NOT_FOUND");
+  });
+
+  it("does not enumerate a same-tenant member ID from another team", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: apiRoutes.solverTeams,
+      headers: solverHeaders(demoApiCredentials.solverTeam, "c2-create-second-team-0001"),
+      payload: {
+        expected_version: 0,
+        name: "تیم دوم نمونه",
+        team_kind: "lab",
+        join_mode: "request",
+      },
+    });
+    const secondTeamId = created.json<MutationSuccessEnvelope>().data.entity_id;
+    const switchedToSecond = await app.inject({
+      method: "POST",
+      url: apiRoutes.switchWorkspaceContext,
+      headers: solverHeaders(demoApiCredentials.solverTeam, "c2-switch-second-team-0001"),
+      payload: { expected_version: 1, workspace_id: secondTeamId },
+    });
+    expect(switchedToSecond.statusCode).toBe(200);
+    const secondTeam = await app.inject({
+      method: "GET",
+      url: apiRoutes.solverTeam,
+      headers: solverHeaders(demoApiCredentials.solverTeam, undefined, secondTeamId),
+    });
+    const foreignMembership = secondTeam.json<TeamSuccessEnvelope>().data.members[0]!;
+    const switchedBack = await app.inject({
+      method: "POST",
+      url: apiRoutes.switchWorkspaceContext,
+      headers: solverHeaders(
+        demoApiCredentials.solverTeam,
+        "c2-switch-original-team-0001",
+        secondTeamId,
+      ),
+      payload: {
+        expected_version: 2,
+        workspace_id: demoApiCredentials.solverTeam.workspaceId,
+      },
+    });
+    expect(switchedBack.statusCode).toBe(200);
+
+    const denied = await app.inject({
+      method: "POST",
+      url: apiRoutes.removeSolverTeamMember.replace("{membershipId}", foreignMembership.id),
+      headers: solverHeaders(demoApiCredentials.solverTeam, "c2-remove-foreign-member-0001"),
+      payload: { expected_version: foreignMembership.version, reason: "نباید قابل دسترسی باشد" },
+    });
+    expect(denied.statusCode).toBe(404);
+    expect(denied.json<ErrorEnvelope>().error.code).toBe("NOT_FOUND");
+  });
+
+  it("requires transfer before owner removal and makes archive terminate authority", async () => {
+    const initial = await app.inject({
+      method: "GET",
+      url: apiRoutes.solverTeam,
+      headers: solverHeaders(demoApiCredentials.solverTeam),
+    });
+    const resource = initial.json<TeamSuccessEnvelope>().data;
+    const owner = resource.members.find((member) => member.role === "team:owner")!;
+    const viewer = resource.members.find((member) => member.role === "team:viewer")!;
+
+    const removeOwner = await app.inject({
+      method: "POST",
+      url: apiRoutes.removeSolverTeamMember.replace("{membershipId}", owner.id),
+      headers: solverHeaders(demoApiCredentials.solverTeam, "c2-remove-owner-0001"),
+      payload: { expected_version: owner.version, reason: "نامعتبر" },
+    });
+    expect(removeOwner.statusCode).toBe(403);
+
+    const transferred = await app.inject({
+      method: "POST",
+      url: apiRoutes.transferSolverTeamOwnership,
+      headers: solverHeaders(demoApiCredentials.solverTeam, "c2-transfer-owner-0001"),
+      payload: {
+        expected_version: resource.version,
+        successor_membership_id: viewer.id,
+        reason: "انتقال مسئولیت تیم",
+      },
+    });
+    expect(transferred.statusCode).toBe(200);
+
+    const oldOwnerArchive = await app.inject({
+      method: "POST",
+      url: apiRoutes.archiveSolverTeam,
+      headers: solverHeaders(demoApiCredentials.solverTeam, "c2-old-owner-archive-0001"),
+      payload: { expected_version: 2, reason: "نامعتبر" },
+    });
+    expect(oldOwnerArchive.statusCode).toBe(403);
+
+    const archived = await app.inject({
+      method: "POST",
+      url: apiRoutes.archiveSolverTeam,
+      headers: solverHeaders(demoApiCredentials.solverTeamViewer, "c2-archive-team-0001"),
+      payload: { expected_version: 2, reason: "پایان فعالیت تیم" },
+    });
+    expect(archived.statusCode).toBe(200);
+
+    const unavailable = await app.inject({
+      method: "GET",
+      url: apiRoutes.solverTeam,
+      headers: solverHeaders(demoApiCredentials.solverTeamViewer),
+    });
+    expect(unavailable.statusCode).toBe(404);
   });
 });

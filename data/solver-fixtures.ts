@@ -1,21 +1,12 @@
 import type { ProposalContent, SolverState, TeamPolicy } from "@/domain/solver";
-import { teamRole } from "@rahhal/domain";
+import { DEFAULT_TEAM_POLICY as CANONICAL_TEAM_POLICY, teamRole } from "@rahhal/domain";
 
 export const CURRENT_SOLVER_USER_ID = "USR-SOLVER-001";
 export const PERSONAL_WORKSPACE_ID = "WS-PERSONAL-001";
 export const PRIMARY_TEAM_ID = "TEAM-21";
 export const SECONDARY_TEAM_ID = "TEAM-34";
 
-export const DEFAULT_TEAM_POLICY: TeamPolicy = {
-  proposalManagersCanEditProfile: true,
-  proposalManagersCanInvite: false,
-  adminsCanSubmit: true,
-  proposalManagersCanSubmit: true,
-  viewersCanReadMessages: true,
-  adminsCanViewPayments: true,
-  proposalManagersCanViewPayments: true,
-  approvalBeforeSubmit: false,
-};
+export const DEFAULT_TEAM_POLICY: TeamPolicy = CANONICAL_TEAM_POLICY;
 
 export const EMPTY_PROPOSAL_CONTENT: ProposalContent = {
   title: "",

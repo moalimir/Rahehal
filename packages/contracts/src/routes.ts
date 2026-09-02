@@ -29,6 +29,27 @@ export const apiRoutes = {
   challengeEligibility: "/api/v1/challenges/{challengeId}/eligibility",
   acceptChallengeEligibilityGate:
     "/api/v1/challenges/{challengeId}/eligibility-gates/{gate}:accept",
+  solverTeams: "/api/v1/solver/teams",
+  solverTeam: "/api/v1/solver/team",
+  solverTeamPolicy: "/api/v1/solver/team/policy",
+  solverTeamInvitations: "/api/v1/solver/team/invitations",
+  revokeSolverTeamInvitation: "/api/v1/solver/team/invitations/{teamInvitationId}:revoke",
+  solverTeamIncomingInvitations: "/api/v1/solver/team-invitations",
+  respondSolverTeamInvitation: "/api/v1/solver/team-invitations/{teamInvitationId}:respond",
+  createSolverTeamMembershipRequest: "/api/v1/solver/teams/{workspaceId}/membership-requests",
+  solverTeamMembershipRequests: "/api/v1/solver/team/membership-requests",
+  decideSolverTeamMembershipRequest:
+    "/api/v1/solver/team/membership-requests/{teamMembershipRequestId}:decide",
+  solverOwnTeamMembershipRequests: "/api/v1/solver/team-membership-requests",
+  withdrawSolverTeamMembershipRequest:
+    "/api/v1/solver/team-membership-requests/{teamMembershipRequestId}:withdraw",
+  changeSolverTeamMemberRole: "/api/v1/solver/team/members/{membershipId}:change-role",
+  suspendSolverTeamMember: "/api/v1/solver/team/members/{membershipId}:suspend",
+  restoreSolverTeamMember: "/api/v1/solver/team/members/{membershipId}:restore",
+  removeSolverTeamMember: "/api/v1/solver/team/members/{membershipId}:remove",
+  transferSolverTeamOwnership: "/api/v1/solver/team:transfer-ownership",
+  leaveSolverTeam: "/api/v1/solver/team:leave",
+  archiveSolverTeam: "/api/v1/solver/team:archive",
 } as const;
 
 /**

@@ -2,7 +2,7 @@
 
 The broader prototype's biggest lie is that it _looks_ secure: deny-by-default helpers, publication gates, COI gates, payment prerequisites — still enforced in the browser and bypassable (M-01). A1c establishes one narrow PostgreSQL-authoritative challenge-draft exception, while the web and broader workflows remain demo-only. This document defines the server-side authority that replaces the remaining browser rules. It unifies the three client permission engines (X-05) into one decision model and keeps them as the **test oracle**.
 
-> **Current executable proof (2026-08-31):** Phase 1 supplies principal-bound digest-only sessions, membership/workspace revalidation inside transaction scope, local authorization-code + S256-PKCE OIDC, and scoped immutable challenge drafts. Phase 2 adds distinct-actor publication gates with rejected-version rework, atomic publish/public projection, reasoned live-call controls, a purpose- and gate-scoped platform work queue/brief including ops triage, and projection/aggregate synchronization through migration `0012`. API, PostgreSQL, contract, rollback/race, and real-browser Docker suites prove these boundaries. The managed production IdP, MFA/step-up, RLS, separate database roles, rate limits, operated outbox delivery, private files, and authoritative worker remain pre-pilot/later roadmap gates.
+> **Current executable proof (2026-09-02):** Phase 1 supplies principal-bound digest-only sessions, membership/workspace revalidation inside transaction scope, local authorization-code + S256-PKCE OIDC, and scoped immutable challenge drafts. Phase 2 adds distinct-actor publication gates with rejected-version rework, atomic publish/public projection, reasoned live-call controls, a purpose- and gate-scoped platform work queue/brief including ops triage, and projection/aggregate synchronization through migration `0012`. C1 adds durable solver facts and server eligibility; C2 now adds the server team decision matrix and PostgreSQL-backed policy, invitation/request, membership, transfer, and archive commands through migration `0015`. Native unit/contract/API tests pass; C2's PostgreSQL migration/adapter suite is authored for the owner's Docker review and has not been claimed as executed in this change. The managed production IdP, MFA/step-up, RLS, separate database roles, rate limits, operated outbox delivery, private files, and authoritative worker remain pre-pilot/later roadmap gates.
 
 ---
 
@@ -67,7 +67,7 @@ Every decision (allow _and_ deny) emits an `audit_event` with `outcome ∈ {succ
 
 ## 4. Permission matrix (MVP slice)
 
-Canonical roles (20 §3). ✔ = allowed; ✔* = allowed with step-up + reason; — = denied. `team:*`rows follow`decideTeamPermission` (`solver/permissions.ts`) exactly.
+Canonical roles (20 §3). ✔ = allowed; ✔* = allowed with step-up + reason; — = denied. `team:*`rows follow`decideTeamPermission` (`packages/domain/src/team.ts`) exactly.
 
 **`challenge:publish` vs `challenge:publish-override`.** These were one row until 2026-08-29, which conflated two different operations and misread as "`platform:ops` may publish an org's challenge". They are separate:
 
@@ -95,20 +95,24 @@ One question is still open on the override and belongs to the owner: whether `or
 | `contract:approve`              | ✔               | —                | —             | ✔ (admin)                  | —                     | —                | —           | —                 | —                        | —                | ✔             |
 | `access:manage`                 | ✔\*             | —                | —             | ✔ (roles)                  | —                     | —                | —           | —                 | ✔\*                     | —                | —              |
 
-Team-role nuance (kept verbatim from `decideTeamPermission`): `team:viewer` cannot create proposals; `team:contributor` edits only assigned proposals; `team:proposal-manager`/`team:admin` submit only if `policy.*CanSubmit`; owner/last-manager cannot be removed without transfer (`canRemoveMembership`).
+Team-role nuance (kept verbatim from `decideTeamPermission`): `team:viewer` cannot create proposals; `team:contributor` edits only assigned proposals; `team:proposal-manager`/`team:admin` submit only if `policy.*CanSubmit`; owner/last-manager cannot be removed without transfer (`canRemoveTeamMembership`).
 
 ## 5. Client engines as the authz oracle
 
 Do **not** discard the prototype's permission code — promote it:
 
-- `decideTeamPermission` (`solver/permissions.ts:31`) → generate `team:*` matrix rows and their negative tests. Its human-readable Persian denial reasons become the API's `NO_ACCESS` messages.
+- `decideTeamPermission` (`packages/domain/src/team.ts`) → the shared C2 decision matrix and exhaustive `team:*` role/action tests. Human-readable Persian reasons remain presentation-safe detail; API authorization still returns stable `NO_ACCESS`/non-enumerating `NOT_FOUND` codes.
 - `canPerform` (`product.ts:50`) → seed `org:*`/`platform:*` capability tests (extended with the new sub-roles).
 - `evaluateEligibility` (`eligibility.ts:117`) → the prototype reference. C1's authoritative evaluator now reads the exact published `eligibility_rule`, the aggregate's live state/deadline, and active-workspace facts on the server; no browser result or unversioned profile field can broaden eligibility. Policy overrides remain future governed work.
 - `canAccessReviewMaterials` (`reviews/access.ts:17`) → the COI gate predicate, now server-side over `coi_declaration`.
 
 Contract tests assert server `decide()` agrees with these oracles for every `(role, action, state)` combination.
 
-C1 protected reads and writes are scoped through `runAuthorizedWorkspace`, which revalidates the current session, active workspace and membership inside the same PostgreSQL unit of work. Solver profile/gate mutations are limited to the individual workspace or team owner/admin, carry expected version plus idempotency, and atomically write receipt/audit/outbox evidence. Eligibility reach is projection-backed while live availability is read from the private aggregate; unknown, unpublished, NDA-only/out-of-reach and cross-workspace targets fail as the same `NOT_FOUND`. Verified OIDC contact is never accepted as verified workspace status, and the solver-facing verification command can create only a draft request.
+C1 protected reads and writes are scoped through `runAuthorizedWorkspace`, which revalidates the current session, active workspace and membership inside the same PostgreSQL unit of work. C2 additionally permits a proposal manager to edit team profile facts only when the server-loaded team policy allows it; verification start and exact-version eligibility acknowledgements remain limited to the individual, team owner, or team admin. Solver mutations carry expected version plus idempotency and atomically write receipt/audit/outbox evidence. Eligibility reach is projection-backed while live availability is read from the private aggregate; unknown, unpublished, NDA-only/out-of-reach and cross-workspace targets fail as the same `NOT_FOUND`. Verified OIDC contact is never accepted as verified workspace status, and the solver-facing verification command can create only a draft request.
+
+C2 manager-side queries begin with the active `(tenant, team workspace)` scope and current membership, then apply `decideTeamPermission`; guessed invitation/request/member IDs are resolved only inside that scope. Incoming invitations bind to the authenticated user's verified primary email or stored recipient ID, and request response/withdrawal binds to the stored requester. Removal and suspension preserve the membership row and immediately fail future `activeAccess`; archive is terminal and makes every team membership unusable for authority. Manager-count changes lock the team row before memberships, ownership transfer updates both roles plus `workspace.owner_user_id` atomically, and deferred database constraints require exactly one matching active owner at commit. Invitation, request, membership, and archived-team evidence is delete-protected and terminal transitions are immutable. Audit metadata retains structured reasons while outbox payloads exclude those reasons and contact addresses.
+
+No C2 route fabricates step-up. The current matrix does not mark routine team administration as `✔*`; managed MFA/step-up remains G1/pre-pilot work. If owner policy later classifies transfer/archive as step-up actions, that change requires the approved IdP freshness contract rather than accepting the present optional `step_up_token` field as proof.
 
 ## 6. Separation of duties (explicit constraints)
 

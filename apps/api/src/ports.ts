@@ -29,6 +29,23 @@ import type {
   SolverProfileNextAction,
   SolverVerificationNextAction,
   EligibilityGateNextAction,
+  ArchiveTeamBody,
+  ChangeTeamMemberRoleBody,
+  ChangeTeamMemberStateBody,
+  CreateTeamBody,
+  CreateTeamInvitationBody,
+  CreateTeamMembershipRequestBody,
+  DecideTeamMembershipRequestBody,
+  LeaveTeamBody,
+  RespondTeamInvitationBody,
+  RevokeTeamInvitationBody,
+  TeamInvitationResource,
+  TeamMembershipRequestResource,
+  TeamNextAction,
+  TeamResource,
+  TransferTeamOwnershipBody,
+  UpdateTeamPolicyBody,
+  WithdrawTeamMembershipRequestBody,
   ExtendChallengeDeadlineBody,
   PatchChallengeBody,
   PublicAudience,
@@ -49,6 +66,10 @@ import type {
   ProposalId,
   EligibilityGateAcceptanceId,
   EligibilityGateKind,
+  MembershipId,
+  TeamInvitationId,
+  TeamMembershipRequestId,
+  TeamPolicy,
   VerificationId,
   SessionId,
   TenantId,
@@ -65,7 +86,22 @@ export type Clock = {
 
 export type IdFactory = {
   next(
-    prefix: "ses" | "chl" | "chv" | "cap" | "ver" | "ega" | "rcp" | "aud" | "cor" | "evt" | "oat",
+    prefix:
+      | "ses"
+      | "chl"
+      | "chv"
+      | "cap"
+      | "ver"
+      | "ega"
+      | "tiv"
+      | "tmr"
+      | "wsp"
+      | "mem"
+      | "rcp"
+      | "aud"
+      | "cor"
+      | "evt"
+      | "oat",
   ): string;
 };
 
@@ -206,6 +242,8 @@ export type WorkspaceScope = {
 export type WorkspaceCommandContext = WorkspaceScope & {
   readonly idempotencyKey: string;
   readonly correlationId: CorrelationId;
+  /** C2 policy snapshot resolved inside the authorized team transaction. */
+  readonly teamPolicy?: TeamPolicy;
 };
 
 export type ChallengeScope = WorkspaceScope;
@@ -324,6 +362,83 @@ export interface SolverWorkspacePort {
   ): Promise<MutationOutcome<EligibilityGateAcceptanceId, EligibilityGateNextAction>>;
 }
 
+export interface TeamPort {
+  create(
+    body: CreateTeamBody,
+    context: WorkspaceCommandContext,
+  ): Promise<MutationOutcome<WorkspaceId, TeamNextAction>>;
+  get(scope: WorkspaceScope): Promise<TeamResource | null>;
+  updatePolicy(
+    body: UpdateTeamPolicyBody,
+    context: WorkspaceCommandContext,
+  ): Promise<MutationOutcome<WorkspaceId, TeamNextAction>>;
+  listInvitations(scope: WorkspaceScope): Promise<readonly TeamInvitationResource[]>;
+  invite(
+    body: CreateTeamInvitationBody,
+    context: WorkspaceCommandContext,
+  ): Promise<MutationOutcome<TeamInvitationId, TeamNextAction>>;
+  revokeInvitation(
+    invitationId: string,
+    body: RevokeTeamInvitationBody,
+    context: WorkspaceCommandContext,
+  ): Promise<MutationOutcome<TeamInvitationId, TeamNextAction>>;
+  listIncomingInvitations(actorUserId: UserId): Promise<readonly TeamInvitationResource[]>;
+  respondInvitation(
+    invitationId: string,
+    body: RespondTeamInvitationBody,
+    context: WorkspaceCommandContext,
+  ): Promise<MutationOutcome<TeamInvitationId, TeamNextAction>>;
+  requestMembership(
+    teamWorkspaceId: string,
+    body: CreateTeamMembershipRequestBody,
+    context: WorkspaceCommandContext,
+  ): Promise<MutationOutcome<TeamMembershipRequestId, TeamNextAction>>;
+  listMembershipRequests(scope: WorkspaceScope): Promise<readonly TeamMembershipRequestResource[]>;
+  decideMembershipRequest(
+    requestId: string,
+    body: DecideTeamMembershipRequestBody,
+    context: WorkspaceCommandContext,
+  ): Promise<MutationOutcome<TeamMembershipRequestId, TeamNextAction>>;
+  listOwnMembershipRequests(actorUserId: UserId): Promise<readonly TeamMembershipRequestResource[]>;
+  withdrawMembershipRequest(
+    requestId: string,
+    body: WithdrawTeamMembershipRequestBody,
+    context: WorkspaceCommandContext,
+  ): Promise<MutationOutcome<TeamMembershipRequestId, TeamNextAction>>;
+  changeMemberRole(
+    membershipId: string,
+    body: ChangeTeamMemberRoleBody,
+    context: WorkspaceCommandContext,
+  ): Promise<MutationOutcome<MembershipId, TeamNextAction>>;
+  suspendMember(
+    membershipId: string,
+    body: ChangeTeamMemberStateBody,
+    context: WorkspaceCommandContext,
+  ): Promise<MutationOutcome<MembershipId, TeamNextAction>>;
+  restoreMember(
+    membershipId: string,
+    body: ChangeTeamMemberStateBody,
+    context: WorkspaceCommandContext,
+  ): Promise<MutationOutcome<MembershipId, TeamNextAction>>;
+  removeMember(
+    membershipId: string,
+    body: ChangeTeamMemberStateBody,
+    context: WorkspaceCommandContext,
+  ): Promise<MutationOutcome<MembershipId, TeamNextAction>>;
+  transferOwnership(
+    body: TransferTeamOwnershipBody,
+    context: WorkspaceCommandContext,
+  ): Promise<MutationOutcome<WorkspaceId, TeamNextAction>>;
+  leave(
+    body: LeaveTeamBody,
+    context: WorkspaceCommandContext,
+  ): Promise<MutationOutcome<MembershipId, TeamNextAction>>;
+  archive(
+    body: ArchiveTeamBody,
+    context: WorkspaceCommandContext,
+  ): Promise<MutationOutcome<WorkspaceId, TeamNextAction>>;
+}
+
 /**
  * Phase 3's proposal aggregate. Same command shape as `ChallengePort`:
  * `expected_version` on every mutation, an idempotency key per command, and a
@@ -373,6 +488,7 @@ export type ApiPorts = {
   readonly publicChallenges: PublicChallengePort;
   readonly solverWorkspaces: SolverWorkspacePort;
   readonly eligibility: EligibilityPort;
+  readonly teams: TeamPort;
   readonly decisionAudit: AccessDecisionAuditPort;
   readonly clock: Clock;
   readonly ids: IdFactory;

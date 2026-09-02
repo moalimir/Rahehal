@@ -38,6 +38,16 @@ describe("authoritative API contracts", () => {
     expect(apiSchemas.PatchSolverWorkspaceProfileBody.required).toContain("expected_version");
     expect(apiSchemas.StartSolverVerificationBody.required).toContain("expected_version");
     expect(apiSchemas.AcceptEligibilityGateBody.required).toContain("expected_version");
+    expect(apiSchemas.CreateTeamBody.required).toContain("expected_version");
+    expect(apiSchemas.UpdateTeamPolicyBody.required).toContain("expected_version");
+    expect(apiSchemas.UpdateTeamPolicyBody.required).toContain("reason");
+    expect(apiSchemas.CreateTeamInvitationBody.required).toContain("expected_version");
+    expect(apiSchemas.RespondTeamInvitationBody.required).toContain("expected_version");
+    expect(apiSchemas.CreateTeamMembershipRequestBody.required).toContain("expected_version");
+    expect(apiSchemas.DecideTeamMembershipRequestBody.required).toContain("expected_version");
+    expect(apiSchemas.ChangeTeamMemberRoleBody.required).toContain("expected_version");
+    expect(apiSchemas.TransferTeamOwnershipBody.required).toContain("expected_version");
+    expect(apiSchemas.ArchiveTeamBody.required).toContain("expected_version");
 
     expectTypeOf<CreateChallengeBody["expected_version"]>().toEqualTypeOf<0>();
     expectTypeOf<PatchChallengeBody["expected_version"]>().toEqualTypeOf<number>();
@@ -80,6 +90,25 @@ describe("authoritative API contracts", () => {
         apiRoutes.startSolverVerification,
         apiRoutes.challengeEligibility,
         apiRoutes.acceptChallengeEligibilityGate,
+        apiRoutes.solverTeams,
+        apiRoutes.solverTeam,
+        apiRoutes.solverTeamPolicy,
+        apiRoutes.solverTeamInvitations,
+        apiRoutes.revokeSolverTeamInvitation,
+        apiRoutes.solverTeamIncomingInvitations,
+        apiRoutes.respondSolverTeamInvitation,
+        apiRoutes.createSolverTeamMembershipRequest,
+        apiRoutes.solverTeamMembershipRequests,
+        apiRoutes.decideSolverTeamMembershipRequest,
+        apiRoutes.solverOwnTeamMembershipRequests,
+        apiRoutes.withdrawSolverTeamMembershipRequest,
+        apiRoutes.changeSolverTeamMemberRole,
+        apiRoutes.suspendSolverTeamMember,
+        apiRoutes.restoreSolverTeamMember,
+        apiRoutes.removeSolverTeamMember,
+        apiRoutes.transferSolverTeamOwnership,
+        apiRoutes.leaveSolverTeam,
+        apiRoutes.archiveSolverTeam,
       ]),
     );
 
@@ -106,6 +135,21 @@ describe("authoritative API contracts", () => {
     ]);
     expect(apiSchemas.EligibilityDecision.properties).not.toHaveProperty("contact_verified");
     expect(apiSchemas.SolverWorkspaceProfile.properties).not.toHaveProperty("verification_state");
+  });
+
+  it("publishes the complete C2 team policy and recipient-safe lifecycle", () => {
+    expect(apiSchemas.TeamPolicy.required).toHaveLength(8);
+    expect(apiSchemas.Team.properties.status.enum).toEqual(["active", "archived"]);
+    expect(apiSchemas.Team.properties.default_invitation_role.enum).not.toContain("team:owner");
+    expect(apiSchemas.TeamInvitation.properties.id).toMatchObject({
+      pattern: expect.stringContaining("tiv_"),
+    });
+    expect(apiSchemas.TeamMembershipRequest.properties.id).toMatchObject({
+      pattern: expect.stringContaining("tmr_"),
+    });
+    expect(apiSchemas.DecideTeamMembershipRequestBody.required).toContain("reason");
+    expect(apiSchemas.TransferTeamOwnershipBody.required).toContain("reason");
+    expect(apiSchemas.ArchiveTeamBody.required).toContain("reason");
   });
 
   it("keeps the platform approval brief structurally narrower than the org aggregate", () => {

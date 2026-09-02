@@ -56,9 +56,12 @@ beforeAll(async () => {
     "0012_phase2_review_closure",
     "0013_c_proposal_foundation",
     "0014_c1_solver_profile_eligibility",
+    "0015_c2_team_lifecycle",
   ]);
 
   // Newest first.
+  const c2Down = await runMigrations(database, "down");
+  expect(c2Down.applied).toEqual(["0015_c2_team_lifecycle"]);
   const c1Down = await runMigrations(database, "down");
   expect(c1Down.applied).toEqual(["0014_c1_solver_profile_eligibility"]);
   const proposalDown = await runMigrations(database, "down");
@@ -112,6 +115,7 @@ beforeAll(async () => {
     "0012_phase2_review_closure",
     "0013_c_proposal_foundation",
     "0014_c1_solver_profile_eligibility",
+    "0015_c2_team_lifecycle",
   ]);
   const noOpUp = await runMigrations(database, "up");
   expect(noOpUp.applied).toEqual([]);
@@ -156,6 +160,9 @@ describe("A1a PostgreSQL foundation", () => {
       "proposal_version",
       "schema_migration",
       "solver_workspace_profile",
+      "team_invitation",
+      "team_membership_request",
+      "team_workspace",
       "tenant",
       "verification_record",
       "workspace",
@@ -221,6 +228,10 @@ describe("A1a PostgreSQL foundation", () => {
         id: "0014_c1_solver_profile_eligibility",
         checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
       },
+      {
+        id: "0015_c2_team_lifecycle",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
     ]);
   });
 
@@ -251,7 +262,9 @@ describe("A1a PostgreSQL foundation", () => {
       tenants: "4",
       // 3 baseline + the 4 B7 governance identities (distinct approvers,
       // publisher, platform finance/legal) the Phase-2 exit gate requires.
-      users: "7",
+      // C2 adds five durable team-role/candidate identities for lifecycle and
+      // exhaustive server-policy fixtures.
+      users: "12",
       workspaces: "5",
       challenges: "1",
       challenge_versions: "1",
@@ -498,6 +511,8 @@ describe("A1a PostgreSQL foundation", () => {
   });
 
   it("fails the A1b migration atomically for an orphaned existing session", async () => {
+    const c2Down = await runMigrations(database, "down");
+    expect(c2Down.applied).toEqual(["0015_c2_team_lifecycle"]);
     const c1Down = await runMigrations(database, "down");
     expect(c1Down.applied).toEqual(["0014_c1_solver_profile_eligibility"]);
     const proposalDown = await runMigrations(database, "down");
@@ -579,6 +594,7 @@ describe("A1a PostgreSQL foundation", () => {
       "0012_phase2_review_closure",
       "0013_c_proposal_foundation",
       "0014_c1_solver_profile_eligibility",
+      "0015_c2_team_lifecycle",
     ]);
   });
 });

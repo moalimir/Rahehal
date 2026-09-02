@@ -96,7 +96,14 @@ type CachedMutation = {
   next_actions: string[];
 };
 
-const canManage = (role: WorkspaceCommandContext["role"]) =>
+const canEditProfile = (context: Pick<WorkspaceCommandContext, "role" | "teamPolicy">) =>
+  context.role === "individual" ||
+  context.role === "team:owner" ||
+  context.role === "team:admin" ||
+  (context.role === "team:proposal-manager" &&
+    context.teamPolicy?.proposalManagersCanEditProfile === true);
+
+const canManageSolverAuthority = (role: WorkspaceCommandContext["role"]) =>
   role === "individual" || role === "team:owner" || role === "team:admin";
 
 function profileResource(row: ProfileRow): SolverWorkspaceProfileResource {
@@ -352,7 +359,7 @@ export class PostgresSolverWorkspaceAdapter implements SolverWorkspacePort, Elig
       await this.lockIdempotency(client, context);
       const replay = await this.replay(client, context, requestHash);
       if (replay) return this.outcome(replay, parseWorkspaceId, true);
-      if (!canManage(context.role)) throw forbidden();
+      if (!canEditProfile(context)) throw forbidden();
       const current = await this.findProfile(client, context, true);
       if (!current) throw notFound();
       if (body.expected_version !== current.version) throw staleVersion(current.version);
@@ -431,7 +438,7 @@ export class PostgresSolverWorkspaceAdapter implements SolverWorkspacePort, Elig
       await this.lockIdempotency(client, context);
       const replay = await this.replay(client, context, requestHash);
       if (replay) return this.outcome(replay, parseVerificationId, true);
-      if (!canManage(context.role)) throw forbidden();
+      if (!canManageSolverAuthority(context.role)) throw forbidden();
       const current = await this.findVerification(client, context, true);
       if (!current) throw notFound();
       if (body.expected_version !== current.version) throw staleVersion(current.version);
@@ -484,7 +491,7 @@ export class PostgresSolverWorkspaceAdapter implements SolverWorkspacePort, Elig
       await this.lockIdempotency(client, context);
       const replay = await this.replay(client, context, requestHash);
       if (replay) return this.outcome(replay, parseEligibilityGateAcceptanceId, true);
-      if (!canManage(context.role)) throw forbidden();
+      if (!canManageSolverAuthority(context.role)) throw forbidden();
       if (body.expected_version !== 0) {
         throw new ApiProblem(422, "VALIDATION", "A new gate acceptance must expect version zero");
       }

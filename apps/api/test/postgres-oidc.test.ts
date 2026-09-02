@@ -9,6 +9,7 @@ import { PostgresAccessDecisionAudit } from "../src/postgres/access-decision-aud
 import { PostgresChallengeAdapter } from "../src/postgres/challenges.js";
 import { PostgresPublicChallengeAdapter } from "../src/postgres/public-challenges.js";
 import { PostgresSolverWorkspaceAdapter } from "../src/postgres/solver-workspaces.js";
+import { PostgresTeamAdapter } from "../src/postgres/teams.js";
 import { PostgresIdentityWorkspaceAdapter } from "../src/postgres/identity-workspace.js";
 import { runMigrations } from "../src/postgres/migrations.js";
 import { PostgresOidcAuthorizationAdapter } from "../src/postgres/oidc-authorization.js";
@@ -134,6 +135,7 @@ beforeAll(async () => {
       publicChallenges: new PostgresPublicChallengeAdapter(unitOfWork),
       solverWorkspaces,
       eligibility: solverWorkspaces,
+      teams: new PostgresTeamAdapter(unitOfWork, clock, ids),
       decisionAudit: audit,
       clock,
       ids,

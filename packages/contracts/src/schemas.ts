@@ -19,14 +19,19 @@ import {
   organizationRoles,
   platformRoles,
   publicationGates,
+  teamInvitationStates,
   teamKinds,
+  teamMembershipRequestStates,
+  teamNonOwnerRoles,
   teamRoles,
+  teamStatuses,
   workspaceKinds,
   workspaceRoles,
   verificationStates,
 } from "@rahhal/domain";
 
 import { apiErrorCodes } from "./envelopes.js";
+import { teamJoinModes } from "./team.js";
 
 export type JsonSchema = boolean | Readonly<Record<string, unknown>>;
 
@@ -917,6 +922,192 @@ const outboxEventSchema = {
   },
 } as const;
 
+const teamPolicySchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "proposalManagersCanEditProfile",
+    "proposalManagersCanInvite",
+    "adminsCanSubmit",
+    "proposalManagersCanSubmit",
+    "viewersCanReadMessages",
+    "adminsCanViewPayments",
+    "proposalManagersCanViewPayments",
+    "approvalBeforeSubmit",
+  ],
+  properties: {
+    proposalManagersCanEditProfile: { type: "boolean" },
+    proposalManagersCanInvite: { type: "boolean" },
+    adminsCanSubmit: { type: "boolean" },
+    proposalManagersCanSubmit: { type: "boolean" },
+    viewersCanReadMessages: { type: "boolean" },
+    adminsCanViewPayments: { type: "boolean" },
+    proposalManagersCanViewPayments: { type: "boolean" },
+    approvalBeforeSubmit: { type: "boolean" },
+  },
+} as const;
+
+const teamPolicyPatchSchema = {
+  type: "object",
+  additionalProperties: false,
+  minProperties: 1,
+  properties: Object.fromEntries(
+    Object.keys(teamPolicySchema.properties).map((key) => [key, { type: "boolean" }]),
+  ),
+} as const;
+
+const teamMemberSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "user_id",
+    "display_name",
+    "role",
+    "state",
+    "version",
+    "created_at",
+    "updated_at",
+  ],
+  properties: {
+    id: idSchema("mem"),
+    user_id: idSchema("usr"),
+    display_name: { type: "string", minLength: 1, maxLength: 200 },
+    role: { type: "string", enum: teamRoles },
+    state: { type: "string", enum: membershipStates },
+    version: { type: "integer", minimum: 1 },
+    created_at: dateTimeSchema,
+    updated_at: dateTimeSchema,
+  },
+} as const;
+
+const teamResourceSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "tenant_id",
+    "workspace_id",
+    "name",
+    "team_kind",
+    "owner_user_id",
+    "status",
+    "join_mode",
+    "default_invitation_role",
+    "policy",
+    "members",
+    "version",
+    "created_at",
+    "updated_at",
+  ],
+  properties: {
+    tenant_id: idSchema("ten"),
+    workspace_id: idSchema("wsp"),
+    name: { type: "string", minLength: 1, maxLength: 200 },
+    team_kind: { type: "string", enum: teamKinds },
+    owner_user_id: idSchema("usr"),
+    status: { type: "string", enum: teamStatuses },
+    join_mode: { type: "string", enum: teamJoinModes },
+    default_invitation_role: { type: "string", enum: teamNonOwnerRoles },
+    policy: teamPolicySchema,
+    members: { type: "array", items: teamMemberSchema },
+    version: { type: "integer", minimum: 1 },
+    created_at: dateTimeSchema,
+    updated_at: dateTimeSchema,
+  },
+} as const;
+
+const teamInvitationSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "tenant_id",
+    "workspace_id",
+    "team_name",
+    "inviter_user_id",
+    "recipient_user_id",
+    "recipient_email",
+    "proposed_role",
+    "scope",
+    "message",
+    "commitment",
+    "ip_notice",
+    "state",
+    "version",
+    "expires_at",
+    "created_at",
+    "updated_at",
+  ],
+  properties: {
+    id: idSchema("tiv"),
+    tenant_id: idSchema("ten"),
+    workspace_id: idSchema("wsp"),
+    team_name: { type: "string", minLength: 1, maxLength: 200 },
+    inviter_user_id: idSchema("usr"),
+    recipient_user_id: { oneOf: [idSchema("usr"), { type: "null" }] },
+    recipient_email: { type: "string", format: "email", maxLength: 320 },
+    proposed_role: { type: "string", enum: teamNonOwnerRoles },
+    scope: { type: "string", minLength: 1, maxLength: 1_000 },
+    message: { type: "string", maxLength: 2_000 },
+    commitment: { type: "string", minLength: 1, maxLength: 1_000 },
+    ip_notice: { type: "string", minLength: 1, maxLength: 1_000 },
+    state: { type: "string", enum: teamInvitationStates },
+    version: { type: "integer", minimum: 1 },
+    expires_at: dateTimeSchema,
+    created_at: dateTimeSchema,
+    updated_at: dateTimeSchema,
+  },
+} as const;
+
+const teamMembershipRequestSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "tenant_id",
+    "workspace_id",
+    "team_name",
+    "requester_user_id",
+    "requester_display_name",
+    "requested_role",
+    "assigned_role",
+    "introduction",
+    "availability",
+    "state",
+    "decision_reason",
+    "version",
+    "expires_at",
+    "created_at",
+    "updated_at",
+  ],
+  properties: {
+    id: idSchema("tmr"),
+    tenant_id: idSchema("ten"),
+    workspace_id: idSchema("wsp"),
+    team_name: { type: "string", minLength: 1, maxLength: 200 },
+    requester_user_id: idSchema("usr"),
+    requester_display_name: { type: "string", minLength: 1, maxLength: 200 },
+    requested_role: { type: "string", enum: teamNonOwnerRoles },
+    assigned_role: {
+      oneOf: [{ type: "string", enum: teamNonOwnerRoles }, { type: "null" }],
+    },
+    introduction: { type: "string", minLength: 1, maxLength: 2_000 },
+    availability: { type: "string", minLength: 1, maxLength: 1_000 },
+    state: { type: "string", enum: teamMembershipRequestStates },
+    decision_reason: { type: ["string", "null"], minLength: 1, maxLength: 2_000 },
+    version: { type: "integer", minimum: 1 },
+    expires_at: dateTimeSchema,
+    created_at: dateTimeSchema,
+    updated_at: dateTimeSchema,
+  },
+} as const;
+
+const versionedCommandProperties = {
+  expected_version: { type: "integer", minimum: 1 },
+  reason: { type: "string", minLength: 1, maxLength: 2_000 },
+  step_up_token: { type: "string", minLength: 1, maxLength: 4_096 },
+} as const;
+
 export const apiSchemas = {
   ApiMeta: apiMetaSchema,
   VersionedApiMeta: versionedApiMetaSchema,
@@ -1201,6 +1392,183 @@ export const apiSchemas = {
   },
   EligibilityDecision: eligibilityDecisionSchema,
   EligibilitySuccessEnvelope: successEnvelopeFor(eligibilityDecisionSchema),
+  TeamPolicy: teamPolicySchema,
+  TeamMember: teamMemberSchema,
+  Team: teamResourceSchema,
+  TeamSuccessEnvelope: successEnvelopeFor(teamResourceSchema, true),
+  TeamInvitation: teamInvitationSchema,
+  TeamInvitationListSuccessEnvelope: successEnvelopeFor({
+    type: "object",
+    additionalProperties: false,
+    required: ["items"],
+    properties: { items: { type: "array", items: teamInvitationSchema } },
+  }),
+  TeamMembershipRequest: teamMembershipRequestSchema,
+  TeamMembershipRequestListSuccessEnvelope: successEnvelopeFor({
+    type: "object",
+    additionalProperties: false,
+    required: ["items"],
+    properties: { items: { type: "array", items: teamMembershipRequestSchema } },
+  }),
+  CreateTeamBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "name", "team_kind"],
+    properties: {
+      expected_version: { const: 0 },
+      name: { type: "string", minLength: 1, maxLength: 200 },
+      team_kind: { type: "string", enum: teamKinds },
+      join_mode: { type: "string", enum: teamJoinModes },
+    },
+  },
+  UpdateTeamPolicyBody: {
+    type: "object",
+    additionalProperties: false,
+    minProperties: 3,
+    required: ["expected_version", "reason"],
+    properties: {
+      ...versionedCommandProperties,
+      join_mode: { type: "string", enum: teamJoinModes },
+      default_invitation_role: { type: "string", enum: teamNonOwnerRoles },
+      policy: teamPolicyPatchSchema,
+    },
+  },
+  CreateTeamInvitationBody: {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "expected_version",
+      "recipient_email",
+      "proposed_role",
+      "scope",
+      "message",
+      "commitment",
+      "ip_notice",
+    ],
+    properties: {
+      ...versionedCommandProperties,
+      recipient_email: { type: "string", format: "email", maxLength: 320 },
+      proposed_role: { type: "string", enum: teamNonOwnerRoles },
+      scope: { type: "string", minLength: 1, maxLength: 1_000 },
+      message: { type: "string", maxLength: 2_000 },
+      commitment: { type: "string", minLength: 1, maxLength: 1_000 },
+      ip_notice: { type: "string", minLength: 1, maxLength: 1_000 },
+    },
+  },
+  RevokeTeamInvitationBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "reason"],
+    properties: versionedCommandProperties,
+  },
+  RespondTeamInvitationBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "decision"],
+    properties: {
+      ...versionedCommandProperties,
+      decision: { type: "string", enum: ["accept", "decline"] },
+    },
+    allOf: [
+      {
+        if: { properties: { decision: { const: "decline" } }, required: ["decision"] },
+        then: { required: ["reason"] },
+      },
+    ],
+  },
+  CreateTeamMembershipRequestBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "requested_role", "introduction", "availability"],
+    properties: {
+      expected_version: { const: 0 },
+      requested_role: { type: "string", enum: teamNonOwnerRoles },
+      introduction: { type: "string", minLength: 1, maxLength: 2_000 },
+      availability: { type: "string", minLength: 1, maxLength: 1_000 },
+    },
+  },
+  DecideTeamMembershipRequestBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "decision", "reason"],
+    properties: {
+      ...versionedCommandProperties,
+      decision: { type: "string", enum: ["accept", "reject"] },
+      assigned_role: { type: "string", enum: teamNonOwnerRoles },
+    },
+    allOf: [
+      {
+        if: { properties: { decision: { const: "accept" } }, required: ["decision"] },
+        then: { required: ["assigned_role"] },
+      },
+    ],
+  },
+  WithdrawTeamMembershipRequestBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "reason"],
+    properties: versionedCommandProperties,
+  },
+  ChangeTeamMemberRoleBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "role", "reason"],
+    properties: {
+      ...versionedCommandProperties,
+      role: { type: "string", enum: teamNonOwnerRoles },
+    },
+  },
+  ChangeTeamMemberStateBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "reason"],
+    properties: versionedCommandProperties,
+  },
+  TransferTeamOwnershipBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "successor_membership_id", "reason"],
+    properties: {
+      ...versionedCommandProperties,
+      successor_membership_id: idSchema("mem"),
+    },
+  },
+  LeaveTeamBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "reason"],
+    properties: versionedCommandProperties,
+  },
+  ArchiveTeamBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "reason"],
+    properties: versionedCommandProperties,
+  },
+  TeamInvitationParams: {
+    type: "object",
+    additionalProperties: false,
+    required: ["teamInvitationId"],
+    properties: { teamInvitationId: idSchema("tiv") },
+  },
+  TeamMembershipRequestParams: {
+    type: "object",
+    additionalProperties: false,
+    required: ["teamMembershipRequestId"],
+    properties: { teamMembershipRequestId: idSchema("tmr") },
+  },
+  TeamWorkspaceParams: {
+    type: "object",
+    additionalProperties: false,
+    required: ["workspaceId"],
+    properties: { workspaceId: idSchema("wsp") },
+  },
+  TeamMemberParams: {
+    type: "object",
+    additionalProperties: false,
+    required: ["membershipId"],
+    properties: { membershipId: idSchema("mem") },
+  },
 } as const satisfies Readonly<Record<string, JsonSchema>>;
 
 export type ApiSchemaName = keyof typeof apiSchemas;

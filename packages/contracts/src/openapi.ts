@@ -51,6 +51,73 @@ const challengeIdParameter = {
   schema: { type: "string", pattern: "^chl_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$" },
 } as const;
 
+const teamInvitationIdParameter = {
+  in: "path",
+  name: "teamInvitationId",
+  required: true,
+  schema: { type: "string", pattern: "^tiv_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$" },
+} as const;
+
+const teamMembershipRequestIdParameter = {
+  in: "path",
+  name: "teamMembershipRequestId",
+  required: true,
+  schema: { type: "string", pattern: "^tmr_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$" },
+} as const;
+
+const teamWorkspaceIdParameter = {
+  in: "path",
+  name: "workspaceId",
+  required: true,
+  schema: { type: "string", pattern: "^wsp_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$" },
+} as const;
+
+const membershipIdParameter = {
+  in: "path",
+  name: "membershipId",
+  required: true,
+  schema: { type: "string", pattern: "^mem_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$" },
+} as const;
+
+const teamCommandOperation = (
+  operationId: string,
+  summary: string,
+  bodySchema: ApiSchemaName,
+  pathParameters: readonly Readonly<Record<string, unknown>>[] = [],
+) => ({
+  operationId,
+  tags: ["Team"],
+  summary,
+  security: [{ bearerAuth: [] }],
+  parameters: [workspaceHeader, idempotencyHeader, ...pathParameters],
+  requestBody: { required: true, content: jsonContent(bodySchema) },
+  responses: {
+    "200": {
+      description: "The atomic mutation receipt.",
+      content: jsonContent("MutationSuccessEnvelope"),
+    },
+    ...protectedCommandErrors,
+  },
+});
+
+const teamReadOperation = (
+  operationId: string,
+  summary: string,
+  responseSchema: ApiSchemaName,
+) => ({
+  operationId,
+  tags: ["Team"],
+  summary,
+  security: [{ bearerAuth: [] }],
+  parameters: [workspaceHeader],
+  responses: {
+    "200": { description: "The scoped team resource.", content: jsonContent(responseSchema) },
+    "403": protectedCommandErrors["403"],
+    "404": protectedCommandErrors["404"],
+    "503": protectedCommandErrors["503"],
+  },
+});
+
 export const openApiDocument = {
   openapi: "3.1.0",
   jsonSchemaDialect: "https://json-schema.org/draft/2020-12/schema",
@@ -67,6 +134,7 @@ export const openApiDocument = {
     { name: "Identity" },
     { name: "Challenge" },
     { name: "Solver" },
+    { name: "Team" },
   ],
   paths: {
     [apiRoutes.openApi]: {
@@ -642,6 +710,153 @@ export const openApiDocument = {
           ...protectedCommandErrors,
         },
       },
+    },
+    [apiRoutes.solverTeams]: {
+      post: teamCommandOperation(
+        "createSolverTeam",
+        "Create a separate team workspace with an owner membership and not-started verification",
+        "CreateTeamBody",
+      ),
+    },
+    [apiRoutes.solverTeam]: {
+      get: teamReadOperation(
+        "getSolverTeam",
+        "Read the active team and its current members",
+        "TeamSuccessEnvelope",
+      ),
+    },
+    [apiRoutes.solverTeamPolicy]: {
+      patch: teamCommandOperation(
+        "updateSolverTeamPolicy",
+        "Update the active team's server-enforced role policy",
+        "UpdateTeamPolicyBody",
+      ),
+    },
+    [apiRoutes.solverTeamInvitations]: {
+      get: teamReadOperation(
+        "listSolverTeamInvitations",
+        "List invitations in the active team scope",
+        "TeamInvitationListSuccessEnvelope",
+      ),
+      post: teamCommandOperation(
+        "createSolverTeamInvitation",
+        "Invite one contact to a non-owner team role",
+        "CreateTeamInvitationBody",
+      ),
+    },
+    [apiRoutes.revokeSolverTeamInvitation]: {
+      post: teamCommandOperation(
+        "revokeSolverTeamInvitation",
+        "Revoke a current invitation in the active team",
+        "RevokeTeamInvitationBody",
+        [teamInvitationIdParameter],
+      ),
+    },
+    [apiRoutes.solverTeamIncomingInvitations]: {
+      get: teamReadOperation(
+        "listIncomingSolverTeamInvitations",
+        "List invitations bound to the authenticated human",
+        "TeamInvitationListSuccessEnvelope",
+      ),
+    },
+    [apiRoutes.respondSolverTeamInvitation]: {
+      post: teamCommandOperation(
+        "respondSolverTeamInvitation",
+        "Accept or decline an invitation bound to the authenticated human",
+        "RespondTeamInvitationBody",
+        [teamInvitationIdParameter],
+      ),
+    },
+    [apiRoutes.createSolverTeamMembershipRequest]: {
+      post: teamCommandOperation(
+        "createSolverTeamMembershipRequest",
+        "Request membership in a request-capable active team",
+        "CreateTeamMembershipRequestBody",
+        [teamWorkspaceIdParameter],
+      ),
+    },
+    [apiRoutes.solverTeamMembershipRequests]: {
+      get: teamReadOperation(
+        "listSolverTeamMembershipRequests",
+        "List membership requests for the active team",
+        "TeamMembershipRequestListSuccessEnvelope",
+      ),
+    },
+    [apiRoutes.decideSolverTeamMembershipRequest]: {
+      post: teamCommandOperation(
+        "decideSolverTeamMembershipRequest",
+        "Accept or reject an active-team membership request",
+        "DecideTeamMembershipRequestBody",
+        [teamMembershipRequestIdParameter],
+      ),
+    },
+    [apiRoutes.solverOwnTeamMembershipRequests]: {
+      get: teamReadOperation(
+        "listOwnSolverTeamMembershipRequests",
+        "List membership requests created by the authenticated human",
+        "TeamMembershipRequestListSuccessEnvelope",
+      ),
+    },
+    [apiRoutes.withdrawSolverTeamMembershipRequest]: {
+      post: teamCommandOperation(
+        "withdrawSolverTeamMembershipRequest",
+        "Withdraw a membership request owned by the authenticated human",
+        "WithdrawTeamMembershipRequestBody",
+        [teamMembershipRequestIdParameter],
+      ),
+    },
+    [apiRoutes.changeSolverTeamMemberRole]: {
+      post: teamCommandOperation(
+        "changeSolverTeamMemberRole",
+        "Change a non-owner member role",
+        "ChangeTeamMemberRoleBody",
+        [membershipIdParameter],
+      ),
+    },
+    [apiRoutes.suspendSolverTeamMember]: {
+      post: teamCommandOperation(
+        "suspendSolverTeamMember",
+        "Suspend a removable active member immediately",
+        "ChangeTeamMemberStateBody",
+        [membershipIdParameter],
+      ),
+    },
+    [apiRoutes.restoreSolverTeamMember]: {
+      post: teamCommandOperation(
+        "restoreSolverTeamMember",
+        "Restore a suspended member",
+        "ChangeTeamMemberStateBody",
+        [membershipIdParameter],
+      ),
+    },
+    [apiRoutes.removeSolverTeamMember]: {
+      post: teamCommandOperation(
+        "removeSolverTeamMember",
+        "Remove a member while preserving team-owned evidence",
+        "ChangeTeamMemberStateBody",
+        [membershipIdParameter],
+      ),
+    },
+    [apiRoutes.transferSolverTeamOwnership]: {
+      post: teamCommandOperation(
+        "transferSolverTeamOwnership",
+        "Atomically transfer ownership to an active successor",
+        "TransferTeamOwnershipBody",
+      ),
+    },
+    [apiRoutes.leaveSolverTeam]: {
+      post: teamCommandOperation(
+        "leaveSolverTeam",
+        "Leave the active team unless ownership must first be transferred",
+        "LeaveTeamBody",
+      ),
+    },
+    [apiRoutes.archiveSolverTeam]: {
+      post: teamCommandOperation(
+        "archiveSolverTeam",
+        "Archive the active team and terminate its authority",
+        "ArchiveTeamBody",
+      ),
     },
   },
   components: {

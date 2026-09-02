@@ -109,7 +109,7 @@ Rate-limited requests return `429` with `Retry-After`. All errors carry `correla
 
 ## 5. MVP slice endpoints
 
-The OpenAPI now has exactly **28 paths / 31 operations**: the completed Phase-1/2 surface plus C1's solver profile/verification reads and writes, exact-version gate acknowledgement, and server eligibility query. Every implemented write carries `expected_version` and `Idempotency-Key`; every C1 protected endpoint and protected challenge write additionally requires `X-Workspace-Id`. B3's challenge create/save fields (`verification_required`, `document_gate_required`, `allowed_applicant_types`, `nda_required`, and `proposal_deadline`) become the immutable rule snapshot C1 reads for the exact published version. Entries labelled future below are not part of the current contract. PostgreSQL mode validates signed issuer/audience/nonce, exact state/redirect, S256 PKCE, the existing `(issuer, subject)` link, and a verified matching contact before issuing digest-only app credentials. Contact verification remains distinct from C1 workspace verification. RLS and the managed production IdP remain later gates.
+The OpenAPI now has exactly **47 paths / 51 operations**: the completed Phase-1/2 surface, C1 solver facts/eligibility, and C2 team lifecycle. Every implemented write carries `expected_version` and `Idempotency-Key`; every protected team/profile route and protected challenge write additionally requires `X-Workspace-Id`. B3's challenge create/save fields (`verification_required`, `document_gate_required`, `allowed_applicant_types`, `nda_required`, and `proposal_deadline`) become the immutable rule snapshot C1 reads for the exact published version. Entries labelled future below are not part of the current contract. PostgreSQL mode validates signed issuer/audience/nonce, exact state/redirect, S256 PKCE, the existing `(issuer, subject)` link, and a verified matching contact before issuing digest-only app credentials. Contact verification remains distinct from workspace verification. RLS, the managed production IdP, and managed step-up remain later gates.
 
 ### 5.1 Identity & context
 
@@ -163,15 +163,35 @@ GET  /public/challenges?q=                     # deferred: free-text search land
 GET  /public/organizations/{id}                # deferred: verified vs user-supplied vs demo clearly typed
 ```
 
-### 5.5 Solver, eligibility & proposal
+### 5.5 Solver, team, eligibility & proposal
 
 ```
 GET   /solver/profile                                      # delivered C1: active personal/team workspace facts + derived readiness
-PATCH /solver/profile                                      # delivered C1: expected_version + Idempotency-Key
+PATCH /solver/profile                                      # delivered C1/C2: owner/admin, or proposal manager when team policy permits
 GET   /solver/verification                                 # delivered C1: workspace status, never inferred from verified contact
 POST  /solver/verification:start                           # delivered C1: not_started → draft; solver cannot self-approve
 GET   /challenges/{id}/eligibility                         # delivered C1: exact published rule + live state/deadline
 POST  /challenges/{id}/eligibility-gates/{gate}:accept     # delivered C1: exact-version NDA/synthetic document acknowledgement
+POST  /solver/teams                                        # delivered C2: separate team workspace + owner + profile + not_started verification
+GET   /solver/team                                         # delivered C2: active team policy and retained membership roster
+PATCH /solver/team/policy                                  # delivered C2: reasoned role/join policy update
+GET   /solver/team/invitations                             # delivered C2: manager-scoped invitation list
+POST  /solver/team/invitations                             # delivered C2: issue recipient-bound non-owner invitation
+POST  /solver/team/invitations/{invitationId}:revoke       # delivered C2
+GET   /solver/team-invitations                             # delivered C2: authenticated human's incoming invitations
+POST  /solver/team-invitations/{invitationId}:respond      # delivered C2: authenticated recipient only
+POST  /solver/teams/{workspaceId}/membership-requests      # delivered C2: request-capable teams only
+GET   /solver/team/membership-requests                     # delivered C2: owner/admin review queue
+POST  /solver/team/membership-requests/{requestId}:decide  # delivered C2: exact requester + assigned non-owner role
+GET   /solver/team-membership-requests                     # delivered C2: authenticated human's own requests
+POST  /solver/team-membership-requests/{requestId}:withdraw # delivered C2
+POST  /solver/team/members/{membershipId}:change-role      # delivered C2: non-owner roles only
+POST  /solver/team/members/{membershipId}:suspend          # delivered C2: immediate authority cut
+POST  /solver/team/members/{membershipId}:restore          # delivered C2
+POST  /solver/team/members/{membershipId}:remove           # delivered C2: retained membership evidence
+POST  /solver/team:transfer-ownership                      # delivered C2: atomic owner swap
+POST  /solver/team:leave                                   # delivered C2: owner must transfer first
+POST  /solver/team:archive                                 # delivered C2: terminal authority cut
 GET  /opportunities?…&cursor=                  # future: searchable published challenges for active workspace
 POST /opportunities/{challengeId}:save         # future
 POST /proposals                                # create draft for (challenge, active workspace)
@@ -185,6 +205,8 @@ GET  /proposals/{id}/versions                  # immutable history + diffs (chan
 ```
 
 C1 eligibility returns `eligible`, `needs_action`, or `ineligible` with stable `reasons[]`, `next_actions[]`, `evaluated_against_version_id`, and server evaluation time. An unknown, unpublished, NDA-only/out-of-reach challenge, or cross-workspace protected scope returns the same non-enumerating `NOT_FOUND`. `verification_required=false` permits an otherwise eligible `not_started` workspace; when the exact rule says `true`, the result includes `verification_required` and `verify_workspace`. `document_acknowledgement` is an acknowledgement fact only and cannot be presented as upload/review evidence.
+
+C2 mutations use the active team for manager-side operations; invitation response and own-request operations instead bind the authenticated human to the stored recipient/requester before returning any record. Team creation is an expected-zero command from an active solver context and creates no credential. Invitation creation expects the current team version; invitation revoke/respond expect the invitation version; member commands expect the target membership version; policy, transfer, and archive expect the team version. Policy, rejection/revocation, member/owner changes, leave, and archive carry a structured reason in audit metadata. Reasons and contact addresses are excluded from outbox payloads. A removed/suspended member or archived team fails the next authority resolution immediately. C8, not C2, turns the allowlisted lifecycle events into user-facing notifications, and C9 connects the existing team UI.
 
 ### 5.6 Review, COI & decision
 
@@ -207,7 +229,7 @@ POST /challenges/{id}/decision:record          # evaluating → decided (authori
 
 ## 7. Events emitted (outbox → consumers)
 
-The executable schema-v1 worker allowlist is exact and intentionally small. It is not maintained by hand: the worker derives its challenge half from `challengeOutboxEventTypes` in the domain, so an event a challenge adapter emits but the domain omits is dead-lettered as `UNSUPPORTED_EVENT_TYPE` rather than silently dropped. It currently admits `challenge.draft.created`, `challenge.draft.updated`, `challenge.triage.requested`, `challenge.formulation.started`, `challenge.approvals.requested`, `challenge.approval.recorded`, `challenge.published`, `session.exchanged`, `session.refreshed`, `session.revoked`, and `session.context.switched`. No `challenge.draft.saved`, generic `challenge.stage.changed`, or AI event is accepted. The `challenge.draft.*` codes are walking-skeleton application audit codes covering draft effects that have no canonical transition-table row; the lifecycle codes reuse the state machine's `audit` names verbatim.
+The executable schema-v1 worker allowlist is exact and intentionally small. It is derived from `challengeOutboxEventTypes`, `solverOutboxEventTypes`, and `teamOutboxEventTypes`, plus the four session events, so an event an adapter emits but the domain omits is dead-lettered as `UNSUPPORTED_EVENT_TYPE` rather than silently dropped. C2 adds `team.created`, policy/invitation/request decisions, member role/state/leave changes, ownership transfer, and archive. No generic lifecycle, notification-fabrication, or AI event is accepted. The `challenge.draft.*` codes are walking-skeleton application audit codes covering draft effects that have no canonical transition-table row; lifecycle codes reuse the canonical domain names.
 
 For the target lifecycle commands below, event names reuse the state machines' `audit` codes verbatim so audit and integration share one vocabulary:
 

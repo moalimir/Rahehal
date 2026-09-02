@@ -41,6 +41,17 @@ import {
   type Currency,
   type ProposalContent,
   type TeamKind,
+  DEFAULT_TEAM_POLICY,
+  canRemoveTeamMembership,
+  decideTeamPermission,
+  parseMembershipId,
+  parseTenantId,
+  parseUserId,
+  teamActions,
+  teamOutboxEventTypes,
+  teamRole,
+  type Membership,
+  type TeamRole,
 } from "../src/index.js";
 
 function readyChallengeContent(): ChallengeDraftContent {
@@ -462,5 +473,153 @@ describe("Phase 3 proposal lifecycle", () => {
       "/content/budget_currency",
       "/content/accuracy_confirmed",
     ]);
+  });
+});
+
+describe("C2 authoritative team permissions", () => {
+  const allowedByDefault: Record<TeamRole, readonly (typeof teamActions)[number][]> = {
+    "team:owner": teamActions,
+    "team:admin": [
+      "view-workspace",
+      "edit-team-profile",
+      "invite-member",
+      "review-membership-request",
+      "change-member-role",
+      "create-proposal",
+      "edit-proposal",
+      "submit-proposal",
+      "view-case-messages",
+      "view-payments",
+      "manage-team-settings",
+      "leave-team",
+      "approve-contract",
+    ],
+    "team:proposal-manager": [
+      "view-workspace",
+      "edit-team-profile",
+      "create-proposal",
+      "edit-proposal",
+      "submit-proposal",
+      "view-case-messages",
+      "view-payments",
+      "leave-team",
+    ],
+    "team:contributor": ["view-workspace", "create-proposal", "leave-team"],
+    "team:viewer": ["view-workspace", "view-case-messages", "leave-team"],
+  };
+
+  it("exhaustively evaluates every owner/admin/manager/contributor/viewer action", () => {
+    for (const role of Object.keys(allowedByDefault) as TeamRole[]) {
+      for (const action of teamActions) {
+        expect(
+          decideTeamPermission(action, { role, policy: DEFAULT_TEAM_POLICY }).allowed,
+          `${role} -> ${action}`,
+        ).toBe(allowedByDefault[role].includes(action));
+      }
+    }
+  });
+
+  it("applies every policy and assignment switch without widening the base matrix", () => {
+    const allDisabled = Object.fromEntries(
+      Object.keys(DEFAULT_TEAM_POLICY).map((key) => [key, false]),
+    ) as unknown as typeof DEFAULT_TEAM_POLICY;
+    expect(
+      decideTeamPermission("edit-team-profile", {
+        role: teamRole.proposalManager,
+        policy: allDisabled,
+      }).allowed,
+    ).toBe(false);
+    expect(
+      decideTeamPermission("invite-member", {
+        role: teamRole.proposalManager,
+        policy: { ...allDisabled, proposalManagersCanInvite: true },
+      }).allowed,
+    ).toBe(true);
+    expect(
+      decideTeamPermission("submit-proposal", {
+        role: teamRole.admin,
+        policy: allDisabled,
+      }).allowed,
+    ).toBe(false);
+    expect(
+      decideTeamPermission("submit-proposal", {
+        role: teamRole.proposalManager,
+        policy: allDisabled,
+      }).allowed,
+    ).toBe(false);
+    expect(
+      decideTeamPermission("view-case-messages", {
+        role: teamRole.viewer,
+        policy: allDisabled,
+      }).allowed,
+    ).toBe(false);
+    expect(
+      decideTeamPermission("view-payments", { role: teamRole.admin, policy: allDisabled }).allowed,
+    ).toBe(false);
+    expect(
+      decideTeamPermission("view-payments", {
+        role: teamRole.proposalManager,
+        policy: allDisabled,
+      }).allowed,
+    ).toBe(false);
+    expect(
+      decideTeamPermission("edit-proposal", {
+        role: teamRole.contributor,
+        policy: allDisabled,
+        assigned: false,
+      }).allowed,
+    ).toBe(false);
+    expect(
+      decideTeamPermission("edit-proposal", {
+        role: teamRole.contributor,
+        policy: allDisabled,
+        assigned: true,
+      }).allowed,
+    ).toBe(true);
+    expect(
+      decideTeamPermission("view-case-messages", {
+        role: teamRole.contributor,
+        policy: allDisabled,
+        assigned: true,
+      }).allowed,
+    ).toBe(true);
+    expect(
+      decideTeamPermission("archive-team", {
+        role: teamRole.admin,
+        policy: { ...DEFAULT_TEAM_POLICY, proposalManagersCanInvite: true },
+      }).allowed,
+    ).toBe(false);
+  });
+
+  it("requires ownership transfer and preserves at least one active manager", () => {
+    const workspaceId = parseWorkspaceId("wsp_c2_team");
+    const tenantId = parseTenantId("ten_c2_team");
+    const membership = (
+      id: string,
+      userId: string,
+      role: TeamRole,
+    ): Membership & { readonly role: TeamRole } => ({
+      id: parseMembershipId(id),
+      tenantId,
+      workspaceId,
+      userId: parseUserId(userId),
+      role,
+      state: "active",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    const owner = membership("mem_c2_owner", "usr_c2_owner", teamRole.owner);
+    const admin = membership("mem_c2_admin", "usr_c2_admin", teamRole.admin);
+    expect(canRemoveTeamMembership([owner, admin], owner).allowed).toBe(false);
+    expect(canRemoveTeamMembership([owner], owner).allowed).toBe(false);
+    expect(canRemoveTeamMembership([admin], admin).allowed).toBe(false);
+    expect(canRemoveTeamMembership([owner, admin], admin).allowed).toBe(true);
+  });
+
+  it("allowlists every C2 event for durable worker routing", () => {
+    expect(teamOutboxEventTypes).toContain("team.created");
+    expect(teamOutboxEventTypes).toContain("team.ownership.transferred");
+    expect(teamOutboxEventTypes).toContain("team.archived");
+    expect(new Set(teamOutboxEventTypes).size).toBe(teamOutboxEventTypes.length);
   });
 });

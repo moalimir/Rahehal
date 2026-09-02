@@ -321,6 +321,16 @@ export class PostgresIdentityWorkspaceAdapter
          AND w.tenant_id = m.tenant_id
          AND w.kind = m.workspace_kind
         WHERE m.user_id = $1 AND m.workspace_id = $2 AND m.state = 'active'
+          AND (
+            w.kind <> 'team'
+            OR EXISTS (
+              SELECT 1
+              FROM team_workspace AS team
+              WHERE team.tenant_id = w.tenant_id
+                AND team.workspace_id = w.id
+                AND team.status = 'active'
+            )
+          )
         FOR SHARE OF m, w
       `,
       [userId, workspaceId],
@@ -918,11 +928,9 @@ export class PostgresIdentityWorkspaceAdapter
         [current.user_id],
       );
       const accesses = accessResult.rows.map(accessFromRow);
-      const active = accesses.find(
-        (access) =>
-          access.workspaceId === current.active_workspace_id &&
-          access.membership.state === "active",
-      );
+      const active = current.active_workspace_id
+        ? await this.activeAccess(client, parseUserId(current.user_id), current.active_workspace_id)
+        : null;
       return {
         user: {
           id: parseUserId(user.id),

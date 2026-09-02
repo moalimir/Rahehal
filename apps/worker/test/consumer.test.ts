@@ -1,8 +1,8 @@
 import type { OutboxEvent } from "@rahhal/contracts";
-import { parsePrefixedId } from "@rahhal/domain";
+import { parsePrefixedId, teamOutboxEventTypes } from "@rahhal/domain";
 import { buildOutboxEvent, fixedTimestamp } from "@rahhal/testkit";
 import { describe, expect, it, vi } from "vitest";
-import { OutboxConsumer } from "../src/consumer.js";
+import { isSupportedOutboxEventType, OutboxConsumer } from "../src/consumer.js";
 import { createDemoWorkerComposition } from "../src/demo-composition.js";
 import { InMemoryDeliveryLedger } from "../src/delivery-ledger.js";
 import { InMemoryOutboxSource } from "../src/in-memory.js";
@@ -22,6 +22,12 @@ function supportedEvent(index = 1, overrides: Partial<OutboxEvent<Record<string,
 }
 
 describe("idempotent outbox consumer", () => {
+  it("accepts every C2 team event family through the worker boundary", () => {
+    for (const eventType of teamOutboxEventTypes) {
+      expect(isSupportedOutboxEventType(eventType)).toBe(true);
+    }
+  });
+
   it("delivers duplicate event claims once while publishing each source record", async () => {
     const event = supportedEvent(1);
     const source = new InMemoryOutboxSource([event, structuredClone(event)]);

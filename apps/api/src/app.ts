@@ -34,8 +34,22 @@ import {
   type AcceptEligibilityGateBody,
   type PatchSolverWorkspaceProfileBody,
   type StartSolverVerificationBody,
+  type ArchiveTeamBody,
+  type ChangeTeamMemberRoleBody,
+  type ChangeTeamMemberStateBody,
+  type CreateTeamBody,
+  type CreateTeamInvitationBody,
+  type CreateTeamMembershipRequestBody,
+  type DecideTeamMembershipRequestBody,
+  type LeaveTeamBody,
+  type RespondTeamInvitationBody,
+  type RevokeTeamInvitationBody,
+  type TransferTeamOwnershipBody,
+  type UpdateTeamPolicyBody,
+  type WithdrawTeamMembershipRequestBody,
 } from "@rahhal/contracts";
 import {
+  decideTeamPermission,
   eligibilityGateKinds,
   gateApproverRoles,
   isGateApproverRole,
@@ -45,6 +59,8 @@ import {
   type CorrelationId,
   type WorkspaceRole,
   type EligibilityGateKind,
+  type TeamAction,
+  isTeamRole,
 } from "@rahhal/domain";
 import {
   authorizationFlowCookie,
@@ -56,7 +72,7 @@ import {
   sessionCookies,
   type BrowserSessionRuntimeSettings,
 } from "./browser-session.js";
-import { ApiProblem, errorEnvelope, notFound } from "./errors.js";
+import { ApiProblem, errorEnvelope, forbidden, notFound } from "./errors.js";
 import type {
   ApiPorts,
   AuthenticatedSession,
@@ -88,6 +104,10 @@ const challengeIdParamsSchema = {
 
 type ChallengeIdParams = { challengeId: string };
 type EligibilityGateParams = { challengeId: string; gate: EligibilityGateKind };
+type TeamInvitationParams = { teamInvitationId: string };
+type TeamMembershipRequestParams = { teamMembershipRequestId: string };
+type TeamWorkspaceParams = { workspaceId: string };
+type TeamMemberParams = { membershipId: string };
 
 type BrowserOidcCallbackQuery = {
   readonly code: string;
@@ -212,6 +232,8 @@ const canReadSolverWorkspace = (access: WorkspaceAccess) =>
   access.workspace.kind === "individual" || access.workspace.kind === "team";
 const canManageSolverWorkspace = (access: WorkspaceAccess) =>
   access.role === "individual" || access.role === "team:owner" || access.role === "team:admin";
+const canEditSolverProfile = (access: WorkspaceAccess) =>
+  canManageSolverWorkspace(access) || access.role === "team:proposal-manager";
 
 /**
  * Every platform role that owns at least one publication gate, derived from
@@ -334,6 +356,147 @@ const fastifyChallengeCommandPath = (path: string) =>
 
 const fastifyEligibilityGatePath = (path: string) =>
   fastifyChallengeCommandPath(path).replace("{gate}", `:gate(${eligibilityGateKinds.join("|")})`);
+
+const fastifyTeamPath = (path: string) =>
+  fastifyLiteralPath(path)
+    .replace("{teamInvitationId}", ":teamInvitationId(^tiv_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$)")
+    .replace(
+      "{teamMembershipRequestId}",
+      ":teamMembershipRequestId(^tmr_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$)",
+    )
+    .replace("{workspaceId}", ":workspaceId(^wsp_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$)")
+    .replace("{membershipId}", ":membershipId(^mem_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$)");
+
+async function runTeamAction<Result>(
+  request: FastifyRequest,
+  ports: ApiPorts,
+  session: AuthenticatedSession,
+  action: string,
+  permission: TeamAction,
+  entityType: string,
+  entityId: string | undefined,
+  operation: (access: WorkspaceAccess) => Result | Promise<Result>,
+): Promise<Result> {
+  return runAuthorizedWorkspace(
+    request,
+    ports,
+    session,
+    {
+      action,
+      entityType,
+      ...(entityId ? { entityId } : {}),
+      allows: (access) => access.workspace.kind === "team",
+      deferSuccess: true,
+    },
+    async (access) => {
+      const scope = challengeScope(session, access);
+      const team = await ports.teams.get(scope);
+      if (!team || !isTeamRole(access.role)) throw notFound();
+      const decision = decideTeamPermission(permission, {
+        role: access.role,
+        policy: team.policy,
+      });
+      if (!decision.allowed) {
+        await ports.decisionAudit.record({
+          outcome: "denied",
+          actorUserId: session.userId,
+          tenantId: access.tenantId,
+          workspaceId: access.workspaceId,
+          action,
+          entityType,
+          ...(entityId ? { entityId } : {}),
+          reason: "role_capability_denied",
+          correlationId: correlationId(request),
+          occurredAt: ports.clock.now().toISOString(),
+        });
+        throw forbidden();
+      }
+      let result: Result;
+      try {
+        result = await operation(access);
+      } catch (error) {
+        if (
+          error instanceof ApiProblem &&
+          (error.code === "NO_ACCESS" || error.code === "NOT_FOUND")
+        ) {
+          await ports.decisionAudit.record({
+            outcome: "denied",
+            actorUserId: session.userId,
+            tenantId: access.tenantId,
+            workspaceId: access.workspaceId,
+            action,
+            entityType,
+            ...(entityId ? { entityId } : {}),
+            reason: error.code === "NOT_FOUND" ? "record_unreachable" : "command_denied",
+            correlationId: correlationId(request),
+            occurredAt: ports.clock.now().toISOString(),
+          });
+        }
+        throw error;
+      }
+      await recordWorkspaceAccessSuccess(request, ports, session, access, {
+        action,
+        entityType,
+        ...(entityId ? { entityId } : {}),
+      });
+      return result;
+    },
+  );
+}
+
+async function runSolverActorAction<Result>(
+  request: FastifyRequest,
+  ports: ApiPorts,
+  session: AuthenticatedSession,
+  action: string,
+  entityType: string,
+  entityId: string | undefined,
+  operation: (access: WorkspaceAccess) => Result | Promise<Result>,
+): Promise<Result> {
+  return runAuthorizedWorkspace(
+    request,
+    ports,
+    session,
+    {
+      action,
+      entityType,
+      ...(entityId ? { entityId } : {}),
+      allows: canReadSolverWorkspace,
+      deferSuccess: true,
+    },
+    async (access) => {
+      let result: Result;
+      try {
+        result = await operation(access);
+      } catch (error) {
+        if (
+          error instanceof ApiProblem &&
+          (error.code === "NO_ACCESS" || error.code === "NOT_FOUND")
+        ) {
+          await ports.decisionAudit.record({
+            outcome: "denied",
+            actorUserId: session.userId,
+            tenantId: access.tenantId,
+            workspaceId: access.workspaceId,
+            action,
+            entityType,
+            ...(entityId ? { entityId } : {}),
+            reason: error.code === "NOT_FOUND" ? "record_unreachable" : "command_denied",
+            correlationId: correlationId(request),
+            occurredAt: ports.clock.now().toISOString(),
+          });
+        }
+        throw error;
+      }
+      await recordWorkspaceAccessSuccess(request, ports, session, access, {
+        action,
+        entityType,
+        ...(entityId ? { entityId } : {}),
+      });
+      return result;
+    },
+  );
+}
 
 /**
  * One registration for every versioned challenge command that reads the record
@@ -1331,17 +1494,50 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
         {
           action: "solver:profile:update",
           entityType: "solver_workspace_profile",
-          allows: canManageSolverWorkspace,
+          allows: canEditSolverProfile,
+          deferSuccess: true,
         },
-        async (access) =>
-          mutationSuccess(
+        async (access) => {
+          const team =
+            access.workspace.kind === "team"
+              ? await ports.teams.get(challengeScope(session, access))
+              : null;
+          if (
+            access.role === "team:proposal-manager" &&
+            (!team ||
+              !decideTeamPermission("edit-team-profile", {
+                role: access.role,
+                policy: team.policy,
+              }).allowed)
+          ) {
+            await ports.decisionAudit.record({
+              outcome: "denied",
+              actorUserId: session.userId,
+              tenantId: access.tenantId,
+              workspaceId: access.workspaceId,
+              action: "solver:profile:update",
+              entityType: "solver_workspace_profile",
+              reason: "role_capability_denied",
+              correlationId: correlationId(request),
+              occurredAt: ports.clock.now().toISOString(),
+            });
+            throw forbidden();
+          }
+          const result = mutationSuccess(
             await ports.solverWorkspaces.patchProfile(request.body, {
               ...challengeScope(session, access),
               ...command,
+              ...(team ? { teamPolicy: team.policy } : {}),
             }),
             request,
             ports,
-          ),
+          );
+          await recordWorkspaceAccessSuccess(request, ports, session, access, {
+            action: "solver:profile:update",
+            entityType: "solver_workspace_profile",
+          });
+          return result;
+        },
       );
     },
   );
@@ -1512,6 +1708,655 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
               request.body,
               { ...challengeScope(session, access), ...command },
             ),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.post<{ Body: CreateTeamBody }>(
+    apiRoutes.solverTeams,
+    {
+      schema: {
+        body: apiSchemas.CreateTeamBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      return runSolverActorAction(
+        request,
+        ports,
+        session,
+        "team:create",
+        "team",
+        undefined,
+        async (access) =>
+          mutationSuccess(
+            await ports.teams.create(request.body, {
+              ...challengeScope(session, access),
+              ...command,
+            }),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.get(
+    apiRoutes.solverTeam,
+    { schema: { response: { 200: apiSchemas.TeamSuccessEnvelope, ...apiErrorResponses } } },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runTeamAction(
+        request,
+        ports,
+        session,
+        "team:read",
+        "view-workspace",
+        "team",
+        undefined,
+        async (access) => {
+          const team = await ports.teams.get(challengeScope(session, access));
+          if (!team) throw notFound();
+          return versionedSuccess(team, request, ports, team.version);
+        },
+      );
+    },
+  );
+
+  app.patch<{ Body: UpdateTeamPolicyBody }>(
+    apiRoutes.solverTeamPolicy,
+    {
+      schema: {
+        body: apiSchemas.UpdateTeamPolicyBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      return runTeamAction(
+        request,
+        ports,
+        session,
+        "team:policy:update",
+        "manage-team-settings",
+        "team",
+        undefined,
+        async (access) =>
+          mutationSuccess(
+            await ports.teams.updatePolicy(request.body, {
+              ...challengeScope(session, access),
+              ...command,
+            }),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.get(
+    apiRoutes.solverTeamInvitations,
+    {
+      schema: {
+        response: { 200: apiSchemas.TeamInvitationListSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runTeamAction(
+        request,
+        ports,
+        session,
+        "team:invitations:list",
+        "invite-member",
+        "team_invitation",
+        undefined,
+        async (access) =>
+          success(
+            { items: await ports.teams.listInvitations(challengeScope(session, access)) },
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.post<{ Body: CreateTeamInvitationBody }>(
+    apiRoutes.solverTeamInvitations,
+    {
+      schema: {
+        body: apiSchemas.CreateTeamInvitationBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      return runTeamAction(
+        request,
+        ports,
+        session,
+        "team:invitation:send",
+        "invite-member",
+        "team_invitation",
+        undefined,
+        async (access) =>
+          mutationSuccess(
+            await ports.teams.invite(request.body, {
+              ...challengeScope(session, access),
+              ...command,
+            }),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.post<{ Params: TeamInvitationParams; Body: RevokeTeamInvitationBody }>(
+    fastifyTeamPath(apiRoutes.revokeSolverTeamInvitation),
+    {
+      schema: {
+        params: apiSchemas.TeamInvitationParams,
+        body: apiSchemas.RevokeTeamInvitationBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      const id = request.params.teamInvitationId;
+      return runTeamAction(
+        request,
+        ports,
+        session,
+        "team:invitation:revoke",
+        "invite-member",
+        "team_invitation",
+        id,
+        async (access) =>
+          mutationSuccess(
+            await ports.teams.revokeInvitation(id, request.body, {
+              ...challengeScope(session, access),
+              ...command,
+            }),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.get(
+    apiRoutes.solverTeamIncomingInvitations,
+    {
+      schema: {
+        response: { 200: apiSchemas.TeamInvitationListSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runSolverActorAction(
+        request,
+        ports,
+        session,
+        "team:invitation:list-incoming",
+        "team_invitation",
+        undefined,
+        async () =>
+          success(
+            { items: await ports.teams.listIncomingInvitations(session.userId) },
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.post<{ Params: TeamInvitationParams; Body: RespondTeamInvitationBody }>(
+    fastifyTeamPath(apiRoutes.respondSolverTeamInvitation),
+    {
+      schema: {
+        params: apiSchemas.TeamInvitationParams,
+        body: apiSchemas.RespondTeamInvitationBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      const id = request.params.teamInvitationId;
+      return runSolverActorAction(
+        request,
+        ports,
+        session,
+        "team:invitation:respond",
+        "team_invitation",
+        id,
+        async (access) =>
+          mutationSuccess(
+            await ports.teams.respondInvitation(id, request.body, {
+              ...challengeScope(session, access),
+              ...command,
+            }),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.post<{ Params: TeamWorkspaceParams; Body: CreateTeamMembershipRequestBody }>(
+    fastifyTeamPath(apiRoutes.createSolverTeamMembershipRequest),
+    {
+      schema: {
+        params: apiSchemas.TeamWorkspaceParams,
+        body: apiSchemas.CreateTeamMembershipRequestBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      return runSolverActorAction(
+        request,
+        ports,
+        session,
+        "team:membership-request:create",
+        "team",
+        request.params.workspaceId,
+        async (access) =>
+          mutationSuccess(
+            await ports.teams.requestMembership(request.params.workspaceId, request.body, {
+              ...challengeScope(session, access),
+              ...command,
+            }),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.get(
+    apiRoutes.solverTeamMembershipRequests,
+    {
+      schema: {
+        response: {
+          200: apiSchemas.TeamMembershipRequestListSuccessEnvelope,
+          ...apiErrorResponses,
+        },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runTeamAction(
+        request,
+        ports,
+        session,
+        "team:membership-requests:list",
+        "review-membership-request",
+        "team_membership_request",
+        undefined,
+        async (access) =>
+          success(
+            { items: await ports.teams.listMembershipRequests(challengeScope(session, access)) },
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.post<{ Params: TeamMembershipRequestParams; Body: DecideTeamMembershipRequestBody }>(
+    fastifyTeamPath(apiRoutes.decideSolverTeamMembershipRequest),
+    {
+      schema: {
+        params: apiSchemas.TeamMembershipRequestParams,
+        body: apiSchemas.DecideTeamMembershipRequestBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      const id = request.params.teamMembershipRequestId;
+      return runTeamAction(
+        request,
+        ports,
+        session,
+        "team:membership-request:decide",
+        "review-membership-request",
+        "team_membership_request",
+        id,
+        async (access) =>
+          mutationSuccess(
+            await ports.teams.decideMembershipRequest(id, request.body, {
+              ...challengeScope(session, access),
+              ...command,
+            }),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.get(
+    apiRoutes.solverOwnTeamMembershipRequests,
+    {
+      schema: {
+        response: {
+          200: apiSchemas.TeamMembershipRequestListSuccessEnvelope,
+          ...apiErrorResponses,
+        },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runSolverActorAction(
+        request,
+        ports,
+        session,
+        "team:membership-request:list-own",
+        "team_membership_request",
+        undefined,
+        async () =>
+          success(
+            { items: await ports.teams.listOwnMembershipRequests(session.userId) },
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.post<{ Params: TeamMembershipRequestParams; Body: WithdrawTeamMembershipRequestBody }>(
+    fastifyTeamPath(apiRoutes.withdrawSolverTeamMembershipRequest),
+    {
+      schema: {
+        params: apiSchemas.TeamMembershipRequestParams,
+        body: apiSchemas.WithdrawTeamMembershipRequestBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      const id = request.params.teamMembershipRequestId;
+      return runSolverActorAction(
+        request,
+        ports,
+        session,
+        "team:membership-request:withdraw",
+        "team_membership_request",
+        id,
+        async (access) =>
+          mutationSuccess(
+            await ports.teams.withdrawMembershipRequest(id, request.body, {
+              ...challengeScope(session, access),
+              ...command,
+            }),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  const registerMemberCommand = (
+    route: string,
+    action: string,
+    bodySchema: (typeof apiSchemas)[keyof typeof apiSchemas],
+    invoke: (
+      id: string,
+      body: ChangeTeamMemberStateBody | ChangeTeamMemberRoleBody,
+      context: ReturnType<typeof challengeScope> & ReturnType<typeof idempotencyCommand>,
+    ) => Promise<MutationOutcome<string, string>>,
+  ) => {
+    app.post<{
+      Params: TeamMemberParams;
+      Body: ChangeTeamMemberStateBody | ChangeTeamMemberRoleBody;
+    }>(
+      fastifyTeamPath(route),
+      {
+        schema: {
+          params: apiSchemas.TeamMemberParams,
+          body: bodySchema,
+          response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+        },
+      },
+      async (request) => {
+        const session = await requireSession(
+          request,
+          ports.sessions,
+          ports.decisionAudit,
+          ports.clock,
+        );
+        const command = idempotencyCommand(request);
+        const id = request.params.membershipId;
+        return runTeamAction(
+          request,
+          ports,
+          session,
+          action,
+          "change-member-role",
+          "membership",
+          id,
+          async (access) =>
+            mutationSuccess(
+              await invoke(id, request.body, { ...challengeScope(session, access), ...command }),
+              request,
+              ports,
+            ),
+        );
+      },
+    );
+  };
+
+  registerMemberCommand(
+    apiRoutes.changeSolverTeamMemberRole,
+    "team:member:change-role",
+    apiSchemas.ChangeTeamMemberRoleBody,
+    (id, body, context) =>
+      ports.teams.changeMemberRole(id, body as ChangeTeamMemberRoleBody, context),
+  );
+  registerMemberCommand(
+    apiRoutes.suspendSolverTeamMember,
+    "team:member:suspend",
+    apiSchemas.ChangeTeamMemberStateBody,
+    (id, body, context) =>
+      ports.teams.suspendMember(id, body as ChangeTeamMemberStateBody, context),
+  );
+  registerMemberCommand(
+    apiRoutes.restoreSolverTeamMember,
+    "team:member:restore",
+    apiSchemas.ChangeTeamMemberStateBody,
+    (id, body, context) =>
+      ports.teams.restoreMember(id, body as ChangeTeamMemberStateBody, context),
+  );
+  registerMemberCommand(
+    apiRoutes.removeSolverTeamMember,
+    "team:member:remove",
+    apiSchemas.ChangeTeamMemberStateBody,
+    (id, body, context) => ports.teams.removeMember(id, body as ChangeTeamMemberStateBody, context),
+  );
+
+  app.post<{ Body: TransferTeamOwnershipBody }>(
+    fastifyLiteralPath(apiRoutes.transferSolverTeamOwnership),
+    {
+      schema: {
+        body: apiSchemas.TransferTeamOwnershipBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      return runTeamAction(
+        request,
+        ports,
+        session,
+        "team:ownership:transfer",
+        "transfer-ownership",
+        "team",
+        undefined,
+        async (access) =>
+          mutationSuccess(
+            await ports.teams.transferOwnership(request.body, {
+              ...challengeScope(session, access),
+              ...command,
+            }),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.post<{ Body: LeaveTeamBody }>(
+    fastifyLiteralPath(apiRoutes.leaveSolverTeam),
+    {
+      schema: {
+        body: apiSchemas.LeaveTeamBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      return runTeamAction(
+        request,
+        ports,
+        session,
+        "team:leave",
+        "leave-team",
+        "membership",
+        undefined,
+        async (access) =>
+          mutationSuccess(
+            await ports.teams.leave(request.body, {
+              ...challengeScope(session, access),
+              ...command,
+            }),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.post<{ Body: ArchiveTeamBody }>(
+    fastifyLiteralPath(apiRoutes.archiveSolverTeam),
+    {
+      schema: {
+        body: apiSchemas.ArchiveTeamBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      return runTeamAction(
+        request,
+        ports,
+        session,
+        "team:archive",
+        "archive-team",
+        "team",
+        undefined,
+        async (access) =>
+          mutationSuccess(
+            await ports.teams.archive(request.body, {
+              ...challengeScope(session, access),
+              ...command,
+            }),
             request,
             ports,
           ),

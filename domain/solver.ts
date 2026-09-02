@@ -1,5 +1,11 @@
 import type { TeamKind } from "@/domain/taxonomy";
-import type { TeamRole as CanonicalTeamRole } from "@rahhal/domain";
+import type {
+  MembershipState as CanonicalMembershipState,
+  TeamInvitationState as CanonicalTeamInvitationState,
+  TeamMembershipRequestState as CanonicalTeamMembershipRequestState,
+  TeamPolicy as CanonicalTeamPolicy,
+  TeamRole as CanonicalTeamRole,
+} from "@rahhal/domain";
 
 export type SolverSpace = "individual" | "team";
 
@@ -20,17 +26,7 @@ export type PersonalWorkspace = {
 };
 
 export type TeamRole = CanonicalTeamRole;
-
-export type TeamPolicy = {
-  proposalManagersCanEditProfile: boolean;
-  proposalManagersCanInvite: boolean;
-  adminsCanSubmit: boolean;
-  proposalManagersCanSubmit: boolean;
-  viewersCanReadMessages: boolean;
-  adminsCanViewPayments: boolean;
-  proposalManagersCanViewPayments: boolean;
-  approvalBeforeSubmit: boolean;
-};
+export type TeamPolicy = CanonicalTeamPolicy;
 
 export type SolverTeam = {
   id: string;
@@ -46,14 +42,7 @@ export type SolverTeam = {
   createdAt: string;
 };
 
-export type MembershipState =
-  | "invited"
-  | "requested"
-  | "active"
-  | "rejected"
-  | "expired"
-  | "suspended"
-  | "removed";
+export type MembershipState = CanonicalMembershipState;
 
 export type TeamMembership = {
   id: string;
@@ -78,13 +67,7 @@ export type SolverSessionContext = {
   version: 2;
 };
 
-export type TeamInvitationState =
-  | "sent"
-  | "viewed"
-  | "accepted"
-  | "declined"
-  | "expired"
-  | "revoked";
+export type TeamInvitationState = CanonicalTeamInvitationState;
 
 export type TeamInvitation = {
   id: string;
@@ -105,12 +88,7 @@ export type TeamInvitation = {
   updatedAt: string;
 };
 
-export type MembershipRequestState =
-  | "requested"
-  | "accepted"
-  | "rejected"
-  | "withdrawn"
-  | "expired";
+export type MembershipRequestState = CanonicalTeamMembershipRequestState;
 export type MembershipRequest = {
   id: string;
   teamId: string;

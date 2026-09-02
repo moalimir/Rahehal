@@ -131,9 +131,9 @@ Each row carries canonical roles, preconditions, side effects, notification, aud
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
 | **Proposal**           | draft, submitted, eligibility_review, eligible, ineligible, clarification_requested, clarification_submitted, reviewing, revision_requested, revision_draft, resubmitted, selected, rejected, withdrawn | `packages/domain/src/proposal.ts`; re-exported by `state-machines.ts` |
 | **Direct Offer**       | received, viewed, response_draft, response_submitted, negotiating, selected, declined, expired, cancelled                                                                                               | `solver.ts:250`, `state-machines.ts:461`                              |
-| **Team Invitation**    | sent, viewed, accepted, declined, expired, revoked                                                                                                                                                      | `solver.ts:79`, `state-machines.ts:324`                               |
-| **Membership Request** | requested, accepted, rejected, withdrawn, expired                                                                                                                                                       | `solver.ts:106`, `state-machines.ts:418`                              |
-| **Membership**         | invited, requested, active, rejected, expired, suspended, removed                                                                                                                                       | `solver.ts:47`, `state-machines.ts:544`                               |
+| **Team Invitation**    | sent, viewed, accepted, declined, expired, revoked                                                                                                                                                      | `packages/domain/src/team.ts`; migration `0015`                       |
+| **Membership Request** | requested, accepted, rejected, withdrawn, expired                                                                                                                                                       | `packages/domain/src/team.ts`; migration `0015`                       |
+| **Membership**         | invited, requested, active, rejected, expired, suspended, removed                                                                                                                                       | `packages/domain/src/workspace.ts`, `packages/domain/src/team.ts`     |
 | **Review**             | coi-gate, accepted, draft, submitted, locked, invalidated                                                                                                                                               | `state-machines.ts:625`                                               |
 | **Contract**           | draft, negotiation, approval, signature, effective, rejected, superseded                                                                                                                                | `solver.ts:360`, `state-machines.ts:685`                              |
 | **Verification**       | not_started, draft, submitted, under_review, verified, needs_revision, rejected, expired                                                                                                                | `solver.ts:322`, `state-machines.ts:736`                              |
@@ -187,6 +187,8 @@ ApplicantType = individual | expert-team | company | lab | academic-group
 
 C1 implements this boundary server-side: each individual/team workspace has its own derived `ApplicantType`, profile/readiness facts and `verification_record`. A verified human contact is an identity fact only and never advances workspace verification. NDA and `document_acknowledgement` facts cite the exact published challenge version; the latter is a synthetic acknowledgement and must not be described as uploaded or reviewed evidence. Eligibility uses only the exact versioned rule plus the aggregate's live state/deadline and server time; unversioned profile readiness/expertise/geography remain descriptive facts, not hidden eligibility policy.
 
+C2 makes team collaboration authoritative without creating a team credential. Creating a team creates a separate solver-owned `team` workspace, its canonical `TeamKind` profile, one active `team:owner` membership, and `not_started` verification. `packages/domain/src/team.ts` is the shared server decision matrix for owner/admin/proposal-manager/contributor/viewer actions and the eight durable policy switches. Invitations bind acceptance to the authenticated recipient identity; membership requests bind decisions to the exact requester; suspension, removal, leave, transfer, and archive preserve their evidence while immediately changing authority. Proposal managers may edit team profile facts only when `proposalManagersCanEditProfile` is enabled; verification and eligibility-gate authority remain limited to the individual, team owner, or team admin.
+
 ## 6. Core entity graph (canonical)
 
 ```mermaid
@@ -194,6 +196,9 @@ erDiagram
     TENANT ||--o{ WORKSPACE : owns
     USER ||--o{ MEMBERSHIP : holds
     WORKSPACE ||--o{ MEMBERSHIP : contains
+    WORKSPACE ||--o| TEAM_WORKSPACE : governs
+    TEAM_WORKSPACE ||--o{ TEAM_INVITATION : issues
+    TEAM_WORKSPACE ||--o{ TEAM_MEMBERSHIP_REQUEST : receives
     ORGANIZATION ||--|| TENANT : is
     ORGANIZATION ||--o{ CHALLENGE : publishes
     CHALLENGE ||--|{ CHALLENGE_VERSION : versions
@@ -219,11 +224,11 @@ erDiagram
     USER ||--o{ AUDIT_EVENT : acts_in
 ```
 
-**Required as durable production entities:** `TENANT`, `CHALLENGE_VERSION`, `PUBLIC_PROJECTION`, `RUBRIC` / `RUBRIC_VERSION`, `REVIEW_ASSIGNMENT` (as a real row), `COI_DECLARATION`, `DECISION` (as a real row), `IMPACT_RECORD`, plus cross-cutting `FILE_OBJECT`, `NOTIFICATION_DELIVERY`, `IDEMPOTENCY_KEY`, `OUTBOX_EVENT`, `DISPUTE`, `CONSENT`, `PRIVILEGED_ACCESS_GRANT`, `POLICY_VERSION`. A1a lands local PostgreSQL rows for tenant, challenge/version, idempotency, outbox, and audit; A1b exercises session/workspace evidence against them; A1c makes challenge draft versions and mutation receipts authoritative through the API. The remaining entities and the broader production authority have not landed.
+**Required as durable production entities:** `TENANT`, `CHALLENGE_VERSION`, `PUBLIC_PROJECTION`, `RUBRIC` / `RUBRIC_VERSION`, `REVIEW_ASSIGNMENT` (as a real row), `COI_DECLARATION`, `DECISION` (as a real row), `IMPACT_RECORD`, plus cross-cutting `FILE_OBJECT`, `NOTIFICATION_DELIVERY`, `IDEMPOTENCY_KEY`, `OUTBOX_EVENT`, `DISPUTE`, `CONSENT`, `PRIVILEGED_ACCESS_GRANT`, `POLICY_VERSION`. Phase 1 lands tenant/session/workspace, challenge/version, idempotency, outbox, audit, and mutation-receipt authority; Phase 2 completes the publication slice; C1 adds solver facts and exact-version gate acknowledgements; C2 adds team policy, invitation, request, membership, transfer, and archive authority. The remaining entities and broader production controls have not landed.
 
 ## 7. Entity identity rules
 
-1. **Stable opaque IDs.** IDs are server-minted, globally unique, and carry **no** tenant secret or authorization meaning (do not authorize from an ID's shape). Prefixed for readability: `chl_`, `chv_` (challenge version), `prp_`, `prv_`, `rva_` (review assignment), `case_`, `ctr_`, `pay_`, etc.
+1. **Stable opaque IDs.** IDs are server-minted, globally unique, and carry **no** tenant secret or authorization meaning (do not authorize from an ID's shape). Prefixed for readability: `chl_`, `chv_` (challenge version), `tiv_` (team invitation), `tmr_` (team membership request), `prp_`, `prv_`, `rva_` (review assignment), `case_`, `ctr_`, `pay_`, etc.
 2. **One owning tenant + one owning workspace** per protected row; every query is scoped by tenant/workspace _before_ record permissions.
 3. **Human-facing tracking codes** (`trackingCode` in `solver.ts:236,289`, and fixture IDs like `CH-1405-021`) are display aliases, **not** primary keys.
 4. **Versions are immutable.** Locked proposal versions, challenge published versions, rubric versions, contract versions, and review submissions are append-only; a change creates a new version with an explicit base and diff. Authoritative proposal content retains the browser form's fields while normalizing money to integer minor units and file references to opaque IDs; the C3 adapter performs that explicit conversion instead of persisting display-formatted values.
@@ -239,7 +244,7 @@ Drawn from executable rules already in the prototype — promoted from client hi
 4. Submitted proposal versions and submitted reviews are **immutable**; revisions are new versions.
 5. Reviewer access to protected content requires `coiStatus == clear` (D8).
 6. Technical acceptance, finance approval, and effective contract are **three separate** payment gates (`paymentTransitions`); no payment processes without all three.
-7. Team owner transfer/removal ≠ manager role change; the **last active manager** and the **owner** cannot be removed without transfer (`canRemoveMembership`, `membershipTransitions`).
+7. Team owner transfer/removal ≠ manager role change; the **last active manager** and the **owner** cannot be removed without transfer (`canRemoveTeamMembership`). C2 serializes manager-count changes on the team row and a deferred database constraint requires `workspace.owner_user_id` to equal exactly one active `team:owner` membership at commit.
 8. Closing a case requires resolved deliverables and reconciled payments.
 9. Every sensitive mutation is **idempotent** (dedupe on idempotency key) and emits a correlated **audit event** + **receipt**.
 10. Sensitive actions may require **step-up** (2FA freshness) and a **structured reason** (`sensitiveActions` set in `product.ts:42`).

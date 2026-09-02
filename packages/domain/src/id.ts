@@ -13,6 +13,8 @@ export const idPrefixes = {
   proposalVersion: "prv",
   verification: "ver",
   eligibilityGateAcceptance: "ega",
+  teamInvitation: "tiv",
+  teamMembershipRequest: "tmr",
   reviewAssignment: "rva",
   rubric: "rub",
   rubricVersion: "rbv",
@@ -44,6 +46,8 @@ export type ProposalId = PrefixedId<"prp">;
 export type ProposalVersionId = PrefixedId<"prv">;
 export type VerificationId = PrefixedId<"ver">;
 export type EligibilityGateAcceptanceId = PrefixedId<"ega">;
+export type TeamInvitationId = PrefixedId<"tiv">;
+export type TeamMembershipRequestId = PrefixedId<"tmr">;
 export type ReviewAssignmentId = PrefixedId<"rva">;
 export type RubricId = PrefixedId<"rub">;
 export type RubricVersionId = PrefixedId<"rbv">;
@@ -69,6 +73,8 @@ export type EntityId =
   | ProposalVersionId
   | VerificationId
   | EligibilityGateAcceptanceId
+  | TeamInvitationId
+  | TeamMembershipRequestId
   | ReviewAssignmentId
   | RubricId
   | RubricVersionId
@@ -91,6 +97,8 @@ const entityIdPrefixes = [
   idPrefixes.proposalVersion,
   idPrefixes.verification,
   idPrefixes.eligibilityGateAcceptance,
+  idPrefixes.teamInvitation,
+  idPrefixes.teamMembershipRequest,
   idPrefixes.reviewAssignment,
   idPrefixes.rubric,
   idPrefixes.rubricVersion,
@@ -175,6 +183,12 @@ export const parseProposalVersionId = createIdentifierParser(idPrefixes.proposal
 export const parseVerificationId = createIdentifierParser(idPrefixes.verification);
 export const parseEligibilityGateAcceptanceId = createIdentifierParser(
   idPrefixes.eligibilityGateAcceptance,
+);
+export const isTeamInvitationId = createIdentifierGuard(idPrefixes.teamInvitation);
+export const parseTeamInvitationId = createIdentifierParser(idPrefixes.teamInvitation);
+export const isTeamMembershipRequestId = createIdentifierGuard(idPrefixes.teamMembershipRequest);
+export const parseTeamMembershipRequestId = createIdentifierParser(
+  idPrefixes.teamMembershipRequest,
 );
 export const parseReceiptId = createIdentifierParser(idPrefixes.receipt);
 export const parseAuditEventId = createIdentifierParser(idPrefixes.auditEvent);

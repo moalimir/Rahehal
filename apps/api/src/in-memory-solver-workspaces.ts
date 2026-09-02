@@ -21,6 +21,7 @@ import {
   type EligibilityGateKind,
   type VerificationId,
   type WorkspaceId,
+  type TeamWorkspace,
 } from "@rahhal/domain";
 
 import { ApiProblem, forbidden, idempotencyConflict, notFound, staleVersion } from "./errors.js";
@@ -43,7 +44,17 @@ type CachedOutcome = {
   readonly outcome: MutationOutcome<string, string>;
 };
 
-function canManage(role: WorkspaceCommandContext["role"]): boolean {
+function canEditProfile(context: Pick<WorkspaceCommandContext, "role" | "teamPolicy">): boolean {
+  return (
+    context.role === "individual" ||
+    context.role === "team:owner" ||
+    context.role === "team:admin" ||
+    (context.role === "team:proposal-manager" &&
+      context.teamPolicy?.proposalManagersCanEditProfile === true)
+  );
+}
+
+function canManageSolverAuthority(role: WorkspaceCommandContext["role"]): boolean {
   return role === "individual" || role === "team:owner" || role === "team:admin";
 }
 
@@ -92,6 +103,37 @@ export class InMemorySolverWorkspaceAdapter implements SolverWorkspacePort, Elig
         updated_at: now,
       });
     }
+  }
+
+  initializeTeamWorkspaceForTeam(workspace: TeamWorkspace): void {
+    if (this.profiles.has(workspace.id) || this.verifications.has(workspace.id)) {
+      throw new Error("The demo team solver facts already exist");
+    }
+    const now = this.clock.now().toISOString();
+    const facts = { headline: "", overview: "", expertise: [], geography: [] };
+    this.profiles.set(workspace.id, {
+      tenant_id: workspace.tenantId,
+      workspace_id: workspace.id,
+      workspace_kind: "team",
+      applicant_type: workspace.teamKind,
+      ...facts,
+      readiness: evaluateSolverProfileReadiness(facts),
+      version: 1,
+      created_at: now,
+      updated_at: now,
+    });
+    this.verifications.set(workspace.id, {
+      id: parseVerificationId("ver_" + workspace.id.slice(4)),
+      tenant_id: workspace.tenantId,
+      workspace_id: workspace.id,
+      state: "not_started",
+      version: 1,
+      requested_at: null,
+      submitted_at: null,
+      verified_at: null,
+      created_at: now,
+      updated_at: now,
+    });
   }
 
   private scopedProfile(scope: WorkspaceScope): SolverWorkspaceProfileResource | null {
@@ -159,7 +201,7 @@ export class InMemorySolverWorkspaceAdapter implements SolverWorkspacePort, Elig
     if (replay) return replay;
     const current = this.scopedProfile(context);
     if (!current) throw notFound();
-    if (!canManage(context.role)) throw forbidden();
+    if (!canEditProfile(context)) throw forbidden();
     if (body.expected_version !== current.version) throw staleVersion(current.version);
     const facts = { ...current, ...body.patch };
     const updated: SolverWorkspaceProfileResource = {
@@ -199,7 +241,7 @@ export class InMemorySolverWorkspaceAdapter implements SolverWorkspacePort, Elig
     if (replay) return replay;
     const current = await this.getVerification(context);
     if (!current) throw notFound();
-    if (!canManage(context.role)) throw forbidden();
+    if (!canManageSolverAuthority(context.role)) throw forbidden();
     if (body.expected_version !== current.version) throw staleVersion(current.version);
     if (current.state !== "not_started") {
       throw new ApiProblem(409, "INVALID_STATE", "Verification has already started", {
@@ -240,7 +282,7 @@ export class InMemorySolverWorkspaceAdapter implements SolverWorkspacePort, Elig
     );
     if (replay) return replay;
     if (!this.scopedProfile(context)) throw notFound();
-    if (!canManage(context.role)) throw forbidden();
+    if (!canManageSolverAuthority(context.role)) throw forbidden();
     if (body.expected_version !== 0) {
       throw new ApiProblem(422, "VALIDATION", "A new gate acceptance must expect version zero");
     }
