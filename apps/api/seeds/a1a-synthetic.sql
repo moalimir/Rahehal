@@ -445,7 +445,12 @@ INSERT INTO identity_link (id, user_id, issuer, subject, created_at, last_authen
   ('idl_platform_finance_local_oidc', 'usr_platform_finance',
    'http://dex.localhost:5556/dex', 'ChBwbGF0Zm9ybS1maW5hbmNlEgVsb2NhbA', '2026-01-01T00:00:00Z', NULL),
   ('idl_platform_legal_local_oidc', 'usr_platform_legal',
-   'http://dex.localhost:5556/dex', 'Cg5wbGF0Zm9ybS1sZWdhbBIFbG9jYWw', '2026-01-01T00:00:00Z', NULL)
+   'http://dex.localhost:5556/dex', 'Cg5wbGF0Zm9ybS1sZWdhbBIFbG9jYWw', '2026-01-01T00:00:00Z', NULL),
+  -- `usr_solver_alpha` holds the individual and team:owner memberships every
+  -- solver-scoped route is evaluated against, but had no Dex link, so no
+  -- connected browser could sign in as a solver at all.
+  ('idl_solver_alpha_local_oidc', 'usr_solver_alpha',
+   'http://dex.localhost:5556/dex', 'Cgxzb2x2ZXItYWxwaGESBWxvY2Fs', '2026-01-01T00:00:00Z', NULL)
 ON CONFLICT (id) DO UPDATE
 SET issuer = EXCLUDED.issuer,
     subject = EXCLUDED.subject;
