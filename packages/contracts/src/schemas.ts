@@ -12,6 +12,9 @@ import {
   challengeVisibilities,
   challengeWorkModes,
   currencies,
+  eligibilityGateKinds,
+  eligibilityNextActions,
+  eligibilityReasonCodes,
   membershipStates,
   organizationRoles,
   platformRoles,
@@ -20,6 +23,7 @@ import {
   teamRoles,
   workspaceKinds,
   workspaceRoles,
+  verificationStates,
 } from "@rahhal/domain";
 
 import { apiErrorCodes } from "./envelopes.js";
@@ -568,6 +572,135 @@ const challengePublicProjectionSchema = {
   },
 } as const;
 
+const stringFactArraySchema = {
+  type: "array",
+  uniqueItems: true,
+  maxItems: 100,
+  items: { type: "string", minLength: 1, maxLength: 200 },
+} as const;
+
+const solverProfileReadinessSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["ready", "issues"],
+  properties: {
+    ready: { type: "boolean" },
+    issues: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["path", "code", "message"],
+        properties: {
+          path: { type: "string", maxLength: 100 },
+          code: { type: "string", enum: ["required", "min_length"] },
+          message: { type: "string", maxLength: 2_000 },
+        },
+      },
+    },
+  },
+} as const;
+
+const solverWorkspaceProfileSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "tenant_id",
+    "workspace_id",
+    "workspace_kind",
+    "applicant_type",
+    "headline",
+    "overview",
+    "expertise",
+    "geography",
+    "readiness",
+    "version",
+    "created_at",
+    "updated_at",
+  ],
+  properties: {
+    tenant_id: idSchema("ten"),
+    workspace_id: idSchema("wsp"),
+    workspace_kind: { type: "string", enum: ["individual", "team"] },
+    applicant_type: { type: "string", enum: applicantTypes },
+    headline: { type: "string", maxLength: 240 },
+    overview: { type: "string", maxLength: 4_000 },
+    expertise: stringFactArraySchema,
+    geography: stringFactArraySchema,
+    readiness: solverProfileReadinessSchema,
+    version: { type: "integer", minimum: 1 },
+    created_at: dateTimeSchema,
+    updated_at: dateTimeSchema,
+  },
+} as const;
+
+const solverVerificationSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "tenant_id",
+    "workspace_id",
+    "state",
+    "version",
+    "requested_at",
+    "submitted_at",
+    "verified_at",
+    "created_at",
+    "updated_at",
+  ],
+  properties: {
+    id: idSchema("ver"),
+    tenant_id: idSchema("ten"),
+    workspace_id: idSchema("wsp"),
+    state: { type: "string", enum: verificationStates },
+    version: { type: "integer", minimum: 1 },
+    requested_at: nullableDateTimeSchema,
+    submitted_at: nullableDateTimeSchema,
+    verified_at: nullableDateTimeSchema,
+    created_at: dateTimeSchema,
+    updated_at: dateTimeSchema,
+  },
+} as const;
+
+const eligibilityDecisionSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "challenge_id",
+    "evaluated_against_version_id",
+    "applicant_type",
+    "status",
+    "reasons",
+    "next_actions",
+    "evaluated_at",
+  ],
+  properties: {
+    challenge_id: idSchema("chl"),
+    evaluated_against_version_id: idSchema("chv"),
+    applicant_type: { type: ["string", "null"], enum: [...applicantTypes, null] },
+    status: { type: "string", enum: ["eligible", "needs_action", "ineligible"] },
+    reasons: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["code", "message"],
+        properties: {
+          code: { type: "string", enum: eligibilityReasonCodes },
+          message: { type: "string", maxLength: 2_000 },
+        },
+      },
+    },
+    next_actions: {
+      type: "array",
+      uniqueItems: true,
+      items: { type: "string", enum: eligibilityNextActions },
+    },
+    evaluated_at: dateTimeSchema,
+  },
+} as const;
+
 const challengeResourceSchema = {
   type: "object",
   additionalProperties: false,
@@ -1013,6 +1146,61 @@ export const apiSchemas = {
     },
   },
   OutboxEvent: outboxEventSchema,
+  SolverWorkspaceProfile: solverWorkspaceProfileSchema,
+  SolverWorkspaceProfileSuccessEnvelope: successEnvelopeFor(solverWorkspaceProfileSchema, true),
+  PatchSolverWorkspaceProfileBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "patch"],
+    properties: {
+      expected_version: { type: "integer", minimum: 1 },
+      reason: { type: "string", minLength: 1, maxLength: 2_000 },
+      step_up_token: { type: "string", minLength: 1, maxLength: 4_096 },
+      patch: {
+        type: "object",
+        additionalProperties: false,
+        minProperties: 1,
+        properties: {
+          headline: { type: "string", maxLength: 240 },
+          overview: { type: "string", maxLength: 4_000 },
+          expertise: stringFactArraySchema,
+          geography: stringFactArraySchema,
+        },
+      },
+    },
+  },
+  SolverVerification: solverVerificationSchema,
+  SolverVerificationSuccessEnvelope: successEnvelopeFor(solverVerificationSchema, true),
+  StartSolverVerificationBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version"],
+    properties: {
+      expected_version: { type: "integer", minimum: 1 },
+      reason: { type: "string", minLength: 1, maxLength: 2_000 },
+      step_up_token: { type: "string", minLength: 1, maxLength: 4_096 },
+    },
+  },
+  AcceptEligibilityGateBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "challenge_version_id"],
+    properties: {
+      expected_version: { const: 0 },
+      challenge_version_id: idSchema("chv"),
+    },
+  },
+  EligibilityGateParams: {
+    type: "object",
+    additionalProperties: false,
+    required: ["challengeId", "gate"],
+    properties: {
+      challengeId: idSchema("chl"),
+      gate: { type: "string", enum: eligibilityGateKinds },
+    },
+  },
+  EligibilityDecision: eligibilityDecisionSchema,
+  EligibilitySuccessEnvelope: successEnvelopeFor(eligibilityDecisionSchema),
 } as const satisfies Readonly<Record<string, JsonSchema>>;
 
 export type ApiSchemaName = keyof typeof apiSchemas;

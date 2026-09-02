@@ -103,10 +103,12 @@ Do **not** discard the prototype's permission code — promote it:
 
 - `decideTeamPermission` (`solver/permissions.ts:31`) → generate `team:*` matrix rows and their negative tests. Its human-readable Persian denial reasons become the API's `NO_ACCESS` messages.
 - `canPerform` (`product.ts:50`) → seed `org:*`/`platform:*` capability tests (extended with the new sub-roles).
-- `evaluateEligibility` (`eligibility.ts:117`) → the reference implementation for the server eligibility endpoint; port it, version the rules, add overrides + audit.
+- `evaluateEligibility` (`eligibility.ts:117`) → the prototype reference. C1's authoritative evaluator now reads the exact published `eligibility_rule`, the aggregate's live state/deadline, and active-workspace facts on the server; no browser result or unversioned profile field can broaden eligibility. Policy overrides remain future governed work.
 - `canAccessReviewMaterials` (`reviews/access.ts:17`) → the COI gate predicate, now server-side over `coi_declaration`.
 
 Contract tests assert server `decide()` agrees with these oracles for every `(role, action, state)` combination.
+
+C1 protected reads and writes are scoped through `runAuthorizedWorkspace`, which revalidates the current session, active workspace and membership inside the same PostgreSQL unit of work. Solver profile/gate mutations are limited to the individual workspace or team owner/admin, carry expected version plus idempotency, and atomically write receipt/audit/outbox evidence. Eligibility reach is projection-backed while live availability is read from the private aggregate; unknown, unpublished, NDA-only/out-of-reach and cross-workspace targets fail as the same `NOT_FOUND`. Verified OIDC contact is never accepted as verified workspace status, and the solver-facing verification command can create only a draft request.
 
 ## 6. Separation of duties (explicit constraints)
 

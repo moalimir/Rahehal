@@ -3,6 +3,7 @@ import type {
   ChallengeId,
   ChallengeVersionId,
   Currency,
+  EligibilityNextAction,
   EligibilityReasonCode,
   EligibilityStatus,
   FileId,
@@ -122,7 +123,7 @@ export type EligibilityDecisionResource = {
   readonly applicant_type: ApplicantType | null;
   readonly status: EligibilityStatus;
   readonly reasons: readonly EligibilityReasonResource[];
-  readonly next_actions: readonly string[];
+  readonly next_actions: readonly EligibilityNextAction[];
   readonly evaluated_at: string;
 };
 

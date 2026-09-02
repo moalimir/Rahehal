@@ -31,8 +31,12 @@ import {
   type SuccessEnvelope,
   type SwitchWorkspaceContextBody,
   type VersionedApiMeta,
+  type AcceptEligibilityGateBody,
+  type PatchSolverWorkspaceProfileBody,
+  type StartSolverVerificationBody,
 } from "@rahhal/contracts";
 import {
+  eligibilityGateKinds,
   gateApproverRoles,
   isGateApproverRole,
   isPlatformRole,
@@ -40,6 +44,7 @@ import {
   type ChallengeId,
   type CorrelationId,
   type WorkspaceRole,
+  type EligibilityGateKind,
 } from "@rahhal/domain";
 import {
   authorizationFlowCookie,
@@ -82,6 +87,7 @@ const challengeIdParamsSchema = {
 } as const;
 
 type ChallengeIdParams = { challengeId: string };
+type EligibilityGateParams = { challengeId: string; gate: EligibilityGateKind };
 
 type BrowserOidcCallbackQuery = {
   readonly code: string;
@@ -202,6 +208,10 @@ function challengeScope(session: AuthenticatedSession, access: WorkspaceAccess):
 }
 
 const canReadChallenge = (access: WorkspaceAccess) => access.workspace.kind === "org";
+const canReadSolverWorkspace = (access: WorkspaceAccess) =>
+  access.workspace.kind === "individual" || access.workspace.kind === "team";
+const canManageSolverWorkspace = (access: WorkspaceAccess) =>
+  access.role === "individual" || access.role === "team:owner" || access.role === "team:admin";
 
 /**
  * Every platform role that owns at least one publication gate, derived from
@@ -321,6 +331,9 @@ const fastifyChallengeCommandPath = (path: string) =>
     "{challengeId}",
     `:challengeId(${challengeIdParamsSchema.properties.challengeId.pattern})`,
   );
+
+const fastifyEligibilityGatePath = (path: string) =>
+  fastifyChallengeCommandPath(path).replace("{gate}", `:gate(${eligibilityGateKinds.join("|")})`);
 
 /**
  * One registration for every versioned challenge command that reads the record
@@ -1258,6 +1271,252 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
     "challenge:publish",
     canPublishChallenge,
     (id, body, context) => ports.challenges.publish(id, body, context),
+  );
+
+  app.get(
+    apiRoutes.solverProfile,
+    {
+      schema: {
+        response: {
+          200: apiSchemas.SolverWorkspaceProfileSuccessEnvelope,
+          ...apiErrorResponses,
+        },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "solver:profile:read",
+          entityType: "solver_workspace_profile",
+          allows: canReadSolverWorkspace,
+        },
+        async (access) => {
+          const resource = await ports.solverWorkspaces.getProfile(challengeScope(session, access));
+          if (!resource) throw notFound();
+          return versionedSuccess(resource, request, ports, resource.version);
+        },
+      );
+    },
+  );
+
+  app.patch<{ Body: PatchSolverWorkspaceProfileBody }>(
+    apiRoutes.solverProfile,
+    {
+      schema: {
+        body: apiSchemas.PatchSolverWorkspaceProfileBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "solver:profile:update",
+          entityType: "solver_workspace_profile",
+          allows: canManageSolverWorkspace,
+        },
+        async (access) =>
+          mutationSuccess(
+            await ports.solverWorkspaces.patchProfile(request.body, {
+              ...challengeScope(session, access),
+              ...command,
+            }),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.get(
+    apiRoutes.solverVerification,
+    {
+      schema: {
+        response: { 200: apiSchemas.SolverVerificationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "solver:verification:read",
+          entityType: "verification_record",
+          allows: canReadSolverWorkspace,
+        },
+        async (access) => {
+          const resource = await ports.solverWorkspaces.getVerification(
+            challengeScope(session, access),
+          );
+          if (!resource) throw notFound();
+          return versionedSuccess(resource, request, ports, resource.version);
+        },
+      );
+    },
+  );
+
+  app.post<{ Body: StartSolverVerificationBody }>(
+    fastifyLiteralPath(apiRoutes.startSolverVerification),
+    {
+      schema: {
+        body: apiSchemas.StartSolverVerificationBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "solver:verification:start",
+          entityType: "verification_record",
+          allows: canManageSolverWorkspace,
+        },
+        async (access) =>
+          mutationSuccess(
+            await ports.solverWorkspaces.startVerification(request.body, {
+              ...challengeScope(session, access),
+              ...command,
+            }),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.get<{
+    Params: ChallengeIdParams;
+  }>(
+    fastifyChallengeCommandPath(apiRoutes.challengeEligibility),
+    {
+      schema: {
+        params: challengeIdParamsSchema,
+        response: { 200: apiSchemas.EligibilitySuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "challenge:eligibility:evaluate",
+          entityType: "challenge",
+          entityId: request.params.challengeId,
+          allows: canReadSolverWorkspace,
+          deferSuccess: true,
+        },
+        async (access) => {
+          const resource = await ports.eligibility.evaluate(
+            challengeScope(session, access),
+            request.params.challengeId,
+          );
+          if (!resource) {
+            await ports.decisionAudit.record({
+              outcome: "denied",
+              actorUserId: session.userId,
+              tenantId: access.tenantId,
+              workspaceId: access.workspaceId,
+              action: "challenge:eligibility:evaluate",
+              entityType: "challenge",
+              entityId: request.params.challengeId,
+              reason: "record_unreachable",
+              correlationId: correlationId(request),
+              occurredAt: ports.clock.now().toISOString(),
+            });
+            throw notFound();
+          }
+          await recordWorkspaceAccessSuccess(request, ports, session, access, {
+            action: "challenge:eligibility:evaluate",
+            entityType: "challenge",
+            entityId: request.params.challengeId,
+          });
+          return success(resource, request, ports);
+        },
+      );
+    },
+  );
+
+  app.post<{ Params: EligibilityGateParams; Body: AcceptEligibilityGateBody }>(
+    fastifyEligibilityGatePath(apiRoutes.acceptChallengeEligibilityGate),
+    {
+      schema: {
+        params: apiSchemas.EligibilityGateParams,
+        body: apiSchemas.AcceptEligibilityGateBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "challenge:eligibility-gate:accept",
+          entityType: "challenge",
+          entityId: request.params.challengeId,
+          allows: canManageSolverWorkspace,
+        },
+        async (access) =>
+          mutationSuccess(
+            await ports.solverWorkspaces.acceptEligibilityGate(
+              request.params.challengeId,
+              request.params.gate,
+              request.body,
+              { ...challengeScope(session, access), ...command },
+            ),
+            request,
+            ports,
+          ),
+      );
+    },
   );
 
   return app;

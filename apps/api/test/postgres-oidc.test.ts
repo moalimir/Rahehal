@@ -8,6 +8,7 @@ import { buildApi } from "../src/app.js";
 import { PostgresAccessDecisionAudit } from "../src/postgres/access-decision-audit.js";
 import { PostgresChallengeAdapter } from "../src/postgres/challenges.js";
 import { PostgresPublicChallengeAdapter } from "../src/postgres/public-challenges.js";
+import { PostgresSolverWorkspaceAdapter } from "../src/postgres/solver-workspaces.js";
 import { PostgresIdentityWorkspaceAdapter } from "../src/postgres/identity-workspace.js";
 import { runMigrations } from "../src/postgres/migrations.js";
 import { PostgresOidcAuthorizationAdapter } from "../src/postgres/oidc-authorization.js";
@@ -122,6 +123,7 @@ beforeAll(async () => {
     ids,
     audit,
   );
+  const solverWorkspaces = new PostgresSolverWorkspaceAdapter(unitOfWork, clock, ids);
   app = buildApi(
     {
       oidcAuthorization: oidc,
@@ -130,6 +132,8 @@ beforeAll(async () => {
       authority: identity,
       challenges: new PostgresChallengeAdapter(unitOfWork, clock, ids),
       publicChallenges: new PostgresPublicChallengeAdapter(unitOfWork),
+      solverWorkspaces,
+      eligibility: solverWorkspaces,
       decisionAudit: audit,
       clock,
       ids,

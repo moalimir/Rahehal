@@ -11,6 +11,8 @@ export const idPrefixes = {
   challengeApproval: "cap",
   proposal: "prp",
   proposalVersion: "prv",
+  verification: "ver",
+  eligibilityGateAcceptance: "ega",
   reviewAssignment: "rva",
   rubric: "rub",
   rubricVersion: "rbv",
@@ -40,6 +42,8 @@ export type ChallengeVersionId = PrefixedId<"chv">;
 export type ChallengeApprovalId = PrefixedId<"cap">;
 export type ProposalId = PrefixedId<"prp">;
 export type ProposalVersionId = PrefixedId<"prv">;
+export type VerificationId = PrefixedId<"ver">;
+export type EligibilityGateAcceptanceId = PrefixedId<"ega">;
 export type ReviewAssignmentId = PrefixedId<"rva">;
 export type RubricId = PrefixedId<"rub">;
 export type RubricVersionId = PrefixedId<"rbv">;
@@ -63,6 +67,8 @@ export type EntityId =
   | ChallengeApprovalId
   | ProposalId
   | ProposalVersionId
+  | VerificationId
+  | EligibilityGateAcceptanceId
   | ReviewAssignmentId
   | RubricId
   | RubricVersionId
@@ -83,6 +89,8 @@ const entityIdPrefixes = [
   idPrefixes.challengeApproval,
   idPrefixes.proposal,
   idPrefixes.proposalVersion,
+  idPrefixes.verification,
+  idPrefixes.eligibilityGateAcceptance,
   idPrefixes.reviewAssignment,
   idPrefixes.rubric,
   idPrefixes.rubricVersion,
@@ -164,6 +172,10 @@ export const parseChallengeVersionId = createIdentifierParser(idPrefixes.challen
 export const parseChallengeApprovalId = createIdentifierParser(idPrefixes.challengeApproval);
 export const parseProposalId = createIdentifierParser(idPrefixes.proposal);
 export const parseProposalVersionId = createIdentifierParser(idPrefixes.proposalVersion);
+export const parseVerificationId = createIdentifierParser(idPrefixes.verification);
+export const parseEligibilityGateAcceptanceId = createIdentifierParser(
+  idPrefixes.eligibilityGateAcceptance,
+);
 export const parseReceiptId = createIdentifierParser(idPrefixes.receipt);
 export const parseAuditEventId = createIdentifierParser(idPrefixes.auditEvent);
 export const parseCorrelationId = createIdentifierParser(idPrefixes.correlation);

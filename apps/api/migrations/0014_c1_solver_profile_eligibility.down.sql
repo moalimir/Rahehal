@@ -1,0 +1,17 @@
+DROP TRIGGER eligibility_gate_acceptance_append_only ON eligibility_gate_acceptance;
+DROP FUNCTION prevent_eligibility_gate_acceptance_mutation();
+DROP TRIGGER eligibility_gate_acceptance_validated ON eligibility_gate_acceptance;
+DROP FUNCTION validate_eligibility_gate_acceptance();
+DROP INDEX eligibility_gate_acceptance_scope_idx;
+DROP TABLE eligibility_gate_acceptance;
+
+DROP TRIGGER verification_identity_protected ON verification_record;
+DROP FUNCTION protect_verification_identity();
+DROP TABLE verification_record;
+
+DROP TRIGGER solver_profile_identity_protected ON solver_workspace_profile;
+DROP FUNCTION protect_solver_profile_identity();
+DROP TRIGGER solver_profile_applicant_type_derived ON solver_workspace_profile;
+DROP FUNCTION validate_solver_profile_applicant_type();
+DROP TABLE solver_workspace_profile;
+DROP FUNCTION valid_solver_fact_array(text[]);

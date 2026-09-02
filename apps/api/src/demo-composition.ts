@@ -16,6 +16,7 @@ import { InMemoryAccessDecisionAudit } from "./in-memory-audit.js";
 import { InMemoryChallengeRepository } from "./in-memory-challenges.js";
 import { InMemoryCriticalSection } from "./in-memory-critical-section.js";
 import { InMemoryIdentityAdapter } from "./in-memory-identity.js";
+import { InMemorySolverWorkspaceAdapter } from "./in-memory-solver-workspaces.js";
 import { MonotonicIdFactory, systemClock } from "./primitives.js";
 import type { ApiPorts, Clock, DemoIdentitySeed, IdFactory } from "./ports.js";
 
@@ -61,6 +62,24 @@ export const demoApiCredentials = {
     refreshToken: "demo-refresh-platform-legal-01",
     workspaceId: parseWorkspaceId("wsp_platform_main"),
     sessionId: parseSessionId("ses_platform_legal"),
+  },
+  solver: {
+    accessToken: "demo-access-solver-individual-01",
+    refreshToken: "demo-refresh-solver-individual-01",
+    workspaceId: parseWorkspaceId("wsp_solver_individual"),
+    sessionId: parseSessionId("ses_solver_individual"),
+  },
+  solverTeam: {
+    accessToken: "demo-access-solver-team-000001",
+    refreshToken: "demo-refresh-solver-team-000001",
+    workspaceId: parseWorkspaceId("wsp_solver_team"),
+    sessionId: parseSessionId("ses_solver_team"),
+  },
+  solverTeamViewer: {
+    accessToken: "demo-access-solver-team-viewer-01",
+    refreshToken: "demo-refresh-solver-team-viewer-01",
+    workspaceId: parseWorkspaceId("wsp_solver_team"),
+    sessionId: parseSessionId("ses_solver_team_viewer"),
   },
   exchange: {
     authorizationCode: "demo-oidc-code-owner-alpha",
@@ -136,6 +155,33 @@ const platformWorkspace: Workspace = {
   tenantId: parseTenantId("ten_platform"),
   kind: "platform",
   name: "پلتفرم راه‌حل",
+};
+const solverUser: User = {
+  id: parseUserId("usr_solver_owner"),
+  displayName: "حل‌گر نمونه",
+  primaryEmail: "solver@example.test",
+  emailVerified: true,
+};
+const solverViewerUser: User = {
+  id: parseUserId("usr_solver_viewer"),
+  displayName: "مشاهده‌گر تیم نمونه",
+  primaryEmail: "solver-viewer@example.test",
+  emailVerified: true,
+};
+const individualSolverWorkspace: Workspace = {
+  id: demoApiCredentials.solver.workspaceId,
+  tenantId: parseTenantId("ten_solver_individual"),
+  kind: "individual",
+  name: "فضای شخصی حل‌گر",
+  ownerUserId: solverUser.id,
+};
+const teamSolverWorkspace: Workspace = {
+  id: demoApiCredentials.solverTeam.workspaceId,
+  tenantId: parseTenantId("ten_solver_team"),
+  kind: "team",
+  name: "تیم تخصصی نمونه",
+  teamKind: "expert-team",
+  ownerUserId: solverUser.id,
 };
 
 function membership(
@@ -273,6 +319,54 @@ function demoSeeds(now: string): readonly DemoIdentitySeed[] {
       accessToken: demoApiCredentials.platformLegal.accessToken,
       refreshToken: demoApiCredentials.platformLegal.refreshToken,
     },
+    {
+      user: solverUser,
+      workspace: individualSolverWorkspace,
+      membership: membership(
+        "mem_solver_individual",
+        solverUser,
+        individualSolverWorkspace,
+        "individual",
+        now,
+      ),
+      authorizationCode: "demo-oidc-code-solver-individual",
+      codeVerifier: "demo-code-verifier-solver-individual-000000000000000",
+      redirectUri: demoApiCredentials.exchange.redirectUri,
+      oidcState: "demo-state-solver-individual",
+      sessionId: demoApiCredentials.solver.sessionId,
+      accessToken: demoApiCredentials.solver.accessToken,
+      refreshToken: demoApiCredentials.solver.refreshToken,
+    },
+    {
+      user: solverUser,
+      workspace: teamSolverWorkspace,
+      membership: membership("mem_solver_team", solverUser, teamSolverWorkspace, "team:owner", now),
+      authorizationCode: "demo-oidc-code-solver-team",
+      codeVerifier: "demo-code-verifier-solver-team-0000000000000000000",
+      redirectUri: demoApiCredentials.exchange.redirectUri,
+      oidcState: "demo-state-solver-team",
+      sessionId: demoApiCredentials.solverTeam.sessionId,
+      accessToken: demoApiCredentials.solverTeam.accessToken,
+      refreshToken: demoApiCredentials.solverTeam.refreshToken,
+    },
+    {
+      user: solverViewerUser,
+      workspace: teamSolverWorkspace,
+      membership: membership(
+        "mem_solver_team_viewer",
+        solverViewerUser,
+        teamSolverWorkspace,
+        "team:viewer",
+        now,
+      ),
+      authorizationCode: "demo-oidc-code-solver-team-viewer",
+      codeVerifier: "demo-code-verifier-solver-team-viewer-00000000000000",
+      redirectUri: demoApiCredentials.exchange.redirectUri,
+      oidcState: "demo-state-solver-team-viewer",
+      sessionId: demoApiCredentials.solverTeamViewer.sessionId,
+      accessToken: demoApiCredentials.solverTeamViewer.accessToken,
+      refreshToken: demoApiCredentials.solverTeamViewer.refreshToken,
+    },
   ];
 }
 
@@ -343,6 +437,7 @@ export type DemoApiComposition = {
   readonly challenges: InMemoryChallengeRepository;
   readonly decisionAudit: InMemoryAccessDecisionAudit;
   readonly criticalSection: InMemoryCriticalSection;
+  readonly solverWorkspaces: InMemorySolverWorkspaceAdapter;
 };
 
 export function createDemoApiComposition(options: {
@@ -361,8 +456,9 @@ export function createDemoApiComposition(options: {
   const ids = options.ids ?? new MonotonicIdFactory();
   const decisionAudit = new InMemoryAccessDecisionAudit();
   const criticalSection = new InMemoryCriticalSection();
+  const seeds = demoSeeds(clock.now().toISOString());
   const identity = new InMemoryIdentityAdapter(
-    demoSeeds(clock.now().toISOString()),
+    seeds,
     clock,
     ids,
     decisionAudit,
@@ -371,11 +467,13 @@ export function createDemoApiComposition(options: {
   );
   const challenges = new InMemoryChallengeRepository(clock, ids);
   challenges.seed(foreignChallenge(clock.now().toISOString()));
+  const solverWorkspaces = new InMemorySolverWorkspaceAdapter(seeds, challenges, clock, ids);
   return {
     identity,
     challenges,
     decisionAudit,
     criticalSection,
+    solverWorkspaces,
     ports: {
       oidcAuthorization: {
         async start() {
@@ -389,6 +487,8 @@ export function createDemoApiComposition(options: {
       // The in-memory repository owns the projection rows, so it serves the
       // public port too; the routes still only ever see `PublicChallengePort`.
       publicChallenges: challenges,
+      solverWorkspaces,
+      eligibility: solverWorkspaces,
       decisionAudit,
       clock,
       ids,

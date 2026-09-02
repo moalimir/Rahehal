@@ -3,6 +3,7 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   evaluateProposalEligibility,
   evaluateProposalReadiness,
+  evaluateSolverProfileReadiness,
   proposalTransitions,
   proposalVersionLockingStates,
   parseChallengeVersionId,
@@ -283,9 +284,9 @@ describe("C1 proposal eligibility", () => {
   const applicant: EligibilityApplicant = {
     workspaceId: parseWorkspaceId("wsp_team_alpha"),
     applicantType: "expert-team",
-    verified: false,
+    workspaceVerified: false,
     ndaAccepted: false,
-    requiredDocumentsProvided: false,
+    documentGateAcknowledged: false,
   };
   const now = new Date("2026-08-30T12:00:00.000Z");
 
@@ -293,6 +294,25 @@ describe("C1 proposal eligibility", () => {
     const decision = evaluateProposalEligibility(openRule, openCall, applicant, now);
     expect(decision.evaluatedAgainstVersionId).toBe("chv_published_0001");
     expect(decision.status).toBe("eligible");
+  });
+
+  it("derives profile readiness from server facts without making it an eligibility rule", () => {
+    expect(
+      evaluateSolverProfileReadiness({
+        headline: "متخصص تحلیل داده",
+        overview: "تجربه اجرای پروژه‌های صنعتی و تحلیل داده در مقیاس عملیاتی.",
+        expertise: ["تحلیل داده"],
+        geography: ["ایران"],
+      }),
+    ).toEqual({ ready: true, issues: [] });
+    expect(
+      evaluateSolverProfileReadiness({
+        headline: "",
+        overview: "",
+        expertise: [],
+        geography: [],
+      }).issues.map((issue) => issue.path),
+    ).toEqual(["/headline", "/overview", "/expertise", "/geography"]);
   });
 
   it("separates a structural refusal from a gate the solver can still clear", () => {

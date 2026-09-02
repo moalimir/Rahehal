@@ -185,6 +185,8 @@ ApplicantType = individual | expert-team | company | lab | academic-group
 
 **Decision status:** the derived applicant-scope rule is accepted and implemented (DEC-2026-010); the onboarding/verification boundary is accepted for Phase 3 (DEC-2026-016). Existing v9 records are normalized and rewritten on read; the detailed allow-set is never inferred from a coarse legacy scope, so migration cannot broaden eligibility.
 
+C1 implements this boundary server-side: each individual/team workspace has its own derived `ApplicantType`, profile/readiness facts and `verification_record`. A verified human contact is an identity fact only and never advances workspace verification. NDA and `document_acknowledgement` facts cite the exact published challenge version; the latter is a synthetic acknowledgement and must not be described as uploaded or reviewed evidence. Eligibility uses only the exact versioned rule plus the aggregate's live state/deadline and server time; unversioned profile readiness/expertise/geography remain descriptive facts, not hidden eligibility policy.
+
 ## 6. Core entity graph (canonical)
 
 ```mermaid

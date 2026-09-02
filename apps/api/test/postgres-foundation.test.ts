@@ -55,9 +55,12 @@ beforeAll(async () => {
     "0010_phase2_closure",
     "0012_phase2_review_closure",
     "0013_c_proposal_foundation",
+    "0014_c1_solver_profile_eligibility",
   ]);
 
-  // Newest first: 0013 was applied last, then 0012.
+  // Newest first.
+  const c1Down = await runMigrations(database, "down");
+  expect(c1Down.applied).toEqual(["0014_c1_solver_profile_eligibility"]);
   const proposalDown = await runMigrations(database, "down");
   expect(proposalDown.applied).toEqual(["0013_c_proposal_foundation"]);
   const reviewClosureDown = await runMigrations(database, "down");
@@ -108,6 +111,7 @@ beforeAll(async () => {
     "0010_phase2_closure",
     "0012_phase2_review_closure",
     "0013_c_proposal_foundation",
+    "0014_c1_solver_profile_eligibility",
   ]);
   const noOpUp = await runMigrations(database, "up");
   expect(noOpUp.applied).toEqual([]);
@@ -140,6 +144,7 @@ describe("A1a PostgreSQL foundation", () => {
       "challenge_approval",
       "challenge_public_projection",
       "challenge_version",
+      "eligibility_gate_acceptance",
       "eligibility_rule",
       "idempotency_key",
       "identity_link",
@@ -150,7 +155,9 @@ describe("A1a PostgreSQL foundation", () => {
       "proposal",
       "proposal_version",
       "schema_migration",
+      "solver_workspace_profile",
       "tenant",
+      "verification_record",
       "workspace",
     ];
     const tables = await database.query<{ table_name: string }>(`
@@ -208,6 +215,10 @@ describe("A1a PostgreSQL foundation", () => {
       },
       {
         id: "0013_c_proposal_foundation",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+      {
+        id: "0014_c1_solver_profile_eligibility",
         checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
       },
     ]);
@@ -487,6 +498,8 @@ describe("A1a PostgreSQL foundation", () => {
   });
 
   it("fails the A1b migration atomically for an orphaned existing session", async () => {
+    const c1Down = await runMigrations(database, "down");
+    expect(c1Down.applied).toEqual(["0014_c1_solver_profile_eligibility"]);
     const proposalDown = await runMigrations(database, "down");
     expect(proposalDown.applied).toEqual(["0013_c_proposal_foundation"]);
     const reviewClosureDown = await runMigrations(database, "down");
@@ -565,6 +578,7 @@ describe("A1a PostgreSQL foundation", () => {
       "0010_phase2_closure",
       "0012_phase2_review_closure",
       "0013_c_proposal_foundation",
+      "0014_c1_solver_profile_eligibility",
     ]);
   });
 });

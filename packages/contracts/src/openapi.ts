@@ -57,10 +57,17 @@ export const openApiDocument = {
   info: {
     title: "Rahhal API",
     version: "0.1.0",
-    description: "Authoritative contracts for identity, workspace context, and challenge drafts.",
+    description:
+      "Authoritative contracts for identity, workspace context, governed challenges, and solver eligibility.",
   },
   servers: [{ url: "/", description: "Current origin" }],
-  tags: [{ name: "Contract" }, { name: "Session" }, { name: "Identity" }, { name: "Challenge" }],
+  tags: [
+    { name: "Contract" },
+    { name: "Session" },
+    { name: "Identity" },
+    { name: "Challenge" },
+    { name: "Solver" },
+  ],
   paths: {
     [apiRoutes.openApi]: {
       get: {
@@ -522,6 +529,114 @@ export const openApiDocument = {
         responses: {
           "200": {
             description: "A receipt for the approvals to published transition.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.solverProfile]: {
+      get: {
+        operationId: "getSolverWorkspaceProfile",
+        tags: ["Solver"],
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader],
+        responses: {
+          "200": {
+            description: "The active solver workspace's server-owned profile facts.",
+            content: jsonContent("SolverWorkspaceProfileSuccessEnvelope"),
+          },
+          "403": errorResponse("The active workspace is not a solver workspace."),
+          "404": errorResponse("The protected workspace is unavailable."),
+        },
+      },
+      patch: {
+        operationId: "patchSolverWorkspaceProfile",
+        tags: ["Solver"],
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader],
+        requestBody: { required: true, content: jsonContent("PatchSolverWorkspaceProfileBody") },
+        responses: {
+          "200": {
+            description: "A receipt for the workspace-scoped profile update.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.solverVerification]: {
+      get: {
+        operationId: "getSolverWorkspaceVerification",
+        tags: ["Solver"],
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader],
+        responses: {
+          "200": {
+            description:
+              "The active workspace's verification state, distinct from contact verification.",
+            content: jsonContent("SolverVerificationSuccessEnvelope"),
+          },
+          "403": errorResponse("The active workspace is not a solver workspace."),
+          "404": errorResponse("The protected workspace is unavailable."),
+        },
+      },
+    },
+    [apiRoutes.startSolverVerification]: {
+      post: {
+        operationId: "startSolverWorkspaceVerification",
+        tags: ["Solver"],
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader],
+        requestBody: { required: true, content: jsonContent("StartSolverVerificationBody") },
+        responses: {
+          "200": {
+            description:
+              "A receipt for starting the workflow; this never self-approves verification.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.challengeEligibility]: {
+      get: {
+        operationId: "evaluateChallengeEligibility",
+        tags: ["Solver"],
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, challengeIdParameter],
+        responses: {
+          "200": {
+            description:
+              "An explainable decision against the exact published rule and live call clock.",
+            content: jsonContent("EligibilitySuccessEnvelope"),
+          },
+          "403": errorResponse("The active workspace is not a solver workspace."),
+          "404": errorResponse("The challenge or protected workspace is unavailable."),
+        },
+      },
+    },
+    [apiRoutes.acceptChallengeEligibilityGate]: {
+      post: {
+        operationId: "acceptChallengeEligibilityGate",
+        tags: ["Solver"],
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          workspaceHeader,
+          idempotencyHeader,
+          challengeIdParameter,
+          {
+            in: "path",
+            name: "gate",
+            required: true,
+            schema: { type: "string", enum: ["nda", "document_acknowledgement"] },
+          },
+        ],
+        requestBody: { required: true, content: jsonContent("AcceptEligibilityGateBody") },
+        responses: {
+          "200": {
+            description:
+              "A receipt for an exact-version gate acknowledgement; this is not upload/review evidence.",
             content: jsonContent("MutationSuccessEnvelope"),
           },
           ...protectedCommandErrors,

@@ -299,9 +299,10 @@ export function evaluateProposalReadiness(content: ProposalContent): ProposalRea
 export type EligibilityApplicant = {
   readonly workspaceId: WorkspaceId;
   readonly applicantType: ApplicantType | null;
-  readonly verified: boolean;
+  readonly workspaceVerified: boolean;
   readonly ndaAccepted: boolean;
-  readonly requiredDocumentsProvided: boolean;
+  /** Synthetic Phase-3 acknowledgement only; never claims file upload/review. */
+  readonly documentGateAcknowledged: boolean;
 };
 
 /**
@@ -331,7 +332,7 @@ export const eligibilityReasonCodes = [
   "applicant_type_not_allowed",
   "verification_required",
   "nda_required",
-  "documents_required",
+  "document_acknowledgement_required",
 ] as const;
 export type EligibilityReasonCode = (typeof eligibilityReasonCodes)[number];
 
@@ -343,6 +344,13 @@ export type EligibilityReasonCode = (typeof eligibilityReasonCodes)[number];
  */
 export type EligibilityStatus = "eligible" | "needs_action" | "ineligible";
 
+export const eligibilityNextActions = [
+  "verify_workspace",
+  "accept_nda",
+  "acknowledge_document_gate",
+] as const;
+export type EligibilityNextAction = (typeof eligibilityNextActions)[number];
+
 export type EligibilityReason = {
   readonly code: EligibilityReasonCode;
   readonly message: string;
@@ -352,7 +360,7 @@ export type EligibilityDecision = {
   readonly status: EligibilityStatus;
   readonly evaluatedAgainstVersionId: string;
   readonly reasons: readonly EligibilityReason[];
-  readonly nextActions: readonly string[];
+  readonly nextActions: readonly EligibilityNextAction[];
 };
 
 const reasonMessages: Record<EligibilityReasonCode, string> = {
@@ -362,7 +370,7 @@ const reasonMessages: Record<EligibilityReasonCode, string> = {
   applicant_type_not_allowed: "نوع فضای کاری فعال در فهرست متقاضیان مجاز نیست.",
   verification_required: "احراز هویت این فضای کاری هنوز تأیید نشده است.",
   nda_required: "پذیرش توافق‌نامه محرمانگی برای این فراخوان الزامی است.",
-  documents_required: "مدارک الزامی این فراخوان هنوز کامل نشده است.",
+  document_acknowledgement_required: "تأیید الزام مدارک این فراخوان هنوز ثبت نشده است.",
 };
 
 /**
@@ -399,12 +407,12 @@ export function evaluateProposalEligibility(
   // Everything below is a gate the solver can still clear, so it is reported
   // as an action rather than a refusal.
   const reasons: EligibilityReason[] = [];
-  const nextActions: string[] = [];
+  const nextActions: EligibilityNextAction[] = [];
   const requireGate = (
     required: boolean,
     satisfied: boolean,
     code: EligibilityReasonCode,
-    action: string,
+    action: EligibilityNextAction,
   ) => {
     if (required && !satisfied) {
       reasons.push({ code, message: reasonMessages[code] });
@@ -414,16 +422,16 @@ export function evaluateProposalEligibility(
 
   requireGate(
     rule.verificationRequired,
-    applicant.verified,
+    applicant.workspaceVerified,
     "verification_required",
     "verify_workspace",
   );
   requireGate(rule.ndaRequired, applicant.ndaAccepted, "nda_required", "accept_nda");
   requireGate(
     rule.documentGateRequired,
-    applicant.requiredDocumentsProvided,
-    "documents_required",
-    "provide_documents",
+    applicant.documentGateAcknowledged,
+    "document_acknowledgement_required",
+    "acknowledge_document_gate",
   );
 
   return {

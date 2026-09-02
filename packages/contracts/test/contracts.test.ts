@@ -35,6 +35,9 @@ describe("authoritative API contracts", () => {
     expect(apiSchemas.CreateChallengeBody.required).toContain("expected_version");
     expect(apiSchemas.PatchChallengeBody.required).toContain("expected_version");
     expect(apiSchemas.ChallengeTransitionBody.required).toContain("expected_version");
+    expect(apiSchemas.PatchSolverWorkspaceProfileBody.required).toContain("expected_version");
+    expect(apiSchemas.StartSolverVerificationBody.required).toContain("expected_version");
+    expect(apiSchemas.AcceptEligibilityGateBody.required).toContain("expected_version");
 
     expectTypeOf<CreateChallengeBody["expected_version"]>().toEqualTypeOf<0>();
     expectTypeOf<PatchChallengeBody["expected_version"]>().toEqualTypeOf<number>();
@@ -72,6 +75,11 @@ describe("authoritative API contracts", () => {
         apiRoutes.requestChallengeApprovals,
         apiRoutes.platformChallengeApprovalQueue,
         apiRoutes.platformChallengeApprovalBrief,
+        apiRoutes.solverProfile,
+        apiRoutes.solverVerification,
+        apiRoutes.startSolverVerification,
+        apiRoutes.challengeEligibility,
+        apiRoutes.acceptChallengeEligibilityGate,
       ]),
     );
 
@@ -83,6 +91,21 @@ describe("authoritative API contracts", () => {
     expect(apiSchemas.ChallengeResource.required).toEqual(
       expect.arrayContaining(["version", "content_version", "readiness"]),
     );
+  });
+
+  it("keeps contact verification and synthetic document acknowledgement explicit", () => {
+    expect(apiSchemas.SolverVerification.properties.state.enum).toContain("not_started");
+    expect(apiSchemas.EligibilityGateParams.properties.gate.enum).toEqual([
+      "nda",
+      "document_acknowledgement",
+    ]);
+    expect(apiSchemas.EligibilityDecision.properties.next_actions.items.enum).toEqual([
+      "verify_workspace",
+      "accept_nda",
+      "acknowledge_document_gate",
+    ]);
+    expect(apiSchemas.EligibilityDecision.properties).not.toHaveProperty("contact_verified");
+    expect(apiSchemas.SolverWorkspaceProfile.properties).not.toHaveProperty("verification_state");
   });
 
   it("keeps the platform approval brief structurally narrower than the org aggregate", () => {

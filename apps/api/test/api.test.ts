@@ -12,6 +12,9 @@ import {
   type ChallengePublicProjectionResource,
   type ChallengeResource,
   type MeResource,
+  type EligibilitySuccessEnvelope,
+  type SolverVerificationSuccessEnvelope,
+  type SolverWorkspaceProfileSuccessEnvelope,
 } from "@rahhal/contracts";
 import {
   challengeOutboxEventTypes,
@@ -212,7 +215,7 @@ describe("authoritative Fastify API foundation", () => {
     expect(firstBody.data.receipt.idempotent).toBe(false);
     expect(secondBody.data.receipt).toEqual({ ...firstBody.data.receipt, idempotent: true });
     expect(secondBody.data.tokens).toEqual(firstBody.data.tokens);
-    expect(composition.identity.snapshot().sessions).toHaveLength(8);
+    expect(composition.identity.snapshot().sessions).toHaveLength(11);
     expect(composition.identity.snapshot().auditEvents).toHaveLength(1);
     expect(composition.identity.snapshot().outboxEvents).toHaveLength(1);
   });
@@ -235,7 +238,7 @@ describe("authoritative Fastify API foundation", () => {
     expect(replayWithNewKey.statusCode).toBe(403);
     expect(replayWithNewKey.json<ErrorEnvelope>().error.code).toBe("NO_ACCESS");
     const snapshot = composition.identity.snapshot();
-    expect(snapshot.sessions).toHaveLength(8);
+    expect(snapshot.sessions).toHaveLength(11);
     expect(snapshot.auditEvents).toHaveLength(1);
     expect(snapshot.outboxEvents).toHaveLength(1);
     expect(snapshot.consumedOidcExchangeCount).toBe(1);
@@ -1196,6 +1199,292 @@ describe("authoritative Fastify API foundation", () => {
     expect(published.statusCode).toBe(200);
     return challengeId;
   }
+
+  function solverHeaders(
+    credential:
+      | typeof demoApiCredentials.solver
+      | typeof demoApiCredentials.solverTeam
+      | typeof demoApiCredentials.solverTeamViewer,
+    idempotencyKey?: string,
+  ) {
+    return {
+      authorization: "Bearer " + credential.accessToken,
+      "x-workspace-id": credential.workspaceId,
+      ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}),
+    };
+  }
+
+  it("keeps contact verification separate from durable workspace facts", async () => {
+    const profile = await app.inject({
+      method: "GET",
+      url: apiRoutes.solverProfile,
+      headers: solverHeaders(demoApiCredentials.solver),
+    });
+    expect(profile.statusCode).toBe(200);
+    expect(profile.json<SolverWorkspaceProfileSuccessEnvelope>()).toMatchObject({
+      data: {
+        workspace_kind: "individual",
+        applicant_type: "individual",
+        readiness: { ready: false },
+        version: 1,
+      },
+      meta: { entity_version: 1 },
+    });
+
+    const verification = await app.inject({
+      method: "GET",
+      url: apiRoutes.solverVerification,
+      headers: solverHeaders(demoApiCredentials.solver),
+    });
+    expect(verification.statusCode).toBe(200);
+    expect(verification.json<SolverVerificationSuccessEnvelope>().data.state).toBe("not_started");
+
+    const patchRequest = {
+      method: "PATCH" as const,
+      url: apiRoutes.solverProfile,
+      headers: solverHeaders(demoApiCredentials.solver, "c1-profile-update"),
+      payload: {
+        expected_version: 1,
+        patch: {
+          headline: "متخصص تحلیل داده",
+          overview: "تجربه اجرای پروژه‌های تحلیل داده در محیط‌های صنعتی و عملیاتی.",
+          expertise: ["تحلیل داده"],
+          geography: ["ایران"],
+        },
+      },
+    };
+    const updated = await app.inject(patchRequest);
+    const replay = await app.inject(patchRequest);
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json<MutationSuccessEnvelope>().meta.entity_version).toBe(2);
+    expect(replay.json<MutationSuccessEnvelope>().data).toEqual({
+      ...updated.json<MutationSuccessEnvelope>().data,
+      idempotent: true,
+    });
+
+    const stale = await app.inject({
+      ...patchRequest,
+      headers: solverHeaders(demoApiCredentials.solver, "c1-profile-stale"),
+    });
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json<ErrorEnvelope>().error.current_version).toBe(2);
+
+    const malformedFacts = await app.inject({
+      method: "PATCH",
+      url: apiRoutes.solverProfile,
+      headers: solverHeaders(demoApiCredentials.solver, "c1-profile-malformed-facts"),
+      payload: {
+        expected_version: 2,
+        patch: { expertise: ["تحلیل داده", " تحلیل داده "] },
+      },
+    });
+    expect(malformedFacts.statusCode).toBe(422);
+    expect(malformedFacts.json<ErrorEnvelope>().error).toMatchObject({
+      code: "VALIDATION",
+      fields: [{ path: "/patch/expertise", code: "format" }],
+    });
+  });
+
+  it("evaluates personal and team workspaces against exact rules and live call state", async () => {
+    const optionalChallenge = await publishChallenge(
+      "c1-optional",
+      buildChallengeContentResource({
+        verification_required: false,
+        nda_required: false,
+        document_gate_required: false,
+      }),
+    );
+    for (const credential of [demoApiCredentials.solver, demoApiCredentials.solverTeam]) {
+      const response = await app.inject({
+        method: "GET",
+        url: apiRoutes.challengeEligibility.replace("{challengeId}", optionalChallenge),
+        headers: solverHeaders(credential),
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json<EligibilitySuccessEnvelope>().data).toMatchObject({
+        challenge_id: optionalChallenge,
+        status: "eligible",
+        reasons: [],
+      });
+    }
+
+    const requiredChallenge = await publishChallenge(
+      "c1-required",
+      buildChallengeContentResource({
+        verification_required: true,
+        nda_required: false,
+        document_gate_required: false,
+      }),
+    );
+    const required = await app.inject({
+      method: "GET",
+      url: apiRoutes.challengeEligibility.replace("{challengeId}", requiredChallenge),
+      headers: solverHeaders(demoApiCredentials.solver),
+    });
+    expect(required.json<EligibilitySuccessEnvelope>().data).toMatchObject({
+      status: "needs_action",
+      reasons: [{ code: "verification_required" }],
+      next_actions: ["verify_workspace"],
+    });
+
+    const paused = await app.inject({
+      method: "POST",
+      url: apiRoutes.pauseChallenge.replace("{challengeId}", optionalChallenge),
+      headers: publisherHeaders("c1-optional-pause"),
+      payload: { expected_version: 5, reason: "توقف موقت برای بررسی." },
+    });
+    expect(paused.statusCode).toBe(200);
+    const unavailable = await app.inject({
+      method: "GET",
+      url: apiRoutes.challengeEligibility.replace("{challengeId}", optionalChallenge),
+      headers: solverHeaders(demoApiCredentials.solver),
+    });
+    expect(unavailable.json<EligibilitySuccessEnvelope>().data.reasons[0]?.code).toBe(
+      "call_not_open",
+    );
+  });
+
+  it("starts verification without self-approving and denies a cross-workspace swap", async () => {
+    const started = await app.inject({
+      method: "POST",
+      url: apiRoutes.startSolverVerification,
+      headers: solverHeaders(demoApiCredentials.solver, "c1-verification-start"),
+      payload: { expected_version: 1 },
+    });
+    expect(started.statusCode).toBe(200);
+    const verification = await app.inject({
+      method: "GET",
+      url: apiRoutes.solverVerification,
+      headers: solverHeaders(demoApiCredentials.solver),
+    });
+    expect(verification.json<SolverVerificationSuccessEnvelope>().data.state).toBe("draft");
+
+    const swapped = await app.inject({
+      method: "GET",
+      url: apiRoutes.solverProfile,
+      headers: {
+        authorization: "Bearer " + demoApiCredentials.owner.accessToken,
+        "x-workspace-id": demoApiCredentials.solver.workspaceId,
+      },
+    });
+    expect(swapped.statusCode).toBe(404);
+    expect(swapped.json<ErrorEnvelope>().error.code).toBe("NOT_FOUND");
+  });
+
+  it("allows team viewers to read facts but denies solver workspace mutations", async () => {
+    const headers = solverHeaders(demoApiCredentials.solverTeamViewer);
+    const profile = await app.inject({ method: "GET", url: apiRoutes.solverProfile, headers });
+    expect(profile.statusCode).toBe(200);
+
+    const denied = await app.inject({
+      method: "PATCH",
+      url: apiRoutes.solverProfile,
+      headers: solverHeaders(demoApiCredentials.solverTeamViewer, "c1-viewer-profile-update"),
+      payload: { expected_version: 1, patch: { headline: "تغییر غیرمجاز" } },
+    });
+    expect(denied.statusCode).toBe(403);
+    expect(denied.json<ErrorEnvelope>().error.code).toBe("NO_ACCESS");
+  });
+
+  it("records only exact-version synthetic gate acknowledgements and explains the result", async () => {
+    const challengeId = await publishChallenge(
+      "c1-gates",
+      buildChallengeContentResource({
+        verification_required: false,
+        nda_required: true,
+        document_gate_required: true,
+      }),
+    );
+    const eligibilityUrl = apiRoutes.challengeEligibility.replace("{challengeId}", challengeId);
+    const before = await app.inject({
+      method: "GET",
+      url: eligibilityUrl,
+      headers: solverHeaders(demoApiCredentials.solver),
+    });
+    const versionId = before.json<EligibilitySuccessEnvelope>().data.evaluated_against_version_id;
+    expect(before.json<EligibilitySuccessEnvelope>().data).toMatchObject({
+      status: "needs_action",
+      reasons: [{ code: "nda_required" }, { code: "document_acknowledgement_required" }],
+      next_actions: ["accept_nda", "acknowledge_document_gate"],
+    });
+
+    const gateUrl = (gate: "nda" | "document_acknowledgement") =>
+      apiRoutes.acceptChallengeEligibilityGate
+        .replace("{challengeId}", challengeId)
+        .replace("{gate}", gate);
+    const ndaRequest = {
+      method: "POST" as const,
+      url: gateUrl("nda"),
+      headers: solverHeaders(demoApiCredentials.solver, "c1-nda-accept"),
+      payload: { expected_version: 0, challenge_version_id: versionId },
+    };
+    const nda = await app.inject(ndaRequest);
+    const ndaReplay = await app.inject(ndaRequest);
+    expect(nda.statusCode).toBe(200);
+    expect(ndaReplay.json<MutationSuccessEnvelope>().data.idempotent).toBe(true);
+
+    const wrongVersion = await app.inject({
+      method: "POST",
+      url: gateUrl("document_acknowledgement"),
+      headers: solverHeaders(demoApiCredentials.solver, "c1-document-wrong-version"),
+      payload: { expected_version: 0, challenge_version_id: "chv_unknown_version_001" },
+    });
+    expect(wrongVersion.statusCode).toBe(404);
+    expect(wrongVersion.json<ErrorEnvelope>().error.code).toBe("NOT_FOUND");
+
+    const documentAcknowledgement = await app.inject({
+      method: "POST",
+      url: gateUrl("document_acknowledgement"),
+      headers: solverHeaders(demoApiCredentials.solver, "c1-document-accept"),
+      payload: { expected_version: 0, challenge_version_id: versionId },
+    });
+    expect(documentAcknowledgement.statusCode).toBe(200);
+
+    const after = await app.inject({
+      method: "GET",
+      url: eligibilityUrl,
+      headers: solverHeaders(demoApiCredentials.solver),
+    });
+    expect(after.json<EligibilitySuccessEnvelope>().data).toMatchObject({
+      status: "eligible",
+      reasons: [],
+      next_actions: [],
+    });
+  });
+
+  it("denies solver facts after membership suspension or session revocation", async () => {
+    await composition.identity.setMembershipStateForTest(
+      parseUserId("usr_solver_owner"),
+      demoApiCredentials.solver.workspaceId,
+      "suspended",
+    );
+    const suspended = await app.inject({
+      method: "GET",
+      url: apiRoutes.solverProfile,
+      headers: solverHeaders(demoApiCredentials.solver),
+    });
+    expect(suspended.statusCode).toBe(404);
+    expect(suspended.json<ErrorEnvelope>().error.code).toBe("NOT_FOUND");
+
+    await composition.identity.revoke(
+      demoApiCredentials.solverTeam.accessToken,
+      buildSessionRevokeBody({
+        expected_version: 1,
+        session_id: demoApiCredentials.solverTeam.sessionId,
+      }),
+      {
+        idempotencyKey: "c1-revoke-team-session",
+        correlationId: deterministicId(idPrefixes.correlation, 44),
+      },
+    );
+    const revoked = await app.inject({
+      method: "GET",
+      url: apiRoutes.solverVerification,
+      headers: solverHeaders(demoApiCredentials.solverTeam),
+    });
+    expect(revoked.statusCode).toBe(403);
+    expect(revoked.json<ErrorEnvelope>().error.code).toBe("NO_ACCESS");
+  });
 
   const publicChallengeUrl = (challengeId: string) =>
     apiRoutes.publicChallengeById.replace("{challengeId}", challengeId);

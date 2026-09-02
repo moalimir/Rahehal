@@ -23,6 +23,12 @@ export const apiRoutes = {
   cancelChallenge: "/api/v1/challenges/{challengeId}:cancel",
   publicChallenges: "/api/v1/public/challenges",
   publicChallengeById: "/api/v1/public/challenges/{challengeId}",
+  solverProfile: "/api/v1/solver/profile",
+  solverVerification: "/api/v1/solver/verification",
+  startSolverVerification: "/api/v1/solver/verification:start",
+  challengeEligibility: "/api/v1/challenges/{challengeId}/eligibility",
+  acceptChallengeEligibilityGate:
+    "/api/v1/challenges/{challengeId}/eligibility-gates/{gate}:accept",
 } as const;
 
 /**

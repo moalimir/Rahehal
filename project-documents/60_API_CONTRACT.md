@@ -109,7 +109,7 @@ Rate-limited requests return `429` with `Retry-After`. All errors carry `correla
 
 ## 5. MVP slice endpoints
 
-The completed Phase-2 OpenAPI has exactly **23 paths / 25 operations**: the Phase-1 identity/context and challenge operations (including the scoped organization list), B1 lifecycle commands, B2 approval recording, B4 publication, B5 public reads, B6 live-call controls, and the B8 platform queue/brief. Every implemented write carries `expected_version` and `Idempotency-Key`; protected challenge writes additionally require `X-Workspace-Id`. B3 adds no endpoint: challenge create/save accepts `verification_required` and `document_gate_required` beside `allowed_applicant_types`, `nda_required`, and `proposal_deadline`, and PostgreSQL snapshots those values when the exact version enters approvals. Phase-3 TypeScript resource drafts are not registered in `apiRoutes`, runtime schemas, OpenAPI, or `ApiPorts` until their milestone is implemented. In the inventory below, entries labelled future are not part of the current contract. PostgreSQL mode validates signed issuer/audience/nonce, exact state/redirect, S256 PKCE, the existing `(issuer, subject)` link, and a verified matching contact before issuing digest-only app credentials. RLS and the managed production IdP remain later gates.
+The OpenAPI now has exactly **28 paths / 31 operations**: the completed Phase-1/2 surface plus C1's solver profile/verification reads and writes, exact-version gate acknowledgement, and server eligibility query. Every implemented write carries `expected_version` and `Idempotency-Key`; every C1 protected endpoint and protected challenge write additionally requires `X-Workspace-Id`. B3's challenge create/save fields (`verification_required`, `document_gate_required`, `allowed_applicant_types`, `nda_required`, and `proposal_deadline`) become the immutable rule snapshot C1 reads for the exact published version. Entries labelled future below are not part of the current contract. PostgreSQL mode validates signed issuer/audience/nonce, exact state/redirect, S256 PKCE, the existing `(issuer, subject)` link, and a verified matching contact before issuing digest-only app credentials. Contact verification remains distinct from C1 workspace verification. RLS and the managed production IdP remain later gates.
 
 ### 5.1 Identity & context
 
@@ -166,9 +166,14 @@ GET  /public/organizations/{id}                # deferred: verified vs user-supp
 ### 5.5 Solver, eligibility & proposal
 
 ```
-GET  /opportunities?…&cursor=                  # searchable published challenges for active workspace
-POST /opportunities/{challengeId}:save
-GET  /challenges/{id}/eligibility              # server evaluateEligibility → {status, reasons[], actions[]}
+GET   /solver/profile                                      # delivered C1: active personal/team workspace facts + derived readiness
+PATCH /solver/profile                                      # delivered C1: expected_version + Idempotency-Key
+GET   /solver/verification                                 # delivered C1: workspace status, never inferred from verified contact
+POST  /solver/verification:start                           # delivered C1: not_started → draft; solver cannot self-approve
+GET   /challenges/{id}/eligibility                         # delivered C1: exact published rule + live state/deadline
+POST  /challenges/{id}/eligibility-gates/{gate}:accept     # delivered C1: exact-version NDA/synthetic document acknowledgement
+GET  /opportunities?…&cursor=                  # future: searchable published challenges for active workspace
+POST /opportunities/{challengeId}:save         # future
 POST /proposals                                # create draft for (challenge, active workspace)
 PATCH /proposals/{id}                          # autosave draft
 POST /proposals/{id}:submit                    # draft → submitted (pre: form-valid, sender-authorized, terms-accepted; locks version, receipt)
@@ -178,6 +183,8 @@ POST /proposals/{id}:resubmit                  # revision_draft → resubmitted 
 POST /proposals/{id}:withdraw
 GET  /proposals/{id}/versions                  # immutable history + diffs (changedFields)
 ```
+
+C1 eligibility returns `eligible`, `needs_action`, or `ineligible` with stable `reasons[]`, `next_actions[]`, `evaluated_against_version_id`, and server evaluation time. An unknown, unpublished, NDA-only/out-of-reach challenge, or cross-workspace protected scope returns the same non-enumerating `NOT_FOUND`. `verification_required=false` permits an otherwise eligible `not_started` workspace; when the exact rule says `true`, the result includes `verification_required` and `verify_workspace`. `document_acknowledgement` is an acknowledgement fact only and cannot be presented as upload/review evidence.
 
 ### 5.6 Review, COI & decision
 

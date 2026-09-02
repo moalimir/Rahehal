@@ -21,6 +21,14 @@ import type {
   ProposalNextAction,
   ProposalResource,
   SubmitProposalBody,
+  AcceptEligibilityGateBody,
+  PatchSolverWorkspaceProfileBody,
+  SolverWorkspaceProfileResource,
+  SolverVerificationResource,
+  StartSolverVerificationBody,
+  SolverProfileNextAction,
+  SolverVerificationNextAction,
+  EligibilityGateNextAction,
   ExtendChallengeDeadlineBody,
   PatchChallengeBody,
   PublicAudience,
@@ -39,6 +47,9 @@ import type {
   Membership,
   CorrelationId,
   ProposalId,
+  EligibilityGateAcceptanceId,
+  EligibilityGateKind,
+  VerificationId,
   SessionId,
   TenantId,
   User,
@@ -53,7 +64,9 @@ export type Clock = {
 };
 
 export type IdFactory = {
-  next(prefix: "ses" | "chl" | "chv" | "cap" | "rcp" | "aud" | "cor" | "evt" | "oat"): string;
+  next(
+    prefix: "ses" | "chl" | "chv" | "cap" | "ver" | "ega" | "rcp" | "aud" | "cor" | "evt" | "oat",
+  ): string;
 };
 
 export type AuthenticatedSession = {
@@ -292,6 +305,25 @@ export interface EligibilityPort {
   evaluate(scope: WorkspaceScope, challengeId: string): Promise<EligibilityDecisionResource | null>;
 }
 
+export interface SolverWorkspacePort {
+  getProfile(scope: WorkspaceScope): Promise<SolverWorkspaceProfileResource | null>;
+  patchProfile(
+    body: PatchSolverWorkspaceProfileBody,
+    context: WorkspaceCommandContext,
+  ): Promise<MutationOutcome<WorkspaceId, SolverProfileNextAction>>;
+  getVerification(scope: WorkspaceScope): Promise<SolverVerificationResource | null>;
+  startVerification(
+    body: StartSolverVerificationBody,
+    context: WorkspaceCommandContext,
+  ): Promise<MutationOutcome<VerificationId, SolverVerificationNextAction>>;
+  acceptEligibilityGate(
+    challengeId: string,
+    gate: EligibilityGateKind,
+    body: AcceptEligibilityGateBody,
+    context: WorkspaceCommandContext,
+  ): Promise<MutationOutcome<EligibilityGateAcceptanceId, EligibilityGateNextAction>>;
+}
+
 /**
  * Phase 3's proposal aggregate. Same command shape as `ChallengePort`:
  * `expected_version` on every mutation, an idempotency key per command, and a
@@ -339,6 +371,8 @@ export type ApiPorts = {
   readonly authority: WorkspaceAuthorityUnitOfWorkPort;
   readonly challenges: ChallengePort;
   readonly publicChallenges: PublicChallengePort;
+  readonly solverWorkspaces: SolverWorkspacePort;
+  readonly eligibility: EligibilityPort;
   readonly decisionAudit: AccessDecisionAuditPort;
   readonly clock: Clock;
   readonly ids: IdFactory;

@@ -7,3 +7,4 @@ export * from "./routes.js";
 export * from "./schemas.js";
 export * from "./session.js";
 export * from "./proposal.js";
+export * from "./solver-profile.js";

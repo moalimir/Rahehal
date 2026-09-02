@@ -22,7 +22,7 @@ The default static export remains a clearly labeled fixture/offline demo under D
 - `/auth/solver/register/type`, `/account`, and `/profile` use in-memory/`sessionStorage` draft state and finally call the demo solver repository. The account page still collects two app-owned password fields; the final command creates only the demo human/personal context even when team intent was selected.
 - `RuntimeProvider` exposes live session, challenge, and governance gateways only. In network mode, `InternalApp` still routes solver pages into `readSolverState()`, local context, and browser repositories.
 - `OrganizationWorkspaceExperience` explicitly renders fixture dashboards, proposal rows, notification rows, expert/offers, profile, and settings behind `PreviewDataNotice`. Only the Phase-1/2 challenge authoring/governance/public projection slice is authoritative.
-- Proposal and eligibility TypeScript resource drafts exist, but their ports are not in `ApiPorts`, their routes are not in runtime schemas/OpenAPI, and no proposal command/query is executable yet.
+- C1 solver profile/verification and eligibility ports are now composed, typed in runtime schemas/OpenAPI, and executable through the API. The connected solver pages still use browser/demo authority, and proposal commands/queries remain unimplemented until C3–C5.
 - Solver notifications and organization notifications are fixture/browser-repository projections. The worker is demo-only; there is no authoritative in-app notification read model or read/unread API.
 - Anonymous protected-route handling already preserves `returnTo` and renders an explicit session-required state. Phase 3 must retain this behavior and add authenticated-route redirects, expiry recovery, and workspace selection.
 
