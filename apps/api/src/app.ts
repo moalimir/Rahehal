@@ -409,7 +409,10 @@ async function runTeamAction<Result>(
           correlationId: correlationId(request),
           occurredAt: ports.clock.now().toISOString(),
         });
-        throw forbidden();
+        // The record above only survives on adapters that audit outside a
+        // transaction; the PostgreSQL adapter rolls it back with the throw
+        // and re-records from the reason carried here.
+        throw forbidden("role_capability_denied");
       }
       let result: Result;
       try {
@@ -1521,7 +1524,7 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
               correlationId: correlationId(request),
               occurredAt: ports.clock.now().toISOString(),
             });
-            throw forbidden();
+            throw forbidden("role_capability_denied");
           }
           const result = mutationSuccess(
             await ports.solverWorkspaces.patchProfile(request.body, {

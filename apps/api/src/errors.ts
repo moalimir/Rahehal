@@ -8,6 +8,13 @@ export type ApiProblemOptions = {
   readonly allowedTransitions?: readonly string[];
   readonly readiness?: ApiReadiness;
   readonly recovery?: string;
+  /**
+   * Denial reason for the `audit_event` row, never for the client envelope.
+   * A route that denies inside an authorized transaction cannot audit there:
+   * the throw rolls the transaction back and takes the audit row with it, so
+   * the reason has to travel on the error to whoever records outside it.
+   */
+  readonly auditReason?: string;
 };
 
 export class ApiProblem extends Error {
@@ -51,7 +58,8 @@ export function errorEnvelope(
 
 export const unauthorized = () => new ApiProblem(403, "NO_ACCESS", "Authentication required");
 
-export const forbidden = () => new ApiProblem(403, "NO_ACCESS", "Action is not allowed");
+export const forbidden = (auditReason?: string) =>
+  new ApiProblem(403, "NO_ACCESS", "Action is not allowed", auditReason ? { auditReason } : {});
 
 export const notFound = () =>
   new ApiProblem(404, "NOT_FOUND", "The requested resource is unavailable");
