@@ -180,21 +180,17 @@ beforeAll(async () => {
 }, 60_000);
 
 beforeEach(async () => {
-  await database.query("TRUNCATE proposal_version, proposal");
-  await database.query("DELETE FROM audit_event WHERE target_type = 'proposal'");
-  await database.query("DELETE FROM mutation_receipt WHERE entity_type = 'proposal'");
-  await database.query("DELETE FROM outbox_event WHERE aggregate_type = 'proposal'");
-  await database.query("DELETE FROM idempotency_key WHERE idempotency_key LIKE 'c3-pg-%'");
-  await database.query(`
-    UPDATE membership SET role = 'team:contributor', lock_version = lock_version + 1,
-      updated_at = clock_timestamp()
-    WHERE id = 'mem_team_contributor_alpha' AND role <> 'team:contributor'
-  `);
-  await database.query(`
-    UPDATE challenge SET publication_state = 'open',
-      proposal_deadline_at = '2099-01-01T00:00:00Z', updated_at = clock_timestamp()
-    WHERE id = 'chl_synthetic_alpha'
-  `);
+  // Every behavior starts from a fully rebuilt database rather than targeted
+  // cleanup statements. Two guards make the cheaper reset impossible: audit
+  // rows are append-only, and `challenge_publication_lifecycle_guard` keeps a
+  // closed call closed, so once the closed-call behavior runs no UPDATE can
+  // reopen the shared challenge for the behaviors after it.
+  while ((await runMigrations(database, "down")).applied.length > 0) {
+    // Revert every applied migration so each behavior starts from a clean database.
+  }
+  await runMigrations(database, "up");
+  await seedSyntheticData(database);
+  await publishSyntheticChallenge();
 });
 
 afterAll(async () => {
@@ -264,13 +260,16 @@ describe("C3 PostgreSQL proposal drafts", () => {
 
     await expect(
       proposals.patch(created.receipt.entity_id, patchBody, teamOwner("c3-pg-patch-stale-0001")),
-    ).rejects.toMatchObject({ code: "STALE_VERSION" });
+      // `staleVersion` reports the canonical CONFLICT code; STALE_VERSION is
+      // not one of the seven codes in `apiErrorCodes`.
+    ).rejects.toMatchObject({ code: "CONFLICT" });
     await expect(
       proposals.create(
         { ...body, draft: { ...body.draft, title: "Different request" } },
         teamOwner("c3-pg-create-0001"),
       ),
-    ).rejects.toMatchObject({ code: "IDEMPOTENCY_CONFLICT" });
+      // `idempotencyConflict` also reports the canonical CONFLICT code.
+    ).rejects.toMatchObject({ code: "CONFLICT" });
 
     const facts = await database.query(
       `
@@ -331,7 +330,7 @@ describe("C3 PostgreSQL proposal drafts", () => {
     expect(saves.filter(({ status }) => status === "fulfilled")).toHaveLength(1);
     expect(saves.filter(({ status }) => status === "rejected")).toHaveLength(1);
     expect(saves.find(({ status }) => status === "rejected")).toMatchObject({
-      reason: { code: "STALE_VERSION" },
+      reason: { code: "CONFLICT" },
     });
 
     const stored = await database.query<{ proposals: string; versions: string }>(

@@ -345,6 +345,22 @@ export class PostgresProposalAdapter implements ProposalPort {
     id: string,
     lock: boolean,
   ): Promise<ProposalResource | null> {
+    if (lock) {
+      // Take the row lock in its own statement, without the version join.
+      // Locking and joining together is unsafe under READ COMMITTED: when a
+      // concurrent save advances `current_version_id`, EvalPlanQual re-checks
+      // the updated proposal row, but the version row it now points at was
+      // inserted after this statement's snapshot and is invisible to it, so
+      // the join returns nothing and the save race loser is told the proposal
+      // does not exist instead of receiving a stale-version conflict.
+      const locked = await client.query(
+        `SELECT 1 FROM proposal
+         WHERE tenant_id = $1 AND owner_workspace_id = $2 AND id = $3
+         FOR UPDATE`,
+        [scope.tenantId, scope.workspaceId, id],
+      );
+      if (locked.rowCount !== 1) return null;
+    }
     const result = await client.query<ProposalRow>(
       `SELECT proposal.id, proposal.current_version_id, proposal.tenant_id,
          proposal.owner_workspace_id, proposal.owner_workspace_kind,
@@ -357,7 +373,7 @@ export class PostgresProposalAdapter implements ProposalPort {
          ON version.id = proposal.current_version_id AND version.proposal_id = proposal.id
        WHERE proposal.tenant_id = $1 AND proposal.owner_workspace_id = $2
          AND proposal.id = $3
-       ${lock ? "FOR UPDATE OF proposal" : "FOR SHARE OF proposal, version"}`,
+       ${lock ? "" : "FOR SHARE OF proposal, version"}`,
       [scope.tenantId, scope.workspaceId, id],
     );
     const row = result.rows[0];
