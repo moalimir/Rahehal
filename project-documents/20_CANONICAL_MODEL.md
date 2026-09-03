@@ -29,7 +29,7 @@ This document is **law** for the whole blueprint. Every database column, API fie
 | **Idempotency key**   | Client-supplied token making a command safe to retry exactly once.                                                                                                        | `SolverState.idempotency` (`domain/solver.ts:494`)                                 |
 | **Public projection** | The read-only, publishable subset of a private aggregate (e.g. published challenge card).                                                                                 | `lib/challenges/public-catalog.ts`                                                 |
 
-Server-authoritative proposal vocabulary and content live in `packages/domain/src/proposal.ts`; `domain/solver.ts` remains the browser/demo projection until C3's explicit adapter lands.
+Server-authoritative proposal vocabulary and content live in `packages/domain/src/proposal.ts`. C3 supplies explicit demo and PostgreSQL draft adapters; `domain/solver.ts` remains only the browser/demo projection until C9 connects the web runtime.
 
 ## 2. Actors (parties) and jobs to be done
 
@@ -189,6 +189,8 @@ C1 implements this boundary server-side: each individual/team workspace has its 
 
 C2 makes team collaboration authoritative without creating a team credential. Creating a team creates a separate solver-owned `team` workspace, its canonical `TeamKind` profile, one active `team:owner` membership, and `not_started` verification. `packages/domain/src/team.ts` is the shared server decision matrix for owner/admin/proposal-manager/contributor/viewer actions and the eight durable policy switches. Invitations bind acceptance to the authenticated recipient identity; membership requests bind decisions to the exact requester; suspension, removal, leave, transfer, and archive preserve their evidence while immediately changing authority. Proposal managers may edit team profile facts only when `proposalManagersCanEditProfile` is enabled; verification and eligibility-gate authority remain limited to the individual, team owner, or team admin.
 
+C3 makes private proposal authoring authoritative. Draft creation starts only from a registered-reachable, published, open, unexpired public challenge, but deliberately does not enforce C1 verification or final eligibility before C4 submission. Every draft belongs to the active solver `(tenant, workspace)`; individual assignment lists stay empty, while a team creator's active membership is assigned automatically. Team create/edit checks reuse `decideTeamPermission`; contributors can read/save only when assigned. Each save appends an unlocked, exact-base `proposal_version`, computes its changed-field set and content hash, and atomically advances the aggregate pointer/version with receipt, audit, outbox, and idempotency evidence. Attachment IDs remain opaque metadata references rather than file authority.
+
 ## 6. Core entity graph (canonical)
 
 ```mermaid
@@ -224,14 +226,14 @@ erDiagram
     USER ||--o{ AUDIT_EVENT : acts_in
 ```
 
-**Required as durable production entities:** `TENANT`, `CHALLENGE_VERSION`, `PUBLIC_PROJECTION`, `RUBRIC` / `RUBRIC_VERSION`, `REVIEW_ASSIGNMENT` (as a real row), `COI_DECLARATION`, `DECISION` (as a real row), `IMPACT_RECORD`, plus cross-cutting `FILE_OBJECT`, `NOTIFICATION_DELIVERY`, `IDEMPOTENCY_KEY`, `OUTBOX_EVENT`, `DISPUTE`, `CONSENT`, `PRIVILEGED_ACCESS_GRANT`, `POLICY_VERSION`. Phase 1 lands tenant/session/workspace, challenge/version, idempotency, outbox, audit, and mutation-receipt authority; Phase 2 completes the publication slice; C1 adds solver facts and exact-version gate acknowledgements; C2 adds team policy, invitation, request, membership, transfer, and archive authority. The remaining entities and broader production controls have not landed.
+**Required as durable production entities:** `TENANT`, `CHALLENGE_VERSION`, `PUBLIC_PROJECTION`, `RUBRIC` / `RUBRIC_VERSION`, `REVIEW_ASSIGNMENT` (as a real row), `COI_DECLARATION`, `DECISION` (as a real row), `IMPACT_RECORD`, plus cross-cutting `FILE_OBJECT`, `NOTIFICATION_DELIVERY`, `IDEMPOTENCY_KEY`, `OUTBOX_EVENT`, `DISPUTE`, `CONSENT`, `PRIVILEGED_ACCESS_GRANT`, `POLICY_VERSION`. Phase 1 lands tenant/session/workspace, challenge/version, idempotency, outbox, audit, and mutation-receipt authority; Phase 2 completes the publication slice; C1 adds solver facts and exact-version gate acknowledgements; C2 adds team policy, invitation, request, membership, transfer, and archive authority; C3 activates proposal draft/version persistence without file storage. The remaining entities and broader production controls have not landed.
 
 ## 7. Entity identity rules
 
 1. **Stable opaque IDs.** IDs are server-minted, globally unique, and carry **no** tenant secret or authorization meaning (do not authorize from an ID's shape). Prefixed for readability: `chl_`, `chv_` (challenge version), `tiv_` (team invitation), `tmr_` (team membership request), `prp_`, `prv_`, `rva_` (review assignment), `case_`, `ctr_`, `pay_`, etc.
 2. **One owning tenant + one owning workspace** per protected row; every query is scoped by tenant/workspace _before_ record permissions.
 3. **Human-facing tracking codes** (`trackingCode` in `solver.ts:236,289`, and fixture IDs like `CH-1405-021`) are display aliases, **not** primary keys.
-4. **Versions are immutable.** Locked proposal versions, challenge published versions, rubric versions, contract versions, and review submissions are append-only; a change creates a new version with an explicit base and diff. Authoritative proposal content retains the browser form's fields while normalizing money to integer minor units and file references to opaque IDs; the C3 adapter performs that explicit conversion instead of persisting display-formatted values.
+4. **Versions are immutable.** Locked proposal versions, challenge published versions, rubric versions, contract versions, and review submissions are append-only; a change creates a new version with an explicit base and diff. Authoritative proposal content retains the browser form's fields while normalizing money to integer minor units and file references to opaque IDs; the C3 adapters perform that explicit conversion instead of persisting display-formatted values.
 5. **Unknown IDs never fall back to a sample record** (already a tested invariant — keep it server-side as non-enumerating not-found).
 
 ## 8. Cross-cutting invariants (canonical, enforce server-side)

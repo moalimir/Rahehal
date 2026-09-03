@@ -1,5 +1,5 @@
 import type { OutboxEvent } from "@rahhal/contracts";
-import { parsePrefixedId, teamOutboxEventTypes } from "@rahhal/domain";
+import { parsePrefixedId, proposalOutboxEventTypes, teamOutboxEventTypes } from "@rahhal/domain";
 import { buildOutboxEvent, fixedTimestamp } from "@rahhal/testkit";
 import { describe, expect, it, vi } from "vitest";
 import { isSupportedOutboxEventType, OutboxConsumer } from "../src/consumer.js";
@@ -24,6 +24,12 @@ function supportedEvent(index = 1, overrides: Partial<OutboxEvent<Record<string,
 describe("idempotent outbox consumer", () => {
   it("accepts every C2 team event family through the worker boundary", () => {
     for (const eventType of teamOutboxEventTypes) {
+      expect(isSupportedOutboxEventType(eventType)).toBe(true);
+    }
+  });
+
+  it("accepts every C3 proposal draft event family through the worker boundary", () => {
+    for (const eventType of proposalOutboxEventTypes) {
       expect(isSupportedOutboxEventType(eventType)).toBe(true);
     }
   });

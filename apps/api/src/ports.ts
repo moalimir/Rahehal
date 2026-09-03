@@ -20,7 +20,6 @@ import type {
   PatchProposalBody,
   ProposalNextAction,
   ProposalResource,
-  SubmitProposalBody,
   AcceptEligibilityGateBody,
   PatchSolverWorkspaceProfileBody,
   SolverWorkspaceProfileResource,
@@ -95,6 +94,8 @@ export type IdFactory = {
       | "ega"
       | "tiv"
       | "tmr"
+      | "prp"
+      | "prv"
       | "wsp"
       | "mem"
       | "rcp"
@@ -244,6 +245,15 @@ export type WorkspaceCommandContext = WorkspaceScope & {
   readonly correlationId: CorrelationId;
   /** C2 policy snapshot resolved inside the authorized team transaction. */
   readonly teamPolicy?: TeamPolicy;
+};
+
+export type ProposalScope = WorkspaceScope & {
+  readonly membershipId: MembershipId;
+};
+
+export type ProposalCommandContext = ProposalScope & {
+  readonly idempotencyKey: string;
+  readonly correlationId: CorrelationId;
 };
 
 export type ChallengeScope = WorkspaceScope;
@@ -447,18 +457,13 @@ export interface TeamPort {
 export interface ProposalPort {
   create(
     body: CreateProposalBody,
-    context: WorkspaceCommandContext,
+    context: ProposalCommandContext,
   ): Promise<MutationOutcome<ProposalId, ProposalNextAction>>;
-  getScoped(scope: WorkspaceScope, id: string): Promise<ProposalResource | null>;
+  getScoped(scope: ProposalScope, id: string): Promise<ProposalResource | null>;
   patch(
     id: string,
     body: PatchProposalBody,
-    context: WorkspaceCommandContext,
-  ): Promise<MutationOutcome<ProposalId, ProposalNextAction>>;
-  submit(
-    id: string,
-    body: SubmitProposalBody,
-    context: WorkspaceCommandContext,
+    context: ProposalCommandContext,
   ): Promise<MutationOutcome<ProposalId, ProposalNextAction>>;
 }
 
@@ -489,6 +494,7 @@ export type ApiPorts = {
   readonly solverWorkspaces: SolverWorkspacePort;
   readonly eligibility: EligibilityPort;
   readonly teams: TeamPort;
+  readonly proposals: ProposalPort;
   readonly decisionAudit: AccessDecisionAuditPort;
   readonly clock: Clock;
   readonly ids: IdFactory;

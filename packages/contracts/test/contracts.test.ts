@@ -13,6 +13,8 @@ import {
   type PatchChallengeBody,
   type OutboxEvent,
   type OidcAuthorizationStartBody,
+  type CreateProposalBody,
+  type PatchProposalBody,
   type SessionExchangeBody,
   type SuccessEnvelope,
 } from "../src/index.js";
@@ -48,11 +50,15 @@ describe("authoritative API contracts", () => {
     expect(apiSchemas.ChangeTeamMemberRoleBody.required).toContain("expected_version");
     expect(apiSchemas.TransferTeamOwnershipBody.required).toContain("expected_version");
     expect(apiSchemas.ArchiveTeamBody.required).toContain("expected_version");
+    expect(apiSchemas.CreateProposalBody.required).toContain("expected_version");
+    expect(apiSchemas.PatchProposalBody.required).toContain("expected_version");
 
     expectTypeOf<CreateChallengeBody["expected_version"]>().toEqualTypeOf<0>();
     expectTypeOf<PatchChallengeBody["expected_version"]>().toEqualTypeOf<number>();
     expectTypeOf<SessionExchangeBody["state"]>().toEqualTypeOf<string>();
     expectTypeOf<OidcAuthorizationStartBody["expected_version"]>().toEqualTypeOf<0>();
+    expectTypeOf<CreateProposalBody["expected_version"]>().toEqualTypeOf<0>();
+    expectTypeOf<PatchProposalBody["expected_version"]>().toEqualTypeOf<number>();
   });
 
   it("defines the complete canonical mutation receipt", () => {
@@ -67,7 +73,7 @@ describe("authoritative API contracts", () => {
     expect(apiSchemas.VersionedApiMeta.required).toContain("entity_version");
   });
 
-  it("publishes the exact Phase 1 routes as OpenAPI 3.1", () => {
+  it("publishes the implemented authoritative routes as OpenAPI 3.1", () => {
     expect(openApiDocument.openapi).toBe("3.1.0");
     expect(Object.keys(openApiDocument.paths)).toEqual(
       expect.arrayContaining([
@@ -109,6 +115,8 @@ describe("authoritative API contracts", () => {
         apiRoutes.transferSolverTeamOwnership,
         apiRoutes.leaveSolverTeam,
         apiRoutes.archiveSolverTeam,
+        apiRoutes.proposals,
+        apiRoutes.proposalById,
       ]),
     );
 
@@ -150,6 +158,30 @@ describe("authoritative API contracts", () => {
     expect(apiSchemas.DecideTeamMembershipRequestBody.required).toContain("reason");
     expect(apiSchemas.TransferTeamOwnershipBody.required).toContain("reason");
     expect(apiSchemas.ArchiveTeamBody.required).toContain("reason");
+  });
+
+  it("publishes C3 draft create/read/save without exposing submission or file authority", () => {
+    expect(openApiDocument.paths[apiRoutes.proposals].post.operationId).toBe("createProposalDraft");
+    expect(openApiDocument.paths[apiRoutes.proposalById].get.operationId).toBe("getProposalDraft");
+    expect(openApiDocument.paths[apiRoutes.proposalById].patch.operationId).toBe(
+      "patchProposalDraft",
+    );
+    expect(openApiDocument.paths[apiRoutes.proposalById]).not.toHaveProperty("post");
+    expect(apiSchemas.Proposal.properties.id).toMatchObject({
+      pattern: expect.stringContaining("prp_"),
+    });
+    expect(apiSchemas.ProposalVersion.properties.id).toMatchObject({
+      pattern: expect.stringContaining("prv_"),
+    });
+    expect(apiSchemas.ProposalContentPatch.minProperties).toBe(1);
+    expect(apiSchemas.ProposalContent.properties.budget_amount_minor).toMatchObject({
+      type: ["integer", "null"],
+      minimum: 0,
+    });
+    expect(apiSchemas.ProposalContent.properties.attachment_ids).toMatchObject({
+      maxItems: 100,
+      description: expect.stringContaining("metadata references only"),
+    });
   });
 
   it("keeps the platform approval brief structurally narrower than the org aggregate", () => {

@@ -16,7 +16,7 @@ import type {
   WorkspaceId,
 } from "@rahhal/domain";
 
-import type { ApiReadiness, SuccessEnvelope, VersionedCommand } from "./envelopes.js";
+import type { SuccessEnvelope, VersionedCommand } from "./envelopes.js";
 
 export type ProposalContentResource = {
   readonly title: string;
@@ -66,6 +66,18 @@ export type ProposalVersionResource = {
   readonly created_at: string;
 };
 
+export type ProposalReadinessIssueResource = {
+  readonly path: string;
+  readonly code: "required" | "min_length" | "format";
+  readonly message: string;
+};
+
+export type ProposalReadinessResource = {
+  readonly ready: boolean;
+  readonly evaluated_version: number;
+  readonly issues: readonly ProposalReadinessIssueResource[];
+};
+
 export type ProposalResource = {
   readonly id: ProposalId;
   readonly current_version_id: ProposalVersionId;
@@ -77,7 +89,7 @@ export type ProposalResource = {
   readonly state: ProposalState;
   readonly tracking_code: string | null;
   readonly version: number;
-  readonly readiness: ApiReadiness;
+  readonly readiness: ProposalReadinessResource;
   readonly content: ProposalContentResource;
   readonly versions: readonly ProposalVersionResource[];
   readonly submitted_at: string | null;

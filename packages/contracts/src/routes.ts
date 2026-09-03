@@ -50,6 +50,8 @@ export const apiRoutes = {
   transferSolverTeamOwnership: "/api/v1/solver/team:transfer-ownership",
   leaveSolverTeam: "/api/v1/solver/team:leave",
   archiveSolverTeam: "/api/v1/solver/team:archive",
+  proposals: "/api/v1/proposals",
+  proposalById: "/api/v1/proposals/{proposalId}",
 } as const;
 
 /**

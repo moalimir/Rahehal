@@ -52,6 +52,13 @@ export function isEditableProposalState(state: ProposalState): state is Editable
  */
 export const proposalVersionLockingStates = ["submitted", "resubmitted"] as const;
 
+/** C3 draft effects; submission joins this allowlist when C4 lands. */
+export const proposalOutboxEventTypes = [
+  "proposal.draft.created",
+  "proposal.draft.updated",
+] as const;
+export type ProposalOutboxEventType = (typeof proposalOutboxEventTypes)[number];
+
 /**
  * One canonical proposal lifecycle shared by the browser oracle and the
  * authoritative API. Team-policy and assignment checks remain explicit

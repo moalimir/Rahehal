@@ -138,7 +138,10 @@ Minimum final commands are the full frontend release bundle from AGENTS.md plus 
 | Item                            | Status         |
 | ------------------------------- | -------------- |
 | Audit baseline and route matrix | `ready`        |
+| C1 solver facts/eligibility     | `verification` |
 | C2 team backend                 | `verification` |
+| C3 proposal draft backend       | `verification` |
+| C4–C6 proposal/offers backend   | `not-started`  |
 | C7 activation/OTP scheme        | `not-started`  |
 | C8 summaries/notifications      | `not-started`  |
 | C9 frontend synchronization     | `not-started`  |

@@ -7,7 +7,13 @@ import {
   buildSessionRevokeBody,
   fixedTimestamp,
 } from "@rahhal/testkit";
-import { parseCorrelationId, parseSessionId, parseUserId, parseWorkspaceId } from "@rahhal/domain";
+import {
+  parseCorrelationId,
+  parseSessionId,
+  parseTenantId,
+  parseUserId,
+  parseWorkspaceId,
+} from "@rahhal/domain";
 
 import { forbidden, notFound } from "../src/errors.js";
 import { MonotonicIdFactory } from "../src/primitives.js";
@@ -547,7 +553,7 @@ describe("A1b PostgreSQL identity, workspace, and transaction boundary", () => {
             await adapterAudit.record({
               outcome: "denied",
               actorUserId: session.userId,
-              tenantId: "ten_org_alpha",
+              tenantId: parseTenantId("ten_org_alpha"),
               workspaceId: ownerWorkspaceId,
               action: "challenge:read",
               entityType: "challenge",

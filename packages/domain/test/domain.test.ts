@@ -5,6 +5,7 @@ import {
   evaluateProposalReadiness,
   evaluateSolverProfileReadiness,
   proposalTransitions,
+  proposalOutboxEventTypes,
   proposalVersionLockingStates,
   parseChallengeVersionId,
   parseWorkspaceId,
@@ -383,6 +384,10 @@ describe("C1 proposal eligibility", () => {
 });
 
 describe("Phase 3 proposal lifecycle", () => {
+  it("limits the C3 worker allowlist to draft persistence facts", () => {
+    expect(proposalOutboxEventTypes).toEqual(["proposal.draft.created", "proposal.draft.updated"]);
+  });
+
   it("locks only proposal-content submissions", () => {
     expect(proposalVersionLockingStates).toEqual(["submitted", "resubmitted"]);
     for (const state of proposalVersionLockingStates) {

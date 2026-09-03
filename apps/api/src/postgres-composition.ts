@@ -14,6 +14,7 @@ import { PostgresChallengeAdapter } from "./postgres/challenges.js";
 import { databasePoolConfig } from "./postgres/config.js";
 import { PostgresIdentityWorkspaceAdapter } from "./postgres/identity-workspace.js";
 import { PostgresPublicChallengeAdapter } from "./postgres/public-challenges.js";
+import { PostgresProposalAdapter } from "./postgres/proposals.js";
 import { PostgresSolverWorkspaceAdapter } from "./postgres/solver-workspaces.js";
 import { PostgresTeamAdapter } from "./postgres/teams.js";
 import {
@@ -102,6 +103,7 @@ export async function createPostgresApiComposition(
   const publicChallenges = new PostgresPublicChallengeAdapter(unitOfWork);
   const solverWorkspaces = new PostgresSolverWorkspaceAdapter(unitOfWork, clock, ids);
   const teams = new PostgresTeamAdapter(unitOfWork, clock, ids);
+  const proposals = new PostgresProposalAdapter(unitOfWork, teams, clock, ids);
 
   return {
     pool,
@@ -116,6 +118,7 @@ export async function createPostgresApiComposition(
       solverWorkspaces,
       eligibility: solverWorkspaces,
       teams,
+      proposals,
       decisionAudit,
       clock,
       ids,

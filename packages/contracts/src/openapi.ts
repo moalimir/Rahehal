@@ -79,6 +79,13 @@ const membershipIdParameter = {
   schema: { type: "string", pattern: "^mem_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$" },
 } as const;
 
+const proposalIdParameter = {
+  in: "path",
+  name: "proposalId",
+  required: true,
+  schema: { type: "string", pattern: "^prp_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$" },
+} as const;
+
 const teamCommandOperation = (
   operationId: string,
   summary: string,
@@ -135,6 +142,7 @@ export const openApiDocument = {
     { name: "Challenge" },
     { name: "Solver" },
     { name: "Team" },
+    { name: "Proposal" },
   ],
   paths: {
     [apiRoutes.openApi]: {
@@ -857,6 +865,56 @@ export const openApiDocument = {
         "Archive the active team and terminate its authority",
         "ArchiveTeamBody",
       ),
+    },
+    [apiRoutes.proposals]: {
+      post: {
+        operationId: "createProposalDraft",
+        tags: ["Proposal"],
+        summary: "Create an unlocked draft for a reachable call in the active solver workspace",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader],
+        requestBody: { required: true, content: jsonContent("CreateProposalBody") },
+        responses: {
+          "201": {
+            description: "The atomic draft-creation receipt.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.proposalById]: {
+      get: {
+        operationId: "getProposalDraft",
+        tags: ["Proposal"],
+        summary: "Read an editable draft in the active solver workspace",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, proposalIdParameter],
+        responses: {
+          "200": {
+            description: "The scoped proposal draft and immutable draft-version metadata.",
+            content: jsonContent("ProposalSuccessEnvelope"),
+          },
+          "403": protectedCommandErrors["403"],
+          "404": protectedCommandErrors["404"],
+          "503": protectedCommandErrors["503"],
+        },
+      },
+      patch: {
+        operationId: "patchProposalDraft",
+        tags: ["Proposal"],
+        summary: "Append a new unlocked version and advance the active draft pointer",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, proposalIdParameter],
+        requestBody: { required: true, content: jsonContent("PatchProposalBody") },
+        responses: {
+          "200": {
+            description: "The atomic draft-save receipt.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
     },
   },
   components: {

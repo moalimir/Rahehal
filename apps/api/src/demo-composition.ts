@@ -1,4 +1,4 @@
-import type { ChallengeResource } from "@rahhal/contracts";
+import type { ChallengePublicProjectionResource, ChallengeResource } from "@rahhal/contracts";
 import {
   parseChallengeId,
   parseChallengeVersionId,
@@ -16,6 +16,7 @@ import { InMemoryAccessDecisionAudit } from "./in-memory-audit.js";
 import { InMemoryChallengeRepository } from "./in-memory-challenges.js";
 import { InMemoryCriticalSection } from "./in-memory-critical-section.js";
 import { InMemoryIdentityAdapter } from "./in-memory-identity.js";
+import { InMemoryProposalAdapter } from "./in-memory-proposals.js";
 import { InMemorySolverWorkspaceAdapter } from "./in-memory-solver-workspaces.js";
 import { InMemoryTeamAdapter } from "./in-memory-teams.js";
 import { MonotonicIdFactory, systemClock } from "./primitives.js";
@@ -97,6 +98,33 @@ export const demoApiCredentials = {
 } as const;
 
 export const demoForeignChallengeId = parseChallengeId("chl_foreign_beta_001");
+export const demoPublishedChallengeId = parseChallengeId("chl_published_public_001");
+
+function demoPublicChallenge(now: string): ChallengePublicProjectionResource {
+  return {
+    challenge_id: demoPublishedChallengeId,
+    challenge_version_id: parseChallengeVersionId("chv_published_public_001"),
+    title: "چالش عمومی نمونه برای پیشنهاد",
+    category: "فناوری",
+    location: "تهران",
+    public_summary: "فراخوان عمومی نمونه برای ساخت و ذخیره پیش‌نویس پیشنهاد.",
+    output_type: "pilot",
+    sourcing_model: "public",
+    applicant_scope: "both",
+    allowed_applicant_types: ["individual", "expert-team"],
+    work_mode: "hybrid",
+    proposal_deadline: "2099-01-01T00:00:00.000Z",
+    preferred_start_date: null,
+    budget: { status: "undecided", amount_minor: null, currency: "IRR" },
+    visibility: "public",
+    verification_required: false,
+    nda_required: false,
+    document_gate_required: false,
+    ip_terms: "solver_license",
+    state: "open",
+    published_at: now,
+  };
+}
 
 function organizationWorkspace(
   id: "wsp_org_alpha" | "wsp_org_beta",
@@ -477,6 +505,7 @@ export type DemoApiComposition = {
   readonly criticalSection: InMemoryCriticalSection;
   readonly solverWorkspaces: InMemorySolverWorkspaceAdapter;
   readonly teams: InMemoryTeamAdapter;
+  readonly proposals: InMemoryProposalAdapter;
 };
 
 export function createDemoApiComposition(options: {
@@ -506,8 +535,10 @@ export function createDemoApiComposition(options: {
   );
   const challenges = new InMemoryChallengeRepository(clock, ids);
   challenges.seed(foreignChallenge(clock.now().toISOString()));
+  challenges.seedPublicProjection(demoPublicChallenge(clock.now().toISOString()));
   const solverWorkspaces = new InMemorySolverWorkspaceAdapter(seeds, challenges, clock, ids);
   const teams = new InMemoryTeamAdapter(seeds, identity, solverWorkspaces, clock, ids);
+  const proposals = new InMemoryProposalAdapter(challenges, teams, clock, ids);
   return {
     identity,
     challenges,
@@ -515,6 +546,7 @@ export function createDemoApiComposition(options: {
     criticalSection,
     solverWorkspaces,
     teams,
+    proposals,
     ports: {
       oidcAuthorization: {
         async start() {
@@ -531,6 +563,7 @@ export function createDemoApiComposition(options: {
       solverWorkspaces,
       eligibility: solverWorkspaces,
       teams,
+      proposals,
       decisionAudit,
       clock,
       ids,
