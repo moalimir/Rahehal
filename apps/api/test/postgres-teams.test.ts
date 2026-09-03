@@ -24,7 +24,11 @@ testDatabaseUrl.pathname = `/${testDatabaseName}`;
 let admin: Client;
 let database: Pool;
 let teams: PostgresTeamAdapter;
-const clock = { now: () => new Date("2026-09-02T12:00:00.000Z") };
+// Rows here take the database's `clock_timestamp()`, so a frozen literal date
+// puts every `updated_at` this adapter writes behind its own `created_at` the
+// moment the wall clock passes it, and `membership_check1` rejects the write.
+// The adapter clock has to track the same real time the database does.
+const clock = { now: () => new Date() };
 
 function quotedIdentifier(value: string): string {
   if (!/^[a-z0-9_]+$/.test(value)) throw new Error("Unsafe test database identifier");
@@ -497,5 +501,31 @@ describe("C2 PostgreSQL team lifecycle", () => {
         [workspaceId],
       ),
     ).rejects.toMatchObject({ code: "23514" });
+  });
+
+  it("protects team membership evidence without silencing other workspace kinds", async () => {
+    const workspaceId = await createTeam("c2-pg-delete-guard-0001");
+    await expect(
+      database.query(`DELETE FROM membership WHERE workspace_id = $1`, [workspaceId]),
+    ).rejects.toMatchObject({ code: "55000" });
+    expect(
+      (await database.query(`SELECT 1 FROM membership WHERE workspace_id = $1`, [workspaceId]))
+        .rowCount,
+    ).toBe(1);
+
+    // C2's guard covers every membership row, so a non-team delete must still
+    // delete. A BEFORE DELETE trigger returning NULL cancels the statement
+    // silently: `DELETE 0` with the row still present and no error raised.
+    await database.query(
+      `INSERT INTO membership (
+         id, tenant_id, workspace_id, workspace_kind, user_id, role, state, lock_version
+       ) VALUES ('mem_c2_org_scratch','ten_org_alpha','wsp_org_alpha','org',
+                 'usr_team_admin_alpha','org:member','active',1)`,
+    );
+    const removed = await database.query(`DELETE FROM membership WHERE id = 'mem_c2_org_scratch'`);
+    expect(removed.rowCount).toBe(1);
+    expect(
+      (await database.query(`SELECT 1 FROM membership WHERE id = 'mem_c2_org_scratch'`)).rowCount,
+    ).toBe(0);
   });
 });

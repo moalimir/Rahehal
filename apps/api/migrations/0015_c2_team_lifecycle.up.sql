@@ -357,8 +357,15 @@ RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 BEGIN
-  IF TG_OP = 'DELETE' AND OLD.workspace_kind = 'team' THEN
-    RAISE EXCEPTION 'team membership evidence cannot be deleted' USING ERRCODE = '55000';
+  -- A BEFORE DELETE trigger that returns NEW returns NULL, which cancels the
+  -- delete silently. Only team membership is append-only evidence here, so
+  -- every other workspace kind has to keep the delete semantics it had before
+  -- C2 rather than become quietly undeletable.
+  IF TG_OP = 'DELETE' THEN
+    IF OLD.workspace_kind = 'team' THEN
+      RAISE EXCEPTION 'team membership evidence cannot be deleted' USING ERRCODE = '55000';
+    END IF;
+    RETURN OLD;
   END IF;
   IF OLD.workspace_kind = 'team' AND (
        NEW.id IS DISTINCT FROM OLD.id
