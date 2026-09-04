@@ -65,6 +65,24 @@ function proposalContent(overrides: Record<string, unknown> = {}): Record<string
   };
 }
 
+/**
+ * Appends the locked version a submission creates. Since `0016` the lock can
+ * only arrive on a new append-only row, so every locking rule is exercised
+ * through an INSERT rather than an UPDATE of the draft version.
+ */
+async function insertLockedVersion(acceptedChallengeVersionId: string): Promise<unknown> {
+  return database.query(
+    `INSERT INTO proposal_version (
+       id, proposal_id, challenge_id, version_number, actor_user_id, content,
+       content_hash, changed_fields, base_version_id,
+       accepted_challenge_version_id, locked_at, lock_reason, created_at
+     ) VALUES ('prv_foundation_alpha_v2', 'prp_foundation_alpha', 'chl_synthetic_alpha', 2,
+       'usr_solver_alpha', $1, $2, '{}'::text[], 'prv_foundation_alpha_v1',
+       $3, clock_timestamp(), 'submission', clock_timestamp())`,
+    [proposalContent(), "c".repeat(64), acceptedChallengeVersionId],
+  );
+}
+
 async function createDraftProposal(
   id = "prp_foundation_alpha",
   versionId = "prv_foundation_alpha_v1",
@@ -268,34 +286,27 @@ describe("C proposal database foundation", () => {
       FROM challenge_version WHERE id = 'chv_synthetic_alpha_v1'
     `);
 
-    await expectDatabaseError(
-      database.query(`
-        UPDATE proposal_version
-        SET locked_at = clock_timestamp(), lock_reason = 'submission',
-            accepted_challenge_version_id = 'chv_synthetic_alpha_v2'
-        WHERE id = 'prv_foundation_alpha_v1'
-      `),
-      "23514",
-    );
+    // Locking is insert-only since `0016`: a submission appends a new locked
+    // version rather than mutating the draft version in place.
+    await expectDatabaseError(insertLockedVersion("chv_synthetic_alpha_v2"), "23514");
   });
 
   it("persists exact accepted terms and makes the locked version append-only", async () => {
     await createDraftProposal();
-    await database.query(`
-      UPDATE proposal_version
-      SET locked_at = clock_timestamp(), lock_reason = 'submission',
-          accepted_challenge_version_id = 'chv_synthetic_alpha_v1'
-      WHERE id = 'prv_foundation_alpha_v1'
-    `);
+    await insertLockedVersion("chv_synthetic_alpha_v1");
     await database.query(`
       UPDATE proposal
-      SET state = 'submitted', submitted_at = clock_timestamp(), updated_at = clock_timestamp()
+      SET current_version_id = 'prv_foundation_alpha_v2', lock_version = 2,
+          state = 'submitted', submitted_at = clock_timestamp(),
+          updated_at = clock_timestamp()
       WHERE id = 'prp_foundation_alpha'
     `);
+    await database.query("SET CONSTRAINTS ALL IMMEDIATE");
+    await database.query("SET CONSTRAINTS ALL DEFERRED");
 
     const evidence = await database.query<{ accepted_challenge_version_id: string }>(`
       SELECT accepted_challenge_version_id
-      FROM proposal_version WHERE id = 'prv_foundation_alpha_v1'
+      FROM proposal_version WHERE id = 'prv_foundation_alpha_v2'
     `);
     expect(evidence.rows[0]?.accepted_challenge_version_id).toBe("chv_synthetic_alpha_v1");
 
@@ -303,7 +314,7 @@ describe("C proposal database foundation", () => {
       database.query(`
         UPDATE proposal_version
         SET content = jsonb_set(content, '{title}', '"tampered"')
-        WHERE id = 'prv_foundation_alpha_v1'
+        WHERE id = 'prv_foundation_alpha_v2'
       `),
       "55000",
     );
@@ -315,15 +326,7 @@ describe("C proposal database foundation", () => {
       UPDATE challenge SET publication_state = 'paused'
       WHERE id = 'chl_synthetic_alpha'
     `);
-    await expectDatabaseError(
-      database.query(`
-        UPDATE proposal_version
-        SET locked_at = clock_timestamp(), lock_reason = 'submission',
-            accepted_challenge_version_id = 'chv_synthetic_alpha_v1'
-        WHERE id = 'prv_foundation_alpha_v1'
-      `),
-      "23514",
-    );
+    await expectDatabaseError(insertLockedVersion("chv_synthetic_alpha_v1"), "23514");
   });
 
   it("rejects duplicate or malformed proposal assignments", async () => {

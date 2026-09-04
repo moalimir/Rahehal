@@ -63,7 +63,14 @@ RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 DECLARE
-  proposal_row proposal%ROWTYPE;
+  -- Selected as individual scalars: PL/pgSQL rejects a record or row variable
+  -- inside a multiple-item INTO list, so a `proposal%ROWTYPE` here makes the
+  -- whole migration fail to apply.
+  proposal_tenant_id text;
+  proposal_owner_workspace_id text;
+  proposal_state text;
+  proposal_current_version_id text;
+  proposal_submitted_at timestamptz;
   challenge_tenant text;
   challenge_workspace text;
   version_locked_at timestamptz;
@@ -112,12 +119,18 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  SELECT proposal,
+  SELECT proposal.tenant_id,
+         proposal.owner_workspace_id,
+         proposal.state,
+         proposal.current_version_id,
+         proposal.submitted_at,
          challenge.tenant_id,
          challenge.workspace_id,
          version.locked_at,
          version.lock_reason
-  INTO proposal_row, challenge_tenant, challenge_workspace,
+  INTO proposal_tenant_id, proposal_owner_workspace_id, proposal_state,
+       proposal_current_version_id, proposal_submitted_at,
+       challenge_tenant, challenge_workspace,
        version_locked_at, version_lock_reason
   FROM proposal
   JOIN challenge ON challenge.id = proposal.challenge_id
@@ -126,8 +139,8 @@ BEGIN
   WHERE proposal.id = NEW.resource_id;
 
   IF NOT FOUND
-     OR proposal_row.tenant_id IS DISTINCT FROM NEW.grantor_tenant_id
-     OR proposal_row.owner_workspace_id IS DISTINCT FROM NEW.grantor_workspace_id
+     OR proposal_tenant_id IS DISTINCT FROM NEW.grantor_tenant_id
+     OR proposal_owner_workspace_id IS DISTINCT FROM NEW.grantor_workspace_id
      OR challenge_tenant IS DISTINCT FROM NEW.grantee_tenant_id
      OR challenge_workspace IS DISTINCT FROM NEW.grantee_workspace_id THEN
     RAISE EXCEPTION 'proposal grant must bind the solver owner to the challenge-owning organization'
@@ -136,10 +149,10 @@ BEGIN
 
   IF TG_OP = 'INSERT'
      AND (
-       proposal_row.state <> 'submitted'
-       OR proposal_row.current_version_id IS DISTINCT FROM NEW.proposal_version_id
-       OR proposal_row.submitted_at IS NULL
-       OR proposal_row.submitted_at IS DISTINCT FROM NEW.valid_from
+       proposal_state <> 'submitted'
+       OR proposal_current_version_id IS DISTINCT FROM NEW.proposal_version_id
+       OR proposal_submitted_at IS NULL
+       OR proposal_submitted_at IS DISTINCT FROM NEW.valid_from
        OR version_locked_at IS NULL
        OR version_lock_reason <> 'submission'
      ) THEN
