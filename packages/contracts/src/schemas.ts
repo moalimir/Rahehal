@@ -578,6 +578,72 @@ const proposalResourceSchema = {
   },
 } as const;
 
+const organizationProposalVersionSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "version_number",
+    "base_version_id",
+    "accepted_challenge_version_id",
+    "changed_fields",
+    "content_hash",
+    "locked_at",
+  ],
+  properties: {
+    id: idSchema("prv"),
+    version_number: { type: "integer", minimum: 2 },
+    base_version_id: idSchema("prv"),
+    accepted_challenge_version_id: idSchema("chv"),
+    changed_fields: {
+      type: "array",
+      uniqueItems: true,
+      items: { type: "string", enum: proposalContentRequired },
+    },
+    content_hash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+    locked_at: dateTimeSchema,
+  },
+} as const;
+
+const organizationProposalInboxItemSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "challenge_id",
+    "owner_workspace_kind",
+    "state",
+    "tracking_code",
+    "submitted_at",
+    "submitted_version",
+  ],
+  properties: {
+    id: idSchema("prp"),
+    challenge_id: idSchema("chl"),
+    owner_workspace_kind: { type: "string", enum: ["individual", "team"] },
+    state: { type: "string", enum: proposalStates },
+    tracking_code: { type: "string", pattern: "^PRP-[0-9]{4}-[0-9]{3,6}$" },
+    submitted_at: dateTimeSchema,
+    submitted_version: organizationProposalVersionSchema,
+  },
+} as const;
+
+const organizationProposalResourceSchema = {
+  ...organizationProposalInboxItemSchema,
+  required: [...organizationProposalInboxItemSchema.required, "content"],
+  properties: {
+    ...organizationProposalInboxItemSchema.properties,
+    content: proposalContentSchema,
+  },
+} as const;
+
+const organizationProposalInboxSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["items"],
+  properties: { items: { type: "array", items: organizationProposalInboxItemSchema } },
+} as const;
+
 const challengeApprovalResourceSchema = {
   type: "object",
   additionalProperties: false,
@@ -1058,6 +1124,7 @@ const apiErrorSchema = {
     },
     readiness: challengeReadinessSchema,
     recovery: { type: "string", maxLength: 200 },
+    eligibility: eligibilityDecisionSchema,
   },
 } as const;
 
@@ -1774,6 +1841,12 @@ export const apiSchemas = {
   ProposalVersion: proposalVersionSchema,
   Proposal: proposalResourceSchema,
   ProposalSuccessEnvelope: successEnvelopeFor(proposalResourceSchema, true),
+  OrganizationProposalVersion: organizationProposalVersionSchema,
+  OrganizationProposalInboxItem: organizationProposalInboxItemSchema,
+  OrganizationProposal: organizationProposalResourceSchema,
+  OrganizationProposalInbox: organizationProposalInboxSchema,
+  OrganizationProposalSuccessEnvelope: successEnvelopeFor(organizationProposalResourceSchema),
+  OrganizationProposalInboxSuccessEnvelope: successEnvelopeFor(organizationProposalInboxSchema),
   CreateProposalBody: {
     type: "object",
     additionalProperties: false,
@@ -1793,6 +1866,17 @@ export const apiSchemas = {
       reason: { type: "string", minLength: 1, maxLength: 2_000 },
       step_up_token: { type: "string", minLength: 1, maxLength: 4_096 },
       patch: proposalContentPatchSchema,
+    },
+  },
+  SubmitProposalBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "accepted_challenge_version_id"],
+    properties: {
+      expected_version: { type: "integer", minimum: 1 },
+      reason: { type: "string", minLength: 1, maxLength: 2_000 },
+      step_up_token: { type: "string", minLength: 1, maxLength: 4_096 },
+      accepted_challenge_version_id: idSchema("chv"),
     },
   },
   ProposalParams: {

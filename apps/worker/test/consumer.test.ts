@@ -28,7 +28,7 @@ describe("idempotent outbox consumer", () => {
     }
   });
 
-  it("accepts every C3 proposal draft event family through the worker boundary", () => {
+  it("accepts every C4 metadata-only proposal event through the worker boundary", () => {
     for (const eventType of proposalOutboxEventTypes) {
       expect(isSupportedOutboxEventType(eventType)).toBe(true);
     }

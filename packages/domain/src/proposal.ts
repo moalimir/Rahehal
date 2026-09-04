@@ -52,10 +52,11 @@ export function isEditableProposalState(state: ProposalState): state is Editable
  */
 export const proposalVersionLockingStates = ["submitted", "resubmitted"] as const;
 
-/** C3 draft effects; submission joins this allowlist when C4 lands. */
+/** Metadata-only proposal effects accepted by the worker boundary. */
 export const proposalOutboxEventTypes = [
   "proposal.draft.created",
   "proposal.draft.updated",
+  "proposal.submitted",
 ] as const;
 export type ProposalOutboxEventType = (typeof proposalOutboxEventTypes)[number];
 
@@ -259,7 +260,18 @@ function filled(value: string, minimum = 2): boolean {
  * so all three report identical field-level errors — the same contract B1
  * established for challenges.
  */
-export function evaluateProposalReadiness(content: ProposalContent): ProposalReadiness {
+export type ProposalDeclarationRequirements = {
+  readonly ndaRequired: boolean;
+};
+
+const allProposalDeclarations: ProposalDeclarationRequirements = {
+  ndaRequired: true,
+};
+
+export function evaluateProposalReadiness(
+  content: ProposalContent,
+  declarations: ProposalDeclarationRequirements = allProposalDeclarations,
+): ProposalReadiness {
   const issues: ProposalReadinessIssue[] = [];
   const add = (path: string, code: ProposalReadinessIssue["code"], message: string) =>
     issues.push({ path, code, message });
@@ -287,7 +299,8 @@ export function evaluateProposalReadiness(content: ProposalContent): ProposalRea
     add("/content/budget_amount_minor", "required", "مبلغ پیشنهادی را وارد کنید.");
   if (!currencies.includes(content.budgetCurrency))
     add("/content/budget_currency", "format", "واحد پول معتبر نیست.");
-  if (!content.ndaAccepted) add("/content/nda_accepted", "required", "پذیرش محرمانگی الزامی است.");
+  if (declarations.ndaRequired && !content.ndaAccepted)
+    add("/content/nda_accepted", "required", "پذیرش محرمانگی الزامی است.");
   if (!content.conflictDeclared)
     add("/content/conflict_declared", "required", "اعلام تعارض منافع الزامی است.");
   if (!content.ipAccepted)

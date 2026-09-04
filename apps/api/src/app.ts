@@ -44,7 +44,10 @@ import {
   type DecideTeamMembershipRequestBody,
   type LeaveTeamBody,
   type PatchProposalBody,
+  type SubmitProposalBody,
   type ProposalSuccessEnvelope,
+  type OrganizationProposalInboxSuccessEnvelope,
+  type OrganizationProposalSuccessEnvelope,
   type RespondTeamInvitationBody,
   type RevokeTeamInvitationBody,
   type TransferTeamOwnershipBody,
@@ -380,7 +383,10 @@ const fastifyTeamPath = (path: string) =>
     .replace("{membershipId}", ":membershipId(^mem_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$)");
 
 const fastifyProposalPath = (path: string) =>
-  path.replace("{proposalId}", ":proposalId(^prp_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$)");
+  fastifyLiteralPath(path).replace(
+    "{proposalId}",
+    ":proposalId(^prp_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$)",
+  );
 
 async function runTeamAction<Result>(
   request: FastifyRequest,
@@ -470,6 +476,7 @@ async function runSolverActorAction<Result>(
   entityType: string,
   entityId: string | undefined,
   operation: (access: WorkspaceAccess) => Result | Promise<Result>,
+  allows: (access: WorkspaceAccess) => boolean = canReadSolverWorkspace,
 ): Promise<Result> {
   return runAuthorizedWorkspace(
     request,
@@ -479,7 +486,7 @@ async function runSolverActorAction<Result>(
       action,
       entityType,
       ...(entityId ? { entityId } : {}),
-      allows: canReadSolverWorkspace,
+      allows,
       deferSuccess: true,
     },
     async (access) => {
@@ -2484,6 +2491,116 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
             request,
             ports,
           ),
+      );
+    },
+  );
+
+  app.post<{ Params: ProposalParams; Body: SubmitProposalBody }>(
+    fastifyProposalPath(apiRoutes.submitProposal),
+    {
+      schema: {
+        params: apiSchemas.ProposalParams,
+        body: apiSchemas.SubmitProposalBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      return runSolverActorAction(
+        request,
+        ports,
+        session,
+        "proposal:submit",
+        "proposal",
+        request.params.proposalId,
+        async (access) =>
+          mutationSuccess(
+            await ports.proposals.submit(request.params.proposalId, request.body, {
+              ...proposalScope(session, access),
+              ...command,
+            }),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.get(
+    apiRoutes.organizationProposalInbox,
+    {
+      schema: {
+        response: {
+          200: apiSchemas.OrganizationProposalInboxSuccessEnvelope,
+          ...apiErrorResponses,
+        },
+      },
+    },
+    async (request): Promise<OrganizationProposalInboxSuccessEnvelope> => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runSolverActorAction(
+        request,
+        ports,
+        session,
+        "organization:proposal-inbox:list",
+        "proposal",
+        undefined,
+        async (access) =>
+          success(
+            await ports.proposals.listForOrganization(challengeScope(session, access)),
+            request,
+            ports,
+          ),
+        canReadChallenge,
+      );
+    },
+  );
+
+  app.get<{ Params: ProposalParams }>(
+    fastifyProposalPath(apiRoutes.organizationProposalById),
+    {
+      schema: {
+        params: apiSchemas.ProposalParams,
+        response: {
+          200: apiSchemas.OrganizationProposalSuccessEnvelope,
+          ...apiErrorResponses,
+        },
+      },
+    },
+    async (request): Promise<OrganizationProposalSuccessEnvelope> => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runSolverActorAction(
+        request,
+        ports,
+        session,
+        "organization:proposal:read",
+        "proposal",
+        request.params.proposalId,
+        async (access) => {
+          const resource = await ports.proposals.getForOrganization(
+            challengeScope(session, access),
+            request.params.proposalId,
+          );
+          if (!resource) throw notFound();
+          return success(resource, request, ports);
+        },
+        canReadChallenge,
       );
     },
   );

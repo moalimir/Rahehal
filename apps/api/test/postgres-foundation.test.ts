@@ -57,9 +57,12 @@ beforeAll(async () => {
     "0013_c_proposal_foundation",
     "0014_c1_solver_profile_eligibility",
     "0015_c2_team_lifecycle",
+    "0016_c4_proposal_submission",
   ]);
 
   // Newest first.
+  const c4Down = await runMigrations(database, "down");
+  expect(c4Down.applied).toEqual(["0016_c4_proposal_submission"]);
   const c2Down = await runMigrations(database, "down");
   expect(c2Down.applied).toEqual(["0015_c2_team_lifecycle"]);
   const c1Down = await runMigrations(database, "down");
@@ -116,6 +119,7 @@ beforeAll(async () => {
     "0013_c_proposal_foundation",
     "0014_c1_solver_profile_eligibility",
     "0015_c2_team_lifecycle",
+    "0016_c4_proposal_submission",
   ]);
   const noOpUp = await runMigrations(database, "up");
   expect(noOpUp.applied).toEqual([]);
@@ -230,6 +234,10 @@ describe("A1a PostgreSQL foundation", () => {
       },
       {
         id: "0015_c2_team_lifecycle",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+      {
+        id: "0016_c4_proposal_submission",
         checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
       },
     ]);
@@ -511,6 +519,8 @@ describe("A1a PostgreSQL foundation", () => {
   });
 
   it("fails the A1b migration atomically for an orphaned existing session", async () => {
+    const c4Down = await runMigrations(database, "down");
+    expect(c4Down.applied).toEqual(["0016_c4_proposal_submission"]);
     const c2Down = await runMigrations(database, "down");
     expect(c2Down.applied).toEqual(["0015_c2_team_lifecycle"]);
     const c1Down = await runMigrations(database, "down");
@@ -595,6 +605,7 @@ describe("A1a PostgreSQL foundation", () => {
       "0013_c_proposal_foundation",
       "0014_c1_solver_profile_eligibility",
       "0015_c2_team_lifecycle",
+      "0016_c4_proposal_submission",
     ]);
   });
 });

@@ -15,6 +15,7 @@ import {
   type OidcAuthorizationStartBody,
   type CreateProposalBody,
   type PatchProposalBody,
+  type SubmitProposalBody,
   type SessionExchangeBody,
   type SuccessEnvelope,
 } from "../src/index.js";
@@ -52,6 +53,7 @@ describe("authoritative API contracts", () => {
     expect(apiSchemas.ArchiveTeamBody.required).toContain("expected_version");
     expect(apiSchemas.CreateProposalBody.required).toContain("expected_version");
     expect(apiSchemas.PatchProposalBody.required).toContain("expected_version");
+    expect(apiSchemas.SubmitProposalBody.required).toContain("expected_version");
 
     expectTypeOf<CreateChallengeBody["expected_version"]>().toEqualTypeOf<0>();
     expectTypeOf<PatchChallengeBody["expected_version"]>().toEqualTypeOf<number>();
@@ -59,6 +61,7 @@ describe("authoritative API contracts", () => {
     expectTypeOf<OidcAuthorizationStartBody["expected_version"]>().toEqualTypeOf<0>();
     expectTypeOf<CreateProposalBody["expected_version"]>().toEqualTypeOf<0>();
     expectTypeOf<PatchProposalBody["expected_version"]>().toEqualTypeOf<number>();
+    expectTypeOf<SubmitProposalBody["expected_version"]>().toEqualTypeOf<number>();
   });
 
   it("defines the complete canonical mutation receipt", () => {
@@ -117,6 +120,9 @@ describe("authoritative API contracts", () => {
         apiRoutes.archiveSolverTeam,
         apiRoutes.proposals,
         apiRoutes.proposalById,
+        apiRoutes.submitProposal,
+        apiRoutes.organizationProposalInbox,
+        apiRoutes.organizationProposalById,
       ]),
     );
 
@@ -182,6 +188,29 @@ describe("authoritative API contracts", () => {
       maxItems: 100,
       description: expect.stringContaining("metadata references only"),
     });
+  });
+
+  it("publishes C4 submit and narrow grant-scoped organization reads", () => {
+    expect(openApiDocument.paths[apiRoutes.submitProposal].post.operationId).toBe("submitProposal");
+    expect(openApiDocument.paths[apiRoutes.organizationProposalInbox].get.operationId).toBe(
+      "listOrganizationProposalInbox",
+    );
+    expect(openApiDocument.paths[apiRoutes.organizationProposalById].get.operationId).toBe(
+      "getOrganizationProposal",
+    );
+    expect(apiSchemas.SubmitProposalBody.required).toEqual([
+      "expected_version",
+      "accepted_challenge_version_id",
+    ]);
+    expect(apiSchemas.ApiError.properties).toHaveProperty("eligibility");
+    const inboxFields = Object.keys(apiSchemas.OrganizationProposalInboxItem.properties);
+    expect(inboxFields).not.toContain("content");
+    expect(inboxFields).not.toContain("grant_id");
+    expect(apiSchemas.OrganizationProposal.properties).not.toHaveProperty("tenant_id");
+    expect(apiSchemas.OrganizationProposal.properties).not.toHaveProperty("owner_workspace_id");
+    expect(apiSchemas.OrganizationProposalVersion.properties).not.toHaveProperty(
+      "submitted_by_user_id",
+    );
   });
 
   it("keeps the platform approval brief structurally narrower than the org aggregate", () => {

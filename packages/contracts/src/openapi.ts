@@ -916,6 +916,58 @@ export const openApiDocument = {
         },
       },
     },
+    [apiRoutes.submitProposal]: {
+      post: {
+        operationId: "submitProposal",
+        tags: ["Proposal"],
+        summary: "Atomically re-evaluate eligibility and lock the submitted proposal version",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, proposalIdParameter],
+        requestBody: { required: true, content: jsonContent("SubmitProposalBody") },
+        responses: {
+          "200": {
+            description: "The atomic submission receipt.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.organizationProposalInbox]: {
+      get: {
+        operationId: "listOrganizationProposalInbox",
+        tags: ["Proposal"],
+        summary: "List active-grant submissions for challenges owned by the active organization",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader],
+        responses: {
+          "200": {
+            description: "The grant-scoped organization proposal inbox.",
+            content: jsonContent("OrganizationProposalInboxSuccessEnvelope"),
+          },
+          "403": protectedCommandErrors["403"],
+          "503": protectedCommandErrors["503"],
+        },
+      },
+    },
+    [apiRoutes.organizationProposalById]: {
+      get: {
+        operationId: "getOrganizationProposal",
+        tags: ["Proposal"],
+        summary: "Read only the exact locked version named by an active proposal grant",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, proposalIdParameter],
+        responses: {
+          "200": {
+            description: "The grant-scoped confidential proposal projection.",
+            content: jsonContent("OrganizationProposalSuccessEnvelope"),
+          },
+          "403": protectedCommandErrors["403"],
+          "404": protectedCommandErrors["404"],
+          "503": protectedCommandErrors["503"],
+        },
+      },
+    },
   },
   components: {
     securitySchemes: {

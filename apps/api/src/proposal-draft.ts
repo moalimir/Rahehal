@@ -4,6 +4,7 @@ import type {
   ProposalReadinessResource,
 } from "@rahhal/contracts";
 import { evaluateProposalReadiness, isPrefixedId, type ProposalContent } from "@rahhal/domain";
+import type { ProposalDeclarationRequirements } from "@rahhal/domain";
 
 import { ApiProblem } from "./errors.js";
 import { commandFingerprint } from "./primitives.js";
@@ -157,9 +158,10 @@ function contractContentToDomain(content: ProposalContentResource): ProposalCont
 export function proposalReadiness(
   content: ProposalContentResource,
   version: number,
+  declarations?: ProposalDeclarationRequirements,
 ): ProposalReadinessResource {
   return {
-    ...evaluateProposalReadiness(contractContentToDomain(content)),
+    ...evaluateProposalReadiness(contractContentToDomain(content), declarations),
     evaluated_version: version,
   };
 }

@@ -119,6 +119,35 @@ export type SubmitProposalBody = VersionedCommand & {
 
 export type ProposalNextAction = "edit" | "submit" | "await_eligibility";
 
+export type OrganizationProposalVersionResource = {
+  readonly id: ProposalVersionId;
+  readonly version_number: number;
+  readonly base_version_id: ProposalVersionId;
+  readonly accepted_challenge_version_id: ChallengeVersionId;
+  readonly changed_fields: readonly string[];
+  readonly content_hash: string;
+  readonly locked_at: string;
+};
+
+/** Closed inbox row. Proposal content is available only from the grant-scoped detail read. */
+export type OrganizationProposalInboxItemResource = {
+  readonly id: ProposalId;
+  readonly challenge_id: ChallengeId;
+  readonly owner_workspace_kind: "individual" | "team";
+  readonly state: ProposalState;
+  readonly tracking_code: string;
+  readonly submitted_at: string;
+  readonly submitted_version: OrganizationProposalVersionResource;
+};
+
+export type OrganizationProposalResource = OrganizationProposalInboxItemResource & {
+  readonly content: ProposalContentResource;
+};
+
+export type OrganizationProposalInboxResource = {
+  readonly items: readonly OrganizationProposalInboxItemResource[];
+};
+
 /**
  * C1's decision, returned for one (challenge, active workspace) pair. It names
  * the challenge version it judged, so a solver can tell which published terms
@@ -140,4 +169,7 @@ export type EligibilityDecisionResource = {
 };
 
 export type ProposalSuccessEnvelope = SuccessEnvelope<ProposalResource>;
+export type OrganizationProposalSuccessEnvelope = SuccessEnvelope<OrganizationProposalResource>;
+export type OrganizationProposalInboxSuccessEnvelope =
+  SuccessEnvelope<OrganizationProposalInboxResource>;
 export type EligibilitySuccessEnvelope = SuccessEnvelope<EligibilityDecisionResource>;

@@ -1,4 +1,10 @@
-import type { ApiErrorCode, ApiFieldError, ApiReadiness, ErrorEnvelope } from "@rahhal/contracts";
+import type {
+  ApiErrorCode,
+  ApiFieldError,
+  ApiReadiness,
+  EligibilityDecisionResource,
+  ErrorEnvelope,
+} from "@rahhal/contracts";
 import type { CorrelationId } from "@rahhal/domain";
 
 export type ApiProblemOptions = {
@@ -8,6 +14,7 @@ export type ApiProblemOptions = {
   readonly allowedTransitions?: readonly string[];
   readonly readiness?: ApiReadiness;
   readonly recovery?: string;
+  readonly eligibility?: EligibilityDecisionResource;
   /**
    * Denial reason for the `audit_event` row, never for the client envelope.
    * A route that denies inside an authorized transaction cannot audit there:
@@ -51,6 +58,9 @@ export function errorEnvelope(
         : { allowed_transitions: problem.options.allowedTransitions }),
       ...(problem.options.readiness === undefined ? {} : { readiness: problem.options.readiness }),
       ...(problem.options.recovery === undefined ? {} : { recovery: problem.options.recovery }),
+      ...(problem.options.eligibility === undefined
+        ? {}
+        : { eligibility: problem.options.eligibility }),
     },
     meta: { server_time: serverTime, correlation_id: correlationId },
   };

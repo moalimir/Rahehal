@@ -6,6 +6,7 @@ import type {
   ReceiptId,
   WorkspaceId,
 } from "@rahhal/domain";
+import type { EligibilityDecisionResource } from "./proposal.js";
 
 export const apiErrorCodes = [
   "VALIDATION",
@@ -51,6 +52,7 @@ export type ApiError = {
   readonly allowed_transitions?: readonly string[];
   readonly readiness?: ApiReadiness;
   readonly recovery?: string;
+  readonly eligibility?: EligibilityDecisionResource;
 };
 
 export type ApiMeta = {

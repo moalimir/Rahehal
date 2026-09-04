@@ -52,6 +52,9 @@ export const apiRoutes = {
   archiveSolverTeam: "/api/v1/solver/team:archive",
   proposals: "/api/v1/proposals",
   proposalById: "/api/v1/proposals/{proposalId}",
+  submitProposal: "/api/v1/proposals/{proposalId}:submit",
+  organizationProposalInbox: "/api/v1/organization/proposals",
+  organizationProposalById: "/api/v1/organization/proposals/{proposalId}",
 } as const;
 
 /**

@@ -126,6 +126,75 @@ function demoPublicChallenge(now: string): ChallengePublicProjectionResource {
   };
 }
 
+function demoPublishedChallengeAggregate(now: string): ChallengeResource {
+  const projection = demoPublicChallenge(now);
+  return {
+    id: projection.challenge_id,
+    current_version_id: projection.challenge_version_id,
+    published_version_id: projection.challenge_version_id,
+    publication_state: "open",
+    proposal_deadline_at: projection.proposal_deadline,
+    tenant_id: parseTenantId("ten_beta_org"),
+    workspace_id: parseWorkspaceId("wsp_org_beta"),
+    stage: "published",
+    authoring_status: "ready",
+    version: 5,
+    content_version: 1,
+    readiness: { ready: true, evaluated_version: 5, issues: [] },
+    triage_readiness: { ready: true, evaluated_version: 5, issues: [] },
+    approvals: [],
+    publication_readiness: {
+      ready: true,
+      satisfied: ["technical", "legal", "finance", "quality"],
+      missing: [],
+    },
+    content: {
+      title: projection.title,
+      summary: "شرح محرمانه فراخوان نمونه برای آزمون ارسال پیشنهاد.",
+      category: projection.category,
+      location: projection.location,
+      desired_outcome: "دریافت راهکار قابل پایلوت",
+      current_state: "مصرف انرژی نیازمند پایش دقیق‌تر است.",
+      consequence: "هزینه و اتلاف انرژی افزایش می‌یابد.",
+      expected_output: "نمونه اولیه قابل ارزیابی",
+      success_criteria: [
+        {
+          id: "criterion-demo-c4",
+          title: "کاهش مصرف",
+          target: "۱۰ درصد",
+          method: "اندازه‌گیری کنتور",
+        },
+      ],
+      in_scope: "پایش و تحلیل مصرف",
+      constraints: "داده مصنوعی",
+      organization_support: "دسترسی به نمونه داده",
+      previous_attempts: "آزمون محدود دستی",
+      output_type: projection.output_type,
+      sourcing_model: projection.sourcing_model,
+      applicant_scope: projection.applicant_scope,
+      allowed_applicant_types: projection.allowed_applicant_types,
+      work_mode: projection.work_mode,
+      proposal_deadline: projection.proposal_deadline,
+      preferred_start_date: projection.preferred_start_date,
+      budget: projection.budget,
+      invitees: [],
+      visibility: projection.visibility,
+      public_summary: projection.public_summary,
+      verification_required: projection.verification_required,
+      nda_required: projection.nda_required,
+      document_gate_required: projection.document_gate_required,
+      ip_terms: projection.ip_terms,
+      contact: { name: "مسئول نمونه", email: "beta@example.test", phone: "+980000000000" },
+      accuracy_confirmed: true,
+      legal_notes: "",
+      attachment_ids: [],
+    },
+    created_by: parseUserId("usr_owner_beta"),
+    created_at: now,
+    updated_at: now,
+  };
+}
+
 function organizationWorkspace(
   id: "wsp_org_alpha" | "wsp_org_beta",
   tenantId: "ten_alpha_org" | "ten_beta_org",
@@ -535,10 +604,11 @@ export function createDemoApiComposition(options: {
   );
   const challenges = new InMemoryChallengeRepository(clock, ids);
   challenges.seed(foreignChallenge(clock.now().toISOString()));
+  challenges.seed(demoPublishedChallengeAggregate(clock.now().toISOString()));
   challenges.seedPublicProjection(demoPublicChallenge(clock.now().toISOString()));
   const solverWorkspaces = new InMemorySolverWorkspaceAdapter(seeds, challenges, clock, ids);
   const teams = new InMemoryTeamAdapter(seeds, identity, solverWorkspaces, clock, ids);
-  const proposals = new InMemoryProposalAdapter(challenges, teams, clock, ids);
+  const proposals = new InMemoryProposalAdapter(challenges, solverWorkspaces, teams, clock, ids);
   return {
     identity,
     challenges,

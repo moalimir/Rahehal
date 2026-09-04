@@ -18,8 +18,11 @@ import type {
   CreateProposalBody,
   EligibilityDecisionResource,
   PatchProposalBody,
+  SubmitProposalBody,
   ProposalNextAction,
   ProposalResource,
+  OrganizationProposalInboxResource,
+  OrganizationProposalResource,
   AcceptEligibilityGateBody,
   PatchSolverWorkspaceProfileBody,
   SolverWorkspaceProfileResource,
@@ -96,6 +99,7 @@ export type IdFactory = {
       | "tmr"
       | "prp"
       | "prv"
+      | "agr"
       | "wsp"
       | "mem"
       | "rcp"
@@ -465,6 +469,16 @@ export interface ProposalPort {
     body: PatchProposalBody,
     context: ProposalCommandContext,
   ): Promise<MutationOutcome<ProposalId, ProposalNextAction>>;
+  submit(
+    id: string,
+    body: SubmitProposalBody,
+    context: ProposalCommandContext,
+  ): Promise<MutationOutcome<ProposalId, ProposalNextAction>>;
+  listForOrganization(scope: WorkspaceScope): Promise<OrganizationProposalInboxResource>;
+  getForOrganization(
+    scope: WorkspaceScope,
+    id: string,
+  ): Promise<OrganizationProposalResource | null>;
 }
 
 export type AccessDecisionRecord = {

@@ -25,7 +25,7 @@ import { PostgresUnitOfWork } from "./postgres/unit-of-work.js";
 import { HmacSessionCredentialIssuer } from "./session-credentials.js";
 
 // B4's publish transaction and B5's public read both need the projection table.
-const requiredMigration = "0015_c2_team_lifecycle";
+const requiredMigration = "0016_c4_proposal_submission";
 
 type OidcAdapter = OidcExchangePort & OidcAuthorizationPort;
 
