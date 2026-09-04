@@ -89,6 +89,10 @@ export const teamActions = [
   "create-proposal",
   "edit-proposal",
   "submit-proposal",
+  "view-direct-offer",
+  "edit-offer-response",
+  "submit-offer-response",
+  "decline-direct-offer",
   "view-case-messages",
   "view-payments",
   "manage-team-settings",
@@ -172,6 +176,19 @@ export function decideTeamPermission(
     return denied(
       "ارسال نهایی برای نقش شما مجاز نیست؛ از مالک یا ارسال‌کننده مجاز بخواهید نسخه را ثبت کند.",
     );
+  }
+  if (action === "view-direct-offer") return { allowed: true };
+  if (action === "edit-offer-response") {
+    return role === teamRole.viewer
+      ? denied("نقش مشاهده‌گر اجازه تدوین پاسخ پیشنهاد مستقیم را ندارد.")
+      : { allowed: true };
+  }
+  if (action === "submit-offer-response" || action === "decline-direct-offer") {
+    if (role === teamRole.admin && policy.adminsCanSubmit) return { allowed: true };
+    if (role === teamRole.proposalManager && policy.proposalManagersCanSubmit) {
+      return { allowed: true };
+    }
+    return denied("ثبت تصمیم یا ارسال پاسخ پیشنهاد مستقیم برای نقش فعلی شما مجاز نیست.");
   }
   if (action === "view-case-messages") {
     if (

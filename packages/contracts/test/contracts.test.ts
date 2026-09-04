@@ -58,6 +58,16 @@ describe("authoritative API contracts", () => {
     expect(apiSchemas.SubmitProposalClarificationBody.required).toContain("expected_version");
     expect(apiSchemas.RequestProposalRevisionBody.required).toContain("expected_version");
     expect(apiSchemas.ResubmitProposalBody.required).toContain("expected_version");
+    expect(apiSchemas.SaveOpportunityBody.required).toContain("expected_version");
+    expect(apiSchemas.UnsaveOpportunityBody.required).toContain("expected_version");
+    expect(apiSchemas.CreateDirectOfferBody.required).toContain("expected_version");
+    expect(apiSchemas.ViewDirectOfferBody.required).toContain("expected_version");
+    expect(apiSchemas.StartOfferResponseBody.required).toContain("expected_version");
+    expect(apiSchemas.PatchOfferResponseBody.required).toContain("expected_version");
+    expect(apiSchemas.SubmitOfferResponseBody.required).toContain("expected_version");
+    expect(apiSchemas.DeclineDirectOfferBody.required).toContain("expected_version");
+    expect(apiSchemas.CancelDirectOfferBody.required).toContain("expected_version");
+    expect(apiSchemas.StartDirectOfferNegotiationBody.required).toContain("expected_version");
 
     expectTypeOf<CreateChallengeBody["expected_version"]>().toEqualTypeOf<0>();
     expectTypeOf<PatchChallengeBody["expected_version"]>().toEqualTypeOf<number>();
@@ -136,6 +146,20 @@ describe("authoritative API contracts", () => {
         apiRoutes.requestProposalClarification,
         apiRoutes.resolveProposalClarification,
         apiRoutes.requestProposalRevision,
+        apiRoutes.solverSavedOpportunities,
+        apiRoutes.saveOpportunity,
+        apiRoutes.unsaveOpportunity,
+        apiRoutes.solverDirectOffers,
+        apiRoutes.solverDirectOfferById,
+        apiRoutes.viewDirectOffer,
+        apiRoutes.startOfferResponse,
+        apiRoutes.offerResponse,
+        apiRoutes.submitOfferResponse,
+        apiRoutes.declineDirectOffer,
+        apiRoutes.organizationDirectOffers,
+        apiRoutes.organizationDirectOfferById,
+        apiRoutes.cancelDirectOffer,
+        apiRoutes.startDirectOfferNegotiation,
       ]),
     );
 
@@ -268,6 +292,38 @@ describe("authoritative API contracts", () => {
       "accepted_challenge_version_id",
       "revision_request_id",
     ]);
+  });
+
+  it("publishes C6 saved opportunities and the complete two-party offer workflow", () => {
+    expect(openApiDocument.paths[apiRoutes.saveOpportunity].post.operationId).toBe(
+      "saveOpportunity",
+    );
+    expect(openApiDocument.paths[apiRoutes.saveOpportunity].post.responses).toHaveProperty("201");
+    expect(openApiDocument.paths[apiRoutes.organizationDirectOffers].post.operationId).toBe(
+      "createDirectOffer",
+    );
+    expect(openApiDocument.paths[apiRoutes.solverDirectOfferById].get.operationId).toBe(
+      "getReceivedDirectOffer",
+    );
+    expect(openApiDocument.paths[apiRoutes.offerResponse].patch.operationId).toBe(
+      "patchOfferResponse",
+    );
+    expect(openApiDocument.paths[apiRoutes.submitOfferResponse].post.operationId).toBe(
+      "submitOfferResponse",
+    );
+    expect(openApiDocument.paths[apiRoutes.startDirectOfferNegotiation].post.operationId).toBe(
+      "startDirectOfferNegotiation",
+    );
+    expect(apiSchemas.DirectOffer.required).toEqual(
+      expect.arrayContaining(["challenge_version_id", "response_deadline", "version", "response"]),
+    );
+    expect(apiSchemas.OfferResponseContent.properties.budget_amount_minor).toMatchObject({
+      type: ["integer", "null"],
+      minimum: 0,
+    });
+    expect(apiSchemas.OfferResponseContentPatch.minProperties).toBe(1);
+    expect(apiSchemas.DeclineDirectOfferBody.properties).toHaveProperty("reason");
+    expect(apiSchemas.CancelDirectOfferBody.properties).toHaveProperty("reason");
   });
 
   it("keeps the platform approval brief structurally narrower than the org aggregate", () => {

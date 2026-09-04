@@ -86,6 +86,13 @@ const proposalIdParameter = {
   schema: { type: "string", pattern: "^prp_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$" },
 } as const;
 
+const directOfferIdParameter = {
+  in: "path",
+  name: "directOfferId",
+  required: true,
+  schema: { type: "string", pattern: "^dof_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$" },
+} as const;
+
 const teamCommandOperation = (
   operationId: string,
   summary: string,
@@ -121,6 +128,26 @@ const proposalCommandOperation = (
   responses: {
     "200": {
       description: "The atomic proposal mutation receipt.",
+      content: jsonContent("MutationSuccessEnvelope"),
+    },
+    ...protectedCommandErrors,
+  },
+});
+
+const directOfferCommandOperation = (
+  operationId: string,
+  summary: string,
+  bodySchema: ApiSchemaName,
+) => ({
+  operationId,
+  tags: ["Opportunity"],
+  summary,
+  security: [{ bearerAuth: [] }],
+  parameters: [workspaceHeader, idempotencyHeader, directOfferIdParameter],
+  requestBody: { required: true, content: jsonContent(bodySchema) },
+  responses: {
+    "200": {
+      description: "The atomic direct-offer mutation receipt.",
       content: jsonContent("MutationSuccessEnvelope"),
     },
     ...protectedCommandErrors,
@@ -163,6 +190,7 @@ export const openApiDocument = {
     { name: "Solver" },
     { name: "Team" },
     { name: "Proposal" },
+    { name: "Opportunity" },
   ],
   paths: {
     [apiRoutes.openApi]: {
@@ -1042,6 +1070,191 @@ export const openApiDocument = {
         "requestProposalRevision",
         "Request a scoped revision of the exact locked proposal version",
         "RequestProposalRevisionBody",
+      ),
+    },
+    [apiRoutes.solverSavedOpportunities]: {
+      get: {
+        operationId: "listSavedOpportunities",
+        tags: ["Opportunity"],
+        summary: "List opportunity bookmarks owned by the active solver workspace",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader],
+        responses: {
+          "200": {
+            description: "The active workspace's saved opportunity identities.",
+            content: jsonContent("SavedOpportunityListSuccessEnvelope"),
+          },
+          "403": protectedCommandErrors["403"],
+          "503": protectedCommandErrors["503"],
+        },
+      },
+    },
+    [apiRoutes.saveOpportunity]: {
+      post: {
+        operationId: "saveOpportunity",
+        tags: ["Opportunity"],
+        summary: "Save the exact currently published opportunity in the active solver workspace",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, challengeIdParameter],
+        requestBody: { required: true, content: jsonContent("SaveOpportunityBody") },
+        responses: {
+          "201": {
+            description: "The atomic save receipt.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.unsaveOpportunity]: {
+      post: {
+        operationId: "unsaveOpportunity",
+        tags: ["Opportunity"],
+        summary: "Remove one saved opportunity from the active solver workspace",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, challengeIdParameter],
+        requestBody: { required: true, content: jsonContent("UnsaveOpportunityBody") },
+        responses: {
+          "200": {
+            description: "The atomic unsave receipt.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.solverDirectOffers]: {
+      get: {
+        operationId: "listReceivedDirectOffers",
+        tags: ["Opportunity"],
+        summary: "List active-grant direct offers received by the active solver workspace",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader],
+        responses: {
+          "200": {
+            description: "The recipient-scoped direct-offer list.",
+            content: jsonContent("DirectOfferListSuccessEnvelope"),
+          },
+          "403": protectedCommandErrors["403"],
+          "503": protectedCommandErrors["503"],
+        },
+      },
+    },
+    [apiRoutes.solverDirectOfferById]: {
+      get: {
+        operationId: "getReceivedDirectOffer",
+        tags: ["Opportunity"],
+        summary: "Read one active-grant direct offer received by the active solver workspace",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, directOfferIdParameter],
+        responses: {
+          "200": {
+            description: "The recipient-scoped direct offer and response draft.",
+            content: jsonContent("DirectOfferSuccessEnvelope"),
+          },
+          "403": protectedCommandErrors["403"],
+          "404": protectedCommandErrors["404"],
+          "503": protectedCommandErrors["503"],
+        },
+      },
+    },
+    [apiRoutes.viewDirectOffer]: {
+      post: directOfferCommandOperation(
+        "viewDirectOffer",
+        "Record the recipient's first view without accepting the invitation",
+        "ViewDirectOfferBody",
+      ),
+    },
+    [apiRoutes.startOfferResponse]: {
+      post: directOfferCommandOperation(
+        "startOfferResponse",
+        "Create one editable response draft before the server deadline",
+        "StartOfferResponseBody",
+      ),
+    },
+    [apiRoutes.offerResponse]: {
+      patch: directOfferCommandOperation(
+        "patchOfferResponse",
+        "Update the active workspace's unlocked response draft",
+        "PatchOfferResponseBody",
+      ),
+    },
+    [apiRoutes.submitOfferResponse]: {
+      post: directOfferCommandOperation(
+        "submitOfferResponse",
+        "Validate and lock the response before the server deadline",
+        "SubmitOfferResponseBody",
+      ),
+    },
+    [apiRoutes.declineDirectOffer]: {
+      post: directOfferCommandOperation(
+        "declineDirectOffer",
+        "Close the received invitation with a reason and revoke its grants",
+        "DeclineDirectOfferBody",
+      ),
+    },
+    [apiRoutes.organizationDirectOffers]: {
+      get: {
+        operationId: "listSentDirectOffers",
+        tags: ["Opportunity"],
+        summary: "List direct offers sent by the active organization",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader],
+        responses: {
+          "200": {
+            description: "The sending organization's direct-offer list.",
+            content: jsonContent("DirectOfferListSuccessEnvelope"),
+          },
+          "403": protectedCommandErrors["403"],
+          "503": protectedCommandErrors["503"],
+        },
+      },
+      post: {
+        operationId: "createDirectOffer",
+        tags: ["Opportunity"],
+        summary: "Send an exact-challenge-version invitation to one solver workspace",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader],
+        requestBody: { required: true, content: jsonContent("CreateDirectOfferBody") },
+        responses: {
+          "201": {
+            description: "The atomic send receipt and bilateral access grants.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.organizationDirectOfferById]: {
+      get: {
+        operationId: "getSentDirectOffer",
+        tags: ["Opportunity"],
+        summary: "Read one direct offer owned by the active organization",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, directOfferIdParameter],
+        responses: {
+          "200": {
+            description: "The sender-owned direct offer and submitted response.",
+            content: jsonContent("DirectOfferSuccessEnvelope"),
+          },
+          "403": protectedCommandErrors["403"],
+          "404": protectedCommandErrors["404"],
+          "503": protectedCommandErrors["503"],
+        },
+      },
+    },
+    [apiRoutes.cancelDirectOffer]: {
+      post: directOfferCommandOperation(
+        "cancelDirectOffer",
+        "Cancel an offer owned by the active organization and revoke its grants",
+        "CancelDirectOfferBody",
+      ),
+    },
+    [apiRoutes.startDirectOfferNegotiation]: {
+      post: directOfferCommandOperation(
+        "startDirectOfferNegotiation",
+        "Acknowledge a submitted response and open the future controlled negotiation",
+        "StartDirectOfferNegotiationBody",
       ),
     },
   },

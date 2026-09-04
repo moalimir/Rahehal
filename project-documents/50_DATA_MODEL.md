@@ -91,7 +91,7 @@ Migration `0015` lands C2. `team_workspace` is a one-to-one lifecycle/policy ext
 
 ## 5. Proposal aggregate (immutable versions)
 
-This section is present through migration `0017`: `0013` creates the proposal foundation, `0014` adds C1 solver facts, `0015` adds C2 team authority, `0016` hardens locked submission plus version-bound organization grants, and `0017` adds C5 clarification/revision evidence. It is numbered above `0012` deliberately: the Phase-3 foundation was authored on its own branch while Phase 2's review closure was authored on `main`, and both claimed `0011`. The proposal foundation was renumbered on merge so the applied order reads in dependency order rather than showing a Phase-3 table created before a Phase-2 fix.
+This section is present through migration `0017`: `0013` creates the proposal foundation, `0014` adds C1 solver facts, `0015` adds C2 team authority, `0016` hardens locked submission plus version-bound organization grants, and `0017` adds C5 clarification/revision evidence. Migration `0018` adds the separate C6 opportunity/offer aggregate described below. It is numbered above `0012` deliberately: the Phase-3 foundation was authored on its own branch while Phase 2's review closure was authored on `main`, and both claimed `0011`. The proposal foundation was renumbered on merge so the applied order reads in dependency order rather than showing a Phase-3 table created before a Phase-2 fix.
 
 Migration `0013` lands the Phase-3 foundation: `proposal` and `proposal_version`, in the A1c shape — a mutable aggregate carrying lifecycle state and an optimistic-concurrency counter, plus append-only versions holding content. A composite workspace foreign key limits ownership to `individual`/`team` solver workspaces, and an identity trigger makes tenant, owner, challenge, creator, and creation time immutable. The current-version pointer is mandatory, deferred, and checked against the latest gap-free content version. C5 separates the aggregate `lock_version` from `proposal_version.version_number`, because clarification/review transitions advance optimistic concurrency without fabricating content versions. C3 exercises the foundation through scoped create/read/save adapters: create assigns the active team membership (or no membership for an individual), and every save inserts an unlocked exact-base version before atomically advancing the current pointer and lock version. `assigned_membership_ids` carries C2's proposal-assignment input; application commands validate the current active membership and canonical team policy on every read/write, including idempotent replay.
 
@@ -156,6 +156,14 @@ CREATE TABLE proposal_revision_request (
   requested_at timestamptz NOT NULL, started_at timestamptz, resubmitted_at timestamptz
 );
 ```
+
+### 5.1 Saved opportunities and direct offers
+
+Migration `0018` makes C6 authoritative. `saved_opportunity` is a solver-workspace bookmark bound to the exact open `challenge_public_projection` version; unsave removes the convenience row but retains its receipt/audit/outbox evidence. `direct_offer` is owned by the sending organization and names one receiving individual/team workspace plus the sender-owned exact published challenge version. `offer_response` is the receiving workspace's versioned draft/submission record. A draft remains hidden from the sender until submission.
+
+Every live offer creates exactly two offer-bound `access_grant` rows in the send transaction: `collaborate` on the `direct_offer` and `read` on its challenge. Decline/cancel revokes both, while response-deadline expiry marks both expired. Deferred database checks require two active grants for an open offer and none for a closed offer. The response deadline applies to `received`, `viewed`, and `response_draft`, so opening a form never reserves acceptance past server time. Identity fields and submitted/terminal evidence are immutable; aggregate and response lock versions advance sequentially. Selection is not a C6 command because its canonical side effect is later case creation.
+
+Offer mutations require `expected_version` and tenant-scoped idempotency and commit the aggregate/response/grants with receipt, audit, and metadata-only outbox evidence. C2's same `decideTeamPermission` oracle governs team read/edit/submit/decline authority. C6 records attachment IDs as opaque metadata references only; G3 still owns file authority.
 
 ## 6. Rubric, review assignment, COI, review, decision
 

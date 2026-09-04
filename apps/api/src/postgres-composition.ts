@@ -13,6 +13,7 @@ import { PostgresAccessDecisionAudit } from "./postgres/access-decision-audit.js
 import { PostgresChallengeAdapter } from "./postgres/challenges.js";
 import { databasePoolConfig } from "./postgres/config.js";
 import { PostgresIdentityWorkspaceAdapter } from "./postgres/identity-workspace.js";
+import { PostgresOpportunityAdapter } from "./postgres/opportunities.js";
 import { PostgresPublicChallengeAdapter } from "./postgres/public-challenges.js";
 import { PostgresProposalAdapter } from "./postgres/proposals.js";
 import { PostgresSolverWorkspaceAdapter } from "./postgres/solver-workspaces.js";
@@ -25,7 +26,7 @@ import { PostgresUnitOfWork } from "./postgres/unit-of-work.js";
 import { HmacSessionCredentialIssuer } from "./session-credentials.js";
 
 // B4's publish transaction and B5's public read both need the projection table.
-const requiredMigration = "0016_c4_proposal_submission";
+const requiredMigration = "0018_c6_opportunities_direct_offers";
 
 type OidcAdapter = OidcExchangePort & OidcAuthorizationPort;
 
@@ -104,6 +105,7 @@ export async function createPostgresApiComposition(
   const solverWorkspaces = new PostgresSolverWorkspaceAdapter(unitOfWork, clock, ids);
   const teams = new PostgresTeamAdapter(unitOfWork, clock, ids);
   const proposals = new PostgresProposalAdapter(unitOfWork, teams, clock, ids);
+  const opportunities = new PostgresOpportunityAdapter(unitOfWork, teams, clock, ids);
 
   return {
     pool,
@@ -119,6 +121,7 @@ export async function createPostgresApiComposition(
       eligibility: solverWorkspaces,
       teams,
       proposals,
+      opportunities,
       decisionAudit,
       clock,
       ids,

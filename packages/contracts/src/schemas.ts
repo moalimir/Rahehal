@@ -12,11 +12,13 @@ import {
   challengeVisibilities,
   challengeWorkModes,
   currencies,
+  directOfferStates,
   eligibilityGateKinds,
   eligibilityNextActions,
   eligibilityReasonCodes,
   membershipStates,
   organizationRoles,
+  offerResponseStates,
   platformRoles,
   proposalStates,
   publicationGates,
@@ -707,6 +709,195 @@ const organizationProposalInboxSchema = {
   additionalProperties: false,
   required: ["items"],
   properties: { items: { type: "array", items: organizationProposalInboxItemSchema } },
+} as const;
+
+const savedOpportunitySchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["id", "challenge_id", "challenge_version_id", "version", "saved_at"],
+  properties: {
+    id: idSchema("sop"),
+    challenge_id: idSchema("chl"),
+    challenge_version_id: idSchema("chv"),
+    version: { const: 1 },
+    saved_at: dateTimeSchema,
+  },
+} as const;
+
+const savedOpportunityListSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["items"],
+  properties: { items: { type: "array", items: savedOpportunitySchema } },
+} as const;
+
+const offerResponseContentProperties = {
+  approach: longTextSchema,
+  scope: longTextSchema,
+  start_availability: shortTextSchema,
+  duration_weeks: { type: ["integer", "null"], minimum: 1, maximum: 520 },
+  budget_amount_minor: {
+    type: ["integer", "null"],
+    minimum: 0,
+    maximum: Number.MAX_SAFE_INTEGER,
+  },
+  budget_currency: { type: "string", enum: currencies },
+  payment_model: shortTextSchema,
+  negotiables: longTextSchema,
+  authority_confirmed: { type: "boolean" },
+  attachment_ids: {
+    type: "array",
+    uniqueItems: true,
+    maxItems: 100,
+    items: idSchema("fil"),
+    description: "Opaque metadata references only; C6 does not authorize or store file content.",
+  },
+} as const;
+
+const offerResponseContentRequired = [
+  "approach",
+  "scope",
+  "start_availability",
+  "duration_weeks",
+  "budget_amount_minor",
+  "budget_currency",
+  "payment_model",
+  "negotiables",
+  "authority_confirmed",
+  "attachment_ids",
+] as const;
+
+const offerResponseContentSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: offerResponseContentRequired,
+  properties: offerResponseContentProperties,
+} as const;
+
+const offerResponseContentPatchSchema = {
+  type: "object",
+  additionalProperties: false,
+  minProperties: 1,
+  properties: offerResponseContentProperties,
+} as const;
+
+const offerResponseReadinessSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["ready", "evaluated_version", "issues"],
+  properties: {
+    ready: { type: "boolean" },
+    evaluated_version: { type: "integer", minimum: 1 },
+    issues: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["path", "code", "message"],
+        properties: {
+          path: { type: "string", maxLength: 500 },
+          code: { type: "string", enum: ["required", "min_length", "format"] },
+          message: { type: "string", maxLength: 2_000 },
+        },
+      },
+    },
+  },
+} as const;
+
+const offerResponseSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "state",
+    "version",
+    "content",
+    "readiness",
+    "submitted_at",
+    "created_at",
+    "updated_at",
+  ],
+  properties: {
+    id: idSchema("ofr"),
+    state: { type: "string", enum: offerResponseStates },
+    version: { type: "integer", minimum: 1 },
+    content: offerResponseContentSchema,
+    readiness: offerResponseReadinessSchema,
+    submitted_at: nullableDateTimeSchema,
+    created_at: dateTimeSchema,
+    updated_at: dateTimeSchema,
+  },
+} as const;
+
+const directOfferSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "challenge_id",
+    "challenge_version_id",
+    "sender_organization_workspace_id",
+    "recipient_workspace_id",
+    "recipient_workspace_kind",
+    "title",
+    "summary",
+    "invitation_reasons",
+    "requested_documents",
+    "response_deadline",
+    "state",
+    "version",
+    "response",
+    "viewed_at",
+    "decline_reason",
+    "declined_at",
+    "cancellation_reason",
+    "cancelled_at",
+    "expired_at",
+    "created_at",
+    "updated_at",
+  ],
+  properties: {
+    id: idSchema("dof"),
+    challenge_id: idSchema("chl"),
+    challenge_version_id: idSchema("chv"),
+    sender_organization_workspace_id: idSchema("wsp"),
+    recipient_workspace_id: idSchema("wsp"),
+    recipient_workspace_kind: { type: "string", enum: ["individual", "team"] },
+    title: { type: "string", minLength: 1, maxLength: 240 },
+    summary: { type: "string", minLength: 1, maxLength: 4_000 },
+    invitation_reasons: {
+      type: "array",
+      minItems: 1,
+      maxItems: 20,
+      uniqueItems: true,
+      items: shortTextSchema,
+    },
+    requested_documents: {
+      type: "array",
+      maxItems: 20,
+      uniqueItems: true,
+      items: shortTextSchema,
+    },
+    response_deadline: dateTimeSchema,
+    state: { type: "string", enum: directOfferStates },
+    version: { type: "integer", minimum: 1 },
+    response: { oneOf: [offerResponseSchema, { type: "null" }] },
+    viewed_at: nullableDateTimeSchema,
+    decline_reason: { type: ["string", "null"], minLength: 1, maxLength: 2_000 },
+    declined_at: nullableDateTimeSchema,
+    cancellation_reason: { type: ["string", "null"], minLength: 1, maxLength: 2_000 },
+    cancelled_at: nullableDateTimeSchema,
+    expired_at: nullableDateTimeSchema,
+    created_at: dateTimeSchema,
+    updated_at: dateTimeSchema,
+  },
+} as const;
+
+const directOfferListSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["items"],
+  properties: { items: { type: "array", items: directOfferSchema } },
 } as const;
 
 const challengeApprovalResourceSchema = {
@@ -2042,6 +2233,112 @@ export const apiSchemas = {
     additionalProperties: false,
     required: ["proposalId"],
     properties: { proposalId: idSchema("prp") },
+  },
+  SavedOpportunity: savedOpportunitySchema,
+  SavedOpportunityList: savedOpportunityListSchema,
+  SavedOpportunityListSuccessEnvelope: successEnvelopeFor(savedOpportunityListSchema),
+  SaveOpportunityBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version"],
+    properties: { expected_version: { const: 0 } },
+  },
+  UnsaveOpportunityBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version"],
+    properties: {
+      expected_version: { type: "integer", minimum: 1 },
+      reason: { type: "string", minLength: 1, maxLength: 2_000 },
+      step_up_token: { type: "string", minLength: 1, maxLength: 4_096 },
+    },
+  },
+  OfferResponseContent: offerResponseContentSchema,
+  OfferResponseContentPatch: offerResponseContentPatchSchema,
+  OfferResponse: offerResponseSchema,
+  DirectOffer: directOfferSchema,
+  DirectOfferList: directOfferListSchema,
+  DirectOfferSuccessEnvelope: successEnvelopeFor(directOfferSchema, true),
+  DirectOfferListSuccessEnvelope: successEnvelopeFor(directOfferListSchema),
+  CreateDirectOfferBody: {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "expected_version",
+      "challenge_id",
+      "challenge_version_id",
+      "recipient_workspace_id",
+      "title",
+      "summary",
+      "invitation_reasons",
+      "requested_documents",
+      "response_deadline",
+    ],
+    properties: {
+      expected_version: { const: 0 },
+      challenge_id: idSchema("chl"),
+      challenge_version_id: idSchema("chv"),
+      recipient_workspace_id: idSchema("wsp"),
+      title: { type: "string", minLength: 1, maxLength: 240 },
+      summary: { type: "string", minLength: 1, maxLength: 4_000 },
+      invitation_reasons: directOfferSchema.properties.invitation_reasons,
+      requested_documents: directOfferSchema.properties.requested_documents,
+      response_deadline: dateTimeSchema,
+    },
+  },
+  ViewDirectOfferBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version"],
+    properties: versionedCommandProperties,
+  },
+  StartOfferResponseBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version"],
+    properties: versionedCommandProperties,
+  },
+  PatchOfferResponseBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "patch"],
+    properties: { ...versionedCommandProperties, patch: offerResponseContentPatchSchema },
+  },
+  SubmitOfferResponseBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version"],
+    properties: versionedCommandProperties,
+  },
+  DeclineDirectOfferBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "reason"],
+    properties: {
+      ...versionedCommandProperties,
+      reason: { type: "string", minLength: 1, maxLength: 2_000 },
+    },
+  },
+  CancelDirectOfferBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "reason"],
+    properties: {
+      ...versionedCommandProperties,
+      reason: { type: "string", minLength: 1, maxLength: 2_000 },
+    },
+  },
+  StartDirectOfferNegotiationBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version"],
+    properties: versionedCommandProperties,
+  },
+  DirectOfferParams: {
+    type: "object",
+    additionalProperties: false,
+    required: ["directOfferId"],
+    properties: { directOfferId: idSchema("dof") },
   },
 } as const satisfies Readonly<Record<string, JsonSchema>>;
 

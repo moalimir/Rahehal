@@ -1,6 +1,7 @@
 import { isOutboxEvent, type OutboxEvent } from "@rahhal/contracts";
 import {
   challengeOutboxEventTypes,
+  opportunityOutboxEventTypes,
   proposalOutboxEventTypes,
   solverOutboxEventTypes,
   teamOutboxEventTypes,
@@ -19,6 +20,7 @@ import type {
 export const supportedOutboxEventTypes = [
   ...challengeOutboxEventTypes,
   ...proposalOutboxEventTypes,
+  ...opportunityOutboxEventTypes,
   ...solverOutboxEventTypes,
   ...teamOutboxEventTypes,
   "session.exchanged",

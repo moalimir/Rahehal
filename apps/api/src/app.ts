@@ -61,6 +61,19 @@ import {
   type TransferTeamOwnershipBody,
   type UpdateTeamPolicyBody,
   type WithdrawTeamMembershipRequestBody,
+  type CancelDirectOfferBody,
+  type CreateDirectOfferBody,
+  type DeclineDirectOfferBody,
+  type DirectOfferListSuccessEnvelope,
+  type DirectOfferSuccessEnvelope,
+  type PatchOfferResponseBody,
+  type SaveOpportunityBody,
+  type SavedOpportunityListSuccessEnvelope,
+  type StartDirectOfferNegotiationBody,
+  type StartOfferResponseBody,
+  type SubmitOfferResponseBody,
+  type UnsaveOpportunityBody,
+  type ViewDirectOfferBody,
 } from "@rahhal/contracts";
 import {
   decideTeamPermission,
@@ -71,6 +84,7 @@ import {
   organizationCapabilities,
   type ChallengeId,
   type CorrelationId,
+  type DirectOfferId,
   type WorkspaceRole,
   type EligibilityGateKind,
   type TeamAction,
@@ -93,6 +107,7 @@ import type {
   ChallengeScope,
   ChallengeTransitionCommand,
   MutationOutcome,
+  OpportunityScope,
   ProposalScope,
   WorkspaceAccess,
   WorkspaceAuthorization,
@@ -124,6 +139,7 @@ type TeamMembershipRequestParams = { teamMembershipRequestId: string };
 type TeamWorkspaceParams = { workspaceId: string };
 type TeamMemberParams = { membershipId: string };
 type ProposalParams = { proposalId: string };
+type DirectOfferParams = { directOfferId: string };
 
 type BrowserOidcCallbackQuery = {
   readonly code: string;
@@ -250,6 +266,13 @@ function proposalScope(session: AuthenticatedSession, access: WorkspaceAccess): 
   };
 }
 
+function opportunityScope(
+  session: AuthenticatedSession,
+  access: WorkspaceAccess,
+): OpportunityScope {
+  return proposalScope(session, access);
+}
+
 const canReadChallenge = (access: WorkspaceAccess) => access.workspace.kind === "org";
 const canReadSolverWorkspace = (access: WorkspaceAccess) =>
   access.workspace.kind === "individual" || access.workspace.kind === "team";
@@ -282,6 +305,9 @@ const canEditChallenge = (access: WorkspaceAccess) =>
  */
 const canPublishChallenge = (access: WorkspaceAccess) =>
   access.workspace.kind === "org" && organizationCapabilities(access.role).publishChallenges;
+
+const canManageDirectOffers = (access: WorkspaceAccess) =>
+  access.workspace.kind === "org" && organizationCapabilities(access.role).manageDirectOffers;
 
 function idempotencyCommand(request: FastifyRequest) {
   const idempotencyKey = requiredHeader(request, "Idempotency-Key");
@@ -394,6 +420,12 @@ const fastifyProposalPath = (path: string) =>
   fastifyLiteralPath(path).replace(
     "{proposalId}",
     ":proposalId(^prp_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$)",
+  );
+
+const fastifyDirectOfferPath = (path: string) =>
+  fastifyLiteralPath(path).replace(
+    "{directOfferId}",
+    ":directOfferId(^dof_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$)",
   );
 
 async function runTeamAction<Result>(
@@ -2912,6 +2944,461 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
         canReadChallenge,
       );
     },
+  );
+
+  app.get(
+    apiRoutes.solverSavedOpportunities,
+    {
+      schema: {
+        response: { 200: apiSchemas.SavedOpportunityListSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request): Promise<SavedOpportunityListSuccessEnvelope> => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runSolverActorAction(
+        request,
+        ports,
+        session,
+        "opportunity:list-saved",
+        "saved_opportunity",
+        undefined,
+        async (access) =>
+          success(
+            await ports.opportunities.listSaved(opportunityScope(session, access)),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.post<{ Params: ChallengeIdParams; Body: SaveOpportunityBody }>(
+    fastifyChallengeCommandPath(apiRoutes.saveOpportunity),
+    {
+      schema: {
+        params: challengeIdParamsSchema,
+        body: apiSchemas.SaveOpportunityBody,
+        response: { 201: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      return runSolverActorAction(
+        request,
+        ports,
+        session,
+        "opportunity:save",
+        "saved_opportunity",
+        request.params.challengeId,
+        async (access) => {
+          const outcome = await ports.opportunities.save(request.params.challengeId, request.body, {
+            ...opportunityScope(session, access),
+            ...command,
+          });
+          void reply.status(201);
+          return mutationSuccess(outcome, request, ports);
+        },
+      );
+    },
+  );
+
+  app.post<{ Params: ChallengeIdParams; Body: UnsaveOpportunityBody }>(
+    fastifyChallengeCommandPath(apiRoutes.unsaveOpportunity),
+    {
+      schema: {
+        params: challengeIdParamsSchema,
+        body: apiSchemas.UnsaveOpportunityBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      return runSolverActorAction(
+        request,
+        ports,
+        session,
+        "opportunity:unsave",
+        "saved_opportunity",
+        request.params.challengeId,
+        async (access) =>
+          mutationSuccess(
+            await ports.opportunities.unsave(request.params.challengeId, request.body, {
+              ...opportunityScope(session, access),
+              ...command,
+            }),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.get(
+    apiRoutes.solverDirectOffers,
+    {
+      schema: {
+        response: { 200: apiSchemas.DirectOfferListSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request): Promise<DirectOfferListSuccessEnvelope> => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runSolverActorAction(
+        request,
+        ports,
+        session,
+        "direct-offer:list-received",
+        "direct_offer",
+        undefined,
+        async (access) =>
+          success(
+            await ports.opportunities.listReceived(opportunityScope(session, access)),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.get<{ Params: DirectOfferParams }>(
+    fastifyDirectOfferPath(apiRoutes.solverDirectOfferById),
+    {
+      schema: {
+        params: apiSchemas.DirectOfferParams,
+        response: { 200: apiSchemas.DirectOfferSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request): Promise<DirectOfferSuccessEnvelope> => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runSolverActorAction(
+        request,
+        ports,
+        session,
+        "direct-offer:read-received",
+        "direct_offer",
+        request.params.directOfferId,
+        async (access) => {
+          const resource = await ports.opportunities.getReceived(
+            opportunityScope(session, access),
+            request.params.directOfferId,
+          );
+          if (!resource) throw notFound();
+          return versionedSuccess(resource, request, ports, resource.version);
+        },
+      );
+    },
+  );
+
+  const receivedOfferCommand = async <Body extends { readonly expected_version: number }>(
+    request: FastifyRequest<{ Params: DirectOfferParams; Body: Body }>,
+    action: string,
+    invoke: (
+      access: WorkspaceAccess,
+      session: AuthenticatedSession,
+      command: ReturnType<typeof idempotencyCommand>,
+    ) => Promise<MutationOutcome<DirectOfferId, string>>,
+  ) => {
+    const session = await requireSession(request, ports.sessions, ports.decisionAudit, ports.clock);
+    const command = idempotencyCommand(request);
+    return runSolverActorAction(
+      request,
+      ports,
+      session,
+      action,
+      "direct_offer",
+      request.params.directOfferId,
+      async (access) => mutationSuccess(await invoke(access, session, command), request, ports),
+    );
+  };
+
+  app.post<{ Params: DirectOfferParams; Body: ViewDirectOfferBody }>(
+    fastifyDirectOfferPath(apiRoutes.viewDirectOffer),
+    {
+      schema: {
+        params: apiSchemas.DirectOfferParams,
+        body: apiSchemas.ViewDirectOfferBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) =>
+      receivedOfferCommand(request, "direct-offer:view", async (access, session, command) =>
+        ports.opportunities.view(request.params.directOfferId, request.body, {
+          ...opportunityScope(session, access),
+          ...command,
+        }),
+      ),
+  );
+
+  app.post<{ Params: DirectOfferParams; Body: StartOfferResponseBody }>(
+    fastifyDirectOfferPath(apiRoutes.startOfferResponse),
+    {
+      schema: {
+        params: apiSchemas.DirectOfferParams,
+        body: apiSchemas.StartOfferResponseBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) =>
+      receivedOfferCommand(
+        request,
+        "direct-offer:start-response",
+        async (access, session, command) =>
+          ports.opportunities.startResponse(request.params.directOfferId, request.body, {
+            ...opportunityScope(session, access),
+            ...command,
+          }),
+      ),
+  );
+
+  app.patch<{ Params: DirectOfferParams; Body: PatchOfferResponseBody }>(
+    fastifyDirectOfferPath(apiRoutes.offerResponse),
+    {
+      schema: {
+        params: apiSchemas.DirectOfferParams,
+        body: apiSchemas.PatchOfferResponseBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) =>
+      receivedOfferCommand(
+        request,
+        "direct-offer:patch-response",
+        async (access, session, command) =>
+          ports.opportunities.patchResponse(request.params.directOfferId, request.body, {
+            ...opportunityScope(session, access),
+            ...command,
+          }),
+      ),
+  );
+
+  app.post<{ Params: DirectOfferParams; Body: SubmitOfferResponseBody }>(
+    fastifyDirectOfferPath(apiRoutes.submitOfferResponse),
+    {
+      schema: {
+        params: apiSchemas.DirectOfferParams,
+        body: apiSchemas.SubmitOfferResponseBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) =>
+      receivedOfferCommand(
+        request,
+        "direct-offer:submit-response",
+        async (access, session, command) =>
+          ports.opportunities.submitResponse(request.params.directOfferId, request.body, {
+            ...opportunityScope(session, access),
+            ...command,
+          }),
+      ),
+  );
+
+  app.post<{ Params: DirectOfferParams; Body: DeclineDirectOfferBody }>(
+    fastifyDirectOfferPath(apiRoutes.declineDirectOffer),
+    {
+      schema: {
+        params: apiSchemas.DirectOfferParams,
+        body: apiSchemas.DeclineDirectOfferBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) =>
+      receivedOfferCommand(request, "direct-offer:decline", async (access, session, command) =>
+        ports.opportunities.decline(request.params.directOfferId, request.body, {
+          ...opportunityScope(session, access),
+          ...command,
+        }),
+      ),
+  );
+
+  app.get(
+    apiRoutes.organizationDirectOffers,
+    {
+      schema: {
+        response: { 200: apiSchemas.DirectOfferListSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request): Promise<DirectOfferListSuccessEnvelope> => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runSolverActorAction(
+        request,
+        ports,
+        session,
+        "direct-offer:list-sent",
+        "direct_offer",
+        undefined,
+        async (access) =>
+          success(
+            await ports.opportunities.listSent(challengeScope(session, access)),
+            request,
+            ports,
+          ),
+        canManageDirectOffers,
+      );
+    },
+  );
+
+  app.post<{ Body: CreateDirectOfferBody }>(
+    apiRoutes.organizationDirectOffers,
+    {
+      schema: {
+        body: apiSchemas.CreateDirectOfferBody,
+        response: { 201: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      return runSolverActorAction(
+        request,
+        ports,
+        session,
+        "direct-offer:send",
+        "direct_offer",
+        undefined,
+        async (access) => {
+          const outcome = await ports.opportunities.send(request.body, {
+            ...challengeScope(session, access),
+            ...command,
+          });
+          void reply.status(201);
+          return mutationSuccess(outcome, request, ports);
+        },
+        canManageDirectOffers,
+      );
+    },
+  );
+
+  app.get<{ Params: DirectOfferParams }>(
+    fastifyDirectOfferPath(apiRoutes.organizationDirectOfferById),
+    {
+      schema: {
+        params: apiSchemas.DirectOfferParams,
+        response: { 200: apiSchemas.DirectOfferSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request): Promise<DirectOfferSuccessEnvelope> => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runSolverActorAction(
+        request,
+        ports,
+        session,
+        "direct-offer:read-sent",
+        "direct_offer",
+        request.params.directOfferId,
+        async (access) => {
+          const resource = await ports.opportunities.getSent(
+            challengeScope(session, access),
+            request.params.directOfferId,
+          );
+          if (!resource) throw notFound();
+          return versionedSuccess(resource, request, ports, resource.version);
+        },
+        canManageDirectOffers,
+      );
+    },
+  );
+
+  const sentOfferCommand = async <Body extends { readonly expected_version: number }>(
+    request: FastifyRequest<{ Params: DirectOfferParams; Body: Body }>,
+    action: string,
+    invoke: (
+      access: WorkspaceAccess,
+      session: AuthenticatedSession,
+      command: ReturnType<typeof idempotencyCommand>,
+    ) => Promise<MutationOutcome<DirectOfferId, string>>,
+  ) => {
+    const session = await requireSession(request, ports.sessions, ports.decisionAudit, ports.clock);
+    const command = idempotencyCommand(request);
+    return runSolverActorAction(
+      request,
+      ports,
+      session,
+      action,
+      "direct_offer",
+      request.params.directOfferId,
+      async (access) => mutationSuccess(await invoke(access, session, command), request, ports),
+      canManageDirectOffers,
+    );
+  };
+
+  app.post<{ Params: DirectOfferParams; Body: CancelDirectOfferBody }>(
+    fastifyDirectOfferPath(apiRoutes.cancelDirectOffer),
+    {
+      schema: {
+        params: apiSchemas.DirectOfferParams,
+        body: apiSchemas.CancelDirectOfferBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) =>
+      sentOfferCommand(request, "direct-offer:cancel", async (access, session, command) =>
+        ports.opportunities.cancel(request.params.directOfferId, request.body, {
+          ...challengeScope(session, access),
+          ...command,
+        }),
+      ),
+  );
+
+  app.post<{ Params: DirectOfferParams; Body: StartDirectOfferNegotiationBody }>(
+    fastifyDirectOfferPath(apiRoutes.startDirectOfferNegotiation),
+    {
+      schema: {
+        params: apiSchemas.DirectOfferParams,
+        body: apiSchemas.StartDirectOfferNegotiationBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) =>
+      sentOfferCommand(
+        request,
+        "direct-offer:start-negotiation",
+        async (access, session, command) =>
+          ports.opportunities.startNegotiation(request.params.directOfferId, request.body, {
+            ...challengeScope(session, access),
+            ...command,
+          }),
+      ),
   );
 
   return app;

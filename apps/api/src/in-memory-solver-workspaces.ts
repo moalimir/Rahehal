@@ -65,6 +65,7 @@ export class InMemorySolverWorkspaceAdapter implements SolverWorkspacePort, Elig
   private readonly verifications = new Map<WorkspaceId, SolverVerificationResource>();
   private readonly acceptances = new Map<string, EligibilityGateAcceptanceId>();
   private readonly idempotency = new Map<string, CachedOutcome>();
+  private challengeReach?: (workspaceId: WorkspaceId, challengeId: string) => boolean;
 
   constructor(
     seeds: readonly DemoIdentitySeed[],
@@ -134,6 +135,29 @@ export class InMemorySolverWorkspaceAdapter implements SolverWorkspacePort, Elig
       created_at: now,
       updated_at: now,
     });
+  }
+
+  setChallengeReachResolver(
+    resolver: (workspaceId: WorkspaceId, challengeId: string) => boolean,
+  ): void {
+    this.challengeReach = resolver;
+  }
+
+  findOfferTarget(workspaceId: string): {
+    readonly tenantId: SolverWorkspaceProfileResource["tenant_id"];
+    readonly workspaceId: SolverWorkspaceProfileResource["workspace_id"];
+    readonly workspaceKind: SolverWorkspaceProfileResource["workspace_kind"];
+  } | null {
+    const profile = [...this.profiles.values()].find(
+      (candidate) => candidate.workspace_id === workspaceId,
+    );
+    return profile
+      ? {
+          tenantId: profile.tenant_id,
+          workspaceId: profile.workspace_id,
+          workspaceKind: profile.workspace_kind,
+        }
+      : null;
   }
 
   private scopedProfile(scope: WorkspaceScope): SolverWorkspaceProfileResource | null {
@@ -293,8 +317,19 @@ export class InMemorySolverWorkspaceAdapter implements SolverWorkspacePort, Elig
           item.challenge_id === challengeId &&
           item.challenge_version_id === body.challenge_version_id,
       );
-    const required = gate === "nda" ? projection?.nda_required : projection?.document_gate_required;
-    if (!projection || !required) throw notFound();
+    const offeredAggregate = this.challenges
+      .snapshot()
+      .challenges.find(
+        (candidate) =>
+          candidate.id === challengeId &&
+          candidate.published_version_id === body.challenge_version_id &&
+          this.challengeReach?.(context.workspaceId, challengeId),
+      );
+    const required =
+      gate === "nda"
+        ? (projection?.nda_required ?? offeredAggregate?.content.nda_required)
+        : (projection?.document_gate_required ?? offeredAggregate?.content.document_gate_required);
+    if ((!projection && !offeredAggregate) || !required) throw notFound();
     const key = scopedKey(context.workspaceId, body.challenge_version_id, gate);
     if (this.acceptances.has(key)) {
       throw new ApiProblem(409, "CONFLICT", "The eligibility gate is already accepted", {
@@ -316,29 +351,41 @@ export class InMemorySolverWorkspaceAdapter implements SolverWorkspacePort, Elig
     const verification = this.verifications.get(scope.workspaceId);
     if (!profile || !verification) return null;
     const snapshot = this.challenges.snapshot();
-    const projection = snapshot.publicProjections.find((item) => item.challenge_id === challengeId);
     const aggregate = snapshot.challenges.find((item) => item.id === challengeId);
+    const projection = snapshot.publicProjections.find((item) => item.challenge_id === challengeId);
+    const offered =
+      aggregate?.published_version_id && this.challengeReach?.(scope.workspaceId, challengeId)
+        ? aggregate
+        : null;
     if (
-      !projection ||
       !aggregate ||
-      aggregate.published_version_id !== projection.challenge_version_id
+      (!projection && !offered) ||
+      (projection && aggregate.published_version_id !== projection.challenge_version_id)
     ) {
       return null;
     }
+    const challengeVersionId = projection?.challenge_version_id ?? aggregate.published_version_id;
+    if (!challengeVersionId) return null;
     const accepted = (gate: EligibilityGateKind) =>
-      this.acceptances.has(scopedKey(scope.workspaceId, projection.challenge_version_id, gate));
+      this.acceptances.has(scopedKey(scope.workspaceId, challengeVersionId, gate));
     const now = this.clock.now();
     const decision = evaluateProposalEligibility(
       {
-        challengeVersionId: projection.challenge_version_id,
-        allowedApplicantTypes: projection.allowed_applicant_types,
-        verificationRequired: projection.verification_required,
-        ndaRequired: projection.nda_required,
-        documentGateRequired: projection.document_gate_required,
+        challengeVersionId,
+        allowedApplicantTypes:
+          projection?.allowed_applicant_types ?? aggregate.content.allowed_applicant_types,
+        verificationRequired:
+          projection?.verification_required ?? aggregate.content.verification_required,
+        ndaRequired: projection?.nda_required ?? aggregate.content.nda_required,
+        documentGateRequired:
+          projection?.document_gate_required ?? aggregate.content.document_gate_required,
       },
       {
         state: aggregate.publication_state ?? "closed",
-        proposalDeadline: aggregate.proposal_deadline_at ?? projection.proposal_deadline,
+        proposalDeadline:
+          aggregate.proposal_deadline_at ??
+          projection?.proposal_deadline ??
+          "1970-01-01T00:00:00.000Z",
       },
       {
         workspaceId: scope.workspaceId,
@@ -350,8 +397,8 @@ export class InMemorySolverWorkspaceAdapter implements SolverWorkspacePort, Elig
       now,
     );
     return {
-      challenge_id: projection.challenge_id,
-      evaluated_against_version_id: projection.challenge_version_id,
+      challenge_id: aggregate.id,
+      evaluated_against_version_id: challengeVersionId,
       applicant_type: profile.applicant_type,
       status: decision.status,
       reasons: decision.reasons,

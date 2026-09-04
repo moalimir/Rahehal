@@ -53,6 +53,10 @@ import {
   teamRole,
   type Membership,
   type TeamRole,
+  directOfferStates,
+  directOfferTransitions,
+  evaluateOfferResponseReadiness,
+  offerResponseStates,
 } from "../src/index.js";
 
 function readyChallengeContent(): ChallengeDraftContent {
@@ -494,6 +498,68 @@ describe("Phase 3 proposal lifecycle", () => {
   });
 });
 
+describe("C6 opportunity and direct-offer domain", () => {
+  it("keeps the complete canonical offer vocabulary and bounded C6 transitions", () => {
+    expect(directOfferStates).toEqual([
+      "received",
+      "viewed",
+      "response_draft",
+      "response_submitted",
+      "negotiating",
+      "selected",
+      "declined",
+      "expired",
+      "cancelled",
+    ]);
+    expect(offerResponseStates).toEqual(["draft", "submitted"]);
+    expect(
+      directOfferTransitions.some(({ from, to }) => from === "response_draft" && to === "expired"),
+    ).toBe(true);
+    expect(
+      directOfferTransitions.some(({ from, to }) => from === "negotiating" && to === "selected"),
+    ).toBe(true);
+  });
+
+  it("requires a substantive, priced, authorized response before submission", () => {
+    const incomplete = evaluateOfferResponseReadiness({
+      approach: "",
+      scope: "",
+      startAvailability: "",
+      durationWeeks: null,
+      budgetAmountMinor: null,
+      budgetCurrency: "IRR",
+      paymentModel: "",
+      negotiables: "",
+      authorityConfirmed: false,
+      attachmentIds: [],
+    });
+    expect(incomplete.ready).toBe(false);
+    expect(incomplete.issues.map(({ path }) => path)).toEqual([
+      "/response/approach",
+      "/response/scope",
+      "/response/start_availability",
+      "/response/payment_model",
+      "/response/duration_weeks",
+      "/response/budget_amount_minor",
+      "/response/authority_confirmed",
+    ]);
+    expect(
+      evaluateOfferResponseReadiness({
+        approach: "A".repeat(60),
+        scope: "S".repeat(60),
+        startAvailability: "دو هفته آینده",
+        durationWeeks: 12,
+        budgetAmountMinor: 125_000_000,
+        budgetCurrency: "IRR",
+        paymentModel: "پرداخت مرحله‌ای",
+        negotiables: "زمان‌بندی قابل مذاکره است.",
+        authorityConfirmed: true,
+        attachmentIds: [],
+      }).ready,
+    ).toBe(true);
+  });
+});
+
 describe("C2 authoritative team permissions", () => {
   const allowedByDefault: Record<TeamRole, readonly (typeof teamActions)[number][]> = {
     "team:owner": teamActions,
@@ -506,6 +572,10 @@ describe("C2 authoritative team permissions", () => {
       "create-proposal",
       "edit-proposal",
       "submit-proposal",
+      "view-direct-offer",
+      "edit-offer-response",
+      "submit-offer-response",
+      "decline-direct-offer",
       "view-case-messages",
       "view-payments",
       "manage-team-settings",
@@ -518,12 +588,22 @@ describe("C2 authoritative team permissions", () => {
       "create-proposal",
       "edit-proposal",
       "submit-proposal",
+      "view-direct-offer",
+      "edit-offer-response",
+      "submit-offer-response",
+      "decline-direct-offer",
       "view-case-messages",
       "view-payments",
       "leave-team",
     ],
-    "team:contributor": ["view-workspace", "create-proposal", "leave-team"],
-    "team:viewer": ["view-workspace", "view-case-messages", "leave-team"],
+    "team:contributor": [
+      "view-workspace",
+      "create-proposal",
+      "view-direct-offer",
+      "edit-offer-response",
+      "leave-team",
+    ],
+    "team:viewer": ["view-workspace", "view-direct-offer", "view-case-messages", "leave-team"],
   };
 
   it("exhaustively evaluates every owner/admin/manager/contributor/viewer action", () => {

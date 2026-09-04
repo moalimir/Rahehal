@@ -1,5 +1,10 @@
 import type { OutboxEvent } from "@rahhal/contracts";
-import { parsePrefixedId, proposalOutboxEventTypes, teamOutboxEventTypes } from "@rahhal/domain";
+import {
+  opportunityOutboxEventTypes,
+  parsePrefixedId,
+  proposalOutboxEventTypes,
+  teamOutboxEventTypes,
+} from "@rahhal/domain";
 import { buildOutboxEvent, fixedTimestamp } from "@rahhal/testkit";
 import { describe, expect, it, vi } from "vitest";
 import { isSupportedOutboxEventType, OutboxConsumer } from "../src/consumer.js";
@@ -30,6 +35,9 @@ describe("idempotent outbox consumer", () => {
 
   it("accepts every C4 metadata-only proposal event through the worker boundary", () => {
     for (const eventType of proposalOutboxEventTypes) {
+      expect(isSupportedOutboxEventType(eventType)).toBe(true);
+    }
+    for (const eventType of opportunityOutboxEventTypes) {
       expect(isSupportedOutboxEventType(eventType)).toBe(true);
     }
   });

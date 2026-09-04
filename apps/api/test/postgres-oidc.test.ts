@@ -16,6 +16,7 @@ import { runMigrations } from "../src/postgres/migrations.js";
 import { PostgresOidcAuthorizationAdapter } from "../src/postgres/oidc-authorization.js";
 import { seedSyntheticData } from "../src/postgres/seeds.js";
 import { PostgresUnitOfWork } from "../src/postgres/unit-of-work.js";
+import { PostgresOpportunityAdapter } from "../src/postgres/opportunities.js";
 import { commandFingerprint, MonotonicIdFactory, RandomIdFactory } from "../src/primitives.js";
 import { HmacSessionCredentialIssuer } from "../src/session-credentials.js";
 import { FakeOidcProvider } from "./support/fake-oidc-provider.js";
@@ -139,6 +140,7 @@ beforeAll(async () => {
       eligibility: solverWorkspaces,
       teams,
       proposals: new PostgresProposalAdapter(unitOfWork, teams, clock, ids),
+      opportunities: new PostgresOpportunityAdapter(unitOfWork, teams, clock, ids),
       decisionAudit: audit,
       clock,
       ids,

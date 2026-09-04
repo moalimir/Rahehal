@@ -501,16 +501,38 @@ export class PostgresSolverWorkspaceAdapter implements SolverWorkspacePort, Elig
                  ELSE rule.document_gate_required
                END AS required
          FROM solver_workspace_profile AS profile
-         JOIN challenge_public_projection AS projection
-           ON projection.challenge_id = $3 AND projection.challenge_version_id = $5
-         JOIN challenge ON challenge.id = projection.challenge_id
-          AND challenge.published_version_id = projection.challenge_version_id
+         JOIN challenge ON challenge.id = $3
+          AND challenge.published_version_id = $5
+         LEFT JOIN challenge_public_projection AS projection
+           ON projection.challenge_id = challenge.id
+          AND projection.challenge_version_id = challenge.published_version_id
          JOIN eligibility_rule AS rule
            ON rule.challenge_id = challenge.id
           AND rule.challenge_version_id = challenge.published_version_id
          WHERE profile.tenant_id = $1 AND profile.workspace_id = $2
+           AND (
+             projection.challenge_id IS NOT NULL
+             OR EXISTS (
+               SELECT 1 FROM access_grant
+               WHERE grantee_tenant_id = profile.tenant_id
+                 AND grantee_workspace_id = profile.workspace_id
+                 AND resource_type = 'challenge'
+                 AND resource_id = challenge.id
+                 AND capability = 'read'
+                 AND state = 'active'
+                 AND valid_from <= $6
+                 AND expires_at > $6
+             )
+           )
          FOR UPDATE OF challenge`,
-        [context.tenantId, context.workspaceId, challengeId, gate, body.challenge_version_id],
+        [
+          context.tenantId,
+          context.workspaceId,
+          challengeId,
+          gate,
+          body.challenge_version_id,
+          this.clock.now().toISOString(),
+        ],
       );
       if (!visible.rows[0]?.required) throw notFound();
       const existing = await client.query(
@@ -590,9 +612,10 @@ export class PostgresSolverWorkspaceAdapter implements SolverWorkspacePort, Elig
          JOIN verification_record AS verification
            ON verification.tenant_id = profile.tenant_id
           AND verification.workspace_id = profile.workspace_id
-         JOIN challenge_public_projection AS projection ON projection.challenge_id = $3
-         JOIN challenge ON challenge.id = projection.challenge_id
-          AND challenge.published_version_id = projection.challenge_version_id
+         JOIN challenge ON challenge.id = $3
+         LEFT JOIN challenge_public_projection AS projection
+           ON projection.challenge_id = challenge.id
+          AND projection.challenge_version_id = challenge.published_version_id
          JOIN eligibility_rule AS rule
            ON rule.challenge_id = challenge.id
           AND rule.challenge_version_id = challenge.published_version_id
@@ -600,8 +623,22 @@ export class PostgresSolverWorkspaceAdapter implements SolverWorkspacePort, Elig
            AND challenge.published_version_id IS NOT NULL
            AND challenge.publication_state IS NOT NULL
            AND challenge.proposal_deadline_at IS NOT NULL
+           AND (
+             projection.challenge_id IS NOT NULL
+             OR EXISTS (
+               SELECT 1 FROM access_grant
+               WHERE grantee_tenant_id = profile.tenant_id
+                 AND grantee_workspace_id = profile.workspace_id
+                 AND resource_type = 'challenge'
+                 AND resource_id = challenge.id
+                 AND capability = 'read'
+                 AND state = 'active'
+                 AND valid_from <= $4
+                 AND expires_at > $4
+             )
+           )
          FOR SHARE OF profile, verification, challenge, rule`,
-        [scope.tenantId, scope.workspaceId, challengeId],
+        [scope.tenantId, scope.workspaceId, challengeId, this.clock.now().toISOString()],
       );
       const row = result.rows[0];
       if (!row || !isApplicantType(row.applicant_type)) return null;

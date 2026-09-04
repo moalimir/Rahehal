@@ -1,5 +1,4 @@
 import type {
-  DirectOfferState as CanonicalDirectOfferState,
   MembershipRequestState as CanonicalMembershipRequestState,
   ProposalState as CanonicalProposalState,
   TeamInvitationState as CanonicalTeamInvitationState,
@@ -8,17 +7,18 @@ import type {
 import {
   canTransition,
   challengeTransitions,
+  directOfferTransitions,
   proposalTransitions,
   teamRole,
   type ChallengeStage,
   type Transition,
 } from "@rahhal/domain";
 
-export { canTransition, challengeTransitions, proposalTransitions };
+export { canTransition, challengeTransitions, directOfferTransitions, proposalTransitions };
 export type ChallengeState = ChallengeStage;
 
 export type ProposalState = CanonicalProposalState;
-export type DirectOfferState = CanonicalDirectOfferState;
+export type { DirectOfferState } from "@rahhal/domain";
 
 const individualActors = ["individual"] as const;
 const organizationMembers = ["org:member"] as const;
@@ -29,16 +29,12 @@ const financeActors = ["platform:finance"] as const;
 const financeOrOperations = ["platform:finance", "platform:ops"] as const;
 const teamManagers = [teamRole.owner, teamRole.admin] as const;
 const solverManagers = ["individual", ...teamManagers] as const;
-const solverProposalManagers = [...solverManagers, teamRole.proposalManager] as const;
-const solverContributors = [...solverProposalManagers, teamRole.contributor] as const;
-const solverViewers = [...solverContributors, teamRole.viewer] as const;
 const reasonRecorded = ["reason-recorded"] as const;
 const deadlinePassed = ["deadline-passed"] as const;
 const recipientAuthorizedAndActive = ["recipient-authorized", "not-expired"] as const;
 const recipientAuthorizedWithReason = ["recipient-authorized", "reason-recorded"] as const;
 const closeInvitation = ["close-invitation"] as const;
 const closeRequest = ["close-request"] as const;
-const closeOffer = ["close-offer"] as const;
 const lockOutcome = ["lock-outcome"] as const;
 const openReview = ["open-review"] as const;
 
@@ -220,89 +216,6 @@ export const membershipRequestTransitions: readonly Transition<MembershipRequest
     sideEffects: closeRequest,
     notification: "دو طرف درخواست",
     audit: "membership-request.expired",
-    retry: "idempotent",
-  },
-];
-
-export const directOfferTransitions: readonly Transition<DirectOfferState>[] = [
-  {
-    from: "received",
-    to: "viewed",
-    roles: solverViewers,
-    preconditions: ["recipient-authorized"],
-    sideEffects: ["record-viewed-at"],
-    notification: "",
-    audit: "direct-offer.viewed",
-    retry: "idempotent",
-  },
-  {
-    from: "viewed",
-    to: "response_draft",
-    roles: solverContributors,
-    preconditions: recipientAuthorizedAndActive,
-    sideEffects: ["create-response-draft"],
-    notification: "",
-    audit: "direct-offer.response.draft.created",
-    retry: "idempotent",
-  },
-  {
-    from: "response_draft",
-    to: "response_submitted",
-    roles: solverProposalManagers,
-    preconditions: ["response-valid", "sender-authorized", "not-expired"],
-    sideEffects: ["lock-response-version", "create-receipt"],
-    notification: "سازمان دعوت‌کننده",
-    audit: "direct-offer.response.submitted",
-    retry: "idempotent",
-  },
-  {
-    from: "response_submitted",
-    to: "negotiating",
-    roles: organizationMembers,
-    preconditions: ["negotiation-opened"],
-    sideEffects: ["open-controlled-thread"],
-    notification: "فضای دریافت‌کننده",
-    audit: "direct-offer.negotiation.started",
-    retry: "idempotent",
-  },
-  {
-    from: "negotiating",
-    to: "selected",
-    roles: organizationMembers,
-    preconditions: ["selection-approved"],
-    sideEffects: ["create-case"],
-    notification: "فضای دریافت‌کننده",
-    audit: "direct-offer.selected",
-    retry: "manual-review",
-  },
-  {
-    from: "received",
-    to: "declined",
-    roles: solverProposalManagers,
-    preconditions: recipientAuthorizedWithReason,
-    sideEffects: closeOffer,
-    notification: "سازمان دعوت‌کننده",
-    audit: "direct-offer.declined",
-    retry: "idempotent",
-  },
-  {
-    from: "viewed",
-    to: "declined",
-    roles: solverProposalManagers,
-    preconditions: recipientAuthorizedWithReason,
-    sideEffects: closeOffer,
-    notification: "سازمان دعوت‌کننده",
-    audit: "direct-offer.declined",
-    retry: "idempotent",
-  },
-  {
-    from: "received",
-    to: "expired",
-    roles: platformOperations,
-    preconditions: deadlinePassed,
-    sideEffects: closeOffer,
-    notification: "طرفین دعوت",
-    audit: "direct-offer.expired",
     retry: "idempotent",
   },
 ];

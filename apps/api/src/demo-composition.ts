@@ -16,6 +16,7 @@ import { InMemoryAccessDecisionAudit } from "./in-memory-audit.js";
 import { InMemoryChallengeRepository } from "./in-memory-challenges.js";
 import { InMemoryCriticalSection } from "./in-memory-critical-section.js";
 import { InMemoryIdentityAdapter } from "./in-memory-identity.js";
+import { InMemoryOpportunityAdapter } from "./in-memory-opportunities.js";
 import { InMemoryProposalAdapter } from "./in-memory-proposals.js";
 import { InMemorySolverWorkspaceAdapter } from "./in-memory-solver-workspaces.js";
 import { InMemoryTeamAdapter } from "./in-memory-teams.js";
@@ -575,6 +576,7 @@ export type DemoApiComposition = {
   readonly solverWorkspaces: InMemorySolverWorkspaceAdapter;
   readonly teams: InMemoryTeamAdapter;
   readonly proposals: InMemoryProposalAdapter;
+  readonly opportunities: InMemoryOpportunityAdapter;
 };
 
 export function createDemoApiComposition(options: {
@@ -609,6 +611,16 @@ export function createDemoApiComposition(options: {
   const solverWorkspaces = new InMemorySolverWorkspaceAdapter(seeds, challenges, clock, ids);
   const teams = new InMemoryTeamAdapter(seeds, identity, solverWorkspaces, clock, ids);
   const proposals = new InMemoryProposalAdapter(challenges, solverWorkspaces, teams, clock, ids);
+  const opportunities = new InMemoryOpportunityAdapter(
+    challenges,
+    solverWorkspaces,
+    teams,
+    clock,
+    ids,
+  );
+  solverWorkspaces.setChallengeReachResolver((workspaceId, challengeId) =>
+    opportunities.hasActiveChallengeGrant(workspaceId, challengeId),
+  );
   return {
     identity,
     challenges,
@@ -617,6 +629,7 @@ export function createDemoApiComposition(options: {
     solverWorkspaces,
     teams,
     proposals,
+    opportunities,
     ports: {
       oidcAuthorization: {
         async start() {
@@ -634,6 +647,7 @@ export function createDemoApiComposition(options: {
       eligibility: solverWorkspaces,
       teams,
       proposals,
+      opportunities,
       decisionAudit,
       clock,
       ids,

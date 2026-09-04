@@ -193,7 +193,21 @@ POST  /solver/team:transfer-ownership                      # delivered C2: atomi
 POST  /solver/team:leave                                   # delivered C2: owner must transfer first
 POST  /solver/team:archive                                 # delivered C2: terminal authority cut
 GET  /opportunities?…&cursor=                  # future: searchable published challenges for active workspace
-POST /opportunities/{challengeId}:save         # future
+GET  /solver/saved-opportunities               # delivered C6: active solver workspace's exact-version bookmarks
+POST /challenges/{challengeId}:save             # delivered C6: expected-zero bookmark command
+POST /challenges/{challengeId}:unsave           # delivered C6: expected-version removal command
+GET  /solver/direct-offers                      # delivered C6: active-grant recipient list
+GET  /solver/direct-offers/{id}                 # delivered C6: recipient aggregate + private response draft
+POST /solver/direct-offers/{id}:view            # delivered C6: received → viewed
+POST /solver/direct-offers/{id}:start-response  # delivered C6: viewed → response_draft
+PATCH /solver/direct-offers/{id}/response       # delivered C6: versioned private response draft
+POST /solver/direct-offers/{id}/response:submit # delivered C6: validate/lock before server deadline
+POST /solver/direct-offers/{id}:decline         # delivered C6: reasoned close + grant revocation
+GET  /organization/direct-offers                # delivered C6: sender list; no unsubmitted response body
+POST /organization/direct-offers                # delivered C6: exact-version send + bilateral grants
+GET  /organization/direct-offers/{id}           # delivered C6: sender-owned record/submitted response
+POST /organization/direct-offers/{id}:cancel    # delivered C6: reasoned close + grant revocation
+POST /organization/direct-offers/{id}:start-negotiation # delivered C6: submitted response → negotiating
 POST /proposals                                # delivered C3: create draft for reachable call + active solver workspace
 GET  /proposals/{id}                           # delivered C3: private editable draft in exact owner scope
 PATCH /proposals/{id}                          # delivered C3: append unlocked exact-base draft version
@@ -224,6 +238,8 @@ Organization inbox/detail routes require an active organization membership and q
 
 C5 exposes the missing canonical bridge from C4 submission through organization eligibility review before clarification. Organization commands start from the active version-bound C4 grant; solver commands start from the exact owning workspace and current C2 edit/submit authority. Each command requires `expected_version`, is idempotent, advances only its named state, and commits its receipt/audit/outbox evidence atomically. A clarification response is separate immutable evidence, not a proposal-content version. Starting revision appends an unlocked exact-base version; subsequent PATCH remains available in `revision_draft`; resubmission requires the active request before its server deadline, accepts the current published challenge terms, appends a locked version, stores the diff against the requested locked base, marks the request resubmitted, revokes the superseded grant, and creates the replacement exact-version grant. C8 will project these events into notifications; C9 owns connected UI.
 
+C6 saved-opportunity commands are scoped to the active individual/team workspace and bind the exact current public projection. Direct-offer send starts from the sending organization's own open challenge and one registered solver workspace, then creates the offer and exact offer/challenge grants atomically. Recipient reads and commands start from the active collaborate grant and the C2 team decision; the sender reads only its own aggregate and cannot see a response draft before submission. View, response start/save/submit, decline, cancel, negotiation start, and lazy deadline expiry follow the canonical state table. The server clock closes `received`, `viewed`, or `response_draft` at the response deadline even if editing began earlier. Decline/cancel/expiry close both grants; replay, stale version, wrong workspace/role, and foreign ID paths fail without widening access. Selection remains a later decision/case transaction. C8 owns user-facing notification projections and C9 owns connected UI.
+
 ### 5.6 Review, COI & decision
 
 ```
@@ -245,7 +261,7 @@ POST /challenges/{id}/decision:record          # evaluating → decided (authori
 
 ## 7. Events emitted (outbox → consumers)
 
-The executable schema-v1 worker allowlist is exact and intentionally small. It is derived from `challengeOutboxEventTypes`, `solverOutboxEventTypes`, `teamOutboxEventTypes`, and `proposalOutboxEventTypes`, plus the four session events, so an event an adapter emits but the domain omits is dead-lettered as `UNSUPPORTED_EVENT_TYPE` rather than silently dropped. C2 adds `team.created`, policy/invitation/request decisions, member role/state/leave changes, ownership transfer, and archive. C3 adds `proposal.draft.created` and `proposal.draft.updated`; C4 adds `proposal.submitted`; C5 adds the canonical eligibility-started/eligible/ineligible, clarification-requested/submitted, review-started, revision-requested/draft-created, and resubmitted events. Proposal events carry stable entity/version and evidence IDs, never proposal content, clarification text, revision scope, attachment IDs, titles, contact details, or filenames. No generic lifecycle, notification-fabrication, or AI event is accepted. The `challenge.draft.*` and `proposal.draft.*` codes are walking-skeleton application audit codes covering draft effects that have no canonical transition-table row; lifecycle codes reuse the canonical domain names.
+The executable schema-v1 worker allowlist is exact and intentionally small. It is derived from `challengeOutboxEventTypes`, `solverOutboxEventTypes`, `teamOutboxEventTypes`, `proposalOutboxEventTypes`, and `opportunityOutboxEventTypes`, plus the four session events, so an event an adapter emits but the domain omits is dead-lettered as `UNSUPPORTED_EVENT_TYPE` rather than silently dropped. C2 adds `team.created`, policy/invitation/request decisions, member role/state/leave changes, ownership transfer, and archive. C3 adds `proposal.draft.created` and `proposal.draft.updated`; C4 adds `proposal.submitted`; C5 adds the canonical eligibility-started/eligible/ineligible, clarification-requested/submitted, review-started, revision-requested/draft-created, and resubmitted events. C6 adds saved/unsaved plus offer sent/viewed/response/negotiation/close/expiry events. Proposal and opportunity events carry stable entity/version and evidence IDs, never proposal/response content, clarification text, revision scope, attachment IDs, titles, contact details, or filenames. No generic lifecycle, notification-fabrication, or AI event is accepted. The `challenge.draft.*`, `proposal.draft.*`, and response-draft codes are walking-skeleton application audit codes covering effects that have no canonical transition-table row; lifecycle codes reuse the canonical domain names.
 
 For the target lifecycle commands below, event names reuse the state machines' `audit` codes verbatim so audit and integration share one vocabulary:
 

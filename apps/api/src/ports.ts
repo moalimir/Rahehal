@@ -66,6 +66,21 @@ import type {
   SessionRefreshBody,
   SessionRevokeBody,
   SessionTokenSet,
+  CancelDirectOfferBody,
+  CreateDirectOfferBody,
+  DeclineDirectOfferBody,
+  DirectOfferListResource,
+  DirectOfferNextAction,
+  DirectOfferResource,
+  PatchOfferResponseBody,
+  SaveOpportunityBody,
+  SavedOpportunityListResource,
+  SavedOpportunityNextAction,
+  StartDirectOfferNegotiationBody,
+  StartOfferResponseBody,
+  SubmitOfferResponseBody,
+  UnsaveOpportunityBody,
+  ViewDirectOfferBody,
 } from "@rahhal/contracts";
 import type {
   ChallengeApprovalId,
@@ -74,6 +89,7 @@ import type {
   Membership,
   CorrelationId,
   ProposalId,
+  DirectOfferId,
   EligibilityGateAcceptanceId,
   EligibilityGateKind,
   MembershipId,
@@ -81,6 +97,7 @@ import type {
   TeamMembershipRequestId,
   TeamPolicy,
   VerificationId,
+  SavedOpportunityId,
   SessionId,
   TenantId,
   User,
@@ -109,6 +126,9 @@ export type IdFactory = {
       | "prv"
       | "pcl"
       | "prr"
+      | "sop"
+      | "dof"
+      | "ofr"
       | "agr"
       | "wsp"
       | "mem"
@@ -266,6 +286,15 @@ export type ProposalScope = WorkspaceScope & {
 };
 
 export type ProposalCommandContext = ProposalScope & {
+  readonly idempotencyKey: string;
+  readonly correlationId: CorrelationId;
+};
+
+export type OpportunityScope = WorkspaceScope & {
+  readonly membershipId: MembershipId;
+};
+
+export type OpportunityCommandContext = OpportunityScope & {
   readonly idempotencyKey: string;
   readonly correlationId: CorrelationId;
 };
@@ -531,6 +560,63 @@ export interface ProposalPort {
   ): Promise<OrganizationProposalResource | null>;
 }
 
+export interface OpportunityPort {
+  listSaved(scope: OpportunityScope): Promise<SavedOpportunityListResource>;
+  save(
+    challengeId: string,
+    body: SaveOpportunityBody,
+    context: OpportunityCommandContext,
+  ): Promise<MutationOutcome<SavedOpportunityId, SavedOpportunityNextAction>>;
+  unsave(
+    challengeId: string,
+    body: UnsaveOpportunityBody,
+    context: OpportunityCommandContext,
+  ): Promise<MutationOutcome<SavedOpportunityId, SavedOpportunityNextAction>>;
+  listReceived(scope: OpportunityScope): Promise<DirectOfferListResource>;
+  getReceived(scope: OpportunityScope, id: string): Promise<DirectOfferResource | null>;
+  view(
+    id: string,
+    body: ViewDirectOfferBody,
+    context: OpportunityCommandContext,
+  ): Promise<MutationOutcome<DirectOfferId, DirectOfferNextAction>>;
+  startResponse(
+    id: string,
+    body: StartOfferResponseBody,
+    context: OpportunityCommandContext,
+  ): Promise<MutationOutcome<DirectOfferId, DirectOfferNextAction>>;
+  patchResponse(
+    id: string,
+    body: PatchOfferResponseBody,
+    context: OpportunityCommandContext,
+  ): Promise<MutationOutcome<DirectOfferId, DirectOfferNextAction>>;
+  submitResponse(
+    id: string,
+    body: SubmitOfferResponseBody,
+    context: OpportunityCommandContext,
+  ): Promise<MutationOutcome<DirectOfferId, DirectOfferNextAction>>;
+  decline(
+    id: string,
+    body: DeclineDirectOfferBody,
+    context: OpportunityCommandContext,
+  ): Promise<MutationOutcome<DirectOfferId, DirectOfferNextAction>>;
+  listSent(scope: WorkspaceScope): Promise<DirectOfferListResource>;
+  getSent(scope: WorkspaceScope, id: string): Promise<DirectOfferResource | null>;
+  send(
+    body: CreateDirectOfferBody,
+    context: WorkspaceCommandContext,
+  ): Promise<MutationOutcome<DirectOfferId, DirectOfferNextAction>>;
+  cancel(
+    id: string,
+    body: CancelDirectOfferBody,
+    context: WorkspaceCommandContext,
+  ): Promise<MutationOutcome<DirectOfferId, DirectOfferNextAction>>;
+  startNegotiation(
+    id: string,
+    body: StartDirectOfferNegotiationBody,
+    context: WorkspaceCommandContext,
+  ): Promise<MutationOutcome<DirectOfferId, DirectOfferNextAction>>;
+}
+
 export type AccessDecisionRecord = {
   readonly outcome: "success" | "denied";
   readonly actorUserId?: UserId;
@@ -559,6 +645,7 @@ export type ApiPorts = {
   readonly eligibility: EligibilityPort;
   readonly teams: TeamPort;
   readonly proposals: ProposalPort;
+  readonly opportunities: OpportunityPort;
   readonly decisionAudit: AccessDecisionAuditPort;
   readonly clock: Clock;
   readonly ids: IdFactory;

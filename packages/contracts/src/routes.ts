@@ -64,6 +64,21 @@ export const apiRoutes = {
   requestProposalClarification: "/api/v1/organization/proposals/{proposalId}:request-clarification",
   resolveProposalClarification: "/api/v1/organization/proposals/{proposalId}:resolve-clarification",
   requestProposalRevision: "/api/v1/organization/proposals/{proposalId}:request-revision",
+  solverSavedOpportunities: "/api/v1/solver/saved-opportunities",
+  saveOpportunity: "/api/v1/challenges/{challengeId}:save",
+  unsaveOpportunity: "/api/v1/challenges/{challengeId}:unsave",
+  solverDirectOffers: "/api/v1/solver/direct-offers",
+  solverDirectOfferById: "/api/v1/solver/direct-offers/{directOfferId}",
+  viewDirectOffer: "/api/v1/solver/direct-offers/{directOfferId}:view",
+  startOfferResponse: "/api/v1/solver/direct-offers/{directOfferId}:start-response",
+  offerResponse: "/api/v1/solver/direct-offers/{directOfferId}/response",
+  submitOfferResponse: "/api/v1/solver/direct-offers/{directOfferId}/response:submit",
+  declineDirectOffer: "/api/v1/solver/direct-offers/{directOfferId}:decline",
+  organizationDirectOffers: "/api/v1/organization/direct-offers",
+  organizationDirectOfferById: "/api/v1/organization/direct-offers/{directOfferId}",
+  cancelDirectOffer: "/api/v1/organization/direct-offers/{directOfferId}:cancel",
+  startDirectOfferNegotiation:
+    "/api/v1/organization/direct-offers/{directOfferId}:start-negotiation",
 } as const;
 
 /**
