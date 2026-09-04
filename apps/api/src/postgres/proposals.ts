@@ -215,6 +215,7 @@ const proposalNextActions = [
   "edit_revision",
   "resubmit",
   "await_review",
+  "closed",
 ] as const satisfies readonly ProposalNextAction[];
 
 function aggregateVersion(value: unknown): number {
@@ -1174,7 +1175,7 @@ export class PostgresProposalAdapter implements ProposalPort {
       body.decision === "eligible" ? "proposal.eligible" : "proposal.ineligible",
       "eligibility_review",
       body.decision,
-      body.decision === "eligible" ? ["request_clarification"] : [],
+      body.decision === "eligible" ? ["request_clarification"] : ["closed"],
       undefined,
       { decision: body.decision, reason: body.reason },
     );

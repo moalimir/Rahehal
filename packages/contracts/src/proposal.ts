@@ -167,7 +167,11 @@ export type ProposalNextAction =
   | "start_revision"
   | "edit_revision"
   | "resubmit"
-  | "await_review";
+  | "await_review"
+  /** Terminal: `ineligible` has no onward transition, mirroring the challenge
+   * lifecycle's own terminal marker. A receipt must still name an action --
+   * `mutation_receipt_next_actions_check` rejects an empty array. */
+  | "closed";
 
 export type ProposalClarificationResource = {
   readonly id: ProposalClarificationId;

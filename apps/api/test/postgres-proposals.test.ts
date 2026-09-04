@@ -1036,6 +1036,39 @@ describe("C5 PostgreSQL proposal clarification and revision", () => {
     return created.receipt.entity_id;
   }
 
+  it("records an ineligible decision as a terminal receipt", async () => {
+    // The ineligible branch was never exercised: it passed an empty
+    // `next_actions`, which `mutation_receipt_next_actions_check` rejects, so
+    // every rejection failed with a database error instead of a decision.
+    const proposalId = await createSubmitted("c5-pg-ineligible-0001");
+    await proposals.startEligibilityReview(
+      proposalId,
+      { expected_version: 2 },
+      organizationCommand("c5-pg-ineligible-start-0001"),
+    );
+    const decided = await proposals.decideEligibility(
+      proposalId,
+      {
+        expected_version: 3,
+        decision: "ineligible",
+        reason: "The workspace does not meet the published rule.",
+      },
+      organizationCommand("c5-pg-ineligible-decide-0001"),
+    );
+    expect(decided.receipt.next_actions).toEqual(["closed"]);
+
+    const stored = await database.query<{ state: string; receipts: string; audits: string }>(
+      `SELECT proposal.state,
+              (SELECT count(*) FROM mutation_receipt
+                WHERE entity_id = proposal.id AND entity_type = 'proposal') AS receipts,
+              (SELECT count(*) FROM audit_event
+                WHERE target_id = proposal.id AND action = 'proposal.ineligible') AS audits
+         FROM proposal WHERE proposal.id = $1`,
+      [proposalId],
+    );
+    expect(stored.rows[0]).toMatchObject({ state: "ineligible", audits: "1" });
+  });
+
   it("persists controlled thread evidence and an exact-base resubmission atomically", async () => {
     const proposalId = await createSubmitted("c5-pg-flow-0001");
     await proposals.startEligibilityReview(

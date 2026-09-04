@@ -666,7 +666,7 @@ export class InMemoryProposalAdapter implements ProposalPort {
       body.decision === "eligible" ? "proposal.eligible" : "proposal.ineligible",
       "eligibility_review",
       body.decision,
-      body.decision === "eligible" ? ["request_clarification"] : [],
+      body.decision === "eligible" ? ["request_clarification"] : ["closed"],
     );
   }
 

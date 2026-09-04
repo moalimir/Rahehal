@@ -13,16 +13,20 @@ if (process.env.NODE_ENV === "production" || !loopbackHosts.has(databaseHost()))
 const pool = new Pool({ ...databasePoolConfig(), max: 1 });
 
 try {
-  const reverted: string[] = [];
-  while (true) {
-    const result = await runMigrations(pool, "down");
-    if (result.applied.length === 0) break;
-    reverted.push(...result.applied);
-  }
+  // Recreate the schema rather than walking the down migrations. Down
+  // migrations legitimately refuse to discard evidence -- `0017` stops a
+  // rollback that would drop clarification/revision workflow history -- so a
+  // reset built on them cannot reset a database that has exercised C5, which
+  // is exactly the database a developer needs to reset. This path is already
+  // restricted to a non-production loopback host above, and dropping the
+  // schema is what "reset" means here; the evidence guards stay in force for
+  // every real `db:migrate:down`.
+  await pool.query("DROP SCHEMA public CASCADE");
+  await pool.query("CREATE SCHEMA public");
   const applied = await runMigrations(pool, "up");
   await seedSyntheticData(pool);
   process.stdout.write(
-    `Local database reset: reverted ${reverted.length}, applied ${applied.applied.length}, seeded synthetic data\n`,
+    `Local database reset: recreated the schema, applied ${applied.applied.length}, seeded synthetic data\n`,
   );
 } finally {
   await pool.end();
