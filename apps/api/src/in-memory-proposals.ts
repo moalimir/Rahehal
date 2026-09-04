@@ -1,22 +1,33 @@
 import type {
   CreateProposalBody,
+  DecideProposalEligibilityBody,
   MutationReceipt,
   OrganizationProposalInboxItemResource,
   OrganizationProposalInboxResource,
   OrganizationProposalResource,
   OutboxEvent,
   PatchProposalBody,
+  RequestProposalClarificationBody,
+  RequestProposalRevisionBody,
+  ResolveProposalClarificationBody,
+  ResubmitProposalBody,
+  StartProposalEligibilityReviewBody,
+  StartProposalRevisionBody,
+  SubmitProposalClarificationBody,
   ProposalNextAction,
   ProposalResource,
   SubmitProposalBody,
 } from "@rahhal/contracts";
 import {
   decideTeamPermission,
+  isEditableProposalState,
   isAggregateVersion,
   isTeamRole,
   parseAccessGrantId,
   parseAuditEventId,
   parseProposalId,
+  parseProposalClarificationId,
+  parseProposalRevisionRequestId,
   parseProposalVersionId,
   parsePrefixedId,
   parseReceiptId,
@@ -49,6 +60,7 @@ import type {
   ProposalPort,
   ProposalScope,
   TeamPort,
+  WorkspaceCommandContext,
   WorkspaceScope,
 } from "./ports.js";
 
@@ -61,7 +73,19 @@ type ProposalAuditRecord = {
   readonly actorUserId: UserId;
   readonly entityId: ProposalId;
   readonly entityVersion: number;
-  readonly action: "proposal.draft.created" | "proposal.draft.updated" | "proposal.submitted";
+  readonly action:
+    | "proposal.draft.created"
+    | "proposal.draft.updated"
+    | "proposal.submitted"
+    | "proposal.eligibility.started"
+    | "proposal.eligible"
+    | "proposal.ineligible"
+    | "proposal.clarification.requested"
+    | "proposal.clarification.submitted"
+    | "proposal.review.started"
+    | "proposal.revision.requested"
+    | "proposal.revision.draft.created"
+    | "proposal.resubmitted";
   readonly outcome: "success";
   readonly correlationId: CorrelationId;
   readonly occurredAt: string;
@@ -106,7 +130,7 @@ function scopeKey(scope: Pick<ProposalScope, "tenantId" | "workspaceId">, id: st
   return `${scope.tenantId}\u0000${scope.workspaceId}\u0000${id}`;
 }
 
-function commandKey(context: ProposalCommandContext, command: string): string {
+function commandKey(context: WorkspaceCommandContext, command: string): string {
   return `${context.tenantId}\u0000${command}\u0000${context.idempotencyKey}`;
 }
 
@@ -194,7 +218,7 @@ export class InMemoryProposalAdapter implements ProposalPort {
   private record(
     state: RepositoryState,
     resource: ProposalResource,
-    context: ProposalCommandContext,
+    context: WorkspaceCommandContext,
     action: ProposalAuditRecord["action"],
     key: string,
     fingerprint: string,
@@ -240,6 +264,81 @@ export class InMemoryProposalAdapter implements ProposalPort {
     });
     state.idempotency.set(key, { fingerprint, outcome: structuredClone(outcome) });
     return outcome;
+  }
+
+  private findStored(state: RepositoryState, id: string): readonly [string, StoredProposal] | null {
+    return [...state.proposals.entries()].find(([, stored]) => stored.current.id === id) ?? null;
+  }
+
+  private activeOrganizationGrant(
+    state: RepositoryState,
+    scope: WorkspaceScope,
+    id: string,
+  ): StoredProposalGrant | null {
+    return (
+      [...state.grants.values()].find(
+        (grant) =>
+          grant.proposalId === id &&
+          grant.state === "active" &&
+          grant.organizationTenantId === scope.tenantId &&
+          grant.organizationWorkspaceId === scope.workspaceId &&
+          Date.parse(grant.expiresAt) > this.clock.now().getTime(),
+      ) ?? null
+    );
+  }
+
+  private organizationTransition(
+    id: string,
+    body: Readonly<{ expected_version: number }>,
+    context: WorkspaceCommandContext,
+    command: string,
+    action: ProposalAuditRecord["action"],
+    from: ProposalResource["state"],
+    to: ProposalResource["state"],
+    nextActions: readonly ProposalNextAction[],
+    transform?: (current: ProposalResource, occurredAt: string) => ProposalResource,
+  ): ProposalMutationOutcome {
+    const key = commandKey(context, command);
+    const fingerprint = commandFingerprint({
+      command,
+      actorUserId: context.actorUserId,
+      workspaceId: context.workspaceId,
+      id,
+      body,
+    });
+    return this.transact((state) => {
+      if (!this.activeOrganizationGrant(state, context, id)) throw notFound();
+      const replay = this.replay(state, key, fingerprint);
+      if (replay) return replay;
+      const found = this.findStored(state, id);
+      if (!found) throw notFound();
+      const [storedKey, stored] = found;
+      if (body.expected_version !== stored.current.version) {
+        throw staleVersion(stored.current.version);
+      }
+      if (stored.current.state !== from) {
+        throw new ApiProblem(409, "INVALID_STATE", "Proposal cannot perform this transition", {
+          currentState: stored.current.state,
+          allowedTransitions: [to],
+        });
+      }
+      const occurredAt = this.clock.now().toISOString();
+      const base: ProposalResource = {
+        ...stored.current,
+        state: to,
+        version: stored.current.version + 1,
+        updated_at: occurredAt,
+      };
+      const updated = transform ? transform(base, occurredAt) : base;
+      state.proposals.set(storedKey, {
+        current: updated,
+        versions: [...stored.versions, updated],
+      });
+      return this.record(state, updated, context, action, key, fingerprint, {
+        occurredAt,
+        nextActions,
+      });
+    });
   }
 
   async create(
@@ -311,6 +410,8 @@ export class InMemoryProposalAdapter implements ProposalPort {
         readiness: proposalReadiness(content, 1, { ndaRequired: challenge.nda_required }),
         content,
         versions: [version],
+        clarifications: [],
+        revision_requests: [],
         submitted_at: null,
         created_by: context.actorUserId,
         created_at: now,
@@ -359,13 +460,15 @@ export class InMemoryProposalAdapter implements ProposalPort {
       if (body.expected_version !== stored.current.version) {
         throw staleVersion(stored.current.version);
       }
-      if (stored.current.state !== "draft") {
+      if (!isEditableProposalState(stored.current.state)) {
         throw new ApiProblem(409, "INVALID_STATE", "Proposal content is not editable", {
           currentState: stored.current.state,
         });
       }
       const content = mergeProposalContent(stored.current.content, body.patch);
-      const versionNumber = stored.current.version + 1;
+      const aggregateVersion = stored.current.version + 1;
+      const versionNumber =
+        Math.max(...stored.current.versions.map((version) => version.version_number)) + 1;
       const version = {
         id: parseProposalVersionId(this.ids.next("prv")),
         version_number: versionNumber,
@@ -380,8 +483,8 @@ export class InMemoryProposalAdapter implements ProposalPort {
       const updated: ProposalResource = {
         ...stored.current,
         current_version_id: version.id,
-        version: versionNumber,
-        readiness: proposalReadiness(content, versionNumber, {
+        version: aggregateVersion,
+        readiness: proposalReadiness(content, aggregateVersion, {
           ndaRequired: challenge.nda_required,
         }),
         content,
@@ -524,7 +627,7 @@ export class InMemoryProposalAdapter implements ProposalPort {
         current: submitted,
         versions: [...current.versions, submitted],
       });
-      state.grants.set(submitted.id, grant);
+      state.grants.set(grantId, grant);
       return this.record(state, submitted, context, "proposal.submitted", key, fingerprint, {
         occurredAt,
         nextActions: ["await_eligibility"],
@@ -533,11 +636,439 @@ export class InMemoryProposalAdapter implements ProposalPort {
     });
   }
 
+  async startEligibilityReview(
+    id: string,
+    body: StartProposalEligibilityReviewBody,
+    context: WorkspaceCommandContext,
+  ): Promise<ProposalMutationOutcome> {
+    return this.organizationTransition(
+      id,
+      body,
+      context,
+      "proposal:start-eligibility-review",
+      "proposal.eligibility.started",
+      "submitted",
+      "eligibility_review",
+      ["record_eligibility"],
+    );
+  }
+
+  async decideEligibility(
+    id: string,
+    body: DecideProposalEligibilityBody,
+    context: WorkspaceCommandContext,
+  ): Promise<ProposalMutationOutcome> {
+    return this.organizationTransition(
+      id,
+      body,
+      context,
+      "proposal:decide-eligibility",
+      body.decision === "eligible" ? "proposal.eligible" : "proposal.ineligible",
+      "eligibility_review",
+      body.decision,
+      body.decision === "eligible" ? ["request_clarification"] : [],
+    );
+  }
+
+  async requestClarification(
+    id: string,
+    body: RequestProposalClarificationBody,
+    context: WorkspaceCommandContext,
+  ): Promise<ProposalMutationOutcome> {
+    return this.organizationTransition(
+      id,
+      body,
+      context,
+      "proposal:request-clarification",
+      "proposal.clarification.requested",
+      "eligible",
+      "clarification_requested",
+      ["respond_to_clarification"],
+      (current, occurredAt) => ({
+        ...current,
+        clarifications: [
+          ...current.clarifications,
+          {
+            id: parseProposalClarificationId(this.ids.next("pcl")),
+            proposal_version_id: current.current_version_id,
+            state: "requested",
+            question: body.question,
+            response: null,
+            resolution: null,
+            requested_at: occurredAt,
+            submitted_at: null,
+            resolved_at: null,
+          },
+        ],
+      }),
+    );
+  }
+
+  async submitClarification(
+    id: string,
+    body: SubmitProposalClarificationBody,
+    context: ProposalCommandContext,
+  ): Promise<ProposalMutationOutcome> {
+    const key = commandKey(context, "proposal:submit-clarification");
+    const fingerprint = commandFingerprint({
+      command: "proposal:submit-clarification",
+      actorUserId: context.actorUserId,
+      workspaceId: context.workspaceId,
+      id,
+      body,
+    });
+    const stored = this.state.proposals.get(scopeKey(context, id));
+    if (
+      !stored ||
+      !(await this.permitted(context, "submit-proposal", stored.current.assigned_membership_ids))
+    ) {
+      throw notFound();
+    }
+    const cached = this.replay(this.state, key, fingerprint);
+    if (cached) return cached;
+    return this.transact((state) => {
+      const replay = this.replay(state, key, fingerprint);
+      if (replay) return replay;
+      const current = state.proposals.get(scopeKey(context, id));
+      if (!current) throw notFound();
+      if (body.expected_version !== current.current.version) {
+        throw staleVersion(current.current.version);
+      }
+      if (current.current.state !== "clarification_requested") {
+        throw new ApiProblem(409, "INVALID_STATE", "No clarification response is expected", {
+          currentState: current.current.state,
+        });
+      }
+      const clarification = current.current.clarifications.find(
+        (item) => item.id === body.clarification_id && item.state === "requested",
+      );
+      if (!clarification) throw notFound();
+      const occurredAt = this.clock.now().toISOString();
+      const updated: ProposalResource = {
+        ...current.current,
+        state: "clarification_submitted",
+        version: current.current.version + 1,
+        clarifications: current.current.clarifications.map((item) =>
+          item.id === clarification.id
+            ? {
+                ...item,
+                state: "submitted",
+                response: body.response,
+                submitted_at: occurredAt,
+              }
+            : item,
+        ),
+        updated_at: occurredAt,
+      };
+      state.proposals.set(scopeKey(context, id), {
+        current: updated,
+        versions: [...current.versions, updated],
+      });
+      return this.record(
+        state,
+        updated,
+        context,
+        "proposal.clarification.submitted",
+        key,
+        fingerprint,
+        { occurredAt, nextActions: ["resolve_clarification"] },
+      );
+    });
+  }
+
+  async resolveClarification(
+    id: string,
+    body: ResolveProposalClarificationBody,
+    context: WorkspaceCommandContext,
+  ): Promise<ProposalMutationOutcome> {
+    return this.organizationTransition(
+      id,
+      body,
+      context,
+      "proposal:resolve-clarification",
+      "proposal.review.started",
+      "clarification_submitted",
+      "reviewing",
+      ["request_revision"],
+      (current, occurredAt) => {
+        const clarification = current.clarifications.find(
+          (item) => item.id === body.clarification_id && item.state === "submitted",
+        );
+        if (!clarification) throw notFound();
+        return {
+          ...current,
+          clarifications: current.clarifications.map((item) =>
+            item.id === clarification.id
+              ? {
+                  ...item,
+                  state: "resolved",
+                  resolution: body.resolution,
+                  resolved_at: occurredAt,
+                }
+              : item,
+          ),
+        };
+      },
+    );
+  }
+
+  async requestRevision(
+    id: string,
+    body: RequestProposalRevisionBody,
+    context: WorkspaceCommandContext,
+  ): Promise<ProposalMutationOutcome> {
+    return this.organizationTransition(
+      id,
+      body,
+      context,
+      "proposal:request-revision",
+      "proposal.revision.requested",
+      "reviewing",
+      "revision_requested",
+      ["start_revision"],
+      (current, occurredAt) => {
+        if (Date.parse(body.revision_deadline) <= Date.parse(occurredAt)) {
+          throw new ApiProblem(422, "VALIDATION", "Revision deadline must be in the future");
+        }
+        return {
+          ...current,
+          revision_requests: [
+            ...current.revision_requests,
+            {
+              id: parseProposalRevisionRequestId(this.ids.next("prr")),
+              base_version_id: current.current_version_id,
+              resubmitted_version_id: null,
+              state: "requested",
+              scope: body.scope,
+              revision_deadline: new Date(body.revision_deadline).toISOString(),
+              requested_at: occurredAt,
+              started_at: null,
+              resubmitted_at: null,
+            },
+          ],
+        };
+      },
+    );
+  }
+
+  async startRevision(
+    id: string,
+    body: StartProposalRevisionBody,
+    context: ProposalCommandContext,
+  ): Promise<ProposalMutationOutcome> {
+    const key = commandKey(context, "proposal:start-revision");
+    const fingerprint = commandFingerprint({
+      command: "proposal:start-revision",
+      actorUserId: context.actorUserId,
+      workspaceId: context.workspaceId,
+      id,
+      body,
+    });
+    const visible = await this.getScoped(context, id);
+    if (!visible) throw notFound();
+    const cached = this.replay(this.state, key, fingerprint);
+    if (cached) return cached;
+    return this.transact((state) => {
+      const replay = this.replay(state, key, fingerprint);
+      if (replay) return replay;
+      const current = state.proposals.get(scopeKey(context, id));
+      if (!current) throw notFound();
+      if (body.expected_version !== current.current.version) {
+        throw staleVersion(current.current.version);
+      }
+      const request = current.current.revision_requests.find(
+        (item) => item.id === body.revision_request_id && item.state === "requested",
+      );
+      if (current.current.state !== "revision_requested" || !request) {
+        throw new ApiProblem(409, "INVALID_STATE", "No requested revision can be started", {
+          currentState: current.current.state,
+        });
+      }
+      if (Date.parse(request.revision_deadline) <= this.clock.now().getTime()) {
+        throw new ApiProblem(409, "INVALID_STATE", "The revision deadline has passed", {
+          recovery: "contact_organization",
+        });
+      }
+      const occurredAt = this.clock.now().toISOString();
+      const contentVersion =
+        Math.max(...current.current.versions.map((version) => version.version_number)) + 1;
+      const versionId = parseProposalVersionId(this.ids.next("prv"));
+      const version = {
+        id: versionId,
+        version_number: contentVersion,
+        base_version_id: current.current.current_version_id,
+        accepted_challenge_version_id: null,
+        changed_fields: [],
+        content_hash: proposalContentHash(current.current.content),
+        locked: false,
+        actor_user_id: context.actorUserId,
+        created_at: occurredAt,
+      } as const;
+      const updated: ProposalResource = {
+        ...current.current,
+        current_version_id: versionId,
+        state: "revision_draft",
+        version: current.current.version + 1,
+        versions: [...current.current.versions, version],
+        revision_requests: current.current.revision_requests.map((item) =>
+          item.id === request.id ? { ...item, state: "in_progress", started_at: occurredAt } : item,
+        ),
+        updated_at: occurredAt,
+      };
+      state.proposals.set(scopeKey(context, id), {
+        current: updated,
+        versions: [...current.versions, updated],
+      });
+      return this.record(
+        state,
+        updated,
+        context,
+        "proposal.revision.draft.created",
+        key,
+        fingerprint,
+        { occurredAt, nextActions: ["edit_revision", "resubmit"] },
+      );
+    });
+  }
+
+  async resubmit(
+    id: string,
+    body: ResubmitProposalBody,
+    context: ProposalCommandContext,
+  ): Promise<ProposalMutationOutcome> {
+    const key = commandKey(context, "proposal:resubmit");
+    const fingerprint = commandFingerprint({
+      command: "proposal:resubmit",
+      actorUserId: context.actorUserId,
+      workspaceId: context.workspaceId,
+      id,
+      body,
+    });
+    const stored = this.state.proposals.get(scopeKey(context, id));
+    if (
+      !stored ||
+      !(await this.permitted(context, "submit-proposal", stored.current.assigned_membership_ids))
+    ) {
+      throw notFound();
+    }
+    const cached = this.replay(this.state, key, fingerprint);
+    if (cached) return cached;
+    const projection = await this.publicChallenges.get("registered", stored.current.challenge_id);
+    const challenge = this.publicChallenges
+      .snapshot()
+      .challenges.find((item) => item.id === stored.current.challenge_id);
+    if (!projection || !challenge) throw notFound();
+    if (body.accepted_challenge_version_id !== projection.challenge_version_id) {
+      throw new ApiProblem(409, "CONFLICT", "Accepted challenge terms are no longer current", {
+        recovery: "refresh_challenge_terms",
+      });
+    }
+    const readiness = proposalReadiness(stored.current.content, stored.current.version, {
+      ndaRequired: projection.nda_required,
+    });
+    if (!readiness.ready) {
+      throw new ApiProblem(422, "VALIDATION", "Proposal revision is not ready for resubmission", {
+        fields: readiness.issues,
+        recovery: "complete_proposal",
+      });
+    }
+    return this.transact((state) => {
+      const replay = this.replay(state, key, fingerprint);
+      if (replay) return replay;
+      const current = state.proposals.get(scopeKey(context, id));
+      if (!current) throw notFound();
+      if (body.expected_version !== current.current.version) {
+        throw staleVersion(current.current.version);
+      }
+      const request = current.current.revision_requests.find(
+        (item) => item.id === body.revision_request_id && item.state === "in_progress",
+      );
+      if (current.current.state !== "revision_draft" || !request) {
+        throw new ApiProblem(409, "INVALID_STATE", "No active revision can be resubmitted", {
+          currentState: current.current.state,
+        });
+      }
+      if (Date.parse(request.revision_deadline) <= this.clock.now().getTime()) {
+        throw new ApiProblem(409, "INVALID_STATE", "The revision deadline has passed", {
+          recovery: "contact_organization",
+        });
+      }
+      const base = current.versions.find(
+        (snapshot) => snapshot.current_version_id === request.base_version_id,
+      );
+      const activeGrant = [...state.grants.values()].find(
+        (grant) => grant.proposalId === id && grant.state === "active",
+      );
+      if (!base || !activeGrant) throw notFound();
+      const occurredAt = this.clock.now().toISOString();
+      const contentVersion =
+        Math.max(...current.current.versions.map((version) => version.version_number)) + 1;
+      const versionId = parseProposalVersionId(this.ids.next("prv"));
+      const grantId = parseAccessGrantId(this.ids.next("agr"));
+      const version = {
+        id: versionId,
+        version_number: contentVersion,
+        base_version_id: current.current.current_version_id,
+        accepted_challenge_version_id: projection.challenge_version_id,
+        changed_fields: changedProposalFields(base.content, current.current.content),
+        content_hash: proposalContentHash(current.current.content),
+        locked: true,
+        actor_user_id: context.actorUserId,
+        created_at: occurredAt,
+      } as const;
+      const updated: ProposalResource = {
+        ...current.current,
+        current_version_id: versionId,
+        state: "resubmitted",
+        version: current.current.version + 1,
+        readiness: { ...readiness, evaluated_version: current.current.version + 1 },
+        versions: [...current.current.versions, version],
+        revision_requests: current.current.revision_requests.map((item) =>
+          item.id === request.id
+            ? {
+                ...item,
+                state: "resubmitted",
+                resubmitted_version_id: versionId,
+                resubmitted_at: occurredAt,
+              }
+            : item,
+        ),
+        submitted_at: occurredAt,
+        updated_at: occurredAt,
+      };
+      for (const [grantKey, grant] of state.grants) {
+        if (grant.proposalId === id && grant.state === "active") {
+          state.grants.set(grantKey, { ...grant, state: "revoked" });
+        }
+      }
+      state.grants.set(grantId, {
+        id: grantId,
+        proposalId: updated.id,
+        proposalVersionId: versionId,
+        organizationTenantId: activeGrant.organizationTenantId,
+        organizationWorkspaceId: activeGrant.organizationWorkspaceId,
+        expiresAt: new Date(Date.parse(occurredAt) + C4_PROPOSAL_GRANT_DURATION_MS).toISOString(),
+        state: "active",
+      });
+      state.proposals.set(scopeKey(context, id), {
+        current: updated,
+        versions: [...current.versions, updated],
+      });
+      return this.record(state, updated, context, "proposal.resubmitted", key, fingerprint, {
+        occurredAt,
+        nextActions: ["await_review"],
+        metadata: { resubmitted_version_id: versionId, grant_id: grantId },
+      });
+    });
+  }
+
   private organizationResource(
     scope: WorkspaceScope,
     proposalId: string,
   ): OrganizationProposalResource | null {
-    const grant = this.state.grants.get(proposalId);
+    const grant = [...this.state.grants.values()].find(
+      (candidate) => candidate.proposalId === proposalId && candidate.state === "active",
+    );
     if (
       !grant ||
       grant.state !== "active" ||
@@ -595,11 +1126,13 @@ export class InMemoryProposalAdapter implements ProposalPort {
         locked_at: version.created_at,
       },
       content: structuredClone(grantedSnapshot.content),
+      clarifications: structuredClone(proposal.clarifications),
+      revision_requests: structuredClone(proposal.revision_requests),
     };
   }
 
   async listForOrganization(scope: WorkspaceScope): Promise<OrganizationProposalInboxResource> {
-    const items = [...this.state.grants.keys()]
+    const items = [...new Set([...this.state.grants.values()].map(({ proposalId }) => proposalId))]
       .map((id) => this.organizationResource(scope, id))
       .filter((item): item is OrganizationProposalResource => item !== null)
       .sort((left, right) => right.submitted_at.localeCompare(left.submitted_at))

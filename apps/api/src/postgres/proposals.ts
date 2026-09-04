@@ -1,13 +1,23 @@
 import type {
   CreateProposalBody,
+  DecideProposalEligibilityBody,
   MutationReceipt,
   OrganizationProposalInboxItemResource,
   OrganizationProposalInboxResource,
   OrganizationProposalResource,
   PatchProposalBody,
+  ProposalClarificationResource,
   ProposalNextAction,
   ProposalResource,
   ProposalVersionResource,
+  ProposalRevisionRequestResource,
+  RequestProposalClarificationBody,
+  RequestProposalRevisionBody,
+  ResolveProposalClarificationBody,
+  ResubmitProposalBody,
+  StartProposalEligibilityReviewBody,
+  StartProposalRevisionBody,
+  SubmitProposalClarificationBody,
   SubmitProposalBody,
 } from "@rahhal/contracts";
 import {
@@ -15,6 +25,7 @@ import {
   evaluateProposalEligibility,
   isApplicantType,
   isAggregateVersion,
+  isEditableProposalState,
   isProposalState,
   isTeamRole,
   parseAccessGrantId,
@@ -23,6 +34,8 @@ import {
   parseChallengeVersionId,
   parseMembershipId,
   parseProposalId,
+  parseProposalClarificationId,
+  parseProposalRevisionRequestId,
   parseProposalVersionId,
   parsePrefixedId,
   parseReceiptId,
@@ -52,6 +65,7 @@ import type {
   ProposalPort,
   ProposalScope,
   TeamPort,
+  WorkspaceCommandContext,
   WorkspaceScope,
 } from "../ports.js";
 import { PostgresUnitOfWork } from "./unit-of-work.js";
@@ -107,7 +121,40 @@ type ProposalMutationOutcome = MutationOutcome<ProposalId, ProposalNextAction>;
 type ProposalEvidenceAction =
   | "proposal.draft.created"
   | "proposal.draft.updated"
-  | "proposal.submitted";
+  | "proposal.submitted"
+  | "proposal.eligibility.started"
+  | "proposal.eligible"
+  | "proposal.ineligible"
+  | "proposal.clarification.requested"
+  | "proposal.clarification.submitted"
+  | "proposal.review.started"
+  | "proposal.revision.requested"
+  | "proposal.revision.draft.created"
+  | "proposal.resubmitted";
+
+type ProposalClarificationRow = {
+  readonly id: string;
+  readonly proposal_version_id: string;
+  readonly state: "requested" | "submitted" | "resolved";
+  readonly question: string;
+  readonly response: string | null;
+  readonly resolution: string | null;
+  readonly requested_at: Date;
+  readonly submitted_at: Date | null;
+  readonly resolved_at: Date | null;
+};
+
+type ProposalRevisionRequestRow = {
+  readonly id: string;
+  readonly base_version_id: string;
+  readonly resubmitted_version_id: string | null;
+  readonly state: "requested" | "in_progress" | "resubmitted";
+  readonly scope: string;
+  readonly revision_deadline: Date;
+  readonly requested_at: Date;
+  readonly started_at: Date | null;
+  readonly resubmitted_at: Date | null;
+};
 
 type SubmissionGateRow = {
   readonly server_now: Date;
@@ -125,6 +172,14 @@ type SubmissionGateRow = {
   readonly verification_state: string;
   readonly nda_accepted: boolean;
   readonly document_acknowledged: boolean;
+};
+
+type ResubmissionGateRow = {
+  readonly server_now: Date;
+  readonly challenge_version_id: string;
+  readonly organization_tenant_id: string;
+  readonly organization_workspace_id: string;
+  readonly nda_required: boolean;
 };
 
 type OrganizationProposalInboxRow = {
@@ -151,6 +206,15 @@ const proposalNextActions = [
   "edit",
   "submit",
   "await_eligibility",
+  "record_eligibility",
+  "request_clarification",
+  "respond_to_clarification",
+  "resolve_clarification",
+  "request_revision",
+  "start_revision",
+  "edit_revision",
+  "resubmit",
+  "await_review",
 ] as const satisfies readonly ProposalNextAction[];
 
 function aggregateVersion(value: unknown): number {
@@ -201,6 +265,41 @@ function proposalVersionResource(row: ProposalVersionRow): ProposalVersionResour
   };
 }
 
+function proposalClarificationResource(
+  row: ProposalClarificationRow,
+): ProposalClarificationResource {
+  return {
+    id: parseProposalClarificationId(row.id),
+    proposal_version_id: parseProposalVersionId(row.proposal_version_id),
+    state: row.state,
+    question: row.question,
+    response: row.response,
+    resolution: row.resolution,
+    requested_at: row.requested_at.toISOString(),
+    submitted_at: row.submitted_at?.toISOString() ?? null,
+    resolved_at: row.resolved_at?.toISOString() ?? null,
+  };
+}
+
+function proposalRevisionRequestResource(
+  row: ProposalRevisionRequestRow,
+): ProposalRevisionRequestResource {
+  return {
+    id: parseProposalRevisionRequestId(row.id),
+    base_version_id: parseProposalVersionId(row.base_version_id),
+    resubmitted_version_id:
+      row.resubmitted_version_id === null
+        ? null
+        : parseProposalVersionId(row.resubmitted_version_id),
+    state: row.state,
+    scope: row.scope,
+    revision_deadline: row.revision_deadline.toISOString(),
+    requested_at: row.requested_at.toISOString(),
+    started_at: row.started_at?.toISOString() ?? null,
+    resubmitted_at: row.resubmitted_at?.toISOString() ?? null,
+  };
+}
+
 function organizationProposalInboxItem(
   row: OrganizationProposalInboxRow,
 ): OrganizationProposalInboxItemResource {
@@ -229,11 +328,17 @@ function organizationProposalInboxItem(
   };
 }
 
-function organizationProposalResource(row: OrganizationProposalRow): OrganizationProposalResource {
+function organizationProposalResource(
+  row: OrganizationProposalRow,
+  clarifications: readonly ProposalClarificationResource[],
+  revisionRequests: readonly ProposalRevisionRequestResource[],
+): OrganizationProposalResource {
   assertProposalContent(row.content);
   return {
     ...organizationProposalInboxItem(row),
     content: structuredClone(row.content),
+    clarifications,
+    revision_requests: revisionRequests,
   };
 }
 
@@ -247,7 +352,7 @@ export class PostgresProposalAdapter implements ProposalPort {
 
   private async lockIdempotency(
     client: PoolClient,
-    context: ProposalCommandContext,
+    context: WorkspaceCommandContext,
   ): Promise<void> {
     await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
       `${context.tenantId.length}:${context.tenantId}${context.idempotencyKey}`,
@@ -256,7 +361,7 @@ export class PostgresProposalAdapter implements ProposalPort {
 
   private async replay(
     client: PoolClient,
-    context: ProposalCommandContext,
+    context: WorkspaceCommandContext,
     requestHash: string,
   ): Promise<CachedProposalMutation | null> {
     await client.query(
@@ -293,7 +398,7 @@ export class PostgresProposalAdapter implements ProposalPort {
   private async record(
     client: PoolClient,
     resource: ProposalResource,
-    context: ProposalCommandContext,
+    context: WorkspaceCommandContext,
     action: ProposalEvidenceAction,
     requestHash: string,
     options: {
@@ -431,9 +536,39 @@ export class PostgresProposalAdapter implements ProposalPort {
     return result.rows.map(proposalVersionResource);
   }
 
+  private async clarifications(
+    client: PoolClient,
+    proposalId: string,
+  ): Promise<ProposalClarificationResource[]> {
+    const result = await client.query<ProposalClarificationRow>(
+      `SELECT id, proposal_version_id, state, question, response, resolution,
+              requested_at, submitted_at, resolved_at
+       FROM proposal_clarification
+       WHERE proposal_id = $1
+       ORDER BY requested_at, id`,
+      [proposalId],
+    );
+    return result.rows.map(proposalClarificationResource);
+  }
+
+  private async revisionRequests(
+    client: PoolClient,
+    proposalId: string,
+  ): Promise<ProposalRevisionRequestResource[]> {
+    const result = await client.query<ProposalRevisionRequestRow>(
+      `SELECT id, base_version_id, resubmitted_version_id, state, scope,
+              revision_deadline, requested_at, started_at, resubmitted_at
+       FROM proposal_revision_request
+       WHERE proposal_id = $1
+       ORDER BY requested_at, id`,
+      [proposalId],
+    );
+    return result.rows.map(proposalRevisionRequestResource);
+  }
+
   private async findScoped(
     client: PoolClient,
-    scope: ProposalScope,
+    scope: Pick<ProposalScope, "tenantId" | "workspaceId">,
     id: string,
     lock: boolean,
   ): Promise<ProposalResource | null> {
@@ -496,11 +631,109 @@ export class PostgresProposalAdapter implements ProposalPort {
       }),
       content: structuredClone(row.content),
       versions: await this.versions(client, scope, row.id),
+      clarifications: await this.clarifications(client, row.id),
+      revision_requests: await this.revisionRequests(client, row.id),
       submitted_at: row.submitted_at?.toISOString() ?? null,
       created_by: parseUserId(row.created_by_user_id),
       created_at: row.created_at.toISOString(),
       updated_at: row.updated_at.toISOString(),
     };
+  }
+
+  private async organizationOwnedProposal(
+    client: PoolClient,
+    scope: WorkspaceScope,
+    id: string,
+  ): Promise<ProposalResource | null> {
+    const owner = await client.query<{ tenant_id: string; owner_workspace_id: string }>(
+      `SELECT proposal.tenant_id, proposal.owner_workspace_id
+       FROM access_grant AS grant_row
+       JOIN proposal ON proposal.id = grant_row.resource_id
+       JOIN challenge ON challenge.id = proposal.challenge_id
+       WHERE grant_row.grantee_tenant_id = $1
+         AND grant_row.grantee_workspace_id = $2
+         AND challenge.tenant_id = $1
+         AND challenge.workspace_id = $2
+         AND grant_row.resource_type = 'proposal'
+         AND grant_row.capability = 'read'
+         AND grant_row.state = 'active'
+         AND grant_row.valid_from <= transaction_timestamp()
+         AND grant_row.expires_at > transaction_timestamp()
+         AND proposal.id = $3
+       FOR UPDATE OF proposal, grant_row`,
+      [scope.tenantId, scope.workspaceId, id],
+    );
+    const row = owner.rows[0];
+    if (!row) return null;
+    return this.findScoped(
+      client,
+      {
+        tenantId: parseTenantId(row.tenant_id),
+        workspaceId: parseWorkspaceId(row.owner_workspace_id),
+      },
+      id,
+      false,
+    );
+  }
+
+  private organizationTransition(
+    id: string,
+    body: Readonly<{ expected_version: number }>,
+    context: WorkspaceCommandContext,
+    command: string,
+    action: ProposalEvidenceAction,
+    from: ProposalResource["state"],
+    to: ProposalResource["state"],
+    nextActions: readonly ProposalNextAction[],
+    mutate?: (client: PoolClient, current: ProposalResource, occurredAt: string) => Promise<void>,
+    metadata: Readonly<Record<string, string | number>> = {},
+  ): Promise<ProposalMutationOutcome> {
+    const requestHash = commandFingerprint({
+      action: command,
+      actorUserId: context.actorUserId,
+      workspaceId: context.workspaceId,
+      id,
+      body,
+    });
+    return this.unitOfWork.run(async () => {
+      const client = this.unitOfWork.currentClient();
+      await this.lockIdempotency(client, context);
+      const current = await this.organizationOwnedProposal(client, context, id);
+      if (!current) throw notFound();
+      const replay = await this.replay(client, context, requestHash);
+      if (replay) return this.outcome(replay, true);
+      if (body.expected_version !== current.version) throw staleVersion(current.version);
+      if (current.state !== from) {
+        throw new ApiProblem(409, "INVALID_STATE", "Proposal cannot perform this transition", {
+          currentState: current.state,
+          allowedTransitions: [to],
+        });
+      }
+      const occurredAt = this.clock.now().toISOString();
+      await mutate?.(client, current, occurredAt);
+      const update = await client.query(
+        `UPDATE proposal SET state = $2, lock_version = lock_version + 1, updated_at = $3
+         WHERE id = $1 AND lock_version = $4 AND state = $5`,
+        [current.id, to, occurredAt, current.version, from],
+      );
+      if (update.rowCount !== 1) {
+        throw new ApiProblem(409, "CONFLICT", "Proposal changed during transition", {
+          recovery: "refetch_and_retry",
+        });
+      }
+      const resource = await this.findScoped(
+        client,
+        { tenantId: current.tenant_id, workspaceId: current.owner_workspace_id },
+        current.id,
+        false,
+      );
+      if (!resource) throw new Error("Transitioned proposal could not be read");
+      return this.record(client, resource, context, action, requestHash, {
+        occurredAt,
+        nextActions,
+        metadata,
+      });
+    });
   }
 
   private async assertDraftableChallenge(client: PoolClient, challengeId: string): Promise<void> {
@@ -633,13 +866,14 @@ export class PostgresProposalAdapter implements ProposalPort {
       const replay = await this.replay(client, context, requestHash);
       if (replay) return this.outcome(replay, true);
       if (body.expected_version !== current.version) throw staleVersion(current.version);
-      if (current.state !== "draft") {
+      if (!isEditableProposalState(current.state)) {
         throw new ApiProblem(409, "INVALID_STATE", "Proposal content is not editable", {
           currentState: current.state,
         });
       }
       const content = mergeProposalContent(current.content, body.patch);
-      const version = current.version + 1;
+      const aggregateVersion = current.version + 1;
+      const version = Math.max(...current.versions.map((item) => item.version_number)) + 1;
       const versionId = parseProposalVersionId(this.ids.next("prv"));
       const occurredAt = this.clock.now().toISOString();
       await client.query(
@@ -668,7 +902,7 @@ export class PostgresProposalAdapter implements ProposalPort {
           context.workspaceId,
           current.id,
           versionId,
-          version,
+          aggregateVersion,
           occurredAt,
           current.version,
         ],
@@ -910,6 +1144,480 @@ export class PostgresProposalAdapter implements ProposalPort {
     });
   }
 
+  async startEligibilityReview(
+    id: string,
+    body: StartProposalEligibilityReviewBody,
+    context: WorkspaceCommandContext,
+  ): Promise<ProposalMutationOutcome> {
+    return this.organizationTransition(
+      id,
+      body,
+      context,
+      "proposal.start-eligibility-review",
+      "proposal.eligibility.started",
+      "submitted",
+      "eligibility_review",
+      ["record_eligibility"],
+    );
+  }
+
+  async decideEligibility(
+    id: string,
+    body: DecideProposalEligibilityBody,
+    context: WorkspaceCommandContext,
+  ): Promise<ProposalMutationOutcome> {
+    return this.organizationTransition(
+      id,
+      body,
+      context,
+      "proposal.decide-eligibility",
+      body.decision === "eligible" ? "proposal.eligible" : "proposal.ineligible",
+      "eligibility_review",
+      body.decision,
+      body.decision === "eligible" ? ["request_clarification"] : [],
+      undefined,
+      { decision: body.decision, reason: body.reason },
+    );
+  }
+
+  async requestClarification(
+    id: string,
+    body: RequestProposalClarificationBody,
+    context: WorkspaceCommandContext,
+  ): Promise<ProposalMutationOutcome> {
+    const clarificationId = parseProposalClarificationId(this.ids.next("pcl"));
+    return this.organizationTransition(
+      id,
+      body,
+      context,
+      "proposal.request-clarification",
+      "proposal.clarification.requested",
+      "eligible",
+      "clarification_requested",
+      ["respond_to_clarification"],
+      async (client, current, occurredAt) => {
+        await client.query(
+          `INSERT INTO proposal_clarification (
+             id, proposal_id, proposal_version_id, state, question,
+             requested_by_user_id, requested_at
+           ) VALUES ($1,$2,$3,'requested',$4,$5,$6)`,
+          [
+            clarificationId,
+            current.id,
+            current.current_version_id,
+            body.question,
+            context.actorUserId,
+            occurredAt,
+          ],
+        );
+      },
+      { clarification_id: clarificationId },
+    );
+  }
+
+  async submitClarification(
+    id: string,
+    body: SubmitProposalClarificationBody,
+    context: ProposalCommandContext,
+  ): Promise<ProposalMutationOutcome> {
+    const requestHash = commandFingerprint({
+      action: "proposal.submit-clarification",
+      actorUserId: context.actorUserId,
+      workspaceId: context.workspaceId,
+      id,
+      body,
+    });
+    return this.unitOfWork.run(async () => {
+      const client = this.unitOfWork.currentClient();
+      await this.lockIdempotency(client, context);
+      const current = await this.findScoped(client, context, id, true);
+      if (!current) throw notFound();
+      if (!(await this.permitted(context, "submit-proposal", current.assigned_membership_ids))) {
+        throw notFound();
+      }
+      const replay = await this.replay(client, context, requestHash);
+      if (replay) return this.outcome(replay, true);
+      if (body.expected_version !== current.version) throw staleVersion(current.version);
+      if (current.state !== "clarification_requested") {
+        throw new ApiProblem(409, "INVALID_STATE", "No clarification response is expected", {
+          currentState: current.state,
+        });
+      }
+      const occurredAt = this.clock.now().toISOString();
+      const clarification = await client.query(
+        `UPDATE proposal_clarification
+         SET state = 'submitted', response = $4, submitted_by_user_id = $5, submitted_at = $6
+         WHERE id = $1 AND proposal_id = $2 AND proposal_version_id = $3
+           AND state = 'requested'`,
+        [
+          body.clarification_id,
+          current.id,
+          current.current_version_id,
+          body.response,
+          context.actorUserId,
+          occurredAt,
+        ],
+      );
+      if (clarification.rowCount !== 1) throw notFound();
+      const update = await client.query(
+        `UPDATE proposal
+         SET state = 'clarification_submitted', lock_version = lock_version + 1, updated_at = $4
+         WHERE tenant_id = $1 AND owner_workspace_id = $2 AND id = $3
+           AND lock_version = $5 AND state = 'clarification_requested'`,
+        [context.tenantId, context.workspaceId, current.id, occurredAt, current.version],
+      );
+      if (update.rowCount !== 1) throw new Error("Clarification aggregate update failed");
+      const resource = await this.findScoped(client, context, current.id, false);
+      if (!resource) throw new Error("Clarified proposal could not be read");
+      return this.record(
+        client,
+        resource,
+        context,
+        "proposal.clarification.submitted",
+        requestHash,
+        {
+          occurredAt,
+          nextActions: ["resolve_clarification"],
+          metadata: { clarification_id: body.clarification_id },
+        },
+      );
+    });
+  }
+
+  async resolveClarification(
+    id: string,
+    body: ResolveProposalClarificationBody,
+    context: WorkspaceCommandContext,
+  ): Promise<ProposalMutationOutcome> {
+    return this.organizationTransition(
+      id,
+      body,
+      context,
+      "proposal.resolve-clarification",
+      "proposal.review.started",
+      "clarification_submitted",
+      "reviewing",
+      ["request_revision"],
+      async (client, current, occurredAt) => {
+        const result = await client.query(
+          `UPDATE proposal_clarification
+           SET state = 'resolved', resolution = $3, resolved_by_user_id = $4, resolved_at = $5
+           WHERE id = $1 AND proposal_id = $2 AND state = 'submitted'`,
+          [body.clarification_id, current.id, body.resolution, context.actorUserId, occurredAt],
+        );
+        if (result.rowCount !== 1) throw notFound();
+      },
+      { clarification_id: body.clarification_id },
+    );
+  }
+
+  async requestRevision(
+    id: string,
+    body: RequestProposalRevisionBody,
+    context: WorkspaceCommandContext,
+  ): Promise<ProposalMutationOutcome> {
+    const requestId = parseProposalRevisionRequestId(this.ids.next("prr"));
+    return this.organizationTransition(
+      id,
+      body,
+      context,
+      "proposal.request-revision",
+      "proposal.revision.requested",
+      "reviewing",
+      "revision_requested",
+      ["start_revision"],
+      async (client, current, occurredAt) => {
+        if (Date.parse(body.revision_deadline) <= Date.parse(occurredAt)) {
+          throw new ApiProblem(422, "VALIDATION", "Revision deadline must be in the future");
+        }
+        await client.query(
+          `INSERT INTO proposal_revision_request (
+             id, proposal_id, base_version_id, state, scope, revision_deadline,
+             requested_by_user_id, requested_at
+           ) VALUES ($1,$2,$3,'requested',$4,$5,$6,$7)`,
+          [
+            requestId,
+            current.id,
+            current.current_version_id,
+            body.scope,
+            body.revision_deadline,
+            context.actorUserId,
+            occurredAt,
+          ],
+        );
+      },
+      { revision_request_id: requestId },
+    );
+  }
+
+  async startRevision(
+    id: string,
+    body: StartProposalRevisionBody,
+    context: ProposalCommandContext,
+  ): Promise<ProposalMutationOutcome> {
+    const requestHash = commandFingerprint({
+      action: "proposal.start-revision",
+      actorUserId: context.actorUserId,
+      workspaceId: context.workspaceId,
+      id,
+      body,
+    });
+    return this.unitOfWork.run(async () => {
+      const client = this.unitOfWork.currentClient();
+      await this.lockIdempotency(client, context);
+      const current = await this.findScoped(client, context, id, true);
+      if (!current) throw notFound();
+      if (!(await this.permitted(context, "edit-proposal", current.assigned_membership_ids))) {
+        throw notFound();
+      }
+      const replay = await this.replay(client, context, requestHash);
+      if (replay) return this.outcome(replay, true);
+      if (body.expected_version !== current.version) throw staleVersion(current.version);
+      if (current.state !== "revision_requested") {
+        throw new ApiProblem(409, "INVALID_STATE", "No requested revision can be started", {
+          currentState: current.state,
+        });
+      }
+      const occurredAt = this.clock.now().toISOString();
+      const revision = await client.query(
+        `UPDATE proposal_revision_request
+         SET state = 'in_progress', started_by_user_id = $3, started_at = $4
+         WHERE id = $1 AND proposal_id = $2 AND state = 'requested'
+           AND revision_deadline > $4::timestamptz`,
+        [body.revision_request_id, current.id, context.actorUserId, occurredAt],
+      );
+      if (revision.rowCount !== 1) {
+        throw new ApiProblem(409, "INVALID_STATE", "Revision request is unavailable or expired");
+      }
+      const versionNumber = Math.max(...current.versions.map((item) => item.version_number)) + 1;
+      const aggregateVersion = current.version + 1;
+      const versionId = parseProposalVersionId(this.ids.next("prv"));
+      await client.query(
+        `INSERT INTO proposal_version (
+           id, proposal_id, challenge_id, version_number, actor_user_id, content,
+           content_hash, changed_fields, base_version_id, created_at
+         ) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,'{}'::text[],$8,$9)`,
+        [
+          versionId,
+          current.id,
+          current.challenge_id,
+          versionNumber,
+          context.actorUserId,
+          JSON.stringify(current.content),
+          proposalContentHash(current.content),
+          current.current_version_id,
+          occurredAt,
+        ],
+      );
+      const update = await client.query(
+        `UPDATE proposal
+         SET current_version_id = $4, state = 'revision_draft',
+             lock_version = $5, updated_at = $6
+         WHERE tenant_id = $1 AND owner_workspace_id = $2 AND id = $3
+           AND lock_version = $7 AND state = 'revision_requested'`,
+        [
+          context.tenantId,
+          context.workspaceId,
+          current.id,
+          versionId,
+          aggregateVersion,
+          occurredAt,
+          current.version,
+        ],
+      );
+      if (update.rowCount !== 1) throw new Error("Revision draft aggregate update failed");
+      const resource = await this.findScoped(client, context, current.id, false);
+      if (!resource) throw new Error("Revision draft could not be read");
+      return this.record(
+        client,
+        resource,
+        context,
+        "proposal.revision.draft.created",
+        requestHash,
+        {
+          occurredAt,
+          nextActions: ["edit_revision", "resubmit"],
+          metadata: { revision_request_id: body.revision_request_id, draft_version_id: versionId },
+        },
+      );
+    });
+  }
+
+  async resubmit(
+    id: string,
+    body: ResubmitProposalBody,
+    context: ProposalCommandContext,
+  ): Promise<ProposalMutationOutcome> {
+    const requestHash = commandFingerprint({
+      action: "proposal.resubmit",
+      actorUserId: context.actorUserId,
+      workspaceId: context.workspaceId,
+      id,
+      body,
+    });
+    return this.unitOfWork.run(async () => {
+      const client = this.unitOfWork.currentClient();
+      await this.lockIdempotency(client, context);
+      const current = await this.findScoped(client, context, id, true);
+      if (!current) throw notFound();
+      if (!(await this.permitted(context, "submit-proposal", current.assigned_membership_ids))) {
+        throw notFound();
+      }
+      const replay = await this.replay(client, context, requestHash);
+      if (replay) return this.outcome(replay, true);
+      if (body.expected_version !== current.version) throw staleVersion(current.version);
+      if (current.state !== "revision_draft") {
+        throw new ApiProblem(409, "INVALID_STATE", "No active revision can be resubmitted", {
+          currentState: current.state,
+        });
+      }
+      const revision = await client.query<{
+        base_version_id: string;
+        revision_deadline: Date;
+        base_content: unknown;
+      }>(
+        `SELECT request.base_version_id, request.revision_deadline,
+                base_version.content AS base_content
+         FROM proposal_revision_request AS request
+         JOIN proposal_version AS base_version
+           ON base_version.id = request.base_version_id
+          AND base_version.proposal_id = request.proposal_id
+         WHERE request.id = $1 AND request.proposal_id = $2
+           AND request.state = 'in_progress'
+         FOR UPDATE OF request, base_version`,
+        [body.revision_request_id, current.id],
+      );
+      const request = revision.rows[0];
+      if (!request) throw notFound();
+      assertProposalContent(request.base_content);
+      const gate = await client.query<ResubmissionGateRow>(
+        `SELECT transaction_timestamp() AS server_now,
+                challenge.published_version_id AS challenge_version_id,
+                challenge.tenant_id AS organization_tenant_id,
+                challenge.workspace_id AS organization_workspace_id,
+                rule.nda_required
+         FROM challenge
+         JOIN eligibility_rule AS rule
+           ON rule.challenge_id = challenge.id
+          AND rule.challenge_version_id = challenge.published_version_id
+         WHERE challenge.id = $1 AND challenge.published_version_id IS NOT NULL
+         FOR UPDATE OF challenge, rule`,
+        [current.challenge_id],
+      );
+      const facts = gate.rows[0];
+      if (!facts) throw notFound();
+      const occurredAt = facts.server_now.toISOString();
+      if (request.revision_deadline.getTime() <= facts.server_now.getTime()) {
+        throw new ApiProblem(409, "INVALID_STATE", "The revision deadline has passed", {
+          recovery: "contact_organization",
+        });
+      }
+      if (body.accepted_challenge_version_id !== facts.challenge_version_id) {
+        throw new ApiProblem(409, "CONFLICT", "Accepted challenge terms are no longer current", {
+          recovery: "refresh_challenge_terms",
+        });
+      }
+      const readiness = proposalReadiness(current.content, current.version, {
+        ndaRequired: facts.nda_required,
+      });
+      if (!readiness.ready) {
+        throw new ApiProblem(422, "VALIDATION", "Proposal revision is not ready for resubmission", {
+          fields: readiness.issues,
+          recovery: "complete_proposal",
+        });
+      }
+      const versionNumber = Math.max(...current.versions.map((item) => item.version_number)) + 1;
+      const aggregateVersion = current.version + 1;
+      const versionId = parseProposalVersionId(this.ids.next("prv"));
+      const grantId = parseAccessGrantId(this.ids.next("agr"));
+      await client.query(
+        `INSERT INTO proposal_version (
+           id, proposal_id, challenge_id, version_number, actor_user_id, content,
+           content_hash, changed_fields, base_version_id,
+           accepted_challenge_version_id, locked_at, lock_reason, created_at
+         ) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8::text[],$9,$10,$11,'resubmission',$11)`,
+        [
+          versionId,
+          current.id,
+          current.challenge_id,
+          versionNumber,
+          context.actorUserId,
+          JSON.stringify(current.content),
+          proposalContentHash(current.content),
+          changedProposalFields(request.base_content, current.content),
+          current.current_version_id,
+          facts.challenge_version_id,
+          occurredAt,
+        ],
+      );
+      const update = await client.query(
+        `UPDATE proposal
+         SET current_version_id = $4, state = 'resubmitted', lock_version = $5,
+             submitted_at = $6, updated_at = $6
+         WHERE tenant_id = $1 AND owner_workspace_id = $2 AND id = $3
+           AND lock_version = $7 AND state = 'revision_draft'`,
+        [
+          context.tenantId,
+          context.workspaceId,
+          current.id,
+          versionId,
+          aggregateVersion,
+          occurredAt,
+          current.version,
+        ],
+      );
+      if (update.rowCount !== 1) throw new Error("Resubmission aggregate update failed");
+      await client.query(
+        `UPDATE proposal_revision_request
+         SET state = 'resubmitted', resubmitted_version_id = $3,
+             resubmitted_by_user_id = $4, resubmitted_at = $5
+         WHERE id = $1 AND proposal_id = $2 AND state = 'in_progress'`,
+        [body.revision_request_id, current.id, versionId, context.actorUserId, occurredAt],
+      );
+      const revoke = await client.query(
+        `UPDATE access_grant
+         SET state = 'revoked', revoked_at = $2, revoked_by_user_id = $3,
+             revocation_reason = 'Superseded by exact-version proposal resubmission'
+         WHERE resource_type = 'proposal' AND capability = 'read'
+           AND resource_id = $1 AND state = 'active'`,
+        [current.id, occurredAt, context.actorUserId],
+      );
+      if (revoke.rowCount !== 1) throw notFound();
+      await client.query(
+        `INSERT INTO access_grant (
+           id, grantor_tenant_id, grantor_workspace_id,
+           grantee_tenant_id, grantee_workspace_id,
+           resource_type, resource_id, capability, state,
+           valid_from, expires_at, created_by_user_id, created_at,
+           proposal_version_id
+         ) VALUES ($1,$2,$3,$4,$5,'proposal',$6,'read','active',$7,$8,$9,$7,$10)`,
+        [
+          grantId,
+          context.tenantId,
+          context.workspaceId,
+          facts.organization_tenant_id,
+          facts.organization_workspace_id,
+          current.id,
+          occurredAt,
+          new Date(facts.server_now.getTime() + C4_PROPOSAL_GRANT_DURATION_MS).toISOString(),
+          context.actorUserId,
+          versionId,
+        ],
+      );
+      const resource = await this.findScoped(client, context, current.id, false);
+      if (!resource) throw new Error("Resubmitted proposal could not be read");
+      return this.record(client, resource, context, "proposal.resubmitted", requestHash, {
+        occurredAt,
+        nextActions: ["await_review"],
+        metadata: {
+          revision_request_id: body.revision_request_id,
+          resubmitted_version_id: versionId,
+          grant_id: grantId,
+        },
+      });
+    });
+  }
+
   private async organizationInboxRows(
     scope: WorkspaceScope,
   ): Promise<OrganizationProposalInboxItemResource[]> {
@@ -985,7 +1693,13 @@ export class PostgresProposalAdapter implements ProposalPort {
         [scope.tenantId, scope.workspaceId, id],
       );
       const row = result.rows[0];
-      return row ? organizationProposalResource(row) : null;
+      return row
+        ? organizationProposalResource(
+            row,
+            await this.clarifications(this.unitOfWork.currentClient(), row.id),
+            await this.revisionRequests(this.unitOfWork.currentClient(), row.id),
+          )
+        : null;
     });
   }
 }

@@ -597,3 +597,229 @@ describe("C4 authoritative proposal submission", () => {
     expect(viewerDenied.json<ErrorEnvelope>().error.code).toBe("NOT_FOUND");
   });
 });
+
+describe("C5 bilateral proposal clarification and revision", () => {
+  let app: FastifyInstance;
+  let composition: DemoApiComposition;
+
+  beforeEach(() => {
+    composition = createDemoApiComposition({ mode: "demo", nodeEnv: "test", clock });
+    app = buildApi(composition.ports);
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it("runs the canonical flow and replaces the grant with the exact resubmitted version", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: apiRoutes.proposals,
+      headers: headers(demoApiCredentials.solver, "c5-create-0001"),
+      payload: {
+        expected_version: 0,
+        challenge_id: demoPublishedChallengeId,
+        draft: readyProposalDraft(),
+      },
+    });
+    const proposalId = created.json<MutationSuccessEnvelope>().data.entity_id;
+    await app.inject({
+      method: "POST",
+      url: apiRoutes.submitProposal.replace("{proposalId}", proposalId),
+      headers: headers(demoApiCredentials.solver, "c5-submit-0001"),
+      payload: {
+        expected_version: 1,
+        accepted_challenge_version_id: "chv_published_public_001",
+      },
+    });
+
+    const organizationCommand = async (
+      route: string,
+      key: string,
+      payload: Readonly<Record<string, unknown>>,
+    ) =>
+      app.inject({
+        method: "POST",
+        url: route.replace("{proposalId}", proposalId),
+        headers: headers(demoApiCredentials.foreignOwner, key),
+        payload,
+      });
+
+    expect(
+      (
+        await organizationCommand(
+          apiRoutes.startProposalEligibilityReview,
+          "c5-start-eligibility-0001",
+          { expected_version: 2 },
+        )
+      ).json<MutationSuccessEnvelope>().data.next_actions,
+    ).toEqual(["record_eligibility"]);
+    await organizationCommand(apiRoutes.decideProposalEligibility, "c5-decide-eligible-0001", {
+      expected_version: 3,
+      decision: "eligible",
+      reason: "The submitted workspace and call requirements match.",
+    });
+    await organizationCommand(
+      apiRoutes.requestProposalClarification,
+      "c5-request-clarification-0001",
+      {
+        expected_version: 4,
+        question: "Clarify the measurable baseline used by the pilot.",
+      },
+    );
+
+    let solver = await app.inject({
+      method: "GET",
+      url: apiRoutes.proposalById.replace("{proposalId}", proposalId),
+      headers: headers(demoApiCredentials.solver),
+    });
+    let proposal = solver.json<ProposalSuccessEnvelope>().data;
+    const clarificationId = proposal.clarifications[0]!.id;
+    expect(proposal).toMatchObject({ state: "clarification_requested", version: 5 });
+
+    const clarificationBody = {
+      expected_version: 5,
+      clarification_id: clarificationId,
+      response: "The baseline is the preceding 30-day normalized meter average.",
+    } as const;
+    const clarified = await app.inject({
+      method: "POST",
+      url: apiRoutes.submitProposalClarification.replace("{proposalId}", proposalId),
+      headers: headers(demoApiCredentials.solver, "c5-submit-clarification-0001"),
+      payload: clarificationBody,
+    });
+    expect(clarified.statusCode).toBe(200);
+    const clarificationReplay = await app.inject({
+      method: "POST",
+      url: apiRoutes.submitProposalClarification.replace("{proposalId}", proposalId),
+      headers: headers(demoApiCredentials.solver, "c5-submit-clarification-0001"),
+      payload: clarificationBody,
+    });
+    expect(clarificationReplay.json<MutationSuccessEnvelope>().data.idempotent).toBe(true);
+
+    await organizationCommand(
+      apiRoutes.resolveProposalClarification,
+      "c5-resolve-clarification-0001",
+      {
+        expected_version: 6,
+        clarification_id: clarificationId,
+        resolution: "Baseline explanation accepted for review.",
+      },
+    );
+    await organizationCommand(apiRoutes.requestProposalRevision, "c5-request-revision-0001", {
+      expected_version: 7,
+      scope: "Update the title and preserve the accepted baseline explanation.",
+      revision_deadline: "2026-09-10T09:00:00.000Z",
+    });
+
+    solver = await app.inject({
+      method: "GET",
+      url: apiRoutes.proposalById.replace("{proposalId}", proposalId),
+      headers: headers(demoApiCredentials.solver),
+    });
+    proposal = solver.json<ProposalSuccessEnvelope>().data;
+    const revisionRequestId = proposal.revision_requests[0]!.id;
+    const originalLockedVersionId = proposal.revision_requests[0]!.base_version_id;
+    expect(proposal).toMatchObject({ state: "revision_requested", version: 8 });
+
+    await app.inject({
+      method: "POST",
+      url: apiRoutes.startProposalRevision.replace("{proposalId}", proposalId),
+      headers: headers(demoApiCredentials.solver, "c5-start-revision-0001"),
+      payload: { expected_version: 8, revision_request_id: revisionRequestId },
+    });
+    await app.inject({
+      method: "PATCH",
+      url: apiRoutes.proposalById.replace("{proposalId}", proposalId),
+      headers: headers(demoApiCredentials.solver, "c5-edit-revision-0001"),
+      payload: {
+        expected_version: 9,
+        patch: { title: "پیشنهاد پایش و بهینه‌سازی هوشمند انرژی" },
+      },
+    });
+    const resubmitted = await app.inject({
+      method: "POST",
+      url: apiRoutes.resubmitProposal.replace("{proposalId}", proposalId),
+      headers: headers(demoApiCredentials.solver, "c5-resubmit-0001"),
+      payload: {
+        expected_version: 10,
+        revision_request_id: revisionRequestId,
+        accepted_challenge_version_id: "chv_published_public_001",
+      },
+    });
+    expect(resubmitted.statusCode).toBe(200);
+    expect(resubmitted.json<MutationSuccessEnvelope>().data.next_actions).toEqual(["await_review"]);
+
+    const organization = await app.inject({
+      method: "GET",
+      url: apiRoutes.organizationProposalById.replace("{proposalId}", proposalId),
+      headers: headers(demoApiCredentials.foreignOwner),
+    });
+    const resource = organization.json<OrganizationProposalSuccessEnvelope>().data;
+    expect(resource).toMatchObject({ state: "resubmitted" });
+    expect(resource.content.title).toBe("پیشنهاد پایش و بهینه‌سازی هوشمند انرژی");
+    expect(resource.submitted_version.id).not.toBe(originalLockedVersionId);
+    expect(resource.submitted_version.changed_fields).toContain("title");
+    expect(resource.clarifications[0]).toMatchObject({ state: "resolved" });
+    expect(resource.revision_requests[0]).toMatchObject({
+      state: "resubmitted",
+      base_version_id: originalLockedVersionId,
+      resubmitted_version_id: resource.submitted_version.id,
+    });
+
+    const snapshot = composition.proposals.snapshot();
+    expect(snapshot.grants.filter(({ state }) => state === "active")).toHaveLength(1);
+    expect(snapshot.grants.filter(({ state }) => state === "revoked")).toHaveLength(1);
+    expect(snapshot.outboxEvents.map(({ event_type }) => event_type)).toEqual([
+      "proposal.draft.created",
+      "proposal.submitted",
+      "proposal.eligibility.started",
+      "proposal.eligible",
+      "proposal.clarification.requested",
+      "proposal.clarification.submitted",
+      "proposal.review.started",
+      "proposal.revision.requested",
+      "proposal.revision.draft.created",
+      "proposal.draft.updated",
+      "proposal.resubmitted",
+    ]);
+  });
+
+  it("denies a different organization and rejects expired or stale revision commands", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: apiRoutes.proposals,
+      headers: headers(demoApiCredentials.solver, "c5-negative-create-0001"),
+      payload: {
+        expected_version: 0,
+        challenge_id: demoPublishedChallengeId,
+        draft: readyProposalDraft(),
+      },
+    });
+    const proposalId = created.json<MutationSuccessEnvelope>().data.entity_id;
+    await app.inject({
+      method: "POST",
+      url: apiRoutes.submitProposal.replace("{proposalId}", proposalId),
+      headers: headers(demoApiCredentials.solver, "c5-negative-submit-0001"),
+      payload: {
+        expected_version: 1,
+        accepted_challenge_version_id: "chv_published_public_001",
+      },
+    });
+    const wrongOrganization = await app.inject({
+      method: "POST",
+      url: apiRoutes.startProposalEligibilityReview.replace("{proposalId}", proposalId),
+      headers: headers(demoApiCredentials.owner, "c5-wrong-org-0001"),
+      payload: { expected_version: 2 },
+    });
+    expect(wrongOrganization.statusCode).toBe(404);
+
+    const stale = await app.inject({
+      method: "POST",
+      url: apiRoutes.startProposalEligibilityReview.replace("{proposalId}", proposalId),
+      headers: headers(demoApiCredentials.foreignOwner, "c5-stale-org-0001"),
+      payload: { expected_version: 1 },
+    });
+    expect(stale.statusCode).toBe(409);
+  });
+});

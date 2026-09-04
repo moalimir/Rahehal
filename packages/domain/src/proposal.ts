@@ -57,6 +57,15 @@ export const proposalOutboxEventTypes = [
   "proposal.draft.created",
   "proposal.draft.updated",
   "proposal.submitted",
+  "proposal.eligibility.started",
+  "proposal.eligible",
+  "proposal.ineligible",
+  "proposal.clarification.requested",
+  "proposal.clarification.submitted",
+  "proposal.review.started",
+  "proposal.revision.requested",
+  "proposal.revision.draft.created",
+  "proposal.resubmitted",
 ] as const;
 export type ProposalOutboxEventType = (typeof proposalOutboxEventTypes)[number];
 

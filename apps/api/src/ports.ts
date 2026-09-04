@@ -19,6 +19,14 @@ import type {
   EligibilityDecisionResource,
   PatchProposalBody,
   SubmitProposalBody,
+  StartProposalEligibilityReviewBody,
+  DecideProposalEligibilityBody,
+  RequestProposalClarificationBody,
+  SubmitProposalClarificationBody,
+  ResolveProposalClarificationBody,
+  RequestProposalRevisionBody,
+  StartProposalRevisionBody,
+  ResubmitProposalBody,
   ProposalNextAction,
   ProposalResource,
   OrganizationProposalInboxResource,
@@ -99,6 +107,8 @@ export type IdFactory = {
       | "tmr"
       | "prp"
       | "prv"
+      | "pcl"
+      | "prr"
       | "agr"
       | "wsp"
       | "mem"
@@ -472,6 +482,46 @@ export interface ProposalPort {
   submit(
     id: string,
     body: SubmitProposalBody,
+    context: ProposalCommandContext,
+  ): Promise<MutationOutcome<ProposalId, ProposalNextAction>>;
+  startEligibilityReview(
+    id: string,
+    body: StartProposalEligibilityReviewBody,
+    context: WorkspaceCommandContext,
+  ): Promise<MutationOutcome<ProposalId, ProposalNextAction>>;
+  decideEligibility(
+    id: string,
+    body: DecideProposalEligibilityBody,
+    context: WorkspaceCommandContext,
+  ): Promise<MutationOutcome<ProposalId, ProposalNextAction>>;
+  requestClarification(
+    id: string,
+    body: RequestProposalClarificationBody,
+    context: WorkspaceCommandContext,
+  ): Promise<MutationOutcome<ProposalId, ProposalNextAction>>;
+  submitClarification(
+    id: string,
+    body: SubmitProposalClarificationBody,
+    context: ProposalCommandContext,
+  ): Promise<MutationOutcome<ProposalId, ProposalNextAction>>;
+  resolveClarification(
+    id: string,
+    body: ResolveProposalClarificationBody,
+    context: WorkspaceCommandContext,
+  ): Promise<MutationOutcome<ProposalId, ProposalNextAction>>;
+  requestRevision(
+    id: string,
+    body: RequestProposalRevisionBody,
+    context: WorkspaceCommandContext,
+  ): Promise<MutationOutcome<ProposalId, ProposalNextAction>>;
+  startRevision(
+    id: string,
+    body: StartProposalRevisionBody,
+    context: ProposalCommandContext,
+  ): Promise<MutationOutcome<ProposalId, ProposalNextAction>>;
+  resubmit(
+    id: string,
+    body: ResubmitProposalBody,
     context: ProposalCommandContext,
   ): Promise<MutationOutcome<ProposalId, ProposalNextAction>>;
   listForOrganization(scope: WorkspaceScope): Promise<OrganizationProposalInboxResource>;

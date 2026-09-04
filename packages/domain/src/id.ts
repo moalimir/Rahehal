@@ -11,6 +11,8 @@ export const idPrefixes = {
   challengeApproval: "cap",
   proposal: "prp",
   proposalVersion: "prv",
+  proposalClarification: "pcl",
+  proposalRevisionRequest: "prr",
   accessGrant: "agr",
   verification: "ver",
   eligibilityGateAcceptance: "ega",
@@ -45,6 +47,8 @@ export type ChallengeVersionId = PrefixedId<"chv">;
 export type ChallengeApprovalId = PrefixedId<"cap">;
 export type ProposalId = PrefixedId<"prp">;
 export type ProposalVersionId = PrefixedId<"prv">;
+export type ProposalClarificationId = PrefixedId<"pcl">;
+export type ProposalRevisionRequestId = PrefixedId<"prr">;
 export type AccessGrantId = PrefixedId<"agr">;
 export type VerificationId = PrefixedId<"ver">;
 export type EligibilityGateAcceptanceId = PrefixedId<"ega">;
@@ -73,6 +77,8 @@ export type EntityId =
   | ChallengeApprovalId
   | ProposalId
   | ProposalVersionId
+  | ProposalClarificationId
+  | ProposalRevisionRequestId
   | AccessGrantId
   | VerificationId
   | EligibilityGateAcceptanceId
@@ -98,6 +104,8 @@ const entityIdPrefixes = [
   idPrefixes.challengeApproval,
   idPrefixes.proposal,
   idPrefixes.proposalVersion,
+  idPrefixes.proposalClarification,
+  idPrefixes.proposalRevisionRequest,
   idPrefixes.accessGrant,
   idPrefixes.verification,
   idPrefixes.eligibilityGateAcceptance,
@@ -184,6 +192,12 @@ export const parseChallengeVersionId = createIdentifierParser(idPrefixes.challen
 export const parseChallengeApprovalId = createIdentifierParser(idPrefixes.challengeApproval);
 export const parseProposalId = createIdentifierParser(idPrefixes.proposal);
 export const parseProposalVersionId = createIdentifierParser(idPrefixes.proposalVersion);
+export const parseProposalClarificationId = createIdentifierParser(
+  idPrefixes.proposalClarification,
+);
+export const parseProposalRevisionRequestId = createIdentifierParser(
+  idPrefixes.proposalRevisionRequest,
+);
 export const parseAccessGrantId = createIdentifierParser(idPrefixes.accessGrant);
 export const parseVerificationId = createIdentifierParser(idPrefixes.verification);
 export const parseEligibilityGateAcceptanceId = createIdentifierParser(

@@ -91,11 +91,13 @@ Migration `0015` lands C2. `team_workspace` is a one-to-one lifecycle/policy ext
 
 ## 5. Proposal aggregate (immutable versions)
 
-This section is present through migration `0016`: `0013` creates the proposal foundation, `0014` adds C1 solver facts, `0015` adds C2 team authority, and `0016` hardens locked submission plus version-bound organization grants. It is numbered above `0012` deliberately: the Phase-3 foundation was authored on its own branch while Phase 2's review closure was authored on `main`, and both claimed `0011`. The proposal foundation was renumbered on merge so the applied order reads in dependency order rather than showing a Phase-3 table created before a Phase-2 fix.
+This section is present through migration `0017`: `0013` creates the proposal foundation, `0014` adds C1 solver facts, `0015` adds C2 team authority, `0016` hardens locked submission plus version-bound organization grants, and `0017` adds C5 clarification/revision evidence. It is numbered above `0012` deliberately: the Phase-3 foundation was authored on its own branch while Phase 2's review closure was authored on `main`, and both claimed `0011`. The proposal foundation was renumbered on merge so the applied order reads in dependency order rather than showing a Phase-3 table created before a Phase-2 fix.
 
-Migration `0013` lands the Phase-3 foundation: `proposal` and `proposal_version`, in the A1c shape — a mutable aggregate carrying lifecycle state and an optimistic-concurrency counter, plus append-only versions holding content. A composite workspace foreign key limits ownership to `individual`/`team` solver workspaces, and an identity trigger makes tenant, owner, challenge, creator, and creation time immutable. The current-version pointer is mandatory, deferred, and checked against the latest gap-free version and aggregate lock version. C3 now exercises this foundation through scoped create/read/save adapters: create assigns the active team membership (or no membership for an individual), and every save inserts an unlocked exact-base version before atomically advancing the current pointer and lock version. `assigned_membership_ids` carries C2's proposal-assignment input; application commands validate the current active membership and canonical team policy on every read/write, including idempotent replay.
+Migration `0013` lands the Phase-3 foundation: `proposal` and `proposal_version`, in the A1c shape — a mutable aggregate carrying lifecycle state and an optimistic-concurrency counter, plus append-only versions holding content. A composite workspace foreign key limits ownership to `individual`/`team` solver workspaces, and an identity trigger makes tenant, owner, challenge, creator, and creation time immutable. The current-version pointer is mandatory, deferred, and checked against the latest gap-free content version. C5 separates the aggregate `lock_version` from `proposal_version.version_number`, because clarification/review transitions advance optimistic concurrency without fabricating content versions. C3 exercises the foundation through scoped create/read/save adapters: create assigns the active team membership (or no membership for an individual), and every save inserts an unlocked exact-base version before atomically advancing the current pointer and lock version. `assigned_membership_ids` carries C2's proposal-assignment input; application commands validate the current active membership and canonical team policy on every read/write, including idempotent replay.
 
 Migration `0016` adds C4's durable submission boundary. A proposal/read `access_grant` must cite one `proposal_version` belonging to its `resource_id`; the grant trigger binds the solver proposal owner as grantor, the challenge owner as grantee, and the exact current locked submission version as the shared resource. Those identity/binding/time fields cannot be rewritten, grant rows cannot be deleted, and terminal revoked/expired grants cannot be reactivated or altered. The proposal-version insert trigger additionally requires every later version to cite the exact current base, and every update/delete of version evidence now fails. Submission uses one transaction timestamp for live deadline/rule evaluation, version lock time, aggregate submit time, grant validity, receipt, audit, and outbox evidence. A data-bearing `0016` down/up cycle reconstructs the still-unambiguous C4 grant binding and advances the tracking sequence beyond retained codes. The initial operational grant expiry is 30 days; this is a narrow implementation default pending an explicit product retention/access-duration decision, not a platform policy.
+
+Migration `0017` adds append-only `proposal_clarification` and `proposal_revision_request` evidence with one-way requested/submitted/resolved and requested/in-progress/resubmitted progressions. Clarifications bind the exact locked version being questioned but never create a proposal-content version. A revision request binds the exact locked base and a server-enforced deadline; starting it appends an unlocked exact-base copy, edits remain gap-free, and resubmission appends a locked version whose `changed_fields` are computed against the requested locked base. Resubmission revokes the old version-bound grant and creates one active grant for the new locked version in the same transaction. The down migration refuses to discard existing C5 evidence.
 
 `content_hash` proves exact submitted content (FR-SOL-006). Every version after the first must cite a same-proposal `base_version_id`; locked versions also persist `accepted_challenge_version_id`, constrained to the same challenge. Locking succeeds only while B6's current call is open and unexpired and only for the current published challenge version, so a deadline race or later amendment cannot erase which terms were accepted. The one-active-proposal invariant remains a partial unique index excluding `withdrawn`. Content shape, integer-safe minor-unit money, assignment IDs, immutable ownership, exact accepted terms, version sequence, current pointer, and append-only locks have direct PostgreSQL negative tests.
 
@@ -138,6 +140,21 @@ CREATE TABLE proposal_version (
   UNIQUE (proposal_id, version_number)
 );
 -- Version rows are append-only; submission creates a new locked row rather than updating a draft row.
+
+CREATE TABLE proposal_clarification (
+  id text PRIMARY KEY, proposal_id text NOT NULL REFERENCES proposal(id),
+  proposal_version_id text NOT NULL REFERENCES proposal_version(id),
+  state text NOT NULL, question text NOT NULL, response text, resolution text,
+  requested_at timestamptz NOT NULL, submitted_at timestamptz, resolved_at timestamptz
+);
+
+CREATE TABLE proposal_revision_request (
+  id text PRIMARY KEY, proposal_id text NOT NULL REFERENCES proposal(id),
+  base_version_id text NOT NULL REFERENCES proposal_version(id),
+  resubmitted_version_id text REFERENCES proposal_version(id),
+  state text NOT NULL, scope text NOT NULL, revision_deadline timestamptz NOT NULL,
+  requested_at timestamptz NOT NULL, started_at timestamptz, resubmitted_at timestamptz
+);
 ```
 
 ## 6. Rubric, review assignment, COI, review, decision

@@ -45,6 +45,14 @@ import {
   type LeaveTeamBody,
   type PatchProposalBody,
   type SubmitProposalBody,
+  type StartProposalEligibilityReviewBody,
+  type DecideProposalEligibilityBody,
+  type RequestProposalClarificationBody,
+  type SubmitProposalClarificationBody,
+  type ResolveProposalClarificationBody,
+  type RequestProposalRevisionBody,
+  type StartProposalRevisionBody,
+  type ResubmitProposalBody,
   type ProposalSuccessEnvelope,
   type OrganizationProposalInboxSuccessEnvelope,
   type OrganizationProposalSuccessEnvelope,
@@ -2532,6 +2540,117 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
     },
   );
 
+  app.post<{ Params: ProposalParams; Body: SubmitProposalClarificationBody }>(
+    fastifyProposalPath(apiRoutes.submitProposalClarification),
+    {
+      schema: {
+        params: apiSchemas.ProposalParams,
+        body: apiSchemas.SubmitProposalClarificationBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      return runSolverActorAction(
+        request,
+        ports,
+        session,
+        "proposal:submit-clarification",
+        "proposal",
+        request.params.proposalId,
+        async (access) =>
+          mutationSuccess(
+            await ports.proposals.submitClarification(request.params.proposalId, request.body, {
+              ...proposalScope(session, access),
+              ...command,
+            }),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.post<{ Params: ProposalParams; Body: StartProposalRevisionBody }>(
+    fastifyProposalPath(apiRoutes.startProposalRevision),
+    {
+      schema: {
+        params: apiSchemas.ProposalParams,
+        body: apiSchemas.StartProposalRevisionBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      return runSolverActorAction(
+        request,
+        ports,
+        session,
+        "proposal:start-revision",
+        "proposal",
+        request.params.proposalId,
+        async (access) =>
+          mutationSuccess(
+            await ports.proposals.startRevision(request.params.proposalId, request.body, {
+              ...proposalScope(session, access),
+              ...command,
+            }),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.post<{ Params: ProposalParams; Body: ResubmitProposalBody }>(
+    fastifyProposalPath(apiRoutes.resubmitProposal),
+    {
+      schema: {
+        params: apiSchemas.ProposalParams,
+        body: apiSchemas.ResubmitProposalBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      return runSolverActorAction(
+        request,
+        ports,
+        session,
+        "proposal:resubmit",
+        "proposal",
+        request.params.proposalId,
+        async (access) =>
+          mutationSuccess(
+            await ports.proposals.resubmit(request.params.proposalId, request.body, {
+              ...proposalScope(session, access),
+              ...command,
+            }),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
   app.get(
     apiRoutes.organizationProposalInbox,
     {
@@ -2600,6 +2719,196 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
           if (!resource) throw notFound();
           return success(resource, request, ports);
         },
+        canReadChallenge,
+      );
+    },
+  );
+
+  app.post<{ Params: ProposalParams; Body: StartProposalEligibilityReviewBody }>(
+    fastifyProposalPath(apiRoutes.startProposalEligibilityReview),
+    {
+      schema: {
+        params: apiSchemas.ProposalParams,
+        body: apiSchemas.StartProposalEligibilityReviewBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      return runSolverActorAction(
+        request,
+        ports,
+        session,
+        "organization:proposal:start-eligibility-review",
+        "proposal",
+        request.params.proposalId,
+        async (access) =>
+          mutationSuccess(
+            await ports.proposals.startEligibilityReview(request.params.proposalId, request.body, {
+              ...challengeScope(session, access),
+              ...command,
+            }),
+            request,
+            ports,
+          ),
+        canReadChallenge,
+      );
+    },
+  );
+
+  app.post<{ Params: ProposalParams; Body: DecideProposalEligibilityBody }>(
+    fastifyProposalPath(apiRoutes.decideProposalEligibility),
+    {
+      schema: {
+        params: apiSchemas.ProposalParams,
+        body: apiSchemas.DecideProposalEligibilityBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      return runSolverActorAction(
+        request,
+        ports,
+        session,
+        "organization:proposal:decide-eligibility",
+        "proposal",
+        request.params.proposalId,
+        async (access) =>
+          mutationSuccess(
+            await ports.proposals.decideEligibility(request.params.proposalId, request.body, {
+              ...challengeScope(session, access),
+              ...command,
+            }),
+            request,
+            ports,
+          ),
+        canReadChallenge,
+      );
+    },
+  );
+
+  app.post<{ Params: ProposalParams; Body: RequestProposalClarificationBody }>(
+    fastifyProposalPath(apiRoutes.requestProposalClarification),
+    {
+      schema: {
+        params: apiSchemas.ProposalParams,
+        body: apiSchemas.RequestProposalClarificationBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      return runSolverActorAction(
+        request,
+        ports,
+        session,
+        "organization:proposal:request-clarification",
+        "proposal",
+        request.params.proposalId,
+        async (access) =>
+          mutationSuccess(
+            await ports.proposals.requestClarification(request.params.proposalId, request.body, {
+              ...challengeScope(session, access),
+              ...command,
+            }),
+            request,
+            ports,
+          ),
+        canReadChallenge,
+      );
+    },
+  );
+
+  app.post<{ Params: ProposalParams; Body: ResolveProposalClarificationBody }>(
+    fastifyProposalPath(apiRoutes.resolveProposalClarification),
+    {
+      schema: {
+        params: apiSchemas.ProposalParams,
+        body: apiSchemas.ResolveProposalClarificationBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      return runSolverActorAction(
+        request,
+        ports,
+        session,
+        "organization:proposal:resolve-clarification",
+        "proposal",
+        request.params.proposalId,
+        async (access) =>
+          mutationSuccess(
+            await ports.proposals.resolveClarification(request.params.proposalId, request.body, {
+              ...challengeScope(session, access),
+              ...command,
+            }),
+            request,
+            ports,
+          ),
+        canReadChallenge,
+      );
+    },
+  );
+
+  app.post<{ Params: ProposalParams; Body: RequestProposalRevisionBody }>(
+    fastifyProposalPath(apiRoutes.requestProposalRevision),
+    {
+      schema: {
+        params: apiSchemas.ProposalParams,
+        body: apiSchemas.RequestProposalRevisionBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      return runSolverActorAction(
+        request,
+        ports,
+        session,
+        "organization:proposal:request-revision",
+        "proposal",
+        request.params.proposalId,
+        async (access) =>
+          mutationSuccess(
+            await ports.proposals.requestRevision(request.params.proposalId, request.body, {
+              ...challengeScope(session, access),
+              ...command,
+            }),
+            request,
+            ports,
+          ),
         canReadChallenge,
       );
     },

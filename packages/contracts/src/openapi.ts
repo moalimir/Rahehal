@@ -107,6 +107,26 @@ const teamCommandOperation = (
   },
 });
 
+const proposalCommandOperation = (
+  operationId: string,
+  summary: string,
+  bodySchema: ApiSchemaName,
+) => ({
+  operationId,
+  tags: ["Proposal"],
+  summary,
+  security: [{ bearerAuth: [] }],
+  parameters: [workspaceHeader, idempotencyHeader, proposalIdParameter],
+  requestBody: { required: true, content: jsonContent(bodySchema) },
+  responses: {
+    "200": {
+      description: "The atomic proposal mutation receipt.",
+      content: jsonContent("MutationSuccessEnvelope"),
+    },
+    ...protectedCommandErrors,
+  },
+});
+
 const teamReadOperation = (
   operationId: string,
   summary: string,
@@ -933,6 +953,27 @@ export const openApiDocument = {
         },
       },
     },
+    [apiRoutes.submitProposalClarification]: {
+      post: proposalCommandOperation(
+        "submitProposalClarification",
+        "Submit one response to the organization's open clarification request",
+        "SubmitProposalClarificationBody",
+      ),
+    },
+    [apiRoutes.startProposalRevision]: {
+      post: proposalCommandOperation(
+        "startProposalRevision",
+        "Create an unlocked revision draft from the exact requested locked version",
+        "StartProposalRevisionBody",
+      ),
+    },
+    [apiRoutes.resubmitProposal]: {
+      post: proposalCommandOperation(
+        "resubmitProposal",
+        "Lock the completed revision and replace the organization grant with its exact version",
+        "ResubmitProposalBody",
+      ),
+    },
     [apiRoutes.organizationProposalInbox]: {
       get: {
         operationId: "listOrganizationProposalInbox",
@@ -967,6 +1008,41 @@ export const openApiDocument = {
           "503": protectedCommandErrors["503"],
         },
       },
+    },
+    [apiRoutes.startProposalEligibilityReview]: {
+      post: proposalCommandOperation(
+        "startProposalEligibilityReview",
+        "Move a newly submitted proposal into organization eligibility review",
+        "StartProposalEligibilityReviewBody",
+      ),
+    },
+    [apiRoutes.decideProposalEligibility]: {
+      post: proposalCommandOperation(
+        "decideProposalEligibility",
+        "Record the organization's reasoned eligibility decision",
+        "DecideProposalEligibilityBody",
+      ),
+    },
+    [apiRoutes.requestProposalClarification]: {
+      post: proposalCommandOperation(
+        "requestProposalClarification",
+        "Open a clarification request against the exact granted proposal version",
+        "RequestProposalClarificationBody",
+      ),
+    },
+    [apiRoutes.resolveProposalClarification]: {
+      post: proposalCommandOperation(
+        "resolveProposalClarification",
+        "Resolve the submitted clarification and begin proposal review",
+        "ResolveProposalClarificationBody",
+      ),
+    },
+    [apiRoutes.requestProposalRevision]: {
+      post: proposalCommandOperation(
+        "requestProposalRevision",
+        "Request a scoped revision of the exact locked proposal version",
+        "RequestProposalRevisionBody",
+      ),
     },
   },
   components: {

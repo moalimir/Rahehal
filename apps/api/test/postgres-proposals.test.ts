@@ -11,7 +11,7 @@ import {
   type WorkspaceRole,
 } from "@rahhal/domain";
 import { Client, Pool } from "pg";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { PostgresUnitOfWork } from "../src/postgres/unit-of-work.js";
 import { runMigrations } from "../src/postgres/migrations.js";
@@ -19,7 +19,12 @@ import { PostgresProposalAdapter } from "../src/postgres/proposals.js";
 import { seedSyntheticData } from "../src/postgres/seeds.js";
 import { PostgresTeamAdapter } from "../src/postgres/teams.js";
 import { MonotonicIdFactory } from "../src/primitives.js";
-import type { ProposalCommandContext, ProposalScope, WorkspaceScope } from "../src/ports.js";
+import type {
+  ProposalCommandContext,
+  ProposalScope,
+  WorkspaceCommandContext,
+  WorkspaceScope,
+} from "../src/ports.js";
 import { testDatabaseAdminUrl } from "./support/database.js";
 
 const adminUrl = testDatabaseAdminUrl();
@@ -112,6 +117,12 @@ const organizationScope: WorkspaceScope = {
   role: "org:owner",
   actorUserId: parseUserId("usr_owner_alpha"),
 };
+
+const organizationCommand = (key: string): WorkspaceCommandContext => ({
+  ...organizationScope,
+  idempotencyKey: key,
+  correlationId: parseCorrelationId(`cor_${key}`),
+});
 
 const readyProposalDraft = () => ({
   title: "Authoritative energy monitoring proposal",
@@ -734,7 +745,9 @@ describe("C4 PostgreSQL proposal submission", () => {
       ),
     ).rejects.toMatchObject({ code: "CONFLICT", options: { recovery: "refresh_challenge_terms" } });
 
-    await database.query("TRUNCATE access_grant, proposal_version, proposal");
+    await database.query(
+      "TRUNCATE proposal_clarification, proposal_revision_request, access_grant, proposal_version, proposal",
+    );
     const teamDraft = await createReady(teamOwner("c4-pg-create-team-0001"));
     await expect(
       proposals.submit(
@@ -769,7 +782,9 @@ describe("C4 PostgreSQL proposal submission", () => {
     );
     expect(counts.rows[0]).toEqual({ locked_versions: "1", grants: "1" });
 
-    await database.query("TRUNCATE access_grant, proposal_version, proposal");
+    await database.query(
+      "TRUNCATE proposal_clarification, proposal_revision_request, access_grant, proposal_version, proposal",
+    );
     const closeRace = await createReady(individual("c4-pg-create-close-race-0001"));
     const closeResults = await Promise.allSettled([
       proposals.submit(
@@ -886,7 +901,7 @@ describe("C4 PostgreSQL proposal submission", () => {
     ).rejects.toMatchObject({ code: "55000" });
   });
 
-  it("preserves submitted grant bindings and tracking uniqueness across a C4 down/up cycle", async () => {
+  it("preserves submitted grant bindings across a C5 then C4 down/up cycle", async () => {
     const created = await createReady(individual("c4-pg-create-migration-cycle-0001"));
     await proposals.submit(
       created.receipt.entity_id,
@@ -903,9 +918,15 @@ describe("C4 PostgreSQL proposal submission", () => {
     if (!before?.tracking_code) throw new Error("Expected the first submitted tracking code.");
 
     expect((await runMigrations(database, "down")).applied).toEqual([
+      "0017_c5_proposal_clarification_revision",
+    ]);
+    expect((await runMigrations(database, "down")).applied).toEqual([
       "0016_c4_proposal_submission",
     ]);
-    expect((await runMigrations(database, "up")).applied).toEqual(["0016_c4_proposal_submission"]);
+    expect((await runMigrations(database, "up")).applied).toEqual([
+      "0016_c4_proposal_submission",
+      "0017_c5_proposal_clarification_revision",
+    ]);
 
     const restored = await database.query(
       `SELECT grant_row.proposal_version_id, proposal.current_version_id
@@ -986,5 +1007,224 @@ describe("C4 PostgreSQL proposal submission", () => {
       outbox: "0",
       idempotency: "0",
     });
+  });
+});
+
+describe("C5 PostgreSQL proposal clarification and revision", () => {
+  afterEach(async () => {
+    // C5's down migration intentionally refuses to discard immutable workflow
+    // evidence. Clear this describe's synthetic aggregates so the global
+    // migration-based reset can still exercise every down migration.
+    await database.query(
+      "TRUNCATE proposal_clarification, proposal_revision_request, access_grant, proposal_version, proposal",
+    );
+  });
+
+  async function createSubmitted(key: string) {
+    const created = await proposals.create(
+      { expected_version: 0, challenge_id: challengeId, draft: readyProposalDraft() },
+      individual(`${key}-create`),
+    );
+    await proposals.submit(
+      created.receipt.entity_id,
+      {
+        expected_version: 1,
+        accepted_challenge_version_id: parsePrefixedId("chv_synthetic_alpha_v1", "chv"),
+      },
+      individual(`${key}-submit`),
+    );
+    return created.receipt.entity_id;
+  }
+
+  it("persists controlled thread evidence and an exact-base resubmission atomically", async () => {
+    const proposalId = await createSubmitted("c5-pg-flow-0001");
+    await proposals.startEligibilityReview(
+      proposalId,
+      { expected_version: 2 },
+      organizationCommand("c5-pg-start-eligibility-0001"),
+    );
+    await proposals.decideEligibility(
+      proposalId,
+      {
+        expected_version: 3,
+        decision: "eligible",
+        reason: "Workspace and call requirements match.",
+      },
+      organizationCommand("c5-pg-decide-eligibility-0001"),
+    );
+    const requested = await proposals.requestClarification(
+      proposalId,
+      {
+        expected_version: 4,
+        question: "Explain the normalized pilot baseline.",
+      },
+      organizationCommand("c5-pg-request-clarification-0001"),
+    );
+    const requestReplay = await proposals.requestClarification(
+      proposalId,
+      {
+        expected_version: 4,
+        question: "Explain the normalized pilot baseline.",
+      },
+      organizationCommand("c5-pg-request-clarification-0001"),
+    );
+    expect(requestReplay).toEqual({
+      ...requested,
+      receipt: { ...requested.receipt, idempotent: true },
+    });
+
+    let current = await proposals.getScoped(individual("c5-pg-read-0001"), proposalId);
+    const clarificationId = current!.clarifications[0]!.id;
+    const submittedClarification = await proposals.submitClarification(
+      proposalId,
+      {
+        expected_version: 5,
+        clarification_id: clarificationId,
+        response: "The preceding normalized 30-day meter average is the baseline.",
+      },
+      individual("c5-pg-submit-clarification-0001"),
+    );
+    expect(submittedClarification.entityVersion).toBe(6);
+    await proposals.resolveClarification(
+      proposalId,
+      {
+        expected_version: 6,
+        clarification_id: clarificationId,
+        resolution: "Explanation accepted.",
+      },
+      organizationCommand("c5-pg-resolve-clarification-0001"),
+    );
+    await proposals.requestRevision(
+      proposalId,
+      {
+        expected_version: 7,
+        scope: "Update the title while preserving the baseline explanation.",
+        revision_deadline: "2026-09-10T09:00:00.000Z",
+      },
+      organizationCommand("c5-pg-request-revision-0001"),
+    );
+
+    current = await proposals.getScoped(individual("c5-pg-read-0002"), proposalId);
+    const revisionRequest = current!.revision_requests[0]!;
+    const originalLockedVersionId = revisionRequest.base_version_id;
+    await proposals.startRevision(
+      proposalId,
+      { expected_version: 8, revision_request_id: revisionRequest.id },
+      individual("c5-pg-start-revision-0001"),
+    );
+    await proposals.patch(
+      proposalId,
+      {
+        expected_version: 9,
+        patch: { title: "Authoritative optimized energy monitoring proposal" },
+      },
+      individual("c5-pg-edit-revision-0001"),
+    );
+    const resubmitted = await proposals.resubmit(
+      proposalId,
+      {
+        expected_version: 10,
+        revision_request_id: revisionRequest.id,
+        accepted_challenge_version_id: parsePrefixedId("chv_synthetic_alpha_v1", "chv"),
+      },
+      individual("c5-pg-resubmit-0001"),
+    );
+    expect(resubmitted).toMatchObject({
+      entityVersion: 11,
+      receipt: { next_actions: ["await_review"] },
+    });
+
+    current = await proposals.getScoped(individual("c5-pg-read-0003"), proposalId);
+    expect(current).toMatchObject({ state: "resubmitted", version: 11 });
+    expect(current!.versions.map(({ version_number }) => version_number)).toEqual([1, 2, 3, 4, 5]);
+    expect(current!.versions.at(-1)).toMatchObject({
+      base_version_id: current!.versions.at(-2)!.id,
+      accepted_challenge_version_id: "chv_synthetic_alpha_v1",
+      changed_fields: ["title"],
+      locked: true,
+    });
+    expect(current!.revision_requests[0]).toMatchObject({
+      state: "resubmitted",
+      base_version_id: originalLockedVersionId,
+      resubmitted_version_id: current!.current_version_id,
+    });
+    expect(current!.clarifications[0]).toMatchObject({ state: "resolved" });
+
+    const organization = await proposals.getForOrganization(organizationScope, proposalId);
+    expect(organization).toMatchObject({
+      state: "resubmitted",
+      content: { title: "Authoritative optimized energy monitoring proposal" },
+      submitted_version: { id: current!.current_version_id, changed_fields: ["title"] },
+    });
+    const evidence = await database.query(
+      `SELECT
+         (SELECT count(*) FROM proposal_clarification WHERE proposal_id = $1) AS clarifications,
+         (SELECT count(*) FROM proposal_revision_request WHERE proposal_id = $1) AS revisions,
+         (SELECT count(*) FROM access_grant WHERE resource_id = $1 AND state = 'active') AS active_grants,
+         (SELECT count(*) FROM access_grant WHERE resource_id = $1 AND state = 'revoked') AS revoked_grants,
+         (SELECT count(*) FROM outbox_event
+           WHERE aggregate_id = $1 AND event_type LIKE 'proposal.%') AS outbox`,
+      [proposalId],
+    );
+    expect(evidence.rows[0]).toEqual({
+      clarifications: "1",
+      revisions: "1",
+      active_grants: "1",
+      revoked_grants: "1",
+      outbox: "11",
+    });
+    await expect(
+      database.query("DELETE FROM proposal_clarification WHERE id = $1", [clarificationId]),
+    ).rejects.toMatchObject({ code: "55000" });
+  });
+
+  it("denies cross-organization commands and leaves failed transitions without evidence", async () => {
+    const proposalId = await createSubmitted("c5-pg-negative-0001");
+    await expect(
+      proposals.startEligibilityReview(
+        proposalId,
+        { expected_version: 2 },
+        {
+          tenantId: parseTenantId("ten_solver_alpha"),
+          workspaceId: individualWorkspaceId,
+          role: "individual",
+          actorUserId: parseUserId("usr_solver_alpha"),
+          idempotencyKey: "c5-pg-wrong-org-0001",
+          correlationId: parseCorrelationId("cor_c5-pg-wrong-org-0001"),
+        },
+      ),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      proposals.requestRevision(
+        proposalId,
+        {
+          expected_version: 2,
+          scope: "Expired request must not persist.",
+          revision_deadline: "2026-09-03T08:59:59.000Z",
+        },
+        organizationCommand("c5-pg-invalid-state-revision-0001"),
+      ),
+    ).rejects.toMatchObject({ code: "INVALID_STATE" });
+    await database.query(
+      `UPDATE access_grant
+       SET state = 'revoked', revoked_at = clock_timestamp(),
+           revoked_by_user_id = 'usr_owner_alpha', revocation_reason = 'Synthetic C5 revocation'
+       WHERE resource_id = $1 AND state = 'active'`,
+      [proposalId],
+    );
+    await expect(
+      proposals.startEligibilityReview(
+        proposalId,
+        { expected_version: 2 },
+        organizationCommand("c5-pg-revoked-grant-0001"),
+      ),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    const counts = await database.query(
+      `SELECT
+         (SELECT state FROM proposal WHERE id = $1) AS state,
+         (SELECT count(*) FROM proposal_revision_request WHERE proposal_id = $1) AS revisions`,
+      [proposalId],
+    );
+    expect(counts.rows[0]).toEqual({ state: "submitted", revisions: "0" });
   });
 });

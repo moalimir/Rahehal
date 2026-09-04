@@ -531,6 +531,60 @@ const proposalVersionSchema = {
   },
 } as const;
 
+const proposalClarificationSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "proposal_version_id",
+    "state",
+    "question",
+    "response",
+    "resolution",
+    "requested_at",
+    "submitted_at",
+    "resolved_at",
+  ],
+  properties: {
+    id: idSchema("pcl"),
+    proposal_version_id: idSchema("prv"),
+    state: { type: "string", enum: ["requested", "submitted", "resolved"] },
+    question: { type: "string", minLength: 1, maxLength: 10_000 },
+    response: { type: ["string", "null"], minLength: 1, maxLength: 20_000 },
+    resolution: { type: ["string", "null"], minLength: 1, maxLength: 10_000 },
+    requested_at: dateTimeSchema,
+    submitted_at: nullableDateTimeSchema,
+    resolved_at: nullableDateTimeSchema,
+  },
+} as const;
+
+const proposalRevisionRequestSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "base_version_id",
+    "resubmitted_version_id",
+    "state",
+    "scope",
+    "revision_deadline",
+    "requested_at",
+    "started_at",
+    "resubmitted_at",
+  ],
+  properties: {
+    id: idSchema("prr"),
+    base_version_id: idSchema("prv"),
+    resubmitted_version_id: { oneOf: [idSchema("prv"), { type: "null" }] },
+    state: { type: "string", enum: ["requested", "in_progress", "resubmitted"] },
+    scope: { type: "string", minLength: 1, maxLength: 10_000 },
+    revision_deadline: dateTimeSchema,
+    requested_at: dateTimeSchema,
+    started_at: nullableDateTimeSchema,
+    resubmitted_at: nullableDateTimeSchema,
+  },
+} as const;
+
 const proposalResourceSchema = {
   type: "object",
   additionalProperties: false,
@@ -548,6 +602,8 @@ const proposalResourceSchema = {
     "readiness",
     "content",
     "versions",
+    "clarifications",
+    "revision_requests",
     "submitted_at",
     "created_by",
     "created_at",
@@ -571,6 +627,8 @@ const proposalResourceSchema = {
     readiness: proposalReadinessSchema,
     content: proposalContentSchema,
     versions: { type: "array", minItems: 1, items: proposalVersionSchema },
+    clarifications: { type: "array", items: proposalClarificationSchema },
+    revision_requests: { type: "array", items: proposalRevisionRequestSchema },
     submitted_at: nullableDateTimeSchema,
     created_by: idSchema("usr"),
     created_at: dateTimeSchema,
@@ -630,10 +688,17 @@ const organizationProposalInboxItemSchema = {
 
 const organizationProposalResourceSchema = {
   ...organizationProposalInboxItemSchema,
-  required: [...organizationProposalInboxItemSchema.required, "content"],
+  required: [
+    ...organizationProposalInboxItemSchema.required,
+    "content",
+    "clarifications",
+    "revision_requests",
+  ],
   properties: {
     ...organizationProposalInboxItemSchema.properties,
     content: proposalContentSchema,
+    clarifications: { type: "array", items: proposalClarificationSchema },
+    revision_requests: { type: "array", items: proposalRevisionRequestSchema },
   },
 } as const;
 
@@ -1839,6 +1904,8 @@ export const apiSchemas = {
   ProposalContentPatch: proposalContentPatchSchema,
   ProposalReadiness: proposalReadinessSchema,
   ProposalVersion: proposalVersionSchema,
+  ProposalClarification: proposalClarificationSchema,
+  ProposalRevisionRequest: proposalRevisionRequestSchema,
   Proposal: proposalResourceSchema,
   ProposalSuccessEnvelope: successEnvelopeFor(proposalResourceSchema, true),
   OrganizationProposalVersion: organizationProposalVersionSchema,
@@ -1877,6 +1944,97 @@ export const apiSchemas = {
       reason: { type: "string", minLength: 1, maxLength: 2_000 },
       step_up_token: { type: "string", minLength: 1, maxLength: 4_096 },
       accepted_challenge_version_id: idSchema("chv"),
+    },
+  },
+  StartProposalEligibilityReviewBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version"],
+    properties: {
+      expected_version: { type: "integer", minimum: 1 },
+      reason: { type: "string", minLength: 1, maxLength: 2_000 },
+      step_up_token: { type: "string", minLength: 1, maxLength: 4_096 },
+    },
+  },
+  DecideProposalEligibilityBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "decision", "reason"],
+    properties: {
+      expected_version: { type: "integer", minimum: 1 },
+      decision: { type: "string", enum: ["eligible", "ineligible"] },
+      reason: { type: "string", minLength: 1, maxLength: 10_000 },
+      step_up_token: { type: "string", minLength: 1, maxLength: 4_096 },
+    },
+  },
+  RequestProposalClarificationBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "question"],
+    properties: {
+      expected_version: { type: "integer", minimum: 1 },
+      question: { type: "string", minLength: 1, maxLength: 10_000 },
+      reason: { type: "string", minLength: 1, maxLength: 2_000 },
+      step_up_token: { type: "string", minLength: 1, maxLength: 4_096 },
+    },
+  },
+  SubmitProposalClarificationBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "clarification_id", "response"],
+    properties: {
+      expected_version: { type: "integer", minimum: 1 },
+      clarification_id: idSchema("pcl"),
+      response: { type: "string", minLength: 1, maxLength: 20_000 },
+      reason: { type: "string", minLength: 1, maxLength: 2_000 },
+      step_up_token: { type: "string", minLength: 1, maxLength: 4_096 },
+    },
+  },
+  ResolveProposalClarificationBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "clarification_id", "resolution"],
+    properties: {
+      expected_version: { type: "integer", minimum: 1 },
+      clarification_id: idSchema("pcl"),
+      resolution: { type: "string", minLength: 1, maxLength: 10_000 },
+      reason: { type: "string", minLength: 1, maxLength: 2_000 },
+      step_up_token: { type: "string", minLength: 1, maxLength: 4_096 },
+    },
+  },
+  RequestProposalRevisionBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "scope", "revision_deadline"],
+    properties: {
+      expected_version: { type: "integer", minimum: 1 },
+      scope: { type: "string", minLength: 1, maxLength: 10_000 },
+      revision_deadline: dateTimeSchema,
+      reason: { type: "string", minLength: 1, maxLength: 2_000 },
+      step_up_token: { type: "string", minLength: 1, maxLength: 4_096 },
+    },
+  },
+  StartProposalRevisionBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "revision_request_id"],
+    properties: {
+      expected_version: { type: "integer", minimum: 1 },
+      revision_request_id: idSchema("prr"),
+      reason: { type: "string", minLength: 1, maxLength: 2_000 },
+      step_up_token: { type: "string", minLength: 1, maxLength: 4_096 },
+    },
+  },
+  ResubmitProposalBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "accepted_challenge_version_id", "revision_request_id"],
+    properties: {
+      expected_version: { type: "integer", minimum: 1 },
+      accepted_challenge_version_id: idSchema("chv"),
+      revision_request_id: idSchema("prr"),
+      reason: { type: "string", minLength: 1, maxLength: 2_000 },
+      step_up_token: { type: "string", minLength: 1, maxLength: 4_096 },
     },
   },
   ProposalParams: {

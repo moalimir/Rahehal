@@ -58,9 +58,12 @@ beforeAll(async () => {
     "0014_c1_solver_profile_eligibility",
     "0015_c2_team_lifecycle",
     "0016_c4_proposal_submission",
+    "0017_c5_proposal_clarification_revision",
   ]);
 
   // Newest first.
+  const c5Down = await runMigrations(database, "down");
+  expect(c5Down.applied).toEqual(["0017_c5_proposal_clarification_revision"]);
   const c4Down = await runMigrations(database, "down");
   expect(c4Down.applied).toEqual(["0016_c4_proposal_submission"]);
   const c2Down = await runMigrations(database, "down");
@@ -120,6 +123,7 @@ beforeAll(async () => {
     "0014_c1_solver_profile_eligibility",
     "0015_c2_team_lifecycle",
     "0016_c4_proposal_submission",
+    "0017_c5_proposal_clarification_revision",
   ]);
   const noOpUp = await runMigrations(database, "up");
   expect(noOpUp.applied).toEqual([]);
@@ -161,6 +165,8 @@ describe("A1a PostgreSQL foundation", () => {
       "oidc_authorization_attempt",
       "outbox_event",
       "proposal",
+      "proposal_clarification",
+      "proposal_revision_request",
       "proposal_version",
       "schema_migration",
       "solver_workspace_profile",
@@ -238,6 +244,10 @@ describe("A1a PostgreSQL foundation", () => {
       },
       {
         id: "0016_c4_proposal_submission",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+      {
+        id: "0017_c5_proposal_clarification_revision",
         checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
       },
     ]);
@@ -519,6 +529,8 @@ describe("A1a PostgreSQL foundation", () => {
   });
 
   it("fails the A1b migration atomically for an orphaned existing session", async () => {
+    const c5Down = await runMigrations(database, "down");
+    expect(c5Down.applied).toEqual(["0017_c5_proposal_clarification_revision"]);
     const c4Down = await runMigrations(database, "down");
     expect(c4Down.applied).toEqual(["0016_c4_proposal_submission"]);
     const c2Down = await runMigrations(database, "down");
@@ -606,6 +618,7 @@ describe("A1a PostgreSQL foundation", () => {
       "0014_c1_solver_profile_eligibility",
       "0015_c2_team_lifecycle",
       "0016_c4_proposal_submission",
+      "0017_c5_proposal_clarification_revision",
     ]);
   });
 });

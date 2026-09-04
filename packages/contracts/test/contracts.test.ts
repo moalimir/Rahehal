@@ -16,6 +16,7 @@ import {
   type CreateProposalBody,
   type PatchProposalBody,
   type SubmitProposalBody,
+  type ResubmitProposalBody,
   type SessionExchangeBody,
   type SuccessEnvelope,
 } from "../src/index.js";
@@ -54,6 +55,9 @@ describe("authoritative API contracts", () => {
     expect(apiSchemas.CreateProposalBody.required).toContain("expected_version");
     expect(apiSchemas.PatchProposalBody.required).toContain("expected_version");
     expect(apiSchemas.SubmitProposalBody.required).toContain("expected_version");
+    expect(apiSchemas.SubmitProposalClarificationBody.required).toContain("expected_version");
+    expect(apiSchemas.RequestProposalRevisionBody.required).toContain("expected_version");
+    expect(apiSchemas.ResubmitProposalBody.required).toContain("expected_version");
 
     expectTypeOf<CreateChallengeBody["expected_version"]>().toEqualTypeOf<0>();
     expectTypeOf<PatchChallengeBody["expected_version"]>().toEqualTypeOf<number>();
@@ -62,6 +66,7 @@ describe("authoritative API contracts", () => {
     expectTypeOf<CreateProposalBody["expected_version"]>().toEqualTypeOf<0>();
     expectTypeOf<PatchProposalBody["expected_version"]>().toEqualTypeOf<number>();
     expectTypeOf<SubmitProposalBody["expected_version"]>().toEqualTypeOf<number>();
+    expectTypeOf<ResubmitProposalBody["expected_version"]>().toEqualTypeOf<number>();
   });
 
   it("defines the complete canonical mutation receipt", () => {
@@ -121,8 +126,16 @@ describe("authoritative API contracts", () => {
         apiRoutes.proposals,
         apiRoutes.proposalById,
         apiRoutes.submitProposal,
+        apiRoutes.submitProposalClarification,
+        apiRoutes.startProposalRevision,
+        apiRoutes.resubmitProposal,
         apiRoutes.organizationProposalInbox,
         apiRoutes.organizationProposalById,
+        apiRoutes.startProposalEligibilityReview,
+        apiRoutes.decideProposalEligibility,
+        apiRoutes.requestProposalClarification,
+        apiRoutes.resolveProposalClarification,
+        apiRoutes.requestProposalRevision,
       ]),
     );
 
@@ -211,6 +224,50 @@ describe("authoritative API contracts", () => {
     expect(apiSchemas.OrganizationProposalVersion.properties).not.toHaveProperty(
       "submitted_by_user_id",
     );
+  });
+
+  it("publishes C5's bilateral clarification and exact-version revision commands", () => {
+    expect(openApiDocument.paths[apiRoutes.startProposalEligibilityReview].post.operationId).toBe(
+      "startProposalEligibilityReview",
+    );
+    expect(openApiDocument.paths[apiRoutes.decideProposalEligibility].post.operationId).toBe(
+      "decideProposalEligibility",
+    );
+    expect(openApiDocument.paths[apiRoutes.requestProposalClarification].post.operationId).toBe(
+      "requestProposalClarification",
+    );
+    expect(openApiDocument.paths[apiRoutes.submitProposalClarification].post.operationId).toBe(
+      "submitProposalClarification",
+    );
+    expect(openApiDocument.paths[apiRoutes.resolveProposalClarification].post.operationId).toBe(
+      "resolveProposalClarification",
+    );
+    expect(openApiDocument.paths[apiRoutes.requestProposalRevision].post.operationId).toBe(
+      "requestProposalRevision",
+    );
+    expect(openApiDocument.paths[apiRoutes.startProposalRevision].post.operationId).toBe(
+      "startProposalRevision",
+    );
+    expect(openApiDocument.paths[apiRoutes.resubmitProposal].post.operationId).toBe(
+      "resubmitProposal",
+    );
+    expect(apiSchemas.Proposal.required).toEqual(
+      expect.arrayContaining(["clarifications", "revision_requests"]),
+    );
+    expect(apiSchemas.OrganizationProposal.required).toEqual(
+      expect.arrayContaining(["clarifications", "revision_requests"]),
+    );
+    expect(apiSchemas.ProposalClarification.properties.id).toMatchObject({
+      pattern: expect.stringContaining("pcl_"),
+    });
+    expect(apiSchemas.ProposalRevisionRequest.properties.id).toMatchObject({
+      pattern: expect.stringContaining("prr_"),
+    });
+    expect(apiSchemas.ResubmitProposalBody.required).toEqual([
+      "expected_version",
+      "accepted_challenge_version_id",
+      "revision_request_id",
+    ]);
   });
 
   it("keeps the platform approval brief structurally narrower than the org aggregate", () => {

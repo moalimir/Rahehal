@@ -384,11 +384,20 @@ describe("C1 proposal eligibility", () => {
 });
 
 describe("Phase 3 proposal lifecycle", () => {
-  it("limits the C4 worker allowlist to metadata-only proposal persistence facts", () => {
+  it("limits the C5 worker allowlist to canonical metadata-only proposal facts", () => {
     expect(proposalOutboxEventTypes).toEqual([
       "proposal.draft.created",
       "proposal.draft.updated",
       "proposal.submitted",
+      "proposal.eligibility.started",
+      "proposal.eligible",
+      "proposal.ineligible",
+      "proposal.clarification.requested",
+      "proposal.clarification.submitted",
+      "proposal.review.started",
+      "proposal.revision.requested",
+      "proposal.revision.draft.created",
+      "proposal.resubmitted",
     ]);
   });
 

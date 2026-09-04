@@ -9,6 +9,8 @@ import type {
   FileId,
   MembershipId,
   ProposalId,
+  ProposalClarificationId,
+  ProposalRevisionRequestId,
   ProposalState,
   ProposalVersionId,
   TenantId,
@@ -92,6 +94,8 @@ export type ProposalResource = {
   readonly readiness: ProposalReadinessResource;
   readonly content: ProposalContentResource;
   readonly versions: readonly ProposalVersionResource[];
+  readonly clarifications: readonly ProposalClarificationResource[];
+  readonly revision_requests: readonly ProposalRevisionRequestResource[];
   readonly submitted_at: string | null;
   readonly created_by: UserId;
   readonly created_at: string;
@@ -117,7 +121,77 @@ export type SubmitProposalBody = VersionedCommand & {
   readonly accepted_challenge_version_id: ChallengeVersionId;
 };
 
-export type ProposalNextAction = "edit" | "submit" | "await_eligibility";
+export type StartProposalEligibilityReviewBody = VersionedCommand;
+
+export type DecideProposalEligibilityBody = VersionedCommand & {
+  readonly decision: "eligible" | "ineligible";
+  readonly reason: string;
+};
+
+export type RequestProposalClarificationBody = VersionedCommand & {
+  readonly question: string;
+};
+
+export type SubmitProposalClarificationBody = VersionedCommand & {
+  readonly clarification_id: ProposalClarificationId;
+  readonly response: string;
+};
+
+export type ResolveProposalClarificationBody = VersionedCommand & {
+  readonly clarification_id: ProposalClarificationId;
+  readonly resolution: string;
+};
+
+export type RequestProposalRevisionBody = VersionedCommand & {
+  readonly scope: string;
+  readonly revision_deadline: string;
+};
+
+export type StartProposalRevisionBody = VersionedCommand & {
+  readonly revision_request_id: ProposalRevisionRequestId;
+};
+
+export type ResubmitProposalBody = SubmitProposalBody & {
+  readonly revision_request_id: ProposalRevisionRequestId;
+};
+
+export type ProposalNextAction =
+  | "edit"
+  | "submit"
+  | "await_eligibility"
+  | "record_eligibility"
+  | "request_clarification"
+  | "respond_to_clarification"
+  | "resolve_clarification"
+  | "request_revision"
+  | "start_revision"
+  | "edit_revision"
+  | "resubmit"
+  | "await_review";
+
+export type ProposalClarificationResource = {
+  readonly id: ProposalClarificationId;
+  readonly proposal_version_id: ProposalVersionId;
+  readonly state: "requested" | "submitted" | "resolved";
+  readonly question: string;
+  readonly response: string | null;
+  readonly resolution: string | null;
+  readonly requested_at: string;
+  readonly submitted_at: string | null;
+  readonly resolved_at: string | null;
+};
+
+export type ProposalRevisionRequestResource = {
+  readonly id: ProposalRevisionRequestId;
+  readonly base_version_id: ProposalVersionId;
+  readonly resubmitted_version_id: ProposalVersionId | null;
+  readonly state: "requested" | "in_progress" | "resubmitted";
+  readonly scope: string;
+  readonly revision_deadline: string;
+  readonly requested_at: string;
+  readonly started_at: string | null;
+  readonly resubmitted_at: string | null;
+};
 
 export type OrganizationProposalVersionResource = {
   readonly id: ProposalVersionId;
@@ -142,6 +216,8 @@ export type OrganizationProposalInboxItemResource = {
 
 export type OrganizationProposalResource = OrganizationProposalInboxItemResource & {
   readonly content: ProposalContentResource;
+  readonly clarifications: readonly ProposalClarificationResource[];
+  readonly revision_requests: readonly ProposalRevisionRequestResource[];
 };
 
 export type OrganizationProposalInboxResource = {

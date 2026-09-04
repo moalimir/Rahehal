@@ -53,8 +53,17 @@ export const apiRoutes = {
   proposals: "/api/v1/proposals",
   proposalById: "/api/v1/proposals/{proposalId}",
   submitProposal: "/api/v1/proposals/{proposalId}:submit",
+  submitProposalClarification: "/api/v1/proposals/{proposalId}:submit-clarification",
+  startProposalRevision: "/api/v1/proposals/{proposalId}:start-revision",
+  resubmitProposal: "/api/v1/proposals/{proposalId}:resubmit",
   organizationProposalInbox: "/api/v1/organization/proposals",
   organizationProposalById: "/api/v1/organization/proposals/{proposalId}",
+  startProposalEligibilityReview:
+    "/api/v1/organization/proposals/{proposalId}:start-eligibility-review",
+  decideProposalEligibility: "/api/v1/organization/proposals/{proposalId}:decide-eligibility",
+  requestProposalClarification: "/api/v1/organization/proposals/{proposalId}:request-clarification",
+  resolveProposalClarification: "/api/v1/organization/proposals/{proposalId}:resolve-clarification",
+  requestProposalRevision: "/api/v1/organization/proposals/{proposalId}:request-revision",
 } as const;
 
 /**
