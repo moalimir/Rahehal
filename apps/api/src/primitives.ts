@@ -15,14 +15,14 @@ export const systemClock: Clock = { now: () => new Date() };
 export class MonotonicIdFactory implements IdFactory {
   private sequence = 0;
 
-  next(prefix: "ses" | "chl" | "chv" | "cap" | "rcp" | "aud" | "cor" | "evt" | "oat") {
+  next(prefix: Parameters<IdFactory["next"]>[0]) {
     this.sequence += 1;
     return `${prefix}_${this.sequence.toString(36).padStart(8, "0")}`;
   }
 }
 
 export class RandomIdFactory implements IdFactory {
-  next(prefix: "ses" | "chl" | "chv" | "cap" | "rcp" | "aud" | "cor" | "evt" | "oat") {
+  next(prefix: Parameters<IdFactory["next"]>[0]) {
     return `${prefix}_${randomUUID().replaceAll("-", "")}`;
   }
 }

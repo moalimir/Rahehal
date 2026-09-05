@@ -1,4 +1,4 @@
-import type { ChallengeResource } from "@rahhal/contracts";
+import type { ChallengePublicProjectionResource, ChallengeResource } from "@rahhal/contracts";
 import {
   parseChallengeId,
   parseChallengeVersionId,
@@ -12,11 +12,19 @@ import {
   type User,
   type Workspace,
 } from "@rahhal/domain";
+import { InMemoryNotificationAdapter } from "./in-memory-notifications.js";
 import { InMemoryAccessDecisionAudit } from "./in-memory-audit.js";
 import { InMemoryChallengeRepository } from "./in-memory-challenges.js";
 import { InMemoryCriticalSection } from "./in-memory-critical-section.js";
 import { InMemoryIdentityAdapter } from "./in-memory-identity.js";
+import { InMemorySolverActivationAdapter } from "./in-memory-solver-activation.js";
+import { InMemoryOpportunityAdapter } from "./in-memory-opportunities.js";
+import { InMemoryProposalAdapter } from "./in-memory-proposals.js";
+import { InMemorySolverWorkspaceAdapter } from "./in-memory-solver-workspaces.js";
+import { InMemoryTeamAdapter } from "./in-memory-teams.js";
 import { MonotonicIdFactory, systemClock } from "./primitives.js";
+import { DevelopmentContactVerificationAdapter } from "./development-contact-verification.js";
+import { HmacSessionCredentialIssuer } from "./session-credentials.js";
 import type { ApiPorts, Clock, DemoIdentitySeed, IdFactory } from "./ports.js";
 
 export const demoApiCredentials = {
@@ -62,6 +70,30 @@ export const demoApiCredentials = {
     workspaceId: parseWorkspaceId("wsp_platform_main"),
     sessionId: parseSessionId("ses_platform_legal"),
   },
+  solver: {
+    accessToken: "demo-access-solver-individual-01",
+    refreshToken: "demo-refresh-solver-individual-01",
+    workspaceId: parseWorkspaceId("wsp_solver_individual"),
+    sessionId: parseSessionId("ses_solver_individual"),
+  },
+  solverTeam: {
+    accessToken: "demo-access-solver-team-000001",
+    refreshToken: "demo-refresh-solver-team-000001",
+    workspaceId: parseWorkspaceId("wsp_solver_team"),
+    sessionId: parseSessionId("ses_solver_team"),
+  },
+  solverTeamViewer: {
+    accessToken: "demo-access-solver-team-viewer-01",
+    refreshToken: "demo-refresh-solver-team-viewer-01",
+    workspaceId: parseWorkspaceId("wsp_solver_team"),
+    sessionId: parseSessionId("ses_solver_team_viewer"),
+  },
+  solverCandidate: {
+    accessToken: "demo-access-solver-candidate-001",
+    refreshToken: "demo-refresh-solver-candidate-001",
+    workspaceId: parseWorkspaceId("wsp_solver_candidate"),
+    sessionId: parseSessionId("ses_solver_candidate"),
+  },
   exchange: {
     authorizationCode: "demo-oidc-code-owner-alpha",
     codeVerifier: "demo-code-verifier-owner-alpha-00000000000000000000",
@@ -71,6 +103,102 @@ export const demoApiCredentials = {
 } as const;
 
 export const demoForeignChallengeId = parseChallengeId("chl_foreign_beta_001");
+export const demoPublishedChallengeId = parseChallengeId("chl_published_public_001");
+
+function demoPublicChallenge(now: string): ChallengePublicProjectionResource {
+  return {
+    challenge_id: demoPublishedChallengeId,
+    challenge_version_id: parseChallengeVersionId("chv_published_public_001"),
+    title: "چالش عمومی نمونه برای پیشنهاد",
+    category: "فناوری",
+    location: "تهران",
+    public_summary: "فراخوان عمومی نمونه برای ساخت و ذخیره پیش‌نویس پیشنهاد.",
+    output_type: "pilot",
+    sourcing_model: "public",
+    applicant_scope: "both",
+    allowed_applicant_types: ["individual", "expert-team"],
+    work_mode: "hybrid",
+    proposal_deadline: "2099-01-01T00:00:00.000Z",
+    preferred_start_date: null,
+    budget: { status: "undecided", amount_minor: null, currency: "IRR" },
+    visibility: "public",
+    verification_required: false,
+    nda_required: false,
+    document_gate_required: false,
+    ip_terms: "solver_license",
+    state: "open",
+    published_at: now,
+  };
+}
+
+function demoPublishedChallengeAggregate(now: string): ChallengeResource {
+  const projection = demoPublicChallenge(now);
+  return {
+    id: projection.challenge_id,
+    current_version_id: projection.challenge_version_id,
+    published_version_id: projection.challenge_version_id,
+    publication_state: "open",
+    proposal_deadline_at: projection.proposal_deadline,
+    tenant_id: parseTenantId("ten_beta_org"),
+    workspace_id: parseWorkspaceId("wsp_org_beta"),
+    stage: "published",
+    authoring_status: "ready",
+    version: 5,
+    content_version: 1,
+    readiness: { ready: true, evaluated_version: 5, issues: [] },
+    triage_readiness: { ready: true, evaluated_version: 5, issues: [] },
+    approvals: [],
+    publication_readiness: {
+      ready: true,
+      satisfied: ["technical", "legal", "finance", "quality"],
+      missing: [],
+    },
+    content: {
+      title: projection.title,
+      summary: "شرح محرمانه فراخوان نمونه برای آزمون ارسال پیشنهاد.",
+      category: projection.category,
+      location: projection.location,
+      desired_outcome: "دریافت راهکار قابل پایلوت",
+      current_state: "مصرف انرژی نیازمند پایش دقیق‌تر است.",
+      consequence: "هزینه و اتلاف انرژی افزایش می‌یابد.",
+      expected_output: "نمونه اولیه قابل ارزیابی",
+      success_criteria: [
+        {
+          id: "criterion-demo-c4",
+          title: "کاهش مصرف",
+          target: "۱۰ درصد",
+          method: "اندازه‌گیری کنتور",
+        },
+      ],
+      in_scope: "پایش و تحلیل مصرف",
+      constraints: "داده مصنوعی",
+      organization_support: "دسترسی به نمونه داده",
+      previous_attempts: "آزمون محدود دستی",
+      output_type: projection.output_type,
+      sourcing_model: projection.sourcing_model,
+      applicant_scope: projection.applicant_scope,
+      allowed_applicant_types: projection.allowed_applicant_types,
+      work_mode: projection.work_mode,
+      proposal_deadline: projection.proposal_deadline,
+      preferred_start_date: projection.preferred_start_date,
+      budget: projection.budget,
+      invitees: [],
+      visibility: projection.visibility,
+      public_summary: projection.public_summary,
+      verification_required: projection.verification_required,
+      nda_required: projection.nda_required,
+      document_gate_required: projection.document_gate_required,
+      ip_terms: projection.ip_terms,
+      contact: { name: "مسئول نمونه", email: "beta@example.test", phone: "+980000000000" },
+      accuracy_confirmed: true,
+      legal_notes: "",
+      attachment_ids: [],
+    },
+    created_by: parseUserId("usr_owner_beta"),
+    created_at: now,
+    updated_at: now,
+  };
+}
 
 function organizationWorkspace(
   id: "wsp_org_alpha" | "wsp_org_beta",
@@ -136,6 +264,46 @@ const platformWorkspace: Workspace = {
   tenantId: parseTenantId("ten_platform"),
   kind: "platform",
   name: "پلتفرم راه‌حل",
+};
+const solverUser: User = {
+  id: parseUserId("usr_solver_owner"),
+  displayName: "حل‌گر نمونه",
+  primaryEmail: "solver@example.test",
+  emailVerified: true,
+};
+const solverViewerUser: User = {
+  id: parseUserId("usr_solver_viewer"),
+  displayName: "مشاهده‌گر تیم نمونه",
+  primaryEmail: "solver-viewer@example.test",
+  emailVerified: true,
+};
+const solverCandidateUser: User = {
+  id: parseUserId("usr_solver_candidate"),
+  displayName: "حل‌گر متقاضی نمونه",
+  primaryEmail: "solver-candidate@example.test",
+  emailVerified: true,
+};
+const individualSolverWorkspace: Workspace = {
+  id: demoApiCredentials.solver.workspaceId,
+  tenantId: parseTenantId("ten_solver_individual"),
+  kind: "individual",
+  name: "فضای شخصی حل‌گر",
+  ownerUserId: solverUser.id,
+};
+const teamSolverWorkspace: Workspace = {
+  id: demoApiCredentials.solverTeam.workspaceId,
+  tenantId: parseTenantId("ten_solver_team"),
+  kind: "team",
+  name: "تیم تخصصی نمونه",
+  teamKind: "expert-team",
+  ownerUserId: solverUser.id,
+};
+const candidateSolverWorkspace: Workspace = {
+  id: demoApiCredentials.solverCandidate.workspaceId,
+  tenantId: parseTenantId("ten_solver_candidate"),
+  kind: "individual",
+  name: "فضای شخصی متقاضی",
+  ownerUserId: solverCandidateUser.id,
 };
 
 function membership(
@@ -273,6 +441,72 @@ function demoSeeds(now: string): readonly DemoIdentitySeed[] {
       accessToken: demoApiCredentials.platformLegal.accessToken,
       refreshToken: demoApiCredentials.platformLegal.refreshToken,
     },
+    {
+      user: solverUser,
+      workspace: individualSolverWorkspace,
+      membership: membership(
+        "mem_solver_individual",
+        solverUser,
+        individualSolverWorkspace,
+        "individual",
+        now,
+      ),
+      authorizationCode: "demo-oidc-code-solver-individual",
+      codeVerifier: "demo-code-verifier-solver-individual-000000000000000",
+      redirectUri: demoApiCredentials.exchange.redirectUri,
+      oidcState: "demo-state-solver-individual",
+      sessionId: demoApiCredentials.solver.sessionId,
+      accessToken: demoApiCredentials.solver.accessToken,
+      refreshToken: demoApiCredentials.solver.refreshToken,
+    },
+    {
+      user: solverUser,
+      workspace: teamSolverWorkspace,
+      membership: membership("mem_solver_team", solverUser, teamSolverWorkspace, "team:owner", now),
+      authorizationCode: "demo-oidc-code-solver-team",
+      codeVerifier: "demo-code-verifier-solver-team-0000000000000000000",
+      redirectUri: demoApiCredentials.exchange.redirectUri,
+      oidcState: "demo-state-solver-team",
+      sessionId: demoApiCredentials.solverTeam.sessionId,
+      accessToken: demoApiCredentials.solverTeam.accessToken,
+      refreshToken: demoApiCredentials.solverTeam.refreshToken,
+    },
+    {
+      user: solverViewerUser,
+      workspace: teamSolverWorkspace,
+      membership: membership(
+        "mem_solver_team_viewer",
+        solverViewerUser,
+        teamSolverWorkspace,
+        "team:viewer",
+        now,
+      ),
+      authorizationCode: "demo-oidc-code-solver-team-viewer",
+      codeVerifier: "demo-code-verifier-solver-team-viewer-00000000000000",
+      redirectUri: demoApiCredentials.exchange.redirectUri,
+      oidcState: "demo-state-solver-team-viewer",
+      sessionId: demoApiCredentials.solverTeamViewer.sessionId,
+      accessToken: demoApiCredentials.solverTeamViewer.accessToken,
+      refreshToken: demoApiCredentials.solverTeamViewer.refreshToken,
+    },
+    {
+      user: solverCandidateUser,
+      workspace: candidateSolverWorkspace,
+      membership: membership(
+        "mem_solver_candidate",
+        solverCandidateUser,
+        candidateSolverWorkspace,
+        "individual",
+        now,
+      ),
+      authorizationCode: "demo-oidc-code-solver-candidate",
+      codeVerifier: "demo-code-verifier-solver-candidate-000000000000000",
+      redirectUri: demoApiCredentials.exchange.redirectUri,
+      oidcState: "demo-state-solver-candidate",
+      sessionId: demoApiCredentials.solverCandidate.sessionId,
+      accessToken: demoApiCredentials.solverCandidate.accessToken,
+      refreshToken: demoApiCredentials.solverCandidate.refreshToken,
+    },
   ];
 }
 
@@ -343,6 +577,11 @@ export type DemoApiComposition = {
   readonly challenges: InMemoryChallengeRepository;
   readonly decisionAudit: InMemoryAccessDecisionAudit;
   readonly criticalSection: InMemoryCriticalSection;
+  readonly solverWorkspaces: InMemorySolverWorkspaceAdapter;
+  readonly teams: InMemoryTeamAdapter;
+  readonly proposals: InMemoryProposalAdapter;
+  readonly opportunities: InMemoryOpportunityAdapter;
+  readonly solverActivation: InMemorySolverActivationAdapter;
 };
 
 export function createDemoApiComposition(options: {
@@ -359,10 +598,12 @@ export function createDemoApiComposition(options: {
   }
   const clock = options.clock ?? systemClock;
   const ids = options.ids ?? new MonotonicIdFactory();
+  const notifications = new InMemoryNotificationAdapter(clock, ids);
   const decisionAudit = new InMemoryAccessDecisionAudit();
   const criticalSection = new InMemoryCriticalSection();
+  const seeds = demoSeeds(clock.now().toISOString());
   const identity = new InMemoryIdentityAdapter(
-    demoSeeds(clock.now().toISOString()),
+    seeds,
     clock,
     ids,
     decisionAudit,
@@ -371,24 +612,69 @@ export function createDemoApiComposition(options: {
   );
   const challenges = new InMemoryChallengeRepository(clock, ids);
   challenges.seed(foreignChallenge(clock.now().toISOString()));
+  challenges.seed(demoPublishedChallengeAggregate(clock.now().toISOString()));
+  challenges.seedPublicProjection(demoPublicChallenge(clock.now().toISOString()));
+  const solverWorkspaces = new InMemorySolverWorkspaceAdapter(seeds, challenges, clock, ids);
+  const contactVerification = new DevelopmentContactVerificationAdapter(
+    {
+      code: "12345",
+      flowSecret: "rahhal-demo-contact-verification-secret-0001",
+    },
+    clock,
+    ids,
+  );
+  const solverActivation = new InMemorySolverActivationAdapter(
+    contactVerification,
+    identity,
+    solverWorkspaces,
+    new HmacSessionCredentialIssuer("rahhal-demo-session-credential-secret-0001"),
+    criticalSection,
+    clock,
+    ids,
+  );
+  const teams = new InMemoryTeamAdapter(seeds, identity, solverWorkspaces, clock, ids);
+  const proposals = new InMemoryProposalAdapter(challenges, solverWorkspaces, teams, clock, ids);
+  const opportunities = new InMemoryOpportunityAdapter(
+    challenges,
+    solverWorkspaces,
+    teams,
+    clock,
+    ids,
+  );
+  solverWorkspaces.setChallengeReachResolver((workspaceId, challengeId) =>
+    opportunities.hasActiveChallengeGrant(workspaceId, challengeId),
+  );
   return {
     identity,
     challenges,
     decisionAudit,
     criticalSection,
+    solverWorkspaces,
+    teams,
+    proposals,
+    opportunities,
+    solverActivation,
     ports: {
       oidcAuthorization: {
         async start() {
           throw new Error("The demo API does not publish a real OIDC authorization flow");
         },
       },
+      contactVerification,
       sessions: identity,
+      solverActivation,
       workspaces: identity,
       authority: identity,
       challenges,
       // The in-memory repository owns the projection rows, so it serves the
       // public port too; the routes still only ever see `PublicChallengePort`.
       publicChallenges: challenges,
+      solverWorkspaces,
+      eligibility: solverWorkspaces,
+      teams,
+      proposals,
+      opportunities,
+      notifications,
       decisionAudit,
       clock,
       ids,

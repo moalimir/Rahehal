@@ -69,8 +69,6 @@ export function createAttachment(file: File): Attachment {
  * only because nothing ever applied the scale.
  *
  * All three supported currencies (IRR, USD, EUR) carry ISO 4217 exponent 2.
- * ponytail: single exponent — key it by currency if a 0- or 3-decimal
- * currency is ever added.
  */
 const minorUnitsPerMajor = 100;
 
@@ -121,7 +119,6 @@ export const publicationStateLabels: Record<ChallengePublicationState, string> =
  * Iran has held a fixed +03:30 offset with no DST since 2022, so the literal
  * offset below is safe for constructing an instant from a wall-clock input.
  * Reads go through `Intl` with the IANA zone, which stays correct regardless.
- * ponytail: fixed offset for writes; derive it from Intl if Iran restores DST.
  */
 export const tehranTimeZone = "Asia/Tehran";
 const tehranUtcOffset = "+03:30";

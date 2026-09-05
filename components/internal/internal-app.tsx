@@ -23,6 +23,7 @@ import { useChallengeGateway } from "@/components/runtime-provider";
 import { ConfiguredRoleShell, OrganizationShell } from "@/components/role-shells";
 import { SolverDashboardExperience } from "@/components/solver-dashboard";
 import { SolverProposalDetail } from "@/components/solver-proposals-list";
+
 import {
   SolverProfileExperience,
   type SolverProfileSection,
@@ -44,6 +45,19 @@ import { canAccessInternalRole, readDemoSession, type DemoSession } from "@/lib/
 import { PreviewDataNotice } from "@/components/organization-preview-notice";
 import { isRecordReady } from "@/lib/challenges/validation";
 import { directOfferById, proposalById, readSolverState } from "@/lib/solver/repository";
+
+const ConnectedProposalRecord = dynamic(
+  () =>
+    import("@/components/solver/connected-proposal-record").then(
+      (module) => module.ConnectedProposalRecord,
+    ),
+  { loading: RouteResolving },
+);
+
+const ConnectedSolverRoute = dynamic(
+  () => import("@/components/solver/connected-route").then((module) => module.ConnectedSolverRoute),
+  { loading: RouteResolving },
+);
 
 const SolverCanonicalContinuity = dynamic(
   () =>
@@ -133,6 +147,8 @@ function renderInternalRoute(
   if (!session) return <SessionRequired role={route.role} returnTo={route.path} />;
   if (!sharedRoute && !canAccessInternalRole(session, route.role)) return <PermissionDenied />;
   const activeRole = sharedRoute ? session.role : route.role;
+  if (activeRole === "solver" && network)
+    return <ConnectedSolverRoute key={`${route.path}:${route.prdId}`} route={route} />;
   if (activeRole === "solver")
     return <SolverRouteExperience key={`${route.path}:${route.prdId}`} route={route} />;
   if (activeRole === "org") {
@@ -231,6 +247,11 @@ function SolverRouteExperience({ route }: { route: InternalRoute }) {
         path={route.path}
       />
     );
+  } else if (route.path.startsWith("/app/solver/proposals/record")) {
+    // The connected record path: the id is in the query because a server id
+    // can never be a pre-generated static route. An absent or malformed id is
+    // an explicit unavailable state, never a fallback to a known fixture.
+    content = <ConnectedProposalRecord />;
   } else if (route.experience === "proposal-status" && proposalRouteId) {
     content = <SolverProposalDetail proposalId={proposalRouteId} />;
   } else if (route.experience === "proposal-builder" || route.experience === "proposal-status") {

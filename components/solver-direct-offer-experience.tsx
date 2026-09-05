@@ -1,11 +1,14 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { ChallengeOrganizationLogo } from "@/components/challenge-organization-logo";
 import { Icon } from "@/components/icons";
 import { ConfirmDialog } from "@/components/internal/shared";
 import { ProductNotFound } from "@/components/route-fallbacks";
+import { useWebRuntime } from "@/components/runtime-provider";
+
 import { useSolverContext } from "@/components/solver-shell";
 import { getChallengePublisher } from "@/data/challenge-publishers";
 import { challenges } from "@/data/mock";
@@ -58,7 +61,29 @@ function OfferHeading({ description }: { description: string }) {
   );
 }
 
+const ConnectedDirectOffersList = dynamic(
+  () =>
+    import("@/components/solver/connected-opportunities").then(
+      (module) => module.ConnectedDirectOffersList,
+    ),
+  {
+    loading: () => (
+      <section className="rh-card rh-profile-empty" aria-busy="true">
+        <span className="sr-only">در حال بارگذاری بخش متصل</span>
+        <div className="route-fallback__skeleton" aria-hidden="true" />
+      </section>
+    ),
+  },
+);
+
+/** Direct offers for the active workspace; C6 authority in network mode. */
 export function SolverDirectOffersList() {
+  const runtime = useWebRuntime();
+  if (runtime.mode === "network") return <ConnectedDirectOffersList />;
+  return <DemoDirectOffersList />;
+}
+
+function DemoDirectOffersList() {
   const context = useSolverContext();
   const state = useStore();
   const offers = directOffersForWorkspace(context.workspaceId, state);

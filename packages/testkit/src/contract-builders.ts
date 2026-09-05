@@ -335,6 +335,8 @@ export function buildMeResource(overrides: Partial<MeResource> = {}): MeResource
       display_name: "Test User",
       primary_email: "test.user@example.test",
       email_verified: true,
+      primary_phone: null,
+      phone_verified: false,
     },
     memberships: [
       {

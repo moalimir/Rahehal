@@ -17,10 +17,13 @@ import {
   parseSessionId,
   type AuditEventId,
   type MembershipId,
+  type Membership,
   type MembershipState,
   type SessionId,
   type TenantId,
   type UserId,
+  type User,
+  type Workspace,
   type WorkspaceId,
   type WorkspaceRole,
 } from "@rahhal/domain";
@@ -91,6 +94,7 @@ type IdentityState = {
   readonly contextIdempotency: Map<string, CachedMutationOutcome<"continue">>;
   readonly consumedOidcExchanges: Set<string>;
   readonly membershipStates: Map<MembershipId, MembershipState>;
+  readonly archivedTeamWorkspaces: Set<WorkspaceId>;
   readonly auditEvents: IdentityAuditRecord[];
   readonly outboxEvents: OutboxEvent[];
 };
@@ -111,6 +115,7 @@ function copyState(state: IdentityState): IdentityState {
     ),
     consumedOidcExchanges: new Set(state.consumedOidcExchanges),
     membershipStates: new Map(state.membershipStates),
+    archivedTeamWorkspaces: new Set(state.archivedTeamWorkspaces),
     auditEvents: structuredClone(state.auditEvents),
     outboxEvents: structuredClone(state.outboxEvents),
   };
@@ -174,18 +179,20 @@ export class InMemoryIdentityAdapter
     contextIdempotency: new Map(),
     consumedOidcExchanges: new Set(),
     membershipStates: new Map(),
+    archivedTeamWorkspaces: new Set(),
     auditEvents: [],
     outboxEvents: [],
   };
 
   constructor(
-    private readonly seeds: readonly DemoIdentitySeed[],
+    seeds: readonly DemoIdentitySeed[],
     private readonly clock: Clock,
     private readonly ids: IdFactory,
     private readonly decisionAudit: AccessDecisionAuditPort,
     private readonly criticalSection: InMemoryCriticalSection,
     private readonly beforeCommit?: () => void,
   ) {
+    this.seeds = [...seeds];
     for (const seed of seeds) {
       this.state.membershipStates.set(seed.membership.id, seed.membership.state);
       const session: StoredSession = {
@@ -205,6 +212,8 @@ export class InMemoryIdentityAdapter
       this.state.refreshIndex.set(session.refreshToken, session.id);
     }
   }
+
+  private readonly seeds: DemoIdentitySeed[];
 
   private transact<Result>(work: (draft: IdentityState) => Result): Result {
     const draft = copyState(this.state);
@@ -310,6 +319,7 @@ export class InMemoryIdentityAdapter
 
   private findActiveCurrent(userId: UserId, workspaceId: string): WorkspaceAccess | null {
     if (!isWorkspaceId(workspaceId)) return null;
+    if (this.state.archivedTeamWorkspaces.has(workspaceId)) return null;
     const seed = this.seeds.find(
       (candidate) =>
         candidate.user.id === userId &&
@@ -593,6 +603,50 @@ export class InMemoryIdentityAdapter
     });
   }
 
+  async refreshBrowser(
+    refreshToken: string,
+    command: SessionCommand,
+  ): Promise<SessionTokenOutcome> {
+    return this.criticalSection.run(() => {
+      const credentialScope = commandFingerprint(refreshToken);
+      const key = `session:browser-refresh\u0000${credentialScope}\u0000${command.idempotencyKey}`;
+      const fingerprint = commandFingerprint({ action: "session.browser-refresh", refreshToken });
+      const replay = this.replayToken(key, fingerprint);
+      if (replay) return replay;
+      const sessionId = this.state.refreshIndex.get(refreshToken);
+      const current = sessionId ? this.state.sessions.get(sessionId) : undefined;
+      if (
+        !current ||
+        current.revoked ||
+        Date.parse(current.refreshExpiresAt) <= this.clock.now().getTime()
+      ) {
+        throw forbidden();
+      }
+
+      return this.transact((state) => {
+        const next: StoredSession = {
+          ...current,
+          version: current.version + 1,
+          accessToken: `rahhal-access-${current.id}-version-${current.version + 1}`,
+          refreshToken: `rahhal-refresh-${current.id}-version-${current.version + 1}`,
+          accessExpiresAt: new Date(this.clock.now().getTime() + 15 * 60_000).toISOString(),
+          refreshExpiresAt: new Date(
+            this.clock.now().getTime() + 14 * 24 * 60 * 60_000,
+          ).toISOString(),
+        };
+        state.accessIndex.delete(current.accessToken);
+        state.refreshIndex.delete(current.refreshToken);
+        state.sessions.set(next.id, next);
+        state.accessIndex.set(next.accessToken, next.id);
+        state.refreshIndex.set(next.refreshToken, next.id);
+        const mutation = this.receipt(state, next, "session.refreshed", command, ["continue"]);
+        const outcome = { ...mutation, tokens: this.tokens(next) };
+        state.tokenIdempotency.set(key, { fingerprint, outcome: structuredClone(outcome) });
+        return outcome;
+      });
+    });
+  }
+
   async revoke(
     accessToken: string,
     body: SessionRevokeBody,
@@ -631,7 +685,8 @@ export class InMemoryIdentityAdapter
       const activeSeed = seeds.find(
         (seed) =>
           seed.workspace.id === storedSession.activeWorkspaceId &&
-          this.state.membershipStates.get(seed.membership.id) === "active",
+          this.state.membershipStates.get(seed.membership.id) === "active" &&
+          !this.state.archivedTeamWorkspaces.has(seed.workspace.id),
       );
       return {
         user: {
@@ -639,6 +694,8 @@ export class InMemoryIdentityAdapter
           display_name: userSeed.user.displayName,
           primary_email: userSeed.user.primaryEmail,
           email_verified: userSeed.user.emailVerified,
+          primary_phone: userSeed.user.primaryPhone ?? null,
+          phone_verified: userSeed.user.phoneVerified ?? false,
         },
         memberships: seeds.map((seed) =>
           membershipResource(
@@ -756,7 +813,134 @@ export class InMemoryIdentityAdapter
         this.state.revokeIdempotency.size + this.state.contextIdempotency.size,
       consumedOidcExchangeCount: this.state.consumedOidcExchanges.size,
       membershipStates: structuredClone([...this.state.membershipStates]),
+      archivedTeamWorkspaces: structuredClone([...this.state.archivedTeamWorkspaces]),
     };
+  }
+
+  /**
+   * Demo-composition hook used only while `runAuthorizedWorkspace` already
+   * holds the shared critical section. It keeps the identity authority in
+   * sync with C2 membership writes without introducing a second browser-side
+   * source of truth.
+   */
+  userByEmailForTeam(email: string): User | null {
+    const normalized = email.trim().toLocaleLowerCase("en-US");
+    return (
+      this.seeds.find(
+        (seed) => seed.user.primaryEmail?.trim().toLocaleLowerCase("en-US") === normalized,
+      )?.user ?? null
+    );
+  }
+
+  userForTeam(userId: UserId): User | null {
+    return this.seeds.find((seed) => seed.user.id === userId)?.user ?? null;
+  }
+
+  addTeamMembershipForTeam(workspace: Workspace, membership: Membership, user: User): void {
+    const existingIndex = this.seeds.findIndex(
+      (seed) => seed.workspace.id === workspace.id && seed.user.id === user.id,
+    );
+    const identitySeed = this.seeds.find((seed) => seed.user.id === user.id);
+    if (!identitySeed) throw new Error("The demo user must already hold an identity seed");
+    const next: DemoIdentitySeed = { ...identitySeed, user, workspace, membership };
+    if (existingIndex >= 0) this.seeds[existingIndex] = next;
+    else this.seeds.push(next);
+    this.state.membershipStates.set(membership.id, membership.state);
+  }
+
+  addActivatedIndividualForSolver(
+    user: User,
+    workspace: Extract<Workspace, { readonly kind: "individual" }>,
+    membership: Membership,
+    session: {
+      readonly id: SessionId;
+      readonly accessToken: string;
+      readonly refreshToken: string;
+      readonly accessExpiresAt: string;
+      readonly refreshExpiresAt: string;
+      readonly activeWorkspaceId: WorkspaceId | null;
+    },
+  ): void {
+    this.seeds.push({
+      user,
+      workspace,
+      membership,
+      authorizationCode: `unused-${session.id}`,
+      codeVerifier: `unused-${session.id}`,
+      redirectUri: "http://localhost.invalid/unused",
+      oidcState: `unused-${session.id}`,
+      sessionId: session.id,
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken,
+    });
+    this.state.membershipStates.set(membership.id, "active");
+    const stored: StoredSession = {
+      id: session.id,
+      userId: user.id,
+      tenantId: workspace.tenantId,
+      version: 1,
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken,
+      accessExpiresAt: session.accessExpiresAt,
+      refreshExpiresAt: session.refreshExpiresAt,
+      activeWorkspaceId: session.activeWorkspaceId,
+      revoked: false,
+    };
+    this.state.sessions.set(stored.id, stored);
+    this.state.accessIndex.set(stored.accessToken, stored.id);
+    this.state.refreshIndex.set(stored.refreshToken, stored.id);
+  }
+
+  addContactSessionForSolver(
+    userId: UserId,
+    session: {
+      readonly id: SessionId;
+      readonly accessToken: string;
+      readonly refreshToken: string;
+      readonly accessExpiresAt: string;
+      readonly refreshExpiresAt: string;
+      /** The permanent individual workspace this returning solver enters. */
+      readonly activeWorkspaceId?: WorkspaceId | null;
+    },
+  ): void {
+    const seed = this.seeds.find((candidate) => candidate.user.id === userId);
+    if (!seed) throw new Error("Unknown demo solver identity");
+    const stored: StoredSession = {
+      id: session.id,
+      userId,
+      tenantId: seed.workspace.tenantId,
+      version: 1,
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken,
+      accessExpiresAt: session.accessExpiresAt,
+      refreshExpiresAt: session.refreshExpiresAt,
+      activeWorkspaceId: session.activeWorkspaceId ?? seed.workspace.id,
+      revoked: false,
+    };
+    this.state.sessions.set(stored.id, stored);
+    this.state.accessIndex.set(stored.accessToken, stored.id);
+    this.state.refreshIndex.set(stored.refreshToken, stored.id);
+  }
+
+  updateTeamMembershipForTeam(membership: Membership): void {
+    const index = this.seeds.findIndex(
+      (seed) => seed.workspace.id === membership.workspaceId && seed.user.id === membership.userId,
+    );
+    if (index < 0) throw new Error("Unknown demo team membership");
+    const seed = this.seeds[index]!;
+    this.seeds[index] = { ...seed, membership };
+    this.state.membershipStates.set(membership.id, membership.state);
+  }
+
+  updateTeamWorkspaceForTeam(workspace: Workspace): void {
+    for (let index = 0; index < this.seeds.length; index += 1) {
+      const seed = this.seeds[index]!;
+      if (seed.workspace.id === workspace.id) this.seeds[index] = { ...seed, workspace };
+    }
+  }
+
+  archiveTeamWorkspaceForTeam(workspaceId: WorkspaceId): void {
+    this.state.archivedTeamWorkspaces.add(workspaceId);
   }
 
   async setMembershipStateForTest(

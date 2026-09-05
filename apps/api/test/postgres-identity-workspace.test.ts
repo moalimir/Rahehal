@@ -7,8 +7,15 @@ import {
   buildSessionRevokeBody,
   fixedTimestamp,
 } from "@rahhal/testkit";
-import { parseCorrelationId, parseSessionId, parseUserId, parseWorkspaceId } from "@rahhal/domain";
+import {
+  parseCorrelationId,
+  parseSessionId,
+  parseTenantId,
+  parseUserId,
+  parseWorkspaceId,
+} from "@rahhal/domain";
 
+import { forbidden, notFound } from "../src/errors.js";
 import { MonotonicIdFactory } from "../src/primitives.js";
 import { PostgresAccessDecisionAudit } from "../src/postgres/access-decision-audit.js";
 import {
@@ -55,6 +62,9 @@ let adminConnected = false;
 let databaseCreated = false;
 let databasePoolCreated = false;
 let adapter: PostgresIdentityWorkspaceAdapter;
+// The audit the current adapter writes through, so a test can record on the
+// adapter's own transaction rather than a second, independently committing one.
+let adapterAudit: PostgresAccessDecisionAudit;
 
 function quotedIdentifier(value: string): string {
   if (!/^[a-z0-9_]+$/.test(value)) throw new Error("Unsafe test database identifier");
@@ -81,6 +91,7 @@ function createAdapter(options: { readonly beforeCommit?: () => void } = {}) {
   const ids = new MonotonicIdFactory();
   const nextUnitOfWork = new PostgresUnitOfWork(database, options.beforeCommit);
   const audit = new PostgresAccessDecisionAudit(nextUnitOfWork, ids);
+  adapterAudit = audit;
   const nextAdapter = new PostgresIdentityWorkspaceAdapter(
     nextUnitOfWork,
     new LocalTestOidcExchangeAdapter([localOidcRecord], "test"),
@@ -508,6 +519,59 @@ describe("A1b PostgreSQL identity, workspace, and transaction boundary", () => {
       )::text AS snapshot
     `);
     expect(after.rows[0]?.snapshot).toBe(before.rows[0]?.snapshot);
+  });
+
+  it("audits a denial raised inside the authorized transaction", async () => {
+    // The operation runs on the transaction this adapter opened, so a route
+    // that records its own denial there loses the row to the rollback that
+    // the throw triggers. The reason travels on the problem instead, and the
+    // audit has to land outside the transaction for the deny to be recorded
+    // at all (70_SECURITY_AND_AUTHZ.md: every decision emits an audit_event).
+    const session = await adapter.authenticate(ownerAccessToken);
+    if (!session) throw new Error("seeded session was not authenticated");
+
+    for (const [label, thrown, expectedReason, expectedStatus] of [
+      ["role capability", forbidden("role_capability_denied"), "role_capability_denied", 403],
+      ["command", forbidden(), "command_denied", 403],
+      ["record", notFound(), "record_unreachable", 404],
+    ] as const) {
+      const correlationId = parseCorrelationId(`cor_a1b_deny_${label.replace(/[^a-z]/g, "")}`);
+      await expect(
+        adapter.runAuthorizedWorkspace(
+          session,
+          ownerWorkspaceId,
+          {
+            action: "challenge:read",
+            entityType: "challenge",
+            correlationId,
+            deferSuccess: true,
+            allows: (access) => access.role === "org:owner",
+          },
+          async () => {
+            // Written on the transaction the throw is about to roll back,
+            // exactly as the route-level guards in app.ts do.
+            await adapterAudit.record({
+              outcome: "denied",
+              actorUserId: session.userId,
+              tenantId: parseTenantId("ten_org_alpha"),
+              workspaceId: ownerWorkspaceId,
+              action: "challenge:read",
+              entityType: "challenge",
+              reason: expectedReason,
+              correlationId,
+              occurredAt: fixedTimestamp,
+            });
+            throw thrown;
+          },
+        ),
+      ).rejects.toMatchObject({ statusCode: expectedStatus });
+
+      const recorded = await database.query<{ reason_code: string; outcome: string }>(
+        `SELECT outcome, reason_code FROM audit_event WHERE correlation_id = $1`,
+        [correlationId],
+      );
+      expect(recorded.rows).toEqual([{ outcome: "denied", reason_code: expectedReason }]);
+    }
   });
 
   it("keeps all local identity helpers unavailable in production mode", () => {

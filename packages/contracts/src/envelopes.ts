@@ -6,6 +6,7 @@ import type {
   ReceiptId,
   WorkspaceId,
 } from "@rahhal/domain";
+import type { EligibilityDecisionResource } from "./proposal.js";
 
 export const apiErrorCodes = [
   "VALIDATION",
@@ -14,6 +15,10 @@ export const apiErrorCodes = [
   "INVALID_STATE",
   "CONFLICT",
   "STEP_UP_REQUIRED",
+  "VERIFICATION_EXPIRED",
+  "VERIFICATION_LOCKED",
+  "RATE_LIMITED",
+  "ACTIVATION_REQUIRED",
   "STORAGE",
 ] as const;
 
@@ -26,6 +31,10 @@ export const apiErrorStatus: Readonly<Record<ApiErrorCode, number>> = {
   INVALID_STATE: 409,
   CONFLICT: 409,
   STEP_UP_REQUIRED: 403,
+  VERIFICATION_EXPIRED: 409,
+  VERIFICATION_LOCKED: 409,
+  RATE_LIMITED: 429,
+  ACTIVATION_REQUIRED: 409,
   STORAGE: 503,
 };
 
@@ -51,6 +60,7 @@ export type ApiError = {
   readonly allowed_transitions?: readonly string[];
   readonly readiness?: ApiReadiness;
   readonly recovery?: string;
+  readonly eligibility?: EligibilityDecisionResource;
 };
 
 export type ApiMeta = {

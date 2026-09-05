@@ -19,6 +19,16 @@ const navigationRequirements: Record<string, keyof OrganizationCapabilities | nu
   settings: "manageOrganization",
 };
 
+const connectedNavigation = new Set([
+  "dashboard",
+  "challenges",
+  "experts",
+  "proposals",
+  "access",
+  "profile",
+  "settings",
+]);
+
 const roleLabels: Partial<Record<WorkspaceRole, string>> = {
   "org:owner": "مالک سازمان",
   "org:member": "عضو سازمان",
@@ -36,10 +46,16 @@ export function networkOrganizationNavigation(
   items: readonly AppNavigationItem[],
   role: WorkspaceRole | undefined,
 ): AppNavigationItem[] {
-  if (!role) return items.filter((item) => navigationRequirements[item.key] === null);
+  const available = items.filter((item) => connectedNavigation.has(item.key));
+  if (!role)
+    return available
+      .filter((item) => navigationRequirements[item.key] === null)
+      .map((item) => ({ ...item, badge: undefined }));
   const capabilities = organizationCapabilities(role);
-  return items.filter((item) => {
-    const required = navigationRequirements[item.key];
-    return required === null || required === undefined || capabilities[required];
-  });
+  return available
+    .filter((item) => {
+      const required = navigationRequirements[item.key];
+      return required === null || required === undefined || capabilities[required];
+    })
+    .map((item) => ({ ...item, badge: undefined }));
 }

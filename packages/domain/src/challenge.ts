@@ -641,6 +641,8 @@ export type OrganizationCapabilities = {
   readonly publishChallenges: boolean;
   /** Membership, roles, and organization-wide settings. */
   readonly manageOrganization: boolean;
+  /** Send, track, negotiate, and cancel direct offers. */
+  readonly manageDirectOffers: boolean;
 };
 
 export function organizationCapabilities(role: WorkspaceRole): OrganizationCapabilities {
@@ -653,5 +655,6 @@ export function organizationCapabilities(role: WorkspaceRole): OrganizationCapab
     recordsGate: gate ?? null,
     publishChallenges: role === "org:publisher",
     manageOrganization: role === "org:owner",
+    manageDirectOffers: role === "org:owner" || role === "org:member",
   };
 }

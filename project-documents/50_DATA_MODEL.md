@@ -44,19 +44,21 @@ CREATE POLICY proposal_access ON proposal USING (
 
 ## 3. Identity, tenancy & access
 
-The executable baseline is `0001_a1a_foundation.up.sql`, `0002_a1b_identity_transaction.up.sql`, `0003_a1c_authoritative_challenge.up.sql`, and `0004_a2_oidc_authorization.up.sql`:
+The executable identity baseline begins with `0001_a1a_foundation.up.sql`, `0002_a1b_identity_transaction.up.sql`, `0003_a1c_authoritative_challenge.up.sql`, and `0004_a2_oidc_authorization.up.sql`; Phase 3 migration `0019_c7_solver_activation.up.sql` adds self-service human solver activation:
 
-| Table                        | Landed invariant                                                                                                                                                                                                                |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tenant`                     | Exact kinds `organization`, `solver`, `platform`; `(id, kind)` supports declarative compatibility references                                                                                                                    |
-| `app_user`, `identity_link`  | Contacts and verification flags are separate from provider identity; an external identity is unique by `(issuer, subject)`; no IdP secret or password is stored                                                                 |
-| `workspace`                  | `platform→platform`, `org→organization`, and `individual`/`team→solver`; only individual/team spaces have an owner and only teams have `TeamKind`                                                                               |
-| `membership`                 | Workspace/tenant linkage is one composite foreign key; `platform:*`, `org:*`, `team:*`, and `individual` roles must match the workspace kind                                                                                    |
-| `access_grant`               | Cross-tenant only, workspace-bound, resource- and capability-specific, time-bounded, explicitly revocable, and auditable by actor ID                                                                                            |
-| `app_session`                | Stores only unique SHA-256-shaped access/refresh digests, expiry, version, active context, revocation metadata, and an evidence-partition `origin_tenant_id`; raw credentials are structurally absent                           |
-| `oidc_authorization_attempt` | One-time exact redirect plus state/verifier/nonce/idempotency digests; only validated issuer/subject/verified email survive provider exchange; codes, verifiers, state, provider tokens, and raw claims are structurally absent |
+| Table                              | Landed invariant                                                                                                                                                                                                                |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tenant`                           | Exact kinds `organization`, `solver`, `platform`; `(id, kind)` supports declarative compatibility references                                                                                                                    |
+| `app_user`, `identity_link`        | Contacts and verification flags are separate from provider identity; an external identity is unique by `(issuer, subject)`; no IdP secret or password is stored                                                                 |
+| `workspace`                        | `platform→platform`, `org→organization`, and `individual`/`team→solver`; only individual/team spaces have an owner and only teams have `TeamKind`                                                                               |
+| `membership`                       | Workspace/tenant linkage is one composite foreign key; `platform:*`, `org:*`, `team:*`, and `individual` roles must match the workspace kind; C2 adds an optimistic version and immutable identity for team memberships         |
+| `access_grant`                     | Cross-tenant only, workspace-bound, resource- and capability-specific, time-bounded, explicitly revocable, and auditable by actor ID                                                                                            |
+| `app_session`                      | Stores only unique SHA-256-shaped access/refresh digests, expiry, version, active context, revocation metadata, and an evidence-partition `origin_tenant_id`; raw credentials are structurally absent                           |
+| `oidc_authorization_attempt`       | One-time exact redirect plus state/verifier/nonce/idempotency digests; only validated issuer/subject/verified email survive provider exchange; codes, verifiers, state, provider tokens, and raw claims are structurally absent |
+| `solver_activation`                | One immutable row per verified human/user and permanent individual workspace; records only provider identity, contact channel, start intent, and activation metadata                                                            |
+| `contact_verification_consumption` | One append-only record per consumed provider assertion and issued app session; no OTP code, delivery payload, assertion token, or provider credential is stored                                                                 |
 
-DEC-2026-011 and its owner record in [27](27_PHASE1_OWNER_APPROVALS.md) accept these tenant/workspace semantics. A1a encodes structural compatibility. A1b scopes session/workspace queries, binds the database session to the user principal, revalidates active membership under row locks, and transacts session state with audit/outbox/idempotency evidence. A1c joins challenge commands to that same transaction boundary. A2 records only authorization-attempt digests and validated identity fields, then consumes the attempt in the same transaction that creates the app session. Grant authorization remains a later increment; RLS remains the pre-pilot defense-in-depth gate.
+DEC-2026-011 and its owner record in [27](27_PHASE1_OWNER_APPROVALS.md) accept these tenant/workspace semantics. A1a encodes structural compatibility. A1b scopes session/workspace queries, binds the database session to the user principal, revalidates active membership under row locks, and transacts session state with audit/outbox/idempotency evidence. A1c joins challenge commands to that same transaction boundary. A2 records only authorization-attempt digests and validated identity fields, then consumes the attempt in the same transaction that creates the app session. C7 permits email-only or mobile-only users, uniquely indexes normalized mobile contacts, and adds a partial unique index that prevents a human from owning more than one individual workspace. Grant authorization remains a later increment; RLS remains the pre-pilot defense-in-depth gate.
 
 `origin_tenant_id` records the tenant under which the session was issued so session audit/outbox evidence always has a tenant partition; it is not the active authorization context. Migration `0002` backfills it from the active context or the user's earliest membership and fails explicitly if an existing orphaned session has no tenant source. Its down migration removes only that A1b column, constraint, and index.
 
@@ -77,25 +79,52 @@ B5 delivers the public read path over this table: a separate `PublicChallengePor
 
 The approved `eligibility_rule.proposal_deadline` is immutable publication evidence, not the live acceptance clock after an authorized extension. Phase 3 must evaluate static applicant/declaration requirements against the exact published rule and independently require `challenge.publication_state = 'open'` plus `challenge.proposal_deadline_at > server_time`. Neither source alone is sufficient.
 
+### 4.1 Solver-workspace facts and gate acknowledgements
+
+Migration `0014` lands C1's minimum durable solver authority. `solver_workspace_profile` is keyed by the active solver workspace, derives its canonical `ApplicantType` from `workspace.kind`/`team_kind`, and stores versioned headline, overview, expertise and geography facts. Profile readiness is derived by the server and is not an eligibility blocker because the B3 rule snapshot does not version a readiness or expertise policy. `verification_record` stores one status-driven record per solver workspace and begins at `not_started`; verified contact on `identity_link` does not populate or advance it.
+
+`eligibility_gate_acceptance` is append-only and binds the active workspace and accepting human to the exact current published challenge version. The `document_acknowledgement` gate is deliberately named as a synthetic Phase-3 acknowledgement: it is not file upload, malware-scan, evidence review, or document approval. The insert trigger requires that the exact B3 rule marks the named gate as required. C1 profile/verification/gate writes use optimistic versions or expected-zero creation, and the PostgreSQL adapter records the mutation, receipt, audit, outbox and idempotency result in one transaction.
+
+### 4.2 Team workspace and membership lifecycle
+
+Migration `0015` lands C2. `team_workspace` is a one-to-one lifecycle/policy extension of a solver-owned `workspace(kind='team')`; it stores active/archive state, join mode, default non-owner invitation role, the eight `TeamPolicy` switches, optimistic version, and reasoned archive evidence. A partial unique index permits exactly one active owner membership, while deferred constraint triggers require that member to equal `workspace.owner_user_id` at transaction commit. Ownership transfer can therefore demote the old owner, promote the successor, and update the workspace pointer atomically without exposing an invalid committed state.
+
+`team_invitation` and `team_membership_request` are versioned evidence rows with recipient/requester identity, bounded collaboration facts, expiry, and terminal outcomes. Database triggers reject identity rewrites, invalid or version-skipping transitions, terminal rewrites, and deletion. Only a previously unbound invitation recipient may be resolved later, and only when the authenticated user's primary email equals the invited address. Team membership identity is immutable; role/state changes advance exactly one version and never delete the row. Every manager-count-changing command locks `team_workspace` first, then the target membership, so concurrent removal, suspension, or ownership transfer cannot validate against the same stale roster. Archived teams remain retained evidence and cannot authorize a workspace request.
+
+### 4.3 Self-service solver activation
+
+Migration `0019` lands C7 without turning Rahhal into a credential provider. A development-only adapter owns start, resend, verify, expiry, attempt lockout, and bounded-send behavior in memory and returns a short-lived signed verified-contact assertion. The application database stores neither OTP codes nor assertion tokens. It records only one-time assertion consumption after the same transaction creates either the initial activation session or a later sign-in session.
+
+First activation atomically creates one `app_user`, provider `identity_link`, solver tenant, permanent `individual` workspace, active `individual` membership, blank C1 profile, `not_started` workspace verification record, `solver_activation`, active session, receipt, audit, outbox event, and credential-scoped idempotency result. The provider identity and individual owner each have database uniqueness backstops; same-contact activation attempts are serialized before checking that identity link. A team start intent changes only the activation receipt's next action. Team creation remains the separate C2 command, so its failure or retry cannot roll back or duplicate the usable individual activation.
+
 ## 5. Proposal aggregate (immutable versions)
 
-The remaining schema sections describe later migrations and must not be treated as already present after A1a.
+This section is present through migration `0017`: `0013` creates the proposal foundation, `0014` adds C1 solver facts, `0015` adds C2 team authority, `0016` hardens locked submission plus version-bound organization grants, and `0017` adds C5 clarification/revision evidence. Migration `0018` adds the separate C6 opportunity/offer aggregate described below, and `0021` corrects the clock its deadline triggers judge against. It is numbered above `0012` deliberately: the Phase-3 foundation was authored on its own branch while Phase 2's review closure was authored on `main`, and both claimed `0011`. The proposal foundation was renumbered on merge so the applied order reads in dependency order rather than showing a Phase-3 table created before a Phase-2 fix.
+
+Migration `0013` lands the Phase-3 foundation: `proposal` and `proposal_version`, in the A1c shape — a mutable aggregate carrying lifecycle state and an optimistic-concurrency counter, plus append-only versions holding content. A composite workspace foreign key limits ownership to `individual`/`team` solver workspaces, and an identity trigger makes tenant, owner, challenge, creator, and creation time immutable. The current-version pointer is mandatory, deferred, and checked against the latest gap-free content version. C5 separates the aggregate `lock_version` from `proposal_version.version_number`, because clarification/review transitions advance optimistic concurrency without fabricating content versions. C3 exercises the foundation through scoped create/read/save adapters: create assigns the active team membership (or no membership for an individual), and every save inserts an unlocked exact-base version before atomically advancing the current pointer and lock version. `assigned_membership_ids` carries C2's proposal-assignment input; application commands validate the current active membership and canonical team policy on every read/write, including idempotent replay.
+
+Migration `0016` adds C4's durable submission boundary. A proposal/read `access_grant` must cite one `proposal_version` belonging to its `resource_id`; the grant trigger binds the solver proposal owner as grantor, the challenge owner as grantee, and the exact current locked submission version as the shared resource. Those identity/binding/time fields cannot be rewritten, grant rows cannot be deleted, and terminal revoked/expired grants cannot be reactivated or altered. The proposal-version insert trigger additionally requires every later version to cite the exact current base, and every update/delete of version evidence now fails. Submission uses one transaction timestamp for live deadline/rule evaluation, version lock time, aggregate submit time, grant validity, receipt, audit, and outbox evidence. A data-bearing `0016` down/up cycle reconstructs the still-unambiguous C4 grant binding and advances the tracking sequence beyond retained codes. The initial operational grant expiry is 30 days; this is a narrow implementation default pending an explicit product retention/access-duration decision, not a platform policy.
+
+Migration `0017` adds append-only `proposal_clarification` and `proposal_revision_request` evidence with one-way requested/submitted/resolved and requested/in-progress/resubmitted progressions. Clarifications bind the exact locked version being questioned but never create a proposal-content version. A revision request binds the exact locked base and a server-enforced deadline; starting it appends an unlocked exact-base copy, edits remain gap-free, and resubmission appends a locked version whose `changed_fields` are computed against the requested locked base. Resubmission revokes the old version-bound grant and creates one active grant for the new locked version in the same transaction. The down migration refuses to discard existing C5 evidence.
+
+`content_hash` proves exact submitted content (FR-SOL-006). Every version after the first must cite a same-proposal `base_version_id`; locked versions also persist `accepted_challenge_version_id`, constrained to the same challenge. Locking succeeds only while B6's current call is open and unexpired and only for the current published challenge version, so a deadline race or later amendment cannot erase which terms were accepted. The one-active-proposal invariant remains a partial unique index excluding `withdrawn`. Content shape, integer-safe minor-unit money, assignment IDs, immutable ownership, exact accepted terms, version sequence, current pointer, and append-only locks have direct PostgreSQL negative tests.
 
 ```sql
 CREATE TABLE proposal (
   id            text PRIMARY KEY,            -- prp_*
   tenant_id     text NOT NULL REFERENCES tenant(id),   -- the OWNING solver tenant/workspace
   owner_workspace_id text NOT NULL REFERENCES workspace(id),
+  owner_workspace_kind text NOT NULL,       -- individual | team
   challenge_id  text NOT NULL REFERENCES challenge(id),
-  current_version_id text,
-  state         text NOT NULL CHECK (state IN          -- ProposalState (solver.ts:166)
+  current_version_id text NOT NULL,
+  state         text NOT NULL CHECK (state IN          -- packages/domain ProposalState
                   ('draft','submitted','eligibility_review','eligible','ineligible',
                    'clarification_requested','clarification_submitted','reviewing',
                    'revision_requested','revision_draft','resubmitted','selected',
                    'rejected','withdrawn')),
   assigned_membership_ids text[] NOT NULL DEFAULT '{}',
   tracking_code text UNIQUE,                  -- human alias, not a key (20 §7.3)
-  version       integer NOT NULL DEFAULT 0,
+  lock_version  bigint NOT NULL DEFAULT 1,
   submitted_at  timestamptz,
   created_at    timestamptz NOT NULL DEFAULT now(),
   updated_at    timestamptz NOT NULL DEFAULT now(),
@@ -106,18 +135,45 @@ CREATE TABLE proposal (
 CREATE TABLE proposal_version (
   id            text PRIMARY KEY,            -- prv_*
   proposal_id   text NOT NULL REFERENCES proposal(id),
-  number        integer NOT NULL,
+  challenge_id  text NOT NULL REFERENCES challenge(id),
+  version_number integer NOT NULL,
   actor_user_id text NOT NULL REFERENCES app_user(id),
-  content       jsonb NOT NULL,             -- ProposalContent (solver.ts:182)
+  content       jsonb NOT NULL,             -- authoritative ProposalContent
   content_hash  text NOT NULL,             -- exact-content proof (FR-SOL-006)
   changed_fields text[] NOT NULL DEFAULT '{}',
-  base_version_id text REFERENCES proposal_version(id),  -- explicit base for revisions
-  locked        boolean NOT NULL DEFAULT false,
+  base_version_id text REFERENCES proposal_version(id),  -- required after v1
+  accepted_challenge_version_id text REFERENCES challenge_version(id),
+  locked_at     timestamptz,
   created_at    timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (proposal_id, number)
+  UNIQUE (proposal_id, version_number)
 );
--- Enforce immutability: no UPDATE of a locked version (trigger or restricted grants)
+-- Version rows are append-only; submission creates a new locked row rather than updating a draft row.
+
+CREATE TABLE proposal_clarification (
+  id text PRIMARY KEY, proposal_id text NOT NULL REFERENCES proposal(id),
+  proposal_version_id text NOT NULL REFERENCES proposal_version(id),
+  state text NOT NULL, question text NOT NULL, response text, resolution text,
+  requested_at timestamptz NOT NULL, submitted_at timestamptz, resolved_at timestamptz
+);
+
+CREATE TABLE proposal_revision_request (
+  id text PRIMARY KEY, proposal_id text NOT NULL REFERENCES proposal(id),
+  base_version_id text NOT NULL REFERENCES proposal_version(id),
+  resubmitted_version_id text REFERENCES proposal_version(id),
+  state text NOT NULL, scope text NOT NULL, revision_deadline timestamptz NOT NULL,
+  requested_at timestamptz NOT NULL, started_at timestamptz, resubmitted_at timestamptz
+);
 ```
+
+### 5.1 Saved opportunities and direct offers
+
+Migration `0018` makes C6 authoritative. `saved_opportunity` is a solver-workspace bookmark bound to the exact open `challenge_public_projection` version; unsave removes the convenience row but retains its receipt/audit/outbox evidence. `direct_offer` is owned by the sending organization and names one receiving individual/team workspace plus the sender-owned exact published challenge version. `offer_response` is the receiving workspace's versioned draft/submission record. A draft remains hidden from the sender until submission.
+
+Every live offer creates exactly two offer-bound `access_grant` rows in the send transaction: `collaborate` on the `direct_offer` and `read` on its challenge. Decline/cancel revokes both, while response-deadline expiry marks both expired. Deferred database checks require two active grants for an open offer and none for a closed offer. The response deadline applies to `received`, `viewed`, and `response_draft`, so opening a form never reserves acceptance past server time.
+
+Migration `0021` corrects the clock those deadline rules are judged against. `protect_c6_direct_offer` and `protect_c6_offer_response` compared a response deadline to `transaction_timestamp()` for an invariant the command path had already decided against the authoritative application clock, which returns a typed `422 VALIDATION` or `409 INVALID_STATE` naming the field. Two clocks for one invariant means a write is admissible under the clock that authorised it and refused by the clock that stores it whenever the two differ, and the caller receives an opaque database exception instead of the typed answer the contract promises. Every invariant those triggers uniquely guard — sender ownership, the exact published version, the open call, a response deadline that does not outlive the call's own, and the offer state each response write requires — is a comparison between stored values and is unchanged. Expiry itself moves the offer's state, so a response still cannot be written against an expired offer. Identity fields and submitted/terminal evidence are immutable; aggregate and response lock versions advance sequentially. Selection is not a C6 command because its canonical side effect is later case creation.
+
+Offer mutations require `expected_version` and tenant-scoped idempotency and commit the aggregate/response/grants with receipt, audit, and metadata-only outbox evidence. C2's same `decideTeamPermission` oracle governs team read/edit/submit/decline authority. C6 records attachment IDs as opaque metadata references only; G3 still owns file authority.
 
 ## 6. Rubric, review assignment, COI, review, decision
 
@@ -217,21 +273,21 @@ A1a lands three cross-cutting records; A1b writes session evidence and A1c write
 
 Outbox delivery bookkeeping (`available_at`, attempts, lock, publication, redacted error code) remains mutable so a later worker adapter can claim and complete rows. The worker must validate the reconstructed envelope and pass `event_id` unchanged downstream. A1a–A1c do not yet provide durable claims/leases, an operated dead-letter queue, separate application/database roles, RLS, or WORM audit export.
 
-`file_object`, `notification_delivery`, `policy_version`, `consent`, `dispute`, `privileged_access_grant`, `nda_acceptance`, and `verification_record` remain later migration work. File rows must eventually enforce the quarantine/scan/classification rules in [70](70_SECURITY_AND_AUTHZ.md); no placeholder table is created early.
+`file_object`, `notification_delivery`, `policy_version`, `consent`, `dispute`, `privileged_access_grant`, and a full legal-document/evidence workflow remain later migration work. C1's `verification_record` and exact-version `eligibility_gate_acceptance` are minimum durable facts only; C2's team rows contain no resume/file evidence and emit events for the later C8 notification projection. C3 proposal content may retain syntactically valid `fil_*` metadata references, but it performs no upload, lookup, ownership claim, scan, or signed read and emits no proposal content in outbox payloads. These slices do not introduce provider evidence, file authority, review provenance, appeals, or the future general-purpose `nda_acceptance`. File rows must eventually enforce the quarantine/scan/classification rules in [70](70_SECURITY_AND_AUTHZ.md); no placeholder file table is created early.
 
 **AI/matching is deferred** under ADR-0012. Phase 1 adds no embedding event, vector schema, model adapter, or data egress. The future `embedding`, `match_run`, `match_result`, `ai_interaction`, pgvector extension, and related events land only in the later authorized AI phase described by [45_AI_AND_MATCHING](45_AI_AND_MATCHING.md).
 
 ## 9. Migration mapping (browser stores → tables)
 
-| Browser store (evidence)                                                   | → Table(s)                                                                                                                                                                       |
-| -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `rahhal.session.v1` (`lib/auth/session.ts`)                                | IdP + `app_user` + server session (not a table — token/refresh store)                                                                                                            |
-| `rahhal.organization-challenges.v9` (`v8`/`v7`/`v6` first-upgrade sources) | `challenge`, `challenge_version`, `challenge_approval`, `challenge_public_projection`                                                                                            |
-| `rahhal.solver.v5.user.*` (`v4` role and direct `v3` taxonomy migrations)  | `workspace`, `membership`, `proposal`, `proposal_version`, `direct_offer`, `verification_record`, `nda_acceptance`, `contract_version`, `case`, `audit_event`, `idempotency_key` |
-| `rahhal.demo-command-store.v1`                                             | `idempotency_key`, `outbox_event`, `audit_event`                                                                                                                                 |
-| Direct-offer store (`lib/offers/store.ts`)                                 | `direct_offer` + `offer_response`                                                                                                                                                |
-| Reviewer COI keys (`lib/reviews/access.ts`)                                | `review_assignment` + `coi_declaration`                                                                                                                                          |
-| Payment store (`lib/payments/store.ts`)                                    | `payment` + `ledger_entry` + reconciliation                                                                                                                                      |
+| Browser store (evidence)                                                   | → Table(s)                                                                                                                                                                                                                                       |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `rahhal.session.v1` (`lib/auth/session.ts`)                                | IdP + `app_user` + server session (not a table — token/refresh store)                                                                                                                                                                            |
+| `rahhal.organization-challenges.v9` (`v8`/`v7`/`v6` first-upgrade sources) | `challenge`, `challenge_version`, `challenge_approval`, `challenge_public_projection`                                                                                                                                                            |
+| `rahhal.solver.v5.user.*` (`v4` role and direct `v3` taxonomy migrations)  | `workspace`, `team_workspace`, `membership`, `team_invitation`, `team_membership_request`, `proposal`, `proposal_version`, `direct_offer`, `verification_record`, `nda_acceptance`, `contract_version`, `case`, `audit_event`, `idempotency_key` |
+| `rahhal.demo-command-store.v1`                                             | `idempotency_key`, `outbox_event`, `audit_event`                                                                                                                                                                                                 |
+| Direct-offer store (`lib/offers/store.ts`)                                 | `direct_offer` + `offer_response`                                                                                                                                                                                                                |
+| Reviewer COI keys (`lib/reviews/access.ts`)                                | `review_assignment` + `coi_declaration`                                                                                                                                                                                                          |
+| Payment store (`lib/payments/store.ts`)                                    | `payment` + `ledger_entry` + reconciliation                                                                                                                                                                                                      |
 
 Challenge demo-store v9 renames v8 `solverTypes` to canonical `allowedApplicantTypes` and maps `individual → individual`, `team → expert-team`, `company → company`, and `university → academic-group`; it never infers `lab`. A present canonical detailed field wins in mixed records, unknown or missing values become an empty allow-set, and `applicantScope` is derived from that set. Existing contradictory v9 records are normalized and rewritten on read. The migration validates the complete `ChallengeRecord` shape—including required identifiers/timestamps, enums, booleans, and nested attachment/criterion/applicant arrays—and rejects malformed records before sorting or use. The v8 rollback mirror is all-or-nothing: it is written and marked fresh only when every applicant value has an exact old representation. If any record contains `lab`, v9 removes the entire v8 mirror/freshness pair rather than advertising a truncated snapshot. A v9-seen marker plus cleanup of consumed v7/v6 inputs ensures those older stores remain first-upgrade sources only and cannot resurrect after v9 is lost or corrupt. Auxiliary mirror/cleanup failure does not reverse an authoritative v9 write.
 
@@ -242,7 +298,7 @@ The browser `SolverState.idempotency` map and solver receipt/failure types were 
 ## 10. Indexing & integrity checklist
 
 - Composite indexes on every `(tenant_id, …)` access path; partial indexes for hot states (`membership active`, `outbox unpublished`).
-- Unique constraints encode invariants: one active proposal per `(challenge, workspace)`; one COI per assignment; one approval per `(version, gate)`.
+- Unique constraints encode invariants: one active owner per team workspace; one pending invitation per team/email; one pending membership request per team/user; one active proposal per `(challenge, workspace)`; one COI per assignment; one approval per `(version, gate)`.
 - Foreign keys everywhere; `ON DELETE` is **RESTRICT** for auditable entities (never cascade-delete evidence).
 - Immutability enforced by triggers or column-level grants on locked versions and `audit_event`.
 - All money via `amount_minor + currency`; a CI check bans `float`/`numeric` money columns and hard-coded Toman math outside the display layer.

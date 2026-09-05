@@ -1,21 +1,12 @@
 import type { ProposalContent, SolverState, TeamPolicy } from "@/domain/solver";
-import { teamRole } from "@rahhal/domain";
+import { DEFAULT_TEAM_POLICY as CANONICAL_TEAM_POLICY, teamRole } from "@rahhal/domain";
 
 export const CURRENT_SOLVER_USER_ID = "USR-SOLVER-001";
 export const PERSONAL_WORKSPACE_ID = "WS-PERSONAL-001";
 export const PRIMARY_TEAM_ID = "TEAM-21";
 export const SECONDARY_TEAM_ID = "TEAM-34";
 
-export const DEFAULT_TEAM_POLICY: TeamPolicy = {
-  proposalManagersCanEditProfile: true,
-  proposalManagersCanInvite: false,
-  adminsCanSubmit: true,
-  proposalManagersCanSubmit: true,
-  viewersCanReadMessages: true,
-  adminsCanViewPayments: true,
-  proposalManagersCanViewPayments: true,
-  approvalBeforeSubmit: false,
-};
+export const DEFAULT_TEAM_POLICY: TeamPolicy = CANONICAL_TEAM_POLICY;
 
 export const EMPTY_PROPOSAL_CONTENT: ProposalContent = {
   title: "",
@@ -85,14 +76,16 @@ const submittedContent: ProposalContent = {
 };
 
 /**
- * Direct-offer deadlines are anchored to the wall clock, not to the fixture
- * clock below. `submitOfferResponse` expires an offer against real `Date.now()`
+ * Direct-offer deadlines and team-invitation expiries are anchored to the wall
+ * clock, not to the fixture clock below. `submitOfferResponse` and
+ * `respondToTeamInvitation` expire a record against real `Date.now()`
  * (`lib/solver/repository/commands.ts`), so an absolute deadline written
- * relative to a frozen fixture date is a time bomb: these offers were authored
+ * relative to a frozen fixture date is a time bomb: these records were authored
  * as open, and silently became expired once real time passed them. Offsets keep
- * the original ordering (OFF-218 before OFF-226 before OFF-241).
+ * the original ordering (OFF-218 before OFF-226 before OFF-241, and the
+ * outgoing invitation before the incoming one).
  */
-function offerDeadlineInDays(days: number): string {
+function deadlineInDays(days: number): string {
   return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
 }
 
@@ -284,7 +277,7 @@ export function createCanonicalSolverState(now = "2026-08-17T09:00:00.000Z"): So
         ipNotice: "دانش پیشین متعلق به صاحب آن و خروجی جدید تابع قرارداد پرونده است.",
         relatedEntityId: "CH-1405-021",
         state: "viewed",
-        expiresAt: "2026-09-01T20:30:00.000Z",
+        expiresAt: deadlineInDays(15),
         createdAt: "2026-08-12T08:00:00.000Z",
         updatedAt: now,
       },
@@ -300,7 +293,7 @@ export function createCanonicalSolverState(now = "2026-08-17T09:00:00.000Z"): So
         ipNotice: "دسترسی فقط به پرونده تخصیص‌یافته محدود است.",
         relatedEntityId: "PR-104",
         state: "sent",
-        expiresAt: "2026-08-28T20:30:00.000Z",
+        expiresAt: deadlineInDays(11),
         createdAt: "2026-08-15T08:00:00.000Z",
         updatedAt: now,
       },
@@ -643,7 +636,7 @@ export function createCanonicalSolverState(now = "2026-08-17T09:00:00.000Z"): So
           "ظرفیت همکاری اعلام‌شده",
         ],
         requestedDocuments: ["رزومه", "نمونه تجربه مرتبط"],
-        deadline: offerDeadlineInDays(12),
+        deadline: deadlineInDays(12),
         state: "received",
         updatedAt: now,
       },
@@ -656,7 +649,7 @@ export function createCanonicalSolverState(now = "2026-08-17T09:00:00.000Z"): So
         summary: "دعوت تیم برای تدوین پاسخ فنی و مالی.",
         invitationReasons: ["توانمندی تیم در طراحی مکانیک", "سابقه پایلوت صنعتی"],
         requestedDocuments: ["رزومه تیم", "برنامه زمان‌بندی"],
-        deadline: offerDeadlineInDays(10),
+        deadline: deadlineInDays(10),
         state: "viewed",
         viewedAt: "2026-08-16T09:00:00.000Z",
         updatedAt: now,
@@ -670,7 +663,7 @@ export function createCanonicalSolverState(now = "2026-08-17T09:00:00.000Z"): So
         summary: "دعوت آزمایشگاه برای بررسی نمونه و ارائه پاسخ.",
         invitationReasons: ["تجهیزات آزمایشگاهی مرتبط", "تجربه شیمی آب"],
         requestedDocuments: ["فهرست تجهیزات"],
-        deadline: offerDeadlineInDays(18),
+        deadline: deadlineInDays(18),
         state: "received",
         updatedAt: now,
       },

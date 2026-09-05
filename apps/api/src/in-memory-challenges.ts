@@ -1120,6 +1120,15 @@ export class InMemoryChallengeRepository implements ChallengePort, PublicChallen
     });
   }
 
+  seedPublicProjection(resource: ChallengePublicProjectionResource) {
+    this.state.publicProjections = [
+      ...this.state.publicProjections.filter(
+        (candidate) => candidate.challenge_id !== resource.challenge_id,
+      ),
+      structuredClone(resource),
+    ];
+  }
+
   snapshot(): ChallengeRepositorySnapshot {
     const stored = [...this.state.challenges.values()];
     return {

@@ -1,3 +1,4 @@
+import { isNetworkWebRuntime } from "@/lib/runtime/mode";
 import {
   CURRENT_SOLVER_USER_ID,
   PERSONAL_WORKSPACE_ID,
@@ -120,6 +121,25 @@ export function buildSolverHref(
 ) {
   const [base, existingQuery = ""] = path.split("?");
   const params = new URLSearchParams(existingQuery);
+  // In network mode the server owns the active workspace, so carrying a
+  // `space`/`workspaceId` pair in every link would put a demo identifier in
+  // the address bar of a page reading a different, real workspace -- a URL
+  // that lies about what it shows, and one a human could paste at someone
+  // else. Connected links stay bare and the session decides scope.
+  if (isNetworkWebRuntime) {
+    for (const [key, value] of Object.entries(
+      query instanceof URLSearchParams ? {} : (query ?? {}),
+    )) {
+      if (value === undefined || value === "") params.delete(key);
+      else params.set(key, String(value));
+    }
+    if (query instanceof URLSearchParams) query.forEach((value, key) => params.set(key, value));
+    params.delete("space");
+    params.delete("workspaceId");
+    params.delete("teamId");
+    const connectedQuery = params.toString();
+    return connectedQuery ? `${base}?${connectedQuery}` : base;
+  }
   const contextParams = solverContextParams(context);
   contextParams.forEach((value, key) => params.set(key, value));
   if (query instanceof URLSearchParams) query.forEach((value, key) => params.set(key, value));

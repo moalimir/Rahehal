@@ -45,3 +45,11 @@ staticPasswords:
     hash: $2y$12$8Slc7htGDKSPQU9UTXDEVOCw8KIAXk0lO7ZRufTPnRNKW6frPWP7q
     username: local-platform-legal
     userID: platform-legal
+  # The A1a seed already links `usr_solver_alpha` to the `solver-alpha`
+  # subject and gives it the individual + team:owner memberships C1 evaluates,
+  # but no local credential existed for it, so no connected browser could reach
+  # any solver-scoped route.
+  - email: solver-alpha@synthetic.invalid
+    hash: $2y$12$8Slc7htGDKSPQU9UTXDEVOCw8KIAXk0lO7ZRufTPnRNKW6frPWP7q
+    username: local-solver-alpha
+    userID: solver-alpha

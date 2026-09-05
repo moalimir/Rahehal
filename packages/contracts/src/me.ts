@@ -15,8 +15,10 @@ import type { MutationSuccessEnvelope, VersionedApiMeta, VersionedCommand } from
 export type UserResource = {
   readonly id: UserId;
   readonly display_name: string;
-  readonly primary_email: string;
+  readonly primary_email: string | null;
   readonly email_verified: boolean;
+  readonly primary_phone: string | null;
+  readonly phone_verified: boolean;
 };
 
 type WorkspaceResourceBase = {

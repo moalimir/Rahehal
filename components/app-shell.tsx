@@ -187,24 +187,33 @@ export function RoleAppShell({
           })}
         </nav>
 
-        {role !== "solver" && (
+        {/* The solver sidebar carries no identity and no help link: the person
+            is already named in the topbar profile, and repeating them put the
+            same human on screen twice. Sign-out is the exception -- a connected
+            session has to be endable from the chrome -- so it renders alone
+            there and the full block stays for the other roles. */}
+        {(role !== "solver" || onSignOut) && (
           <div className="unified-sidebar__bottom">
-            <Link href={role === "org" ? "/app/org/settings" : "/app/help"}>
-              <Icon name="shield" />
-              <span>راهنما و پشتیبانی</span>
-            </Link>
+            {role !== "solver" && (
+              <Link href={role === "org" ? "/app/org/settings" : "/app/help"}>
+                <Icon name="shield" />
+                <span>راهنما و پشتیبانی</span>
+              </Link>
+            )}
             {onSignOut && (
               <button type="button" className="text-button" onClick={onSignOut}>
                 خروج از نشست
               </button>
             )}
-            <div className="unified-sidebar__account">
-              <PersonAvatar name={account.userName} className="unified-avatar" />
-              <div>
-                <strong>{account.userName}</strong>
-                <small>{account.userRole}</small>
+            {role !== "solver" && (
+              <div className="unified-sidebar__account">
+                <PersonAvatar name={account.userName} className="unified-avatar" />
+                <div>
+                  <strong>{account.userName}</strong>
+                  <small>{account.userRole}</small>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         )}
       </aside>

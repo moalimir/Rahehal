@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { ChallengeFlowApp } from "@/components/challenge-flow/challenge-flow-app";
 import { InternalApp } from "@/components/internal/internal-app";
+import { WorkspaceResolver } from "@/components/internal/workspace-resolver";
 import { PortalPage } from "@/components/portal-page";
 import { ChallengeDiscoveryApp } from "@/components/challenge-discovery";
 import { PublicChallengeRecordRoute } from "@/components/public-challenge-record";
@@ -19,6 +20,7 @@ import { routeDefinitions } from "@/data/routes";
 import { challenges } from "@/data/mock";
 import { CHALLENGE_ROUTE_IDS } from "@/lib/challenges/ids";
 import { isNetworkWebRuntime } from "@/lib/runtime/mode";
+import { WORKSPACE_RESOLVER_PATH } from "@/lib/routing/workspace-home";
 import { getLegacyResolution, legacyRouteEntries } from "@/data/legacy-redirects";
 
 export const dynamicParams = false;
@@ -29,6 +31,10 @@ export function generateStaticParams() {
     ...publicRoutes.map((route) => route.path),
     ...publicProductRoutes.map((route) => route.path),
     ...internalRoutes.map((route) => route.path),
+    // The single authenticated entry point. It resolves the active workspace
+    // at request time, so it is a registered route rather than a fallback
+    // string other surfaces link to hopefully.
+    WORKSPACE_RESOLVER_PATH,
     ...challengeFlowStaticPaths,
     ...legacyRouteEntries.map((entry) => entry.source),
     "/challenges",
@@ -66,6 +72,12 @@ export async function generateMetadata({
   if (path.startsWith("/challenges/")) {
     return { title: "جزئیات چالش", description: "شرح، شرایط مشارکت و وضعیت چالش." };
   }
+  if (path === WORKSPACE_RESOLVER_PATH) {
+    return {
+      title: "ورود به فضای کاری",
+      description: "انتخاب و ورود به فضای کاری فعال حساب کاربری.",
+    };
+  }
   const flowRoute = getChallengeFlowRoute(path);
   if (flowRoute) {
     const meta = challengeFlowMetadata(flowRoute);
@@ -98,6 +110,7 @@ export default async function RoutedPage({ params }: { params: Promise<{ slug: s
       <ChallengeDiscoveryApp challengeKey={path.split("/").filter(Boolean).at(-1)} publicMode />
     );
   }
+  if (path === WORKSPACE_RESOLVER_PATH) return <WorkspaceResolver />;
   const challengeFlowRoute = getChallengeFlowRoute(path);
   if (challengeFlowRoute) return <ChallengeFlowApp route={challengeFlowRoute} />;
   const internalRoute = getInternalRoute(path);

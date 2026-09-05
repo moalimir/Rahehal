@@ -1,9 +1,12 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ChallengeOrganizationLogo } from "@/components/challenge-organization-logo";
 import { Icon } from "@/components/icons";
+import { useWebRuntime } from "@/components/runtime-provider";
+
 import { PageHeading, Toast, readSolverListParams } from "@/components/solver-profile/shared";
 import { useSolverContext, type SolverSpace } from "@/components/solver-shell";
 import { challenges } from "@/data/mock";
@@ -16,7 +19,32 @@ import {
   setOpportunitySaved,
 } from "@/lib/solver/saved-opportunities";
 
+/**
+ * Saved calls for the active workspace: C6 rows in network mode, the browser
+ * store only in the static export.
+ */
+const ConnectedSavedPage = dynamic(
+  () =>
+    import("@/components/solver/connected-opportunities").then(
+      (module) => module.ConnectedSavedPage,
+    ),
+  {
+    loading: () => (
+      <section className="rh-card rh-profile-empty" aria-busy="true">
+        <span className="sr-only">در حال بارگذاری بخش متصل</span>
+        <div className="route-fallback__skeleton" aria-hidden="true" />
+      </section>
+    ),
+  },
+);
+
 export function SavedPage({ space }: { space: SolverSpace }) {
+  const runtime = useWebRuntime();
+  if (runtime.mode === "network") return <ConnectedSavedPage />;
+  return <DemoSavedPage space={space} />;
+}
+
+function DemoSavedPage({ space }: { space: SolverSpace }) {
   const context = useSolverContext();
   const [saved, setSaved] = useState<string[]>([]);
   const initialParams = readSolverListParams();

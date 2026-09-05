@@ -1,8 +1,14 @@
 import type { OutboxEvent } from "@rahhal/contracts";
-import { parsePrefixedId } from "@rahhal/domain";
+import {
+  opportunityOutboxEventTypes,
+  parsePrefixedId,
+  proposalOutboxEventTypes,
+  solverActivationOutboxEventTypes,
+  teamOutboxEventTypes,
+} from "@rahhal/domain";
 import { buildOutboxEvent, fixedTimestamp } from "@rahhal/testkit";
 import { describe, expect, it, vi } from "vitest";
-import { OutboxConsumer } from "../src/consumer.js";
+import { isSupportedOutboxEventType, OutboxConsumer } from "../src/consumer.js";
 import { createDemoWorkerComposition } from "../src/demo-composition.js";
 import { InMemoryDeliveryLedger } from "../src/delivery-ledger.js";
 import { InMemoryOutboxSource } from "../src/in-memory.js";
@@ -22,6 +28,27 @@ function supportedEvent(index = 1, overrides: Partial<OutboxEvent<Record<string,
 }
 
 describe("idempotent outbox consumer", () => {
+  it("accepts every C2 team event family through the worker boundary", () => {
+    for (const eventType of teamOutboxEventTypes) {
+      expect(isSupportedOutboxEventType(eventType)).toBe(true);
+    }
+  });
+
+  it("accepts every C4 metadata-only proposal event through the worker boundary", () => {
+    for (const eventType of proposalOutboxEventTypes) {
+      expect(isSupportedOutboxEventType(eventType)).toBe(true);
+    }
+    for (const eventType of opportunityOutboxEventTypes) {
+      expect(isSupportedOutboxEventType(eventType)).toBe(true);
+    }
+  });
+
+  it("accepts C7 activation and contact-session events through the worker boundary", () => {
+    for (const eventType of solverActivationOutboxEventTypes) {
+      expect(isSupportedOutboxEventType(eventType)).toBe(true);
+    }
+  });
+
   it("delivers duplicate event claims once while publishing each source record", async () => {
     const event = supportedEvent(1);
     const source = new InMemoryOutboxSource([event, structuredClone(event)]);
@@ -37,11 +64,18 @@ describe("idempotent outbox consumer", () => {
       deadLettered: 0,
     });
     expect(handle).toHaveBeenCalledTimes(1);
-    expect(handle).toHaveBeenCalledWith(event, {
-      claimId: "claim_00000001",
-      attempt: 1,
-      idempotencyKey: event.event_id,
-    });
+    // The third argument is the ledger's transaction. An in-memory ledger has
+    // none, so it passes `undefined`; the PostgreSQL ledger passes the client
+    // that makes the effect and the delivery record commit together.
+    expect(handle).toHaveBeenCalledWith(
+      event,
+      {
+        claimId: "claim_00000001",
+        attempt: 1,
+        idempotencyKey: event.event_id,
+      },
+      undefined,
+    );
     expect(ledger.has(event.event_id)).toBe(true);
     expect(source.pendingCount()).toBe(0);
     expect(source.publishedCount()).toBe(2);

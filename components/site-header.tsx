@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Brand } from "@/components/brand";
 import { Icon } from "@/components/icons";
+import { SessionAware } from "@/components/site-header-session-boundary";
 
 export function SiteHeader({
   variant = "default",
@@ -108,27 +109,31 @@ export function SiteHeader({
           ))}
         </nav>
         <div className="header-actions">
-          <nav
-            className="header-login-options header-login-options--audiences"
-            aria-label="ورود و شروع همکاری"
-          >
-            <Link
-              className="header-login-option header-login-option--organization"
-              href="/auth/organization/login"
-              aria-label="ورود یا شروع همکاری سازمانی"
-            >
-              <Icon className="audience-entry-icon" name="organization" />
-              سازمان
-            </Link>
-            <Link
-              className="header-login-option header-login-option--solver"
-              href="/auth/login?role=solver"
-              aria-label="ورود یا ایجاد حساب حل‌کننده"
-            >
-              <Icon className="audience-entry-icon" name="solver" />
-              حل‌کننده
-            </Link>
-          </nav>
+          <SessionAware
+            fallback={
+              <nav
+                className="header-login-options header-login-options--audiences"
+                aria-label="ورود و شروع همکاری"
+              >
+                <Link
+                  className="header-login-option header-login-option--organization"
+                  href="/auth/organization/login"
+                  aria-label="ورود یا شروع همکاری سازمانی"
+                >
+                  <Icon className="audience-entry-icon" name="organization" />
+                  سازمان
+                </Link>
+                <Link
+                  className="header-login-option header-login-option--solver"
+                  href="/auth/login?role=solver"
+                  aria-label="ورود یا ایجاد حساب حل‌کننده"
+                >
+                  <Icon className="audience-entry-icon" name="solver" />
+                  حل‌کننده
+                </Link>
+              </nav>
+            }
+          />
           {isDirectory && (
             <Link
               className="button button--secondary button--sm companies-register"
@@ -182,26 +187,34 @@ export function SiteHeader({
                 ),
               )}
             </nav>
-            <div className="drawer-actions">
-              <Link
-                className="button button--secondary header-login-option"
-                href="/auth/organization/login"
-                onClick={() => setOpen(false)}
-                aria-label="ورود یا شروع همکاری سازمانی"
-              >
-                <Icon className="audience-entry-icon" name="organization" />
-                سازمان
-              </Link>
-              <Link
-                className="button button--primary header-login-option"
-                href="/auth/login?role=solver"
-                onClick={() => setOpen(false)}
-                aria-label="ورود یا ایجاد حساب حل‌کننده"
-              >
-                <Icon className="audience-entry-icon" name="solver" />
-                حل‌کننده
-              </Link>
-            </div>
+            {/* The drawer is the mobile equivalent of the header's audience
+                entry, so it follows the same session rule: a signed-in human
+                is offered the way into their workspace, not another invitation
+                to sign up. */}
+            <SessionAware
+              fallback={
+                <div className="drawer-actions">
+                  <Link
+                    className="button button--secondary header-login-option"
+                    href="/auth/organization/login"
+                    onClick={() => setOpen(false)}
+                    aria-label="ورود یا شروع همکاری سازمانی"
+                  >
+                    <Icon className="audience-entry-icon" name="organization" />
+                    سازمان
+                  </Link>
+                  <Link
+                    className="button button--primary header-login-option"
+                    href="/auth/login?role=solver"
+                    onClick={() => setOpen(false)}
+                    aria-label="ورود یا ایجاد حساب حل‌کننده"
+                  >
+                    <Icon className="audience-entry-icon" name="solver" />
+                    حل‌کننده
+                  </Link>
+                </div>
+              }
+            />
           </div>
         </div>
       )}

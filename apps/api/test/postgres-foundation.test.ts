@@ -54,8 +54,36 @@ beforeAll(async () => {
     "0009_b6_publication_lifecycle",
     "0010_phase2_closure",
     "0012_phase2_review_closure",
+    "0013_c_proposal_foundation",
+    "0014_c1_solver_profile_eligibility",
+    "0015_c2_team_lifecycle",
+    "0016_c4_proposal_submission",
+    "0017_c5_proposal_clarification_revision",
+    "0018_c6_opportunities_direct_offers",
+    "0019_c7_solver_activation",
+    "0020_c8_notifications",
+    "0021_c6_offer_deadline_single_clock",
   ]);
 
+  // Newest first.
+  const offerClockDown = await runMigrations(database, "down");
+  expect(offerClockDown.applied).toEqual(["0021_c6_offer_deadline_single_clock"]);
+  const c8Down = await runMigrations(database, "down");
+  expect(c8Down.applied).toEqual(["0020_c8_notifications"]);
+  const c7Down = await runMigrations(database, "down");
+  expect(c7Down.applied).toEqual(["0019_c7_solver_activation"]);
+  const c6Down = await runMigrations(database, "down");
+  expect(c6Down.applied).toEqual(["0018_c6_opportunities_direct_offers"]);
+  const c5Down = await runMigrations(database, "down");
+  expect(c5Down.applied).toEqual(["0017_c5_proposal_clarification_revision"]);
+  const c4Down = await runMigrations(database, "down");
+  expect(c4Down.applied).toEqual(["0016_c4_proposal_submission"]);
+  const c2Down = await runMigrations(database, "down");
+  expect(c2Down.applied).toEqual(["0015_c2_team_lifecycle"]);
+  const c1Down = await runMigrations(database, "down");
+  expect(c1Down.applied).toEqual(["0014_c1_solver_profile_eligibility"]);
+  const proposalDown = await runMigrations(database, "down");
+  expect(proposalDown.applied).toEqual(["0013_c_proposal_foundation"]);
   const reviewClosureDown = await runMigrations(database, "down");
   expect(reviewClosureDown.applied).toEqual(["0012_phase2_review_closure"]);
   const phase2Down = await runMigrations(database, "down");
@@ -103,6 +131,15 @@ beforeAll(async () => {
     "0009_b6_publication_lifecycle",
     "0010_phase2_closure",
     "0012_phase2_review_closure",
+    "0013_c_proposal_foundation",
+    "0014_c1_solver_profile_eligibility",
+    "0015_c2_team_lifecycle",
+    "0016_c4_proposal_submission",
+    "0017_c5_proposal_clarification_revision",
+    "0018_c6_opportunities_direct_offers",
+    "0019_c7_solver_activation",
+    "0020_c8_notifications",
+    "0021_c6_offer_deadline_single_clock",
   ]);
   const noOpUp = await runMigrations(database, "up");
   expect(noOpUp.applied).toEqual([]);
@@ -135,15 +172,32 @@ describe("A1a PostgreSQL foundation", () => {
       "challenge_approval",
       "challenge_public_projection",
       "challenge_version",
+      "contact_verification_consumption",
+      "direct_offer",
+      "eligibility_gate_acceptance",
       "eligibility_rule",
       "idempotency_key",
       "identity_link",
       "membership",
       "mutation_receipt",
+      "notification",
+      "offer_response",
       "oidc_authorization_attempt",
+      "outbox_delivery",
       "outbox_event",
+      "proposal",
+      "proposal_clarification",
+      "proposal_revision_request",
+      "proposal_version",
+      "saved_opportunity",
       "schema_migration",
+      "solver_activation",
+      "solver_workspace_profile",
+      "team_invitation",
+      "team_membership_request",
+      "team_workspace",
       "tenant",
+      "verification_record",
       "workspace",
     ];
     const tables = await database.query<{ table_name: string }>(`
@@ -199,6 +253,42 @@ describe("A1a PostgreSQL foundation", () => {
         id: "0012_phase2_review_closure",
         checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
       },
+      {
+        id: "0013_c_proposal_foundation",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+      {
+        id: "0014_c1_solver_profile_eligibility",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+      {
+        id: "0015_c2_team_lifecycle",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+      {
+        id: "0016_c4_proposal_submission",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+      {
+        id: "0017_c5_proposal_clarification_revision",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+      {
+        id: "0018_c6_opportunities_direct_offers",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+      {
+        id: "0019_c7_solver_activation",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+      {
+        id: "0020_c8_notifications",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+      {
+        id: "0021_c6_offer_deadline_single_clock",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
     ]);
   });
 
@@ -229,7 +319,9 @@ describe("A1a PostgreSQL foundation", () => {
       tenants: "4",
       // 3 baseline + the 4 B7 governance identities (distinct approvers,
       // publisher, platform finance/legal) the Phase-2 exit gate requires.
-      users: "7",
+      // C2 adds five durable team-role/candidate identities for lifecycle and
+      // exhaustive server-policy fixtures.
+      users: "12",
       workspaces: "5",
       challenges: "1",
       challenge_versions: "1",
@@ -476,6 +568,24 @@ describe("A1a PostgreSQL foundation", () => {
   });
 
   it("fails the A1b migration atomically for an orphaned existing session", async () => {
+    const offerClockDown = await runMigrations(database, "down");
+    expect(offerClockDown.applied).toEqual(["0021_c6_offer_deadline_single_clock"]);
+    const c8Down = await runMigrations(database, "down");
+    expect(c8Down.applied).toEqual(["0020_c8_notifications"]);
+    const c7Down = await runMigrations(database, "down");
+    expect(c7Down.applied).toEqual(["0019_c7_solver_activation"]);
+    const c6Down = await runMigrations(database, "down");
+    expect(c6Down.applied).toEqual(["0018_c6_opportunities_direct_offers"]);
+    const c5Down = await runMigrations(database, "down");
+    expect(c5Down.applied).toEqual(["0017_c5_proposal_clarification_revision"]);
+    const c4Down = await runMigrations(database, "down");
+    expect(c4Down.applied).toEqual(["0016_c4_proposal_submission"]);
+    const c2Down = await runMigrations(database, "down");
+    expect(c2Down.applied).toEqual(["0015_c2_team_lifecycle"]);
+    const c1Down = await runMigrations(database, "down");
+    expect(c1Down.applied).toEqual(["0014_c1_solver_profile_eligibility"]);
+    const proposalDown = await runMigrations(database, "down");
+    expect(proposalDown.applied).toEqual(["0013_c_proposal_foundation"]);
     const reviewClosureDown = await runMigrations(database, "down");
     expect(reviewClosureDown.applied).toEqual(["0012_phase2_review_closure"]);
     const phase2Down = await runMigrations(database, "down");
@@ -551,6 +661,15 @@ describe("A1a PostgreSQL foundation", () => {
       "0009_b6_publication_lifecycle",
       "0010_phase2_closure",
       "0012_phase2_review_closure",
+      "0013_c_proposal_foundation",
+      "0014_c1_solver_profile_eligibility",
+      "0015_c2_team_lifecycle",
+      "0016_c4_proposal_submission",
+      "0017_c5_proposal_clarification_revision",
+      "0018_c6_opportunities_direct_offers",
+      "0019_c7_solver_activation",
+      "0020_c8_notifications",
+      "0021_c6_offer_deadline_single_clock",
     ]);
   });
 });

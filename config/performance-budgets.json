@@ -4,36 +4,38 @@
   "standalone": {
     "maxBytes": 5164000,
     "maxCssCharacters": 2513000,
-    "maxJavaScriptCharacters": 2256000
+    "maxJavaScriptCharacters": 2261000
   },
   "javascript": {
     "demo": {
       "totalReferenceBytes": 1818758,
       "maxLargestAssetBytes": 736000,
-      "maxSharedInitialBytes": 1344000,
+      "maxSharedInitialBytes": 1356000,
       "routes": {
-        "/": 1486000,
-        "/challenges/": 1344000,
-        "/challenges/smart-water-recovery/": 1344000,
-        "/app/solver/dashboard/": 1344000,
-        "/app/org/challenges/": 1344000,
-        "/app/reviewer/assignments/": 1344000,
-        "/app/ops/publication/": 1344000
-      }
+        "/": 1497000,
+        "/challenges/": 1356000,
+        "/challenges/smart-water-recovery/": 1356000,
+        "/app/solver/dashboard/": 1356000,
+        "/app/org/challenges/": 1356000,
+        "/app/reviewer/assignments/": 1356000,
+        "/app/ops/publication/": 1356000
+      },
+      "_note": "C9 stage 4 raised the demo ceilings by 8,045 bytes on 2026-09-05, after removing far more than it added. Connected sign-in, the connected dashboard cards, and the connected proposal record had been reaching the demo bundle: `sideEffects: [\"*.css\"]` in package.json lets webpack drop the network-only gateway graph the RuntimeProvider references but the static export never calls, the connected auth flow is loaded on demand, and the legacy solver dashboard and proposal list lost their connected branches entirely -- in network mode those routes render ConnectedSolverRoute, so the branches were unreachable code. Together that recovered 137,206 bytes. What remains is the session-aware application chrome and the shared state labels both personas now use, which the static export does render."
     },
     "network": {
       "totalReferenceBytes": 1864987,
       "maxLargestAssetBytes": 736000,
       "maxSharedInitialBytes": 570000,
       "routes": {
-        "/": 1524000,
-        "/challenges/": 1382000,
+        "/": 1540000,
+        "/challenges/": 1399000,
         "/challenges/smart-water-recovery/": 570000,
-        "/app/solver/dashboard/": 1382000,
-        "/app/org/challenges/": 1382000,
-        "/app/reviewer/assignments/": 1382000,
-        "/app/ops/publication/": 1382000
-      }
+        "/app/solver/dashboard/": 1399000,
+        "/app/org/challenges/": 1399000,
+        "/app/reviewer/assignments/": 1399000,
+        "/app/ops/publication/": 1399000
+      },
+      "_note": "C9 raised the connected route ceilings by 4,153 bytes on 2026-09-05, measured against the build that converted the proposal, team, saved/offer, organization-inbox and notification page families to server authority. The increase is the typed command gateways the RuntimeProvider composes for those nine families; every connected page component itself is loaded on demand and stays out of this chunk. The demo ceilings guard the public static export and were not raised -- they fell by 4,761 bytes in the same change. C9 stage 4 raised them a further 5,260 bytes: the connected sign-in and activation flow, the shared unread-notification hook both shells now use, and the team card the team dashboard was missing. The connected page components themselves are still loaded on demand and stay out of this chunk."
     }
   },
   "staticAssets": {
@@ -46,6 +48,10 @@
   },
   "webVitals": {
     "_note": "User-centric p75 targets on Persian-market mobile (DEC-2026-009, 95 §7). Not enforced by check:budgets — Lighthouse/RUM evidence is required by the G5 pilot-hardening gate.",
-    "p75": { "lcpMs": 2500, "inpMs": 200, "cls": 0.1 }
+    "p75": {
+      "lcpMs": 2500,
+      "inpMs": 200,
+      "cls": 0.1
+    }
   }
 }

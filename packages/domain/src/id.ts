@@ -11,6 +11,19 @@ export const idPrefixes = {
   challengeApproval: "cap",
   proposal: "prp",
   proposalVersion: "prv",
+  proposalClarification: "pcl",
+  proposalRevisionRequest: "prr",
+  savedOpportunity: "sop",
+  directOffer: "dof",
+  offerResponse: "ofr",
+  accessGrant: "agr",
+  verification: "ver",
+  eligibilityGateAcceptance: "ega",
+  teamInvitation: "tiv",
+  teamMembershipRequest: "tmr",
+  solverActivation: "act",
+  notification: "ntf",
+  contactVerificationAttempt: "otp",
   reviewAssignment: "rva",
   rubric: "rub",
   rubricVersion: "rbv",
@@ -40,6 +53,19 @@ export type ChallengeVersionId = PrefixedId<"chv">;
 export type ChallengeApprovalId = PrefixedId<"cap">;
 export type ProposalId = PrefixedId<"prp">;
 export type ProposalVersionId = PrefixedId<"prv">;
+export type ProposalClarificationId = PrefixedId<"pcl">;
+export type ProposalRevisionRequestId = PrefixedId<"prr">;
+export type SavedOpportunityId = PrefixedId<"sop">;
+export type DirectOfferId = PrefixedId<"dof">;
+export type OfferResponseId = PrefixedId<"ofr">;
+export type AccessGrantId = PrefixedId<"agr">;
+export type VerificationId = PrefixedId<"ver">;
+export type EligibilityGateAcceptanceId = PrefixedId<"ega">;
+export type TeamInvitationId = PrefixedId<"tiv">;
+export type TeamMembershipRequestId = PrefixedId<"tmr">;
+export type SolverActivationId = PrefixedId<"act">;
+export type NotificationId = PrefixedId<"ntf">;
+export type ContactVerificationAttemptId = PrefixedId<"otp">;
 export type ReviewAssignmentId = PrefixedId<"rva">;
 export type RubricId = PrefixedId<"rub">;
 export type RubricVersionId = PrefixedId<"rbv">;
@@ -63,6 +89,19 @@ export type EntityId =
   | ChallengeApprovalId
   | ProposalId
   | ProposalVersionId
+  | ProposalClarificationId
+  | ProposalRevisionRequestId
+  | SavedOpportunityId
+  | DirectOfferId
+  | OfferResponseId
+  | AccessGrantId
+  | VerificationId
+  | EligibilityGateAcceptanceId
+  | TeamInvitationId
+  | TeamMembershipRequestId
+  | SolverActivationId
+  | NotificationId
+  | ContactVerificationAttemptId
   | ReviewAssignmentId
   | RubricId
   | RubricVersionId
@@ -83,6 +122,18 @@ const entityIdPrefixes = [
   idPrefixes.challengeApproval,
   idPrefixes.proposal,
   idPrefixes.proposalVersion,
+  idPrefixes.proposalClarification,
+  idPrefixes.proposalRevisionRequest,
+  idPrefixes.savedOpportunity,
+  idPrefixes.directOffer,
+  idPrefixes.offerResponse,
+  idPrefixes.accessGrant,
+  idPrefixes.verification,
+  idPrefixes.eligibilityGateAcceptance,
+  idPrefixes.teamInvitation,
+  idPrefixes.teamMembershipRequest,
+  idPrefixes.solverActivation,
+  idPrefixes.contactVerificationAttempt,
   idPrefixes.reviewAssignment,
   idPrefixes.rubric,
   idPrefixes.rubricVersion,
@@ -162,6 +213,33 @@ export const parseSessionId = createIdentifierParser(idPrefixes.session);
 export const parseChallengeId = createIdentifierParser(idPrefixes.challenge);
 export const parseChallengeVersionId = createIdentifierParser(idPrefixes.challengeVersion);
 export const parseChallengeApprovalId = createIdentifierParser(idPrefixes.challengeApproval);
+export const parseProposalId = createIdentifierParser(idPrefixes.proposal);
+export const parseProposalVersionId = createIdentifierParser(idPrefixes.proposalVersion);
+export const parseProposalClarificationId = createIdentifierParser(
+  idPrefixes.proposalClarification,
+);
+export const parseProposalRevisionRequestId = createIdentifierParser(
+  idPrefixes.proposalRevisionRequest,
+);
+export const parseSavedOpportunityId = createIdentifierParser(idPrefixes.savedOpportunity);
+export const parseDirectOfferId = createIdentifierParser(idPrefixes.directOffer);
+export const parseOfferResponseId = createIdentifierParser(idPrefixes.offerResponse);
+export const parseAccessGrantId = createIdentifierParser(idPrefixes.accessGrant);
+export const parseVerificationId = createIdentifierParser(idPrefixes.verification);
+export const parseEligibilityGateAcceptanceId = createIdentifierParser(
+  idPrefixes.eligibilityGateAcceptance,
+);
+export const isTeamInvitationId = createIdentifierGuard(idPrefixes.teamInvitation);
+export const parseTeamInvitationId = createIdentifierParser(idPrefixes.teamInvitation);
+export const isTeamMembershipRequestId = createIdentifierGuard(idPrefixes.teamMembershipRequest);
+export const parseTeamMembershipRequestId = createIdentifierParser(
+  idPrefixes.teamMembershipRequest,
+);
+export const parseSolverActivationId = createIdentifierParser(idPrefixes.solverActivation);
+export const parseNotificationId = createIdentifierParser(idPrefixes.notification);
+export const parseContactVerificationAttemptId = createIdentifierParser(
+  idPrefixes.contactVerificationAttempt,
+);
 export const parseReceiptId = createIdentifierParser(idPrefixes.receipt);
 export const parseAuditEventId = createIdentifierParser(idPrefixes.auditEvent);
 export const parseCorrelationId = createIdentifierParser(idPrefixes.correlation);

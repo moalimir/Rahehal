@@ -688,11 +688,19 @@ describe("Solver v28 foundation contracts", () => {
   });
 
   it("state machine مشاهده offer را از پذیرش نهایی جدا نگه می‌دارد", () => {
+    // The canonical machine also requires `not-expired`: server time, not a
+    // browser form opened earlier, decides whether the offer is still live.
+    expect(
+      canTransition(directOfferTransitions, "received", "viewed", "individual", [
+        "recipient-authorized",
+        "not-expired",
+      ]),
+    ).toBe(true);
     expect(
       canTransition(directOfferTransitions, "received", "viewed", "individual", [
         "recipient-authorized",
       ]),
-    ).toBe(true);
+    ).toBe(false);
     expect(canTransition(directOfferTransitions, "viewed", "selected", "individual", [])).toBe(
       false,
     );

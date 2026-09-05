@@ -1,9 +1,12 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ConfirmDialog } from "@/components/internal/shared";
 import { Icon } from "@/components/icons";
+import { useWebRuntime } from "@/components/runtime-provider";
+
 import { useSolverContext } from "@/components/solver-shell";
 import type { InternalRoute } from "@/data/internal-routes";
 import type { CaseRecord, MutationResult, ProposalContent, SolverState } from "@/domain/solver";
@@ -133,7 +136,29 @@ function setResult(result: MutationResult, success: string, setter: (value: stri
   setter(result.ok ? `${success} · رسید ${result.receiptId}` : result.message);
 }
 
+const ConnectedNotifications = dynamic(
+  () =>
+    import("@/components/solver/connected-notifications").then(
+      (module) => module.ConnectedNotifications,
+    ),
+  {
+    loading: () => (
+      <section className="rh-card rh-profile-empty" aria-busy="true">
+        <span className="sr-only">در حال بارگذاری بخش متصل</span>
+        <div className="route-fallback__skeleton" aria-hidden="true" />
+      </section>
+    ),
+  },
+);
+
+/** Solver notifications: C8 rows in network mode, browser projection in demo. */
 export function SolverNotifications() {
+  const runtime = useWebRuntime();
+  if (runtime.mode === "network") return <ConnectedNotifications persona="solver" />;
+  return <DemoSolverNotifications />;
+}
+
+function DemoSolverNotifications() {
   const context = useSolverContext();
   const state = useStore();
   const [filter, setFilter] = useState<"all" | "unread" | "action">("all");

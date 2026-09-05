@@ -12,17 +12,32 @@ import {
   challengeVisibilities,
   challengeWorkModes,
   currencies,
+  directOfferStates,
+  eligibilityGateKinds,
+  eligibilityNextActions,
+  eligibilityReasonCodes,
   membershipStates,
   organizationRoles,
+  offerResponseStates,
   platformRoles,
+  notificationKinds,
+  proposalStates,
   publicationGates,
+  teamInvitationStates,
   teamKinds,
+  teamMembershipRequestStates,
+  teamNonOwnerRoles,
   teamRoles,
+  teamStatuses,
   workspaceKinds,
   workspaceRoles,
+  verificationStates,
+  contactVerificationChannels,
+  solverStartIntents,
 } from "@rahhal/domain";
 
 import { apiErrorCodes } from "./envelopes.js";
+import { teamJoinModes } from "./team.js";
 
 export type JsonSchema = boolean | Readonly<Record<string, unknown>>;
 
@@ -66,12 +81,25 @@ const workspaceContextResourceSchema = {
 const userResourceSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["id", "display_name", "primary_email", "email_verified"],
+  required: [
+    "id",
+    "display_name",
+    "primary_email",
+    "email_verified",
+    "primary_phone",
+    "phone_verified",
+  ],
   properties: {
     id: idSchema("usr"),
     display_name: { type: "string", minLength: 1, maxLength: 200 },
-    primary_email: { type: "string", format: "email", maxLength: 320 },
+    primary_email: {
+      anyOf: [{ type: "string", format: "email", maxLength: 320 }, { type: "null" }],
+    },
     email_verified: { type: "boolean" },
+    primary_phone: {
+      anyOf: [{ type: "string", pattern: "^09[0-9]{9}$", maxLength: 40 }, { type: "null" }],
+    },
+    phone_verified: { type: "boolean" },
   },
 } as const;
 
@@ -182,6 +210,54 @@ const sessionTokenSetSchema = {
     token_type: { const: "Bearer" },
     access_token_expires_at: dateTimeSchema,
     refresh_token_expires_at: dateTimeSchema,
+  },
+} as const;
+
+const contactVerificationAttemptSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "attempt_id",
+    "channel",
+    "masked_destination",
+    "state",
+    "version",
+    "expires_at",
+    "resend_available_at",
+    "attempts_remaining",
+  ],
+  properties: {
+    attempt_id: idSchema("otp"),
+    channel: { type: "string", enum: contactVerificationChannels },
+    masked_destination: { type: "string", minLength: 3, maxLength: 320 },
+    state: { type: "string", enum: ["pending", "verified"] },
+    version: { type: "integer", minimum: 1 },
+    expires_at: dateTimeSchema,
+    resend_available_at: dateTimeSchema,
+    attempts_remaining: { type: "integer", minimum: 0, maximum: 5 },
+  },
+} as const;
+
+const solverActivationSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "user_id",
+    "tenant_id",
+    "individual_workspace_id",
+    "start_intent",
+    "version",
+    "activated_at",
+  ],
+  properties: {
+    id: idSchema("act"),
+    user_id: idSchema("usr"),
+    tenant_id: idSchema("ten"),
+    individual_workspace_id: idSchema("wsp"),
+    start_intent: { type: "string", enum: solverStartIntents },
+    version: { const: 1 },
+    activated_at: dateTimeSchema,
   },
 } as const;
 
@@ -368,6 +444,603 @@ const challengeReadinessSchema = {
     evaluated_version: { type: "integer", minimum: 1 },
     issues: { type: "array", items: challengeReadinessIssueSchema },
   },
+} as const;
+
+const proposalContentProperties = {
+  title: { type: "string", maxLength: 240 },
+  problem_statement: longTextSchema,
+  value_proposition: longTextSchema,
+  maturity_level: shortTextSchema,
+  prototype_weeks: { type: "string", maxLength: 20 },
+  technologies: {
+    type: "array",
+    uniqueItems: true,
+    maxItems: 100,
+    items: shortTextSchema,
+  },
+  technical_approach: longTextSchema,
+  architecture: longTextSchema,
+  data_needs: longTextSchema,
+  success_metrics: longTextSchema,
+  ip_status: shortTextSchema,
+  duration_weeks: { type: "string", maxLength: 20 },
+  roadmap: longTextSchema,
+  dependencies: longTextSchema,
+  pilot_location: shortTextSchema,
+  risks: longTextSchema,
+  mitigation: longTextSchema,
+  lead_name: { type: "string", maxLength: 200 },
+  team_summary: longTextSchema,
+  relevant_experience: longTextSchema,
+  budget_amount_minor: {
+    type: ["integer", "null"],
+    minimum: 0,
+    maximum: Number.MAX_SAFE_INTEGER,
+  },
+  budget_currency: { type: "string", enum: currencies },
+  payment_model: shortTextSchema,
+  budget_rationale: longTextSchema,
+  start_availability: shortTextSchema,
+  team_availability: shortTextSchema,
+  nda_accepted: { type: "boolean" },
+  conflict_declared: { type: "boolean" },
+  ip_accepted: { type: "boolean" },
+  accuracy_confirmed: { type: "boolean" },
+  attachment_ids: {
+    type: "array",
+    uniqueItems: true,
+    maxItems: 100,
+    items: idSchema("fil"),
+    description: "Opaque metadata references only; C3 does not authorize or store file content.",
+  },
+} as const;
+
+const proposalContentRequired = [
+  "title",
+  "problem_statement",
+  "value_proposition",
+  "maturity_level",
+  "prototype_weeks",
+  "technologies",
+  "technical_approach",
+  "architecture",
+  "data_needs",
+  "success_metrics",
+  "ip_status",
+  "duration_weeks",
+  "roadmap",
+  "dependencies",
+  "pilot_location",
+  "risks",
+  "mitigation",
+  "lead_name",
+  "team_summary",
+  "relevant_experience",
+  "budget_amount_minor",
+  "budget_currency",
+  "payment_model",
+  "budget_rationale",
+  "start_availability",
+  "team_availability",
+  "nda_accepted",
+  "conflict_declared",
+  "ip_accepted",
+  "accuracy_confirmed",
+  "attachment_ids",
+] as const;
+
+const proposalContentSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: proposalContentRequired,
+  properties: proposalContentProperties,
+} as const;
+
+const proposalContentPatchSchema = {
+  type: "object",
+  additionalProperties: false,
+  minProperties: 1,
+  properties: proposalContentProperties,
+} as const;
+
+const proposalReadinessSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["ready", "evaluated_version", "issues"],
+  properties: {
+    ready: { type: "boolean" },
+    evaluated_version: { type: "integer", minimum: 1 },
+    issues: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["path", "code", "message"],
+        properties: {
+          path: { type: "string", maxLength: 500 },
+          code: { type: "string", enum: ["required", "min_length", "format"] },
+          message: { type: "string", maxLength: 2_000 },
+        },
+      },
+    },
+  },
+} as const;
+
+const proposalVersionSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "version_number",
+    "base_version_id",
+    "accepted_challenge_version_id",
+    "changed_fields",
+    "content_hash",
+    "locked",
+    "actor_user_id",
+    "created_at",
+  ],
+  properties: {
+    id: idSchema("prv"),
+    version_number: { type: "integer", minimum: 1 },
+    base_version_id: { oneOf: [idSchema("prv"), { type: "null" }] },
+    accepted_challenge_version_id: { oneOf: [idSchema("chv"), { type: "null" }] },
+    changed_fields: {
+      type: "array",
+      uniqueItems: true,
+      items: { type: "string", enum: proposalContentRequired },
+    },
+    content_hash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+    locked: { type: "boolean" },
+    actor_user_id: idSchema("usr"),
+    created_at: dateTimeSchema,
+  },
+} as const;
+
+const proposalClarificationSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "proposal_version_id",
+    "state",
+    "question",
+    "response",
+    "resolution",
+    "requested_at",
+    "submitted_at",
+    "resolved_at",
+  ],
+  properties: {
+    id: idSchema("pcl"),
+    proposal_version_id: idSchema("prv"),
+    state: { type: "string", enum: ["requested", "submitted", "resolved"] },
+    question: { type: "string", minLength: 1, maxLength: 10_000 },
+    response: { type: ["string", "null"], minLength: 1, maxLength: 20_000 },
+    resolution: { type: ["string", "null"], minLength: 1, maxLength: 10_000 },
+    requested_at: dateTimeSchema,
+    submitted_at: nullableDateTimeSchema,
+    resolved_at: nullableDateTimeSchema,
+  },
+} as const;
+
+const proposalRevisionRequestSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "base_version_id",
+    "resubmitted_version_id",
+    "state",
+    "scope",
+    "revision_deadline",
+    "requested_at",
+    "started_at",
+    "resubmitted_at",
+  ],
+  properties: {
+    id: idSchema("prr"),
+    base_version_id: idSchema("prv"),
+    resubmitted_version_id: { oneOf: [idSchema("prv"), { type: "null" }] },
+    state: { type: "string", enum: ["requested", "in_progress", "resubmitted"] },
+    scope: { type: "string", minLength: 1, maxLength: 10_000 },
+    revision_deadline: dateTimeSchema,
+    requested_at: dateTimeSchema,
+    started_at: nullableDateTimeSchema,
+    resubmitted_at: nullableDateTimeSchema,
+  },
+} as const;
+
+const proposalResourceSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "current_version_id",
+    "tenant_id",
+    "owner_workspace_id",
+    "owner_workspace_kind",
+    "challenge_id",
+    "assigned_membership_ids",
+    "state",
+    "tracking_code",
+    "version",
+    "readiness",
+    "content",
+    "versions",
+    "clarifications",
+    "revision_requests",
+    "submitted_at",
+    "created_by",
+    "created_at",
+    "updated_at",
+  ],
+  properties: {
+    id: idSchema("prp"),
+    current_version_id: idSchema("prv"),
+    tenant_id: idSchema("ten"),
+    owner_workspace_id: idSchema("wsp"),
+    owner_workspace_kind: { type: "string", enum: ["individual", "team"] },
+    challenge_id: idSchema("chl"),
+    assigned_membership_ids: {
+      type: "array",
+      uniqueItems: true,
+      items: idSchema("mem"),
+    },
+    state: { type: "string", enum: proposalStates },
+    tracking_code: { type: ["string", "null"], maxLength: 100 },
+    version: { type: "integer", minimum: 1 },
+    readiness: proposalReadinessSchema,
+    content: proposalContentSchema,
+    versions: { type: "array", minItems: 1, items: proposalVersionSchema },
+    clarifications: { type: "array", items: proposalClarificationSchema },
+    revision_requests: { type: "array", items: proposalRevisionRequestSchema },
+    submitted_at: nullableDateTimeSchema,
+    created_by: idSchema("usr"),
+    created_at: dateTimeSchema,
+    updated_at: dateTimeSchema,
+  },
+} as const;
+
+const organizationProposalVersionSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "version_number",
+    "base_version_id",
+    "accepted_challenge_version_id",
+    "changed_fields",
+    "content_hash",
+    "locked_at",
+  ],
+  properties: {
+    id: idSchema("prv"),
+    version_number: { type: "integer", minimum: 2 },
+    base_version_id: idSchema("prv"),
+    accepted_challenge_version_id: idSchema("chv"),
+    changed_fields: {
+      type: "array",
+      uniqueItems: true,
+      items: { type: "string", enum: proposalContentRequired },
+    },
+    content_hash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+    locked_at: dateTimeSchema,
+  },
+} as const;
+
+const proposalListItemSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "challenge_id",
+    "state",
+    "tracking_code",
+    "version",
+    "readiness",
+    "submitted_at",
+    "updated_at",
+  ],
+  properties: {
+    id: idSchema("prp"),
+    challenge_id: idSchema("chl"),
+    state: { type: "string", enum: proposalStates },
+    tracking_code: { type: ["string", "null"], maxLength: 100 },
+    version: { type: "integer", minimum: 1 },
+    readiness: proposalReadinessSchema,
+    submitted_at: nullableDateTimeSchema,
+    updated_at: dateTimeSchema,
+  },
+} as const;
+
+const proposalListSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["items"],
+  properties: { items: { type: "array", items: proposalListItemSchema } },
+} as const;
+
+const organizationProposalInboxItemSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "challenge_id",
+    "owner_workspace_kind",
+    "state",
+    "tracking_code",
+    "submitted_at",
+    "submitted_version",
+  ],
+  properties: {
+    id: idSchema("prp"),
+    challenge_id: idSchema("chl"),
+    owner_workspace_kind: { type: "string", enum: ["individual", "team"] },
+    state: { type: "string", enum: proposalStates },
+    tracking_code: { type: "string", pattern: "^PRP-[0-9]{4}-[0-9]{3,6}$" },
+    submitted_at: dateTimeSchema,
+    submitted_version: organizationProposalVersionSchema,
+  },
+} as const;
+
+const organizationProposalResourceSchema = {
+  ...organizationProposalInboxItemSchema,
+  required: [
+    ...organizationProposalInboxItemSchema.required,
+    "version",
+    "content",
+    "clarifications",
+    "revision_requests",
+  ],
+  properties: {
+    ...organizationProposalInboxItemSchema.properties,
+    version: { type: "integer", minimum: 1 },
+    content: proposalContentSchema,
+    clarifications: { type: "array", items: proposalClarificationSchema },
+    revision_requests: { type: "array", items: proposalRevisionRequestSchema },
+  },
+} as const;
+
+const notificationSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "tenant_id",
+    "workspace_id",
+    "user_id",
+    "kind",
+    "subject_type",
+    "subject_id",
+    "read_at",
+    "occurred_at",
+  ],
+  properties: {
+    id: idSchema("ntf"),
+    tenant_id: idSchema("ten"),
+    workspace_id: idSchema("wsp"),
+    user_id: idSchema("usr"),
+    kind: { type: "string", enum: notificationKinds },
+    subject_type: { type: "string", enum: ["proposal", "team", "direct_offer"] },
+    subject_id: { type: "string", minLength: 5, maxLength: 80 },
+    read_at: nullableDateTimeSchema,
+    occurred_at: dateTimeSchema,
+  },
+} as const;
+
+const notificationListSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["items", "unread_count"],
+  properties: {
+    items: { type: "array", items: notificationSchema },
+    unread_count: { type: "integer", minimum: 0 },
+    next_cursor: { type: "string", minLength: 1, maxLength: 200 },
+  },
+} as const;
+
+const notificationSummarySchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["unread_count"],
+  properties: { unread_count: { type: "integer", minimum: 0 } },
+} as const;
+
+const organizationProposalInboxSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["items"],
+  properties: { items: { type: "array", items: organizationProposalInboxItemSchema } },
+} as const;
+
+const savedOpportunitySchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["id", "challenge_id", "challenge_version_id", "version", "saved_at"],
+  properties: {
+    id: idSchema("sop"),
+    challenge_id: idSchema("chl"),
+    challenge_version_id: idSchema("chv"),
+    version: { const: 1 },
+    saved_at: dateTimeSchema,
+  },
+} as const;
+
+const savedOpportunityListSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["items"],
+  properties: { items: { type: "array", items: savedOpportunitySchema } },
+} as const;
+
+const offerResponseContentProperties = {
+  approach: longTextSchema,
+  scope: longTextSchema,
+  start_availability: shortTextSchema,
+  duration_weeks: { type: ["integer", "null"], minimum: 1, maximum: 520 },
+  budget_amount_minor: {
+    type: ["integer", "null"],
+    minimum: 0,
+    maximum: Number.MAX_SAFE_INTEGER,
+  },
+  budget_currency: { type: "string", enum: currencies },
+  payment_model: shortTextSchema,
+  negotiables: longTextSchema,
+  authority_confirmed: { type: "boolean" },
+  attachment_ids: {
+    type: "array",
+    uniqueItems: true,
+    maxItems: 100,
+    items: idSchema("fil"),
+    description: "Opaque metadata references only; C6 does not authorize or store file content.",
+  },
+} as const;
+
+const offerResponseContentRequired = [
+  "approach",
+  "scope",
+  "start_availability",
+  "duration_weeks",
+  "budget_amount_minor",
+  "budget_currency",
+  "payment_model",
+  "negotiables",
+  "authority_confirmed",
+  "attachment_ids",
+] as const;
+
+const offerResponseContentSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: offerResponseContentRequired,
+  properties: offerResponseContentProperties,
+} as const;
+
+const offerResponseContentPatchSchema = {
+  type: "object",
+  additionalProperties: false,
+  minProperties: 1,
+  properties: offerResponseContentProperties,
+} as const;
+
+const offerResponseReadinessSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["ready", "evaluated_version", "issues"],
+  properties: {
+    ready: { type: "boolean" },
+    evaluated_version: { type: "integer", minimum: 1 },
+    issues: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["path", "code", "message"],
+        properties: {
+          path: { type: "string", maxLength: 500 },
+          code: { type: "string", enum: ["required", "min_length", "format"] },
+          message: { type: "string", maxLength: 2_000 },
+        },
+      },
+    },
+  },
+} as const;
+
+const offerResponseSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "state",
+    "version",
+    "content",
+    "readiness",
+    "submitted_at",
+    "created_at",
+    "updated_at",
+  ],
+  properties: {
+    id: idSchema("ofr"),
+    state: { type: "string", enum: offerResponseStates },
+    version: { type: "integer", minimum: 1 },
+    content: offerResponseContentSchema,
+    readiness: offerResponseReadinessSchema,
+    submitted_at: nullableDateTimeSchema,
+    created_at: dateTimeSchema,
+    updated_at: dateTimeSchema,
+  },
+} as const;
+
+const directOfferSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "challenge_id",
+    "challenge_version_id",
+    "sender_organization_workspace_id",
+    "recipient_workspace_id",
+    "recipient_workspace_kind",
+    "title",
+    "summary",
+    "invitation_reasons",
+    "requested_documents",
+    "response_deadline",
+    "state",
+    "version",
+    "response",
+    "viewed_at",
+    "decline_reason",
+    "declined_at",
+    "cancellation_reason",
+    "cancelled_at",
+    "expired_at",
+    "created_at",
+    "updated_at",
+  ],
+  properties: {
+    id: idSchema("dof"),
+    challenge_id: idSchema("chl"),
+    challenge_version_id: idSchema("chv"),
+    sender_organization_workspace_id: idSchema("wsp"),
+    recipient_workspace_id: idSchema("wsp"),
+    recipient_workspace_kind: { type: "string", enum: ["individual", "team"] },
+    title: { type: "string", minLength: 1, maxLength: 240 },
+    summary: { type: "string", minLength: 1, maxLength: 4_000 },
+    invitation_reasons: {
+      type: "array",
+      minItems: 1,
+      maxItems: 20,
+      uniqueItems: true,
+      items: shortTextSchema,
+    },
+    requested_documents: {
+      type: "array",
+      maxItems: 20,
+      uniqueItems: true,
+      items: shortTextSchema,
+    },
+    response_deadline: dateTimeSchema,
+    state: { type: "string", enum: directOfferStates },
+    version: { type: "integer", minimum: 1 },
+    response: { oneOf: [offerResponseSchema, { type: "null" }] },
+    viewed_at: nullableDateTimeSchema,
+    decline_reason: { type: ["string", "null"], minLength: 1, maxLength: 2_000 },
+    declined_at: nullableDateTimeSchema,
+    cancellation_reason: { type: ["string", "null"], minLength: 1, maxLength: 2_000 },
+    cancelled_at: nullableDateTimeSchema,
+    expired_at: nullableDateTimeSchema,
+    created_at: dateTimeSchema,
+    updated_at: dateTimeSchema,
+  },
+} as const;
+
+const directOfferListSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["items"],
+  properties: { items: { type: "array", items: directOfferSchema } },
 } as const;
 
 const challengeApprovalResourceSchema = {
@@ -568,6 +1241,135 @@ const challengePublicProjectionSchema = {
   },
 } as const;
 
+const stringFactArraySchema = {
+  type: "array",
+  uniqueItems: true,
+  maxItems: 100,
+  items: { type: "string", minLength: 1, maxLength: 200 },
+} as const;
+
+const solverProfileReadinessSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["ready", "issues"],
+  properties: {
+    ready: { type: "boolean" },
+    issues: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["path", "code", "message"],
+        properties: {
+          path: { type: "string", maxLength: 100 },
+          code: { type: "string", enum: ["required", "min_length"] },
+          message: { type: "string", maxLength: 2_000 },
+        },
+      },
+    },
+  },
+} as const;
+
+const solverWorkspaceProfileSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "tenant_id",
+    "workspace_id",
+    "workspace_kind",
+    "applicant_type",
+    "headline",
+    "overview",
+    "expertise",
+    "geography",
+    "readiness",
+    "version",
+    "created_at",
+    "updated_at",
+  ],
+  properties: {
+    tenant_id: idSchema("ten"),
+    workspace_id: idSchema("wsp"),
+    workspace_kind: { type: "string", enum: ["individual", "team"] },
+    applicant_type: { type: "string", enum: applicantTypes },
+    headline: { type: "string", maxLength: 240 },
+    overview: { type: "string", maxLength: 4_000 },
+    expertise: stringFactArraySchema,
+    geography: stringFactArraySchema,
+    readiness: solverProfileReadinessSchema,
+    version: { type: "integer", minimum: 1 },
+    created_at: dateTimeSchema,
+    updated_at: dateTimeSchema,
+  },
+} as const;
+
+const solverVerificationSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "tenant_id",
+    "workspace_id",
+    "state",
+    "version",
+    "requested_at",
+    "submitted_at",
+    "verified_at",
+    "created_at",
+    "updated_at",
+  ],
+  properties: {
+    id: idSchema("ver"),
+    tenant_id: idSchema("ten"),
+    workspace_id: idSchema("wsp"),
+    state: { type: "string", enum: verificationStates },
+    version: { type: "integer", minimum: 1 },
+    requested_at: nullableDateTimeSchema,
+    submitted_at: nullableDateTimeSchema,
+    verified_at: nullableDateTimeSchema,
+    created_at: dateTimeSchema,
+    updated_at: dateTimeSchema,
+  },
+} as const;
+
+const eligibilityDecisionSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "challenge_id",
+    "evaluated_against_version_id",
+    "applicant_type",
+    "status",
+    "reasons",
+    "next_actions",
+    "evaluated_at",
+  ],
+  properties: {
+    challenge_id: idSchema("chl"),
+    evaluated_against_version_id: idSchema("chv"),
+    applicant_type: { type: ["string", "null"], enum: [...applicantTypes, null] },
+    status: { type: "string", enum: ["eligible", "needs_action", "ineligible"] },
+    reasons: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["code", "message"],
+        properties: {
+          code: { type: "string", enum: eligibilityReasonCodes },
+          message: { type: "string", maxLength: 2_000 },
+        },
+      },
+    },
+    next_actions: {
+      type: "array",
+      uniqueItems: true,
+      items: { type: "string", enum: eligibilityNextActions },
+    },
+    evaluated_at: dateTimeSchema,
+  },
+} as const;
+
 const challengeResourceSchema = {
   type: "object",
   additionalProperties: false,
@@ -721,6 +1523,7 @@ const apiErrorSchema = {
     },
     readiness: challengeReadinessSchema,
     recovery: { type: "string", maxLength: 200 },
+    eligibility: eligibilityDecisionSchema,
   },
 } as const;
 
@@ -784,6 +1587,192 @@ const outboxEventSchema = {
   },
 } as const;
 
+const teamPolicySchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "proposalManagersCanEditProfile",
+    "proposalManagersCanInvite",
+    "adminsCanSubmit",
+    "proposalManagersCanSubmit",
+    "viewersCanReadMessages",
+    "adminsCanViewPayments",
+    "proposalManagersCanViewPayments",
+    "approvalBeforeSubmit",
+  ],
+  properties: {
+    proposalManagersCanEditProfile: { type: "boolean" },
+    proposalManagersCanInvite: { type: "boolean" },
+    adminsCanSubmit: { type: "boolean" },
+    proposalManagersCanSubmit: { type: "boolean" },
+    viewersCanReadMessages: { type: "boolean" },
+    adminsCanViewPayments: { type: "boolean" },
+    proposalManagersCanViewPayments: { type: "boolean" },
+    approvalBeforeSubmit: { type: "boolean" },
+  },
+} as const;
+
+const teamPolicyPatchSchema = {
+  type: "object",
+  additionalProperties: false,
+  minProperties: 1,
+  properties: Object.fromEntries(
+    Object.keys(teamPolicySchema.properties).map((key) => [key, { type: "boolean" }]),
+  ),
+} as const;
+
+const teamMemberSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "user_id",
+    "display_name",
+    "role",
+    "state",
+    "version",
+    "created_at",
+    "updated_at",
+  ],
+  properties: {
+    id: idSchema("mem"),
+    user_id: idSchema("usr"),
+    display_name: { type: "string", minLength: 1, maxLength: 200 },
+    role: { type: "string", enum: teamRoles },
+    state: { type: "string", enum: membershipStates },
+    version: { type: "integer", minimum: 1 },
+    created_at: dateTimeSchema,
+    updated_at: dateTimeSchema,
+  },
+} as const;
+
+const teamResourceSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "tenant_id",
+    "workspace_id",
+    "name",
+    "team_kind",
+    "owner_user_id",
+    "status",
+    "join_mode",
+    "default_invitation_role",
+    "policy",
+    "members",
+    "version",
+    "created_at",
+    "updated_at",
+  ],
+  properties: {
+    tenant_id: idSchema("ten"),
+    workspace_id: idSchema("wsp"),
+    name: { type: "string", minLength: 1, maxLength: 200 },
+    team_kind: { type: "string", enum: teamKinds },
+    owner_user_id: idSchema("usr"),
+    status: { type: "string", enum: teamStatuses },
+    join_mode: { type: "string", enum: teamJoinModes },
+    default_invitation_role: { type: "string", enum: teamNonOwnerRoles },
+    policy: teamPolicySchema,
+    members: { type: "array", items: teamMemberSchema },
+    version: { type: "integer", minimum: 1 },
+    created_at: dateTimeSchema,
+    updated_at: dateTimeSchema,
+  },
+} as const;
+
+const teamInvitationSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "tenant_id",
+    "workspace_id",
+    "team_name",
+    "inviter_user_id",
+    "recipient_user_id",
+    "recipient_email",
+    "proposed_role",
+    "scope",
+    "message",
+    "commitment",
+    "ip_notice",
+    "state",
+    "version",
+    "expires_at",
+    "created_at",
+    "updated_at",
+  ],
+  properties: {
+    id: idSchema("tiv"),
+    tenant_id: idSchema("ten"),
+    workspace_id: idSchema("wsp"),
+    team_name: { type: "string", minLength: 1, maxLength: 200 },
+    inviter_user_id: idSchema("usr"),
+    recipient_user_id: { oneOf: [idSchema("usr"), { type: "null" }] },
+    recipient_email: { type: "string", format: "email", maxLength: 320 },
+    proposed_role: { type: "string", enum: teamNonOwnerRoles },
+    scope: { type: "string", minLength: 1, maxLength: 1_000 },
+    message: { type: "string", maxLength: 2_000 },
+    commitment: { type: "string", minLength: 1, maxLength: 1_000 },
+    ip_notice: { type: "string", minLength: 1, maxLength: 1_000 },
+    state: { type: "string", enum: teamInvitationStates },
+    version: { type: "integer", minimum: 1 },
+    expires_at: dateTimeSchema,
+    created_at: dateTimeSchema,
+    updated_at: dateTimeSchema,
+  },
+} as const;
+
+const teamMembershipRequestSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "tenant_id",
+    "workspace_id",
+    "team_name",
+    "requester_user_id",
+    "requester_display_name",
+    "requested_role",
+    "assigned_role",
+    "introduction",
+    "availability",
+    "state",
+    "decision_reason",
+    "version",
+    "expires_at",
+    "created_at",
+    "updated_at",
+  ],
+  properties: {
+    id: idSchema("tmr"),
+    tenant_id: idSchema("ten"),
+    workspace_id: idSchema("wsp"),
+    team_name: { type: "string", minLength: 1, maxLength: 200 },
+    requester_user_id: idSchema("usr"),
+    requester_display_name: { type: "string", minLength: 1, maxLength: 200 },
+    requested_role: { type: "string", enum: teamNonOwnerRoles },
+    assigned_role: {
+      oneOf: [{ type: "string", enum: teamNonOwnerRoles }, { type: "null" }],
+    },
+    introduction: { type: "string", minLength: 1, maxLength: 2_000 },
+    availability: { type: "string", minLength: 1, maxLength: 1_000 },
+    state: { type: "string", enum: teamMembershipRequestStates },
+    decision_reason: { type: ["string", "null"], minLength: 1, maxLength: 2_000 },
+    version: { type: "integer", minimum: 1 },
+    expires_at: dateTimeSchema,
+    created_at: dateTimeSchema,
+    updated_at: dateTimeSchema,
+  },
+} as const;
+
+const versionedCommandProperties = {
+  expected_version: { type: "integer", minimum: 1 },
+  reason: { type: "string", minLength: 1, maxLength: 2_000 },
+  step_up_token: { type: "string", minLength: 1, maxLength: 4_096 },
+} as const;
+
 export const apiSchemas = {
   ApiMeta: apiMetaSchema,
   VersionedApiMeta: versionedApiMetaSchema,
@@ -801,6 +1790,137 @@ export const apiSchemas = {
       redirect_uri: { type: "string", format: "uri", maxLength: 2_048 },
     },
   },
+  StartContactVerificationBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "channel", "destination"],
+    properties: {
+      expected_version: { const: 0 },
+      channel: { type: "string", enum: contactVerificationChannels },
+      destination: { type: "string", minLength: 3, maxLength: 320 },
+    },
+  },
+  ContactVerificationAttempt: contactVerificationAttemptSchema,
+  ContactVerificationAttemptSuccessEnvelope: successEnvelopeFor(
+    contactVerificationAttemptSchema,
+    true,
+  ),
+  ResendContactVerificationBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version"],
+    properties: { expected_version: { type: "integer", minimum: 1 } },
+  },
+  VerifyContactBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "code"],
+    properties: {
+      expected_version: { type: "integer", minimum: 1 },
+      // Persian and Arabic-Indic digits are accepted alongside ASCII: the
+      // provider normalizes them, and a Persian-first product cannot reject
+      // the digits its own keyboards produce before that normalization runs.
+      code: { type: "string", pattern: "^[0-9\\u06F0-\\u06F9\\u0660-\\u0669]{5}$" },
+    },
+  },
+  VerifiedContact: {
+    type: "object",
+    additionalProperties: false,
+    required: ["attempt", "verification_token", "verification_token_expires_at"],
+    properties: {
+      attempt: {
+        ...contactVerificationAttemptSchema,
+        properties: {
+          ...contactVerificationAttemptSchema.properties,
+          state: { const: "verified" },
+        },
+      },
+      verification_token: { type: "string", minLength: 32, maxLength: 4096 },
+      verification_token_expires_at: dateTimeSchema,
+    },
+  },
+  VerifiedContactSuccessEnvelope: successEnvelopeFor(
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["attempt", "verification_token", "verification_token_expires_at"],
+      properties: {
+        attempt: {
+          ...contactVerificationAttemptSchema,
+          properties: {
+            ...contactVerificationAttemptSchema.properties,
+            state: { const: "verified" },
+          },
+        },
+        verification_token: { type: "string", minLength: 32, maxLength: 4096 },
+        verification_token_expires_at: dateTimeSchema,
+      },
+    },
+    true,
+  ),
+  ContactSessionExchangeBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "verification_token"],
+    properties: {
+      expected_version: { const: 0 },
+      verification_token: { type: "string", minLength: 32, maxLength: 4096 },
+    },
+  },
+  ActivateSolverBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "verification_token", "display_name", "start_intent"],
+    properties: {
+      expected_version: { const: 0 },
+      verification_token: { type: "string", minLength: 32, maxLength: 4096 },
+      display_name: { type: "string", minLength: 1, maxLength: 200 },
+      start_intent: { type: "string", enum: solverStartIntents },
+    },
+  },
+  SolverActivation: solverActivationSchema,
+  SolverActivationSessionResult: {
+    type: "object",
+    additionalProperties: false,
+    required: ["activation", "tokens", "receipt"],
+    properties: {
+      activation: solverActivationSchema,
+      tokens: sessionTokenSetSchema,
+      receipt: mutationReceiptSchema,
+    },
+  },
+  SolverActivationSuccessEnvelope: successEnvelopeFor(
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["activation", "tokens", "receipt"],
+      properties: {
+        activation: solverActivationSchema,
+        tokens: sessionTokenSetSchema,
+        receipt: mutationReceiptSchema,
+      },
+    },
+    true,
+  ),
+  SolverActivationReadSuccessEnvelope: successEnvelopeFor(solverActivationSchema),
+  /**
+   * The browser sibling of `SolverActivationSuccessEnvelope`. The tokens are
+   * deliberately absent: the same-origin route puts them in HttpOnly cookies,
+   * and `additionalProperties: false` makes leaking them back into the body a
+   * serialization error rather than a silent regression.
+   */
+  BrowserSolverActivationSuccessEnvelope: successEnvelopeFor(
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["activation", "receipt"],
+      properties: {
+        activation: solverActivationSchema,
+        receipt: mutationReceiptSchema,
+      },
+    },
+    true,
+  ),
   OidcAuthorizationStartResult: {
     type: "object",
     additionalProperties: false,
@@ -1013,6 +2133,522 @@ export const apiSchemas = {
     },
   },
   OutboxEvent: outboxEventSchema,
+  SolverWorkspaceProfile: solverWorkspaceProfileSchema,
+  SolverWorkspaceProfileSuccessEnvelope: successEnvelopeFor(solverWorkspaceProfileSchema, true),
+  PatchSolverWorkspaceProfileBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "patch"],
+    properties: {
+      expected_version: { type: "integer", minimum: 1 },
+      reason: { type: "string", minLength: 1, maxLength: 2_000 },
+      step_up_token: { type: "string", minLength: 1, maxLength: 4_096 },
+      patch: {
+        type: "object",
+        additionalProperties: false,
+        minProperties: 1,
+        properties: {
+          headline: { type: "string", maxLength: 240 },
+          overview: { type: "string", maxLength: 4_000 },
+          expertise: stringFactArraySchema,
+          geography: stringFactArraySchema,
+        },
+      },
+    },
+  },
+  SolverVerification: solverVerificationSchema,
+  SolverVerificationSuccessEnvelope: successEnvelopeFor(solverVerificationSchema, true),
+  StartSolverVerificationBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version"],
+    properties: {
+      expected_version: { type: "integer", minimum: 1 },
+      reason: { type: "string", minLength: 1, maxLength: 2_000 },
+      step_up_token: { type: "string", minLength: 1, maxLength: 4_096 },
+    },
+  },
+  AcceptEligibilityGateBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "challenge_version_id"],
+    properties: {
+      expected_version: { const: 0 },
+      challenge_version_id: idSchema("chv"),
+    },
+  },
+  EligibilityGateParams: {
+    type: "object",
+    additionalProperties: false,
+    required: ["challengeId", "gate"],
+    properties: {
+      challengeId: idSchema("chl"),
+      gate: { type: "string", enum: eligibilityGateKinds },
+    },
+  },
+  EligibilityDecision: eligibilityDecisionSchema,
+  EligibilitySuccessEnvelope: successEnvelopeFor(eligibilityDecisionSchema),
+  TeamPolicy: teamPolicySchema,
+  TeamMember: teamMemberSchema,
+  Team: teamResourceSchema,
+  TeamSuccessEnvelope: successEnvelopeFor(teamResourceSchema, true),
+  TeamInvitation: teamInvitationSchema,
+  TeamInvitationListSuccessEnvelope: successEnvelopeFor({
+    type: "object",
+    additionalProperties: false,
+    required: ["items"],
+    properties: { items: { type: "array", items: teamInvitationSchema } },
+  }),
+  TeamMembershipRequest: teamMembershipRequestSchema,
+  TeamMembershipRequestListSuccessEnvelope: successEnvelopeFor({
+    type: "object",
+    additionalProperties: false,
+    required: ["items"],
+    properties: { items: { type: "array", items: teamMembershipRequestSchema } },
+  }),
+  CreateTeamBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "name", "team_kind"],
+    properties: {
+      expected_version: { const: 0 },
+      name: { type: "string", minLength: 1, maxLength: 200 },
+      team_kind: { type: "string", enum: teamKinds },
+      join_mode: { type: "string", enum: teamJoinModes },
+    },
+  },
+  UpdateTeamPolicyBody: {
+    type: "object",
+    additionalProperties: false,
+    minProperties: 3,
+    required: ["expected_version", "reason"],
+    properties: {
+      ...versionedCommandProperties,
+      join_mode: { type: "string", enum: teamJoinModes },
+      default_invitation_role: { type: "string", enum: teamNonOwnerRoles },
+      policy: teamPolicyPatchSchema,
+    },
+  },
+  CreateTeamInvitationBody: {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "expected_version",
+      "recipient_email",
+      "proposed_role",
+      "scope",
+      "message",
+      "commitment",
+      "ip_notice",
+    ],
+    properties: {
+      ...versionedCommandProperties,
+      recipient_email: { type: "string", format: "email", maxLength: 320 },
+      proposed_role: { type: "string", enum: teamNonOwnerRoles },
+      scope: { type: "string", minLength: 1, maxLength: 1_000 },
+      message: { type: "string", maxLength: 2_000 },
+      commitment: { type: "string", minLength: 1, maxLength: 1_000 },
+      ip_notice: { type: "string", minLength: 1, maxLength: 1_000 },
+    },
+  },
+  RevokeTeamInvitationBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "reason"],
+    properties: versionedCommandProperties,
+  },
+  RespondTeamInvitationBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "decision"],
+    properties: {
+      ...versionedCommandProperties,
+      decision: { type: "string", enum: ["accept", "decline"] },
+    },
+    allOf: [
+      {
+        if: { properties: { decision: { const: "decline" } }, required: ["decision"] },
+        then: { required: ["reason"] },
+      },
+    ],
+  },
+  CreateTeamMembershipRequestBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "requested_role", "introduction", "availability"],
+    properties: {
+      expected_version: { const: 0 },
+      requested_role: { type: "string", enum: teamNonOwnerRoles },
+      introduction: { type: "string", minLength: 1, maxLength: 2_000 },
+      availability: { type: "string", minLength: 1, maxLength: 1_000 },
+    },
+  },
+  DecideTeamMembershipRequestBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "decision", "reason"],
+    properties: {
+      ...versionedCommandProperties,
+      decision: { type: "string", enum: ["accept", "reject"] },
+      assigned_role: { type: "string", enum: teamNonOwnerRoles },
+    },
+    allOf: [
+      {
+        if: { properties: { decision: { const: "accept" } }, required: ["decision"] },
+        then: { required: ["assigned_role"] },
+      },
+    ],
+  },
+  WithdrawTeamMembershipRequestBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "reason"],
+    properties: versionedCommandProperties,
+  },
+  ChangeTeamMemberRoleBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "role", "reason"],
+    properties: {
+      ...versionedCommandProperties,
+      role: { type: "string", enum: teamNonOwnerRoles },
+    },
+  },
+  ChangeTeamMemberStateBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "reason"],
+    properties: versionedCommandProperties,
+  },
+  TransferTeamOwnershipBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "successor_membership_id", "reason"],
+    properties: {
+      ...versionedCommandProperties,
+      successor_membership_id: idSchema("mem"),
+    },
+  },
+  LeaveTeamBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "reason"],
+    properties: versionedCommandProperties,
+  },
+  ArchiveTeamBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "reason"],
+    properties: versionedCommandProperties,
+  },
+  TeamInvitationParams: {
+    type: "object",
+    additionalProperties: false,
+    required: ["teamInvitationId"],
+    properties: { teamInvitationId: idSchema("tiv") },
+  },
+  TeamMembershipRequestParams: {
+    type: "object",
+    additionalProperties: false,
+    required: ["teamMembershipRequestId"],
+    properties: { teamMembershipRequestId: idSchema("tmr") },
+  },
+  TeamWorkspaceParams: {
+    type: "object",
+    additionalProperties: false,
+    required: ["workspaceId"],
+    properties: { workspaceId: idSchema("wsp") },
+  },
+  TeamMemberParams: {
+    type: "object",
+    additionalProperties: false,
+    required: ["membershipId"],
+    properties: { membershipId: idSchema("mem") },
+  },
+  ProposalContent: proposalContentSchema,
+  ProposalContentPatch: proposalContentPatchSchema,
+  ProposalReadiness: proposalReadinessSchema,
+  ProposalVersion: proposalVersionSchema,
+  ProposalClarification: proposalClarificationSchema,
+  ProposalRevisionRequest: proposalRevisionRequestSchema,
+  Proposal: proposalResourceSchema,
+  ProposalSuccessEnvelope: successEnvelopeFor(proposalResourceSchema, true),
+  ProposalListItem: proposalListItemSchema,
+  ProposalList: proposalListSchema,
+  ProposalListSuccessEnvelope: successEnvelopeFor(proposalListSchema),
+  OrganizationProposalVersion: organizationProposalVersionSchema,
+  OrganizationProposalInboxItem: organizationProposalInboxItemSchema,
+  OrganizationProposal: organizationProposalResourceSchema,
+  OrganizationProposalInbox: organizationProposalInboxSchema,
+  OrganizationProposalSuccessEnvelope: successEnvelopeFor(organizationProposalResourceSchema, true),
+  OrganizationProposalInboxSuccessEnvelope: successEnvelopeFor(organizationProposalInboxSchema),
+  Notification: notificationSchema,
+  NotificationList: notificationListSchema,
+  NotificationSummary: notificationSummarySchema,
+  NotificationListSuccessEnvelope: successEnvelopeFor(notificationListSchema),
+  NotificationSummarySuccessEnvelope: successEnvelopeFor(notificationSummarySchema),
+  NotificationParams: {
+    type: "object",
+    additionalProperties: false,
+    required: ["notificationId"],
+    properties: { notificationId: idSchema("ntf") },
+  },
+  NotificationListQuery: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      limit: { type: "integer", minimum: 1, maximum: 50 },
+      cursor: { type: "string", minLength: 1, maxLength: 200 },
+      unread_only: { type: "boolean" },
+    },
+  },
+  MarkNotificationReadBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version"],
+    properties: { expected_version: { const: 0 } },
+  },
+  MarkAllNotificationsReadBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version"],
+    properties: { expected_version: { const: 0 } },
+  },
+  CreateProposalBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "challenge_id"],
+    properties: {
+      expected_version: { const: 0 },
+      challenge_id: idSchema("chl"),
+      draft: proposalContentPatchSchema,
+    },
+  },
+  PatchProposalBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "patch"],
+    properties: {
+      expected_version: { type: "integer", minimum: 1 },
+      reason: { type: "string", minLength: 1, maxLength: 2_000 },
+      step_up_token: { type: "string", minLength: 1, maxLength: 4_096 },
+      patch: proposalContentPatchSchema,
+    },
+  },
+  SubmitProposalBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "accepted_challenge_version_id"],
+    properties: {
+      expected_version: { type: "integer", minimum: 1 },
+      reason: { type: "string", minLength: 1, maxLength: 2_000 },
+      step_up_token: { type: "string", minLength: 1, maxLength: 4_096 },
+      accepted_challenge_version_id: idSchema("chv"),
+    },
+  },
+  StartProposalEligibilityReviewBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version"],
+    properties: {
+      expected_version: { type: "integer", minimum: 1 },
+      reason: { type: "string", minLength: 1, maxLength: 2_000 },
+      step_up_token: { type: "string", minLength: 1, maxLength: 4_096 },
+    },
+  },
+  DecideProposalEligibilityBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "decision", "reason"],
+    properties: {
+      expected_version: { type: "integer", minimum: 1 },
+      decision: { type: "string", enum: ["eligible", "ineligible"] },
+      reason: { type: "string", minLength: 1, maxLength: 10_000 },
+      step_up_token: { type: "string", minLength: 1, maxLength: 4_096 },
+    },
+  },
+  RequestProposalClarificationBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "question"],
+    properties: {
+      expected_version: { type: "integer", minimum: 1 },
+      question: { type: "string", minLength: 1, maxLength: 10_000 },
+      reason: { type: "string", minLength: 1, maxLength: 2_000 },
+      step_up_token: { type: "string", minLength: 1, maxLength: 4_096 },
+    },
+  },
+  SubmitProposalClarificationBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "clarification_id", "response"],
+    properties: {
+      expected_version: { type: "integer", minimum: 1 },
+      clarification_id: idSchema("pcl"),
+      response: { type: "string", minLength: 1, maxLength: 20_000 },
+      reason: { type: "string", minLength: 1, maxLength: 2_000 },
+      step_up_token: { type: "string", minLength: 1, maxLength: 4_096 },
+    },
+  },
+  ResolveProposalClarificationBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "clarification_id", "resolution"],
+    properties: {
+      expected_version: { type: "integer", minimum: 1 },
+      clarification_id: idSchema("pcl"),
+      resolution: { type: "string", minLength: 1, maxLength: 10_000 },
+      reason: { type: "string", minLength: 1, maxLength: 2_000 },
+      step_up_token: { type: "string", minLength: 1, maxLength: 4_096 },
+    },
+  },
+  RequestProposalRevisionBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "scope", "revision_deadline"],
+    properties: {
+      expected_version: { type: "integer", minimum: 1 },
+      scope: { type: "string", minLength: 1, maxLength: 10_000 },
+      revision_deadline: dateTimeSchema,
+      reason: { type: "string", minLength: 1, maxLength: 2_000 },
+      step_up_token: { type: "string", minLength: 1, maxLength: 4_096 },
+    },
+  },
+  StartProposalRevisionBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "revision_request_id"],
+    properties: {
+      expected_version: { type: "integer", minimum: 1 },
+      revision_request_id: idSchema("prr"),
+      reason: { type: "string", minLength: 1, maxLength: 2_000 },
+      step_up_token: { type: "string", minLength: 1, maxLength: 4_096 },
+    },
+  },
+  ResubmitProposalBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "accepted_challenge_version_id", "revision_request_id"],
+    properties: {
+      expected_version: { type: "integer", minimum: 1 },
+      accepted_challenge_version_id: idSchema("chv"),
+      revision_request_id: idSchema("prr"),
+      reason: { type: "string", minLength: 1, maxLength: 2_000 },
+      step_up_token: { type: "string", minLength: 1, maxLength: 4_096 },
+    },
+  },
+  ProposalParams: {
+    type: "object",
+    additionalProperties: false,
+    required: ["proposalId"],
+    properties: { proposalId: idSchema("prp") },
+  },
+  SavedOpportunity: savedOpportunitySchema,
+  SavedOpportunityList: savedOpportunityListSchema,
+  SavedOpportunityListSuccessEnvelope: successEnvelopeFor(savedOpportunityListSchema),
+  SaveOpportunityBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version"],
+    properties: { expected_version: { const: 0 } },
+  },
+  UnsaveOpportunityBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version"],
+    properties: {
+      expected_version: { type: "integer", minimum: 1 },
+      reason: { type: "string", minLength: 1, maxLength: 2_000 },
+      step_up_token: { type: "string", minLength: 1, maxLength: 4_096 },
+    },
+  },
+  OfferResponseContent: offerResponseContentSchema,
+  OfferResponseContentPatch: offerResponseContentPatchSchema,
+  OfferResponse: offerResponseSchema,
+  DirectOffer: directOfferSchema,
+  DirectOfferList: directOfferListSchema,
+  DirectOfferSuccessEnvelope: successEnvelopeFor(directOfferSchema, true),
+  DirectOfferListSuccessEnvelope: successEnvelopeFor(directOfferListSchema),
+  CreateDirectOfferBody: {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "expected_version",
+      "challenge_id",
+      "challenge_version_id",
+      "recipient_workspace_id",
+      "title",
+      "summary",
+      "invitation_reasons",
+      "requested_documents",
+      "response_deadline",
+    ],
+    properties: {
+      expected_version: { const: 0 },
+      challenge_id: idSchema("chl"),
+      challenge_version_id: idSchema("chv"),
+      recipient_workspace_id: idSchema("wsp"),
+      title: { type: "string", minLength: 1, maxLength: 240 },
+      summary: { type: "string", minLength: 1, maxLength: 4_000 },
+      invitation_reasons: directOfferSchema.properties.invitation_reasons,
+      requested_documents: directOfferSchema.properties.requested_documents,
+      response_deadline: dateTimeSchema,
+    },
+  },
+  ViewDirectOfferBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version"],
+    properties: versionedCommandProperties,
+  },
+  StartOfferResponseBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version"],
+    properties: versionedCommandProperties,
+  },
+  PatchOfferResponseBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "patch"],
+    properties: { ...versionedCommandProperties, patch: offerResponseContentPatchSchema },
+  },
+  SubmitOfferResponseBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version"],
+    properties: versionedCommandProperties,
+  },
+  DeclineDirectOfferBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "reason"],
+    properties: {
+      ...versionedCommandProperties,
+      reason: { type: "string", minLength: 1, maxLength: 2_000 },
+    },
+  },
+  CancelDirectOfferBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "reason"],
+    properties: {
+      ...versionedCommandProperties,
+      reason: { type: "string", minLength: 1, maxLength: 2_000 },
+    },
+  },
+  StartDirectOfferNegotiationBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version"],
+    properties: versionedCommandProperties,
+  },
+  DirectOfferParams: {
+    type: "object",
+    additionalProperties: false,
+    required: ["directOfferId"],
+    properties: { directOfferId: idSchema("dof") },
+  },
 } as const satisfies Readonly<Record<string, JsonSchema>>;
 
 export type ApiSchemaName = keyof typeof apiSchemas;

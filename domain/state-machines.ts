@@ -1,5 +1,4 @@
 import type {
-  DirectOfferState as CanonicalDirectOfferState,
   MembershipRequestState as CanonicalMembershipRequestState,
   ProposalState as CanonicalProposalState,
   TeamInvitationState as CanonicalTeamInvitationState,
@@ -8,20 +7,21 @@ import type {
 import {
   canTransition,
   challengeTransitions,
+  directOfferTransitions,
+  proposalTransitions,
   teamRole,
   type ChallengeStage,
   type Transition,
 } from "@rahhal/domain";
 
-export { canTransition, challengeTransitions };
+export { canTransition, challengeTransitions, directOfferTransitions, proposalTransitions };
 export type ChallengeState = ChallengeStage;
 
 export type ProposalState = CanonicalProposalState;
-export type DirectOfferState = CanonicalDirectOfferState;
+export type { DirectOfferState } from "@rahhal/domain";
 
 const individualActors = ["individual"] as const;
 const organizationMembers = ["org:member"] as const;
-const organizationOrOperations = ["org:member", "platform:ops"] as const;
 const platformOperations = ["platform:ops"] as const;
 const platformReviewers = ["platform:reviewer"] as const;
 const technicalApprovers = ["org:approver_technical"] as const;
@@ -29,151 +29,14 @@ const financeActors = ["platform:finance"] as const;
 const financeOrOperations = ["platform:finance", "platform:ops"] as const;
 const teamManagers = [teamRole.owner, teamRole.admin] as const;
 const solverManagers = ["individual", ...teamManagers] as const;
-const solverProposalManagers = [...solverManagers, teamRole.proposalManager] as const;
-const solverContributors = [...solverProposalManagers, teamRole.contributor] as const;
-const solverViewers = [...solverContributors, teamRole.viewer] as const;
 const reasonRecorded = ["reason-recorded"] as const;
 const deadlinePassed = ["deadline-passed"] as const;
 const recipientAuthorizedAndActive = ["recipient-authorized", "not-expired"] as const;
 const recipientAuthorizedWithReason = ["recipient-authorized", "reason-recorded"] as const;
 const closeInvitation = ["close-invitation"] as const;
 const closeRequest = ["close-request"] as const;
-const closeOffer = ["close-offer"] as const;
 const lockOutcome = ["lock-outcome"] as const;
 const openReview = ["open-review"] as const;
-
-export const proposalTransitions: readonly Transition<ProposalState>[] = [
-  {
-    from: "draft",
-    to: "submitted",
-    roles: solverManagers,
-    preconditions: ["form-valid", "sender-authorized", "terms-accepted"],
-    sideEffects: ["create-version", "lock-version", "create-receipt"],
-    notification: "سازمان مسئله‌گذار",
-    audit: "proposal.submitted",
-    retry: "idempotent",
-  },
-  {
-    from: "submitted",
-    to: "eligibility_review",
-    roles: organizationOrOperations,
-    preconditions: ["submission-locked"],
-    sideEffects: ["open-eligibility-review"],
-    notification: "مالک پیشنهاد",
-    audit: "proposal.eligibility.started",
-    retry: "idempotent",
-  },
-  {
-    from: "eligibility_review",
-    to: "eligible",
-    roles: organizationOrOperations,
-    preconditions: ["eligibility-passed"],
-    sideEffects: ["mark-eligible"],
-    notification: "مالک پیشنهاد",
-    audit: "proposal.eligible",
-    retry: "manual-review",
-  },
-  {
-    from: "eligibility_review",
-    to: "ineligible",
-    roles: organizationOrOperations,
-    preconditions: ["eligibility-failed", "reason-recorded"],
-    sideEffects: lockOutcome,
-    notification: "مالک پیشنهاد",
-    audit: "proposal.ineligible",
-    retry: "manual-review",
-  },
-  {
-    from: "eligible",
-    to: "clarification_requested",
-    roles: organizationMembers,
-    preconditions: ["question-recorded"],
-    sideEffects: ["open-controlled-thread"],
-    notification: "مالک پیشنهاد",
-    audit: "proposal.clarification.requested",
-    retry: "idempotent",
-  },
-  {
-    from: "clarification_requested",
-    to: "clarification_submitted",
-    roles: solverProposalManagers,
-    preconditions: ["response-valid", "sender-authorized"],
-    sideEffects: ["lock-clarification-response"],
-    notification: "سازمان مسئله‌گذار",
-    audit: "proposal.clarification.submitted",
-    retry: "idempotent",
-  },
-  {
-    from: "clarification_submitted",
-    to: "reviewing",
-    roles: organizationMembers,
-    preconditions: ["clarification-resolved"],
-    sideEffects: openReview,
-    notification: "داوران",
-    audit: "proposal.review.started",
-    retry: "idempotent",
-  },
-  {
-    from: "reviewing",
-    to: "revision_requested",
-    roles: organizationMembers,
-    preconditions: ["revision-scope", "revision-deadline"],
-    sideEffects: ["create-revision-draft"],
-    notification: "مالک پیشنهاد",
-    audit: "proposal.revision.requested",
-    retry: "idempotent",
-  },
-  {
-    from: "revision_requested",
-    to: "revision_draft",
-    roles: solverContributors,
-    preconditions: ["editor-authorized"],
-    sideEffects: ["open-versioned-draft"],
-    notification: "",
-    audit: "proposal.revision.draft.created",
-    retry: "idempotent",
-  },
-  {
-    from: "revision_draft",
-    to: "resubmitted",
-    roles: solverProposalManagers,
-    preconditions: ["form-valid", "sender-authorized", "terms-accepted"],
-    sideEffects: ["create-version", "lock-version", "create-receipt"],
-    notification: "سازمان مسئله‌گذار",
-    audit: "proposal.resubmitted",
-    retry: "idempotent",
-  },
-  {
-    from: "resubmitted",
-    to: "reviewing",
-    roles: organizationOrOperations,
-    preconditions: ["eligibility-passed"],
-    sideEffects: openReview,
-    notification: "مالک پیشنهاد",
-    audit: "proposal.review.resumed",
-    retry: "idempotent",
-  },
-  {
-    from: "reviewing",
-    to: "selected",
-    roles: organizationMembers,
-    preconditions: ["reviews-complete", "decision-approved"],
-    sideEffects: lockOutcome,
-    notification: "مالک پیشنهاد",
-    audit: "proposal.selected",
-    retry: "manual-review",
-  },
-  {
-    from: "reviewing",
-    to: "rejected",
-    roles: organizationMembers,
-    preconditions: ["reviews-complete", "decision-rationale"],
-    sideEffects: lockOutcome,
-    notification: "مالک پیشنهاد",
-    audit: "proposal.rejected",
-    retry: "manual-review",
-  },
-];
 
 export type InvitationState = "pending" | "accepted" | "declined" | "expired" | "cancelled";
 export const invitationTransitions: readonly Transition<InvitationState>[] = [
@@ -353,89 +216,6 @@ export const membershipRequestTransitions: readonly Transition<MembershipRequest
     sideEffects: closeRequest,
     notification: "دو طرف درخواست",
     audit: "membership-request.expired",
-    retry: "idempotent",
-  },
-];
-
-export const directOfferTransitions: readonly Transition<DirectOfferState>[] = [
-  {
-    from: "received",
-    to: "viewed",
-    roles: solverViewers,
-    preconditions: ["recipient-authorized"],
-    sideEffects: ["record-viewed-at"],
-    notification: "",
-    audit: "direct-offer.viewed",
-    retry: "idempotent",
-  },
-  {
-    from: "viewed",
-    to: "response_draft",
-    roles: solverContributors,
-    preconditions: recipientAuthorizedAndActive,
-    sideEffects: ["create-response-draft"],
-    notification: "",
-    audit: "direct-offer.response.draft.created",
-    retry: "idempotent",
-  },
-  {
-    from: "response_draft",
-    to: "response_submitted",
-    roles: solverProposalManagers,
-    preconditions: ["response-valid", "sender-authorized", "not-expired"],
-    sideEffects: ["lock-response-version", "create-receipt"],
-    notification: "سازمان دعوت‌کننده",
-    audit: "direct-offer.response.submitted",
-    retry: "idempotent",
-  },
-  {
-    from: "response_submitted",
-    to: "negotiating",
-    roles: organizationMembers,
-    preconditions: ["negotiation-opened"],
-    sideEffects: ["open-controlled-thread"],
-    notification: "فضای دریافت‌کننده",
-    audit: "direct-offer.negotiation.started",
-    retry: "idempotent",
-  },
-  {
-    from: "negotiating",
-    to: "selected",
-    roles: organizationMembers,
-    preconditions: ["selection-approved"],
-    sideEffects: ["create-case"],
-    notification: "فضای دریافت‌کننده",
-    audit: "direct-offer.selected",
-    retry: "manual-review",
-  },
-  {
-    from: "received",
-    to: "declined",
-    roles: solverProposalManagers,
-    preconditions: recipientAuthorizedWithReason,
-    sideEffects: closeOffer,
-    notification: "سازمان دعوت‌کننده",
-    audit: "direct-offer.declined",
-    retry: "idempotent",
-  },
-  {
-    from: "viewed",
-    to: "declined",
-    roles: solverProposalManagers,
-    preconditions: recipientAuthorizedWithReason,
-    sideEffects: closeOffer,
-    notification: "سازمان دعوت‌کننده",
-    audit: "direct-offer.declined",
-    retry: "idempotent",
-  },
-  {
-    from: "received",
-    to: "expired",
-    roles: platformOperations,
-    preconditions: deadlinePassed,
-    sideEffects: closeOffer,
-    notification: "طرفین دعوت",
-    audit: "direct-offer.expired",
     retry: "idempotent",
   },
 ];

@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { RoleAppShell, type AppNavigationItem, type AppShellRole } from "@/components/app-shell";
 import { useWebRuntime } from "@/components/runtime-provider";
+import { useUnreadNotificationCount } from "@/lib/workspace/unread-badge";
 import {
   networkOrganizationNavigation,
   networkOrganizationRoleLabel,
@@ -146,6 +147,9 @@ export function ConfiguredRoleShell({
   const activeMembership = runtime.me?.memberships.find(
     (membership) => membership.workspace_id === activeWorkspace?.id,
   );
+  // The same hook the solver shell uses, so both personas clear the badge on
+  // the same rule. `currentPath` re-reads it after a navigation.
+  const unreadCount = useUnreadNotificationCount(currentPath);
   const account = connectedOrganization
     ? {
         workspaceLabel: "فضای سازمانی فعال",
@@ -180,6 +184,7 @@ export function ConfiguredRoleShell({
         space: "org" as const,
       }))}
       activeWorkspaceId={activeWorkspace?.id}
+      unreadCount={unreadCount}
       onWorkspaceChange={
         connectedOrganization
           ? (workspaceId) => {

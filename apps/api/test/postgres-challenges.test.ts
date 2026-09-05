@@ -109,6 +109,9 @@ function postgresRuntimeEnvironment(): NodeJS.ProcessEnv {
     OIDC_ALLOW_INSECURE_HTTP: "true",
     OIDC_FLOW_SECRET: "a1c-runtime-test-oidc-flow-secret-00000001",
     SESSION_CREDENTIAL_SECRET: "a1c-runtime-test-session-secret-00000001",
+    SOLVER_CONTACT_VERIFICATION_PROVIDER: "development",
+    SOLVER_OTP_DEVELOPMENT_CODE: "12345",
+    SOLVER_OTP_FLOW_SECRET: "c7-runtime-test-contact-flow-secret-000001",
   };
 }
 
@@ -1834,6 +1837,28 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
     // The suite normally migrates an empty database, so the backfill path --
     // and the ordering bug where the pairing constraint was added before it --
     // is invisible without this.
+    // Nine migrations sit above 0010: 0020 (C8 notifications), 0019 (C7
+    // activation), 0018 (C6 opportunities/offers), 0017 (C5
+    // clarification/revision), 0016 (C4 submission), 0015 (C2 teams), 0014 (C1
+    // solver profile/eligibility), 0013 (proposal foundation), then 0012.
+    const offerClockDown = await runMigrations(database, "down");
+    expect(offerClockDown.applied).toEqual(["0021_c6_offer_deadline_single_clock"]);
+    const c8Down = await runMigrations(database, "down");
+    expect(c8Down.applied).toEqual(["0020_c8_notifications"]);
+    const c7Down = await runMigrations(database, "down");
+    expect(c7Down.applied).toEqual(["0019_c7_solver_activation"]);
+    const c6Down = await runMigrations(database, "down");
+    expect(c6Down.applied).toEqual(["0018_c6_opportunities_direct_offers"]);
+    const c5Down = await runMigrations(database, "down");
+    expect(c5Down.applied).toEqual(["0017_c5_proposal_clarification_revision"]);
+    const submissionDown = await runMigrations(database, "down");
+    expect(submissionDown.applied).toEqual(["0016_c4_proposal_submission"]);
+    const teamDown = await runMigrations(database, "down");
+    expect(teamDown.applied).toEqual(["0015_c2_team_lifecycle"]);
+    const solverDown = await runMigrations(database, "down");
+    expect(solverDown.applied).toEqual(["0014_c1_solver_profile_eligibility"]);
+    const proposalDown = await runMigrations(database, "down");
+    expect(proposalDown.applied).toEqual(["0013_c_proposal_foundation"]);
     const reviewClosureDown = await runMigrations(database, "down");
     expect(reviewClosureDown.applied).toEqual(["0012_phase2_review_closure"]);
     const closureDown = await runMigrations(database, "down");
@@ -1845,6 +1870,15 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
       "0009_b6_publication_lifecycle",
       "0010_phase2_closure",
       "0012_phase2_review_closure",
+      "0013_c_proposal_foundation",
+      "0014_c1_solver_profile_eligibility",
+      "0015_c2_team_lifecycle",
+      "0016_c4_proposal_submission",
+      "0017_c5_proposal_clarification_revision",
+      "0018_c6_opportunities_direct_offers",
+      "0019_c7_solver_activation",
+      "0020_c8_notifications",
+      "0021_c6_offer_deadline_single_clock",
     ]);
 
     const restored = await database.query<{

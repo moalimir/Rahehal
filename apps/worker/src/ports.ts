@@ -37,16 +37,27 @@ export type OutboxDeliveryContext = {
   readonly idempotencyKey: OutboxEvent["event_id"];
 };
 
-export interface OutboxHandler {
+export interface OutboxHandler<Transaction = void> {
   /**
    * External side effects must use `context.idempotencyKey` unchanged. The local
    * delivery ledger cannot make a remote side effect and ledger completion atomic.
+   *
+   * A ledger that shares a database with the effect passes its transaction as
+   * `transaction`, which is what lets the projection and the delivery record
+   * commit together.
    */
-  handle(event: OutboxEvent, context: OutboxDeliveryContext): Promise<void>;
+  handle(
+    event: OutboxEvent,
+    context: OutboxDeliveryContext,
+    transaction: Transaction,
+  ): Promise<void>;
 }
 
-export interface DeliveryLedger {
-  runOnce(eventId: OutboxEvent["event_id"], effect: () => Promise<void>): Promise<boolean>;
+export interface DeliveryLedger<Transaction = void> {
+  runOnce(
+    eventId: OutboxEvent["event_id"],
+    effect: (transaction: Transaction) => Promise<void>,
+  ): Promise<boolean>;
 }
 
 export interface WorkerClock {

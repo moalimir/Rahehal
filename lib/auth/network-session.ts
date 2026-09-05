@@ -35,7 +35,10 @@ function platformPersona(role: WorkspaceRole): AppPersona {
   return role === "platform:reviewer" ? "reviewer" : "ops";
 }
 
-function personaForWorkspace(kind: WorkspaceResource["kind"], role: WorkspaceRole): AppPersona {
+export function personaForWorkspace(
+  kind: WorkspaceResource["kind"],
+  role: WorkspaceRole,
+): AppPersona {
   if (kind === "org") return "org";
   if (kind === "platform") return platformPersona(role);
   return "solver";

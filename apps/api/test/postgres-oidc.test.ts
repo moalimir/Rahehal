@@ -8,13 +8,20 @@ import { buildApi } from "../src/app.js";
 import { PostgresAccessDecisionAudit } from "../src/postgres/access-decision-audit.js";
 import { PostgresChallengeAdapter } from "../src/postgres/challenges.js";
 import { PostgresPublicChallengeAdapter } from "../src/postgres/public-challenges.js";
+import { PostgresProposalAdapter } from "../src/postgres/proposals.js";
+import { PostgresSolverWorkspaceAdapter } from "../src/postgres/solver-workspaces.js";
+import { PostgresTeamAdapter } from "../src/postgres/teams.js";
 import { PostgresIdentityWorkspaceAdapter } from "../src/postgres/identity-workspace.js";
 import { runMigrations } from "../src/postgres/migrations.js";
 import { PostgresOidcAuthorizationAdapter } from "../src/postgres/oidc-authorization.js";
 import { seedSyntheticData } from "../src/postgres/seeds.js";
+import { PostgresNotificationAdapter } from "../src/postgres/notifications.js";
 import { PostgresUnitOfWork } from "../src/postgres/unit-of-work.js";
+import { PostgresOpportunityAdapter } from "../src/postgres/opportunities.js";
 import { commandFingerprint, MonotonicIdFactory, RandomIdFactory } from "../src/primitives.js";
 import { HmacSessionCredentialIssuer } from "../src/session-credentials.js";
+import { DevelopmentContactVerificationAdapter } from "../src/development-contact-verification.js";
+import { PostgresSolverActivationAdapter } from "../src/postgres/solver-activation.js";
 import { FakeOidcProvider } from "./support/fake-oidc-provider.js";
 import { testDatabaseAdminUrl } from "./support/database.js";
 
@@ -122,14 +129,36 @@ beforeAll(async () => {
     ids,
     audit,
   );
+  const solverWorkspaces = new PostgresSolverWorkspaceAdapter(unitOfWork, clock, ids);
+  const contactVerification = new DevelopmentContactVerificationAdapter(
+    { code: "12345", flowSecret: "postgres-oidc-contact-secret-0000000001" },
+    clock,
+    ids,
+  );
+  const solverActivation = new PostgresSolverActivationAdapter(
+    unitOfWork,
+    contactVerification,
+    new HmacSessionCredentialIssuer(credentialSecret),
+    clock,
+    ids,
+  );
+  const teams = new PostgresTeamAdapter(unitOfWork, clock, ids);
   app = buildApi(
     {
       oidcAuthorization: oidc,
+      contactVerification,
       sessions: identity,
+      solverActivation,
       workspaces: identity,
       authority: identity,
       challenges: new PostgresChallengeAdapter(unitOfWork, clock, ids),
       publicChallenges: new PostgresPublicChallengeAdapter(unitOfWork),
+      solverWorkspaces,
+      eligibility: solverWorkspaces,
+      teams,
+      proposals: new PostgresProposalAdapter(unitOfWork, teams, clock, ids),
+      opportunities: new PostgresOpportunityAdapter(unitOfWork, teams, clock, ids),
+      notifications: new PostgresNotificationAdapter(unitOfWork, clock, ids),
       decisionAudit: audit,
       clock,
       ids,
@@ -339,7 +368,7 @@ describe("A2 PostgreSQL OIDC authorization", () => {
     expect(denied.statusCode).toBe(403);
   });
 
-  it("keeps browser credentials HttpOnly, enforces same-origin writes, and survives reload", async () => {
+  it("keeps browser credentials HttpOnly, enforces same-origin writes, and refreshes an expired access cookie", async () => {
     const start = await app.inject({
       method: "POST",
       url: "/auth/browser/oidc:start",
@@ -371,6 +400,7 @@ describe("A2 PostgreSQL OIDC authorization", () => {
     expect(exchange.body).not.toContain("rahhal-rt-");
     const sessionCookieValues = setCookieValues(exchange);
     const accessCookie = cookiePair(sessionCookieValues, "rahhal-access");
+    const refreshCookie = cookiePair(sessionCookieValues, "rahhal-refresh");
     expect(sessionCookieValues.join(";")).toContain("HttpOnly");
 
     const me = await app.inject({
@@ -448,11 +478,42 @@ describe("A2 PostgreSQL OIDC authorization", () => {
     });
     expect(created.statusCode).toBe(201);
 
+    currentTime = new Date(currentTime.getTime() + 16 * 60_000);
+    const expired = await app.inject({
+      method: "GET",
+      url: "/api/v1/me",
+      headers: { cookie: accessCookie },
+    });
+    expect(expired.statusCode).toBe(403);
+
+    const refresh = await app.inject({
+      method: "POST",
+      url: "/auth/browser/session:refresh",
+      headers: {
+        cookie: `${accessCookie}; ${refreshCookie}`,
+        origin: "http://localhost:3000",
+        "sec-fetch-site": "same-origin",
+        "idempotency-key": "a3-browser-refresh-owner-alpha",
+      },
+    });
+    expect(refresh.statusCode).toBe(204);
+    const refreshedCookieValues = setCookieValues(refresh);
+    const refreshedAccessCookie = cookiePair(refreshedCookieValues, "rahhal-access");
+    const afterRefresh = await app.inject({
+      method: "GET",
+      url: "/api/v1/me",
+      headers: { cookie: refreshedAccessCookie },
+    });
+    expect(afterRefresh.statusCode).toBe(200);
+    expect(jsonBody<MeResponse>(afterRefresh).data.active_context?.workspace_id).toBe(
+      "wsp_org_alpha",
+    );
+
     const revoke = await app.inject({
       method: "POST",
       url: "/auth/browser/session:revoke",
       headers: {
-        cookie: accessCookie,
+        cookie: refreshedAccessCookie,
         origin: "http://localhost:3000",
         "sec-fetch-site": "same-origin",
         "idempotency-key": "a3-browser-revoke-owner-alpha",
@@ -464,7 +525,7 @@ describe("A2 PostgreSQL OIDC authorization", () => {
     const deniedAfterRevoke = await app.inject({
       method: "GET",
       url: "/api/v1/me",
-      headers: { cookie: accessCookie },
+      headers: { cookie: refreshedAccessCookie },
     });
     expect(deniedAfterRevoke.statusCode).toBe(403);
   });

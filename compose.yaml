@@ -154,6 +154,9 @@ services:
       RAHHAL_BROWSER_ORIGIN: http://localhost:3000
       OIDC_FLOW_SECRET: ${RAHHAL_OIDC_FLOW_SECRET:?run npm run docker:env:init}
       SESSION_CREDENTIAL_SECRET: ${RAHHAL_SESSION_CREDENTIAL_SECRET:?run npm run docker:env:init}
+      SOLVER_CONTACT_VERIFICATION_PROVIDER: development
+      SOLVER_OTP_DEVELOPMENT_CODE: "12345"
+      SOLVER_OTP_FLOW_SECRET: ${SOLVER_OTP_FLOW_SECRET:?add SOLVER_OTP_FLOW_SECRET to .env}
     depends_on:
       oidc:
         condition: service_healthy
@@ -200,7 +203,19 @@ services:
       - no-new-privileges:true
     environment:
       NODE_ENV: development
-      RAHHAL_WORKER_MODE: demo
+      # C8 projects notifications from durable outbox claims, so the local
+      # worker runs against PostgreSQL rather than the in-memory skeleton.
+      RAHHAL_WORKER_MODE: postgres
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: rahhal
+      PGUSER: rahhal
+      PGPASSWORD: ${RAHHAL_POSTGRES_PASSWORD:-rahhal-local-only}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      database-setup:
+        condition: service_completed_successfully
     stop_grace_period: 15s
 
 volumes:

@@ -1,11 +1,14 @@
 import type { OutboxEvent } from "@rahhal/contracts";
 import type { DeliveryLedger } from "./ports.js";
 
-export class InMemoryDeliveryLedger implements DeliveryLedger {
+export class InMemoryDeliveryLedger implements DeliveryLedger<void> {
   private readonly completed = new Set<string>();
   private readonly pending = new Map<string, Promise<void>>();
 
-  async runOnce(eventId: OutboxEvent["event_id"], effect: () => Promise<void>): Promise<boolean> {
+  async runOnce(
+    eventId: OutboxEvent["event_id"],
+    effect: (transaction: void) => Promise<void>,
+  ): Promise<boolean> {
     const key = String(eventId);
     if (this.completed.has(key)) return false;
 
@@ -15,7 +18,7 @@ export class InMemoryDeliveryLedger implements DeliveryLedger {
       return false;
     }
 
-    const delivery = effect()
+    const delivery = effect(undefined)
       .then(() => {
         this.completed.add(key);
       })

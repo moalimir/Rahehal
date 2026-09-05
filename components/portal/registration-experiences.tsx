@@ -1,9 +1,11 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Brand } from "@/components/brand";
 import { Icon } from "@/components/icons";
+import { useWebRuntime } from "@/components/runtime-provider";
 import { createDemoSession } from "@/lib/auth/session";
 import { buildSolverHref } from "@/lib/solver/context";
 import { readSolverState, registerSolverAccount } from "@/lib/solver/repository";
@@ -134,7 +136,38 @@ function SolverRegistrationVisual({
   );
 }
 
+// Loaded on demand: the connected auth flow is unreachable in demo mode, and
+// importing it eagerly puts it in the shared demo bundle the budgets refuse.
+const ConnectedSolverAuth = dynamic(
+  () =>
+    import("@/components/portal/connected-solver-auth").then(
+      (module) => module.ConnectedSolverAuth,
+    ),
+  {
+    loading: () => (
+      <div className="solver-login-page" aria-busy="true">
+        <span className="sr-only">در حال بارگذاری فرم ورود</span>
+      </div>
+    ),
+  },
+);
+
+/**
+ * Solver registration.
+ *
+ * In network mode registration and sign-in are the same connected flow: the
+ * OTP tells the server whether this contact already has an activation, so
+ * asking a human to pick "sign in" or "register" first is a question the
+ * server can answer for them. The demo three-step form below, with its
+ * app-owned password fields, is the static export's only.
+ */
 export function SolverRegistrationExperience({ definition }: { definition: RouteDefinition }) {
+  const runtime = useWebRuntime();
+  if (runtime.mode === "network") return <ConnectedSolverAuth />;
+  return <DemoSolverRegistrationExperience definition={definition} />;
+}
+
+function DemoSolverRegistrationExperience({ definition }: { definition: RouteDefinition }) {
   const step: 1 | 2 | 3 = definition.path.endsWith("/type")
     ? 1
     : definition.path.endsWith("/account")

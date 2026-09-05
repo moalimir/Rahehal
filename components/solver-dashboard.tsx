@@ -1,5 +1,7 @@
 "use client";
 
+// Loaded on demand: these render only under a live session, and importing them
+// eagerly puts them in the shared demo bundle the budgets refuse.
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { ChallengeOrganizationLogo } from "@/components/challenge-organization-logo";
@@ -412,6 +414,9 @@ export function SolverDashboardExperience({
   const [feedback, setFeedback] = useState("");
   const [personalResumeOpen, setPersonalResumeOpen] = useState(false);
   const projection = workspaceProjection(context.workspaceId, state);
+  // This file is the static export's dashboard only. In network mode the
+  // solver routes render `ConnectedSolverRoute`, so nothing here is reachable
+  // under a live session and no server read belongs in it.
   const metrics = useMemo(() => {
     const proposals = projection.proposals;
     return [
@@ -564,8 +569,8 @@ export function SolverDashboardExperience({
         </header>
         <div className="rh-table" role="table" aria-label="آخرین درخواست‌ها">
           <div role="row" className="rh-table__head">
-            <span role="columnheader">عنوان فرصت</span>
-            <span role="columnheader">سازمان</span>
+            <span role="columnheader">شناسه پرونده</span>
+            <span role="columnheader">کد پیگیری</span>
             <span role="columnheader">وضعیت</span>
             <span role="columnheader">آخرین به‌روزرسانی</span>
             <span role="columnheader">اقدام بعدی</span>

@@ -1,3 +1,4 @@
+import { SessionAware } from "@/components/site-header-session-boundary";
 import Link from "next/link";
 import { Brand } from "@/components/brand";
 
@@ -29,8 +30,17 @@ export function PublicFooter() {
         <div>
           <strong>همکاری</strong>
           <Link href="/app/org/challenges/new">ثبت مسئله</Link>
-          <Link href="/auth/solver/register/type">ساخت پروفایل</Link>
-          <Link href="/auth/login">ورود</Link>
+          {/* Footer sign-up/sign-in follow the same session rule as the header
+              and drawer: once a session exists they become the way back into
+              the workspace, never a second invitation to register. */}
+          <SessionAware
+            fallback={
+              <>
+                <Link href="/auth/solver/register/type">ساخت پروفایل</Link>
+                <Link href="/auth/login">ورود</Link>
+              </>
+            }
+          />
           <Link href="/guides">پشتیبانی و راهنما</Link>
         </div>
       </div>
