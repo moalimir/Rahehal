@@ -1,9 +1,11 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Brand } from "@/components/brand";
 import { Icon } from "@/components/icons";
+import { useWebRuntime } from "@/components/runtime-provider";
 import { SiteHeader } from "@/components/site-header";
 import { signInAsAuthorizedOrganization } from "@/lib/auth/demo-organization-session";
 import { createDemoSession } from "@/lib/auth/session";
@@ -446,7 +448,37 @@ export function OrganizationAuthExperience({ definition }: { definition: RouteDe
   );
 }
 
+// Loaded on demand: the connected auth flow is unreachable in demo mode, and
+// importing it eagerly puts it in the shared demo bundle the budgets refuse.
+const ConnectedSolverAuth = dynamic(
+  () =>
+    import("@/components/portal/connected-solver-auth").then(
+      (module) => module.ConnectedSolverAuth,
+    ),
+  {
+    loading: () => (
+      <div className="solver-login-page" aria-busy="true">
+        <span className="sr-only">در حال بارگذاری فرم ورود</span>
+      </div>
+    ),
+  },
+);
+
+/**
+ * Solver sign-in.
+ *
+ * In network mode this is the connected C7 OTP flow: one human identity, no
+ * password, and no team-account tab, because a team has no credential. The
+ * demo form below keeps the prototype's password-and-tabs shape and is
+ * reachable only from the static export.
+ */
 export function SolverLoginExperience() {
+  const runtime = useWebRuntime();
+  if (runtime.mode === "network") return <ConnectedSolverAuth />;
+  return <DemoSolverLoginExperience />;
+}
+
+function DemoSolverLoginExperience() {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);

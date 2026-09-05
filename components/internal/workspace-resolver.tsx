@@ -71,6 +71,29 @@ export function WorkspaceResolver() {
     if (destination) window.location.replace(destination);
   }, [destination]);
 
+  /**
+   * A signed-in session whose active context is unset, with exactly one
+   * reachable workspace.
+   *
+   * Offering a chooser with a single option, or leaving every page in its
+   * anonymous state, would both be wrong for someone who is signed in, so this
+   * makes the choice the server would accept anyway and enters it.
+   */
+  const soleWorkspace =
+    runtime.sessionStatus === "authenticated" && !session && reachable.length === 1
+      ? reachable[0]!
+      : null;
+
+  useEffect(() => {
+    if (!soleWorkspace) return;
+    void runtime.switchWorkspace(soleWorkspace.id).then((error) => {
+      if (!error) window.location.replace(workspaceHomePath(soleWorkspace.persona));
+    });
+    // `runtime` is recreated whenever the session changes; depending on it here
+    // would re-issue the switch command on every refresh it triggers.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [soleWorkspace?.id, soleWorkspace?.persona]);
+
   if (runtime.mode !== "network") {
     return (
       <section className="workspace-resolver" dir="rtl">
@@ -135,6 +158,20 @@ export function WorkspaceResolver() {
         >
           شروع فعال‌سازی حل‌گر
         </Link>
+      </section>
+    );
+  }
+
+  // A session whose active context is unset -- an older session, or a sign-in
+  // path that did not choose one -- still resolves when there is exactly one
+  // reachable workspace. Showing a chooser with a single option, or leaving
+  // every page in its anonymous state, would both be wrong for a signed-in
+  // human.
+  if (soleWorkspace) {
+    return (
+      <section className="workspace-resolver" dir="rtl" aria-busy="true">
+        <h1>در حال ورود به فضای کاری</h1>
+        <p>{soleWorkspace.name}</p>
       </section>
     );
   }

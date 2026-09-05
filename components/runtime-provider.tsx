@@ -25,6 +25,7 @@ import { createNetworkChallengeGovernanceGateway } from "@/lib/challenges/adapte
 import { createWorkspaceGateways, type WorkspaceGateways } from "@/lib/workspace/gateways";
 import type { ChallengeGovernanceGateway } from "@/lib/challenges/governance";
 import { idempotencyKey, requestApi } from "@/lib/api/http";
+import { clearObsoleteConnectedBrowserState } from "@/lib/auth/network-browser-state";
 import { webRuntimeMode, type WebRuntimeMode } from "@/lib/runtime/mode";
 
 export type NetworkSessionStatus = "demo" | "loading" | "anonymous" | "authenticated" | "error";
@@ -116,7 +117,10 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
   }, [network, scope]);
 
   useEffect(() => {
-    if (network) void refreshMe();
+    if (network) {
+      clearObsoleteConnectedBrowserState();
+      void refreshMe();
+    }
   }, [network, refreshMe]);
 
   const startOrganizationLogin = useCallback(async () => {

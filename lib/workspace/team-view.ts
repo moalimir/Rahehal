@@ -26,7 +26,28 @@ export type TeamView = {
   readonly failures: readonly { readonly family: string; readonly error: GatewayFailure }[];
 };
 
-export async function readTeamView(gateways: WorkspaceGateways): Promise<TeamView> {
+export async function readTeamView(
+  gateways: WorkspaceGateways,
+  includeActiveTeam = true,
+): Promise<TeamView> {
+  if (!includeActiveTeam) {
+    const [incoming, own] = await Promise.all([
+      gateways.team.incomingInvitations(),
+      gateways.team.ownRequests(),
+    ]);
+    const failures: { family: string; error: GatewayFailure }[] = [];
+    if (!incoming.ok) failures.push({ family: "incomingInvitations", error: incoming.error });
+    if (!own.ok) failures.push({ family: "ownRequests", error: own.error });
+    return {
+      team: null,
+      sentInvitations: [],
+      incomingInvitations: incoming.ok ? incoming.data : [],
+      incomingRequests: [],
+      ownRequests: own.ok ? own.data : [],
+      failures,
+    };
+  }
+
   const [team, sent, incoming, requests, own] = await Promise.all([
     gateways.team.read(),
     gateways.team.sentInvitations(),

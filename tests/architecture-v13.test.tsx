@@ -52,7 +52,14 @@ describe("معماری یکپارچه نسخه ۱۳", () => {
       container.querySelectorAll(".workspace-sidebar, .app-sidebar, .rh-sidebar"),
     ).toHaveLength(0);
     expect(screen.getAllByLabelText("ناوبری اصلی")).toHaveLength(1);
-    expect(container.querySelector(".unified-sidebar__bottom")).not.toBeInTheDocument();
+    // The solver sidebar carries no identity and no help link -- both are
+    // duplication of the topbar. A connected session may still render the
+    // block for sign-out alone, so this asserts what must not be there rather
+    // than the absence of the container.
+    expect(
+      container.querySelector(".unified-sidebar__bottom .unified-sidebar__account"),
+    ).toBeNull();
+    expect(container.querySelector('.unified-sidebar__bottom a[href="/app/help"]')).toBeNull();
     expect(
       container.querySelector(".unified-workspace-identity .person-avatar"),
     ).not.toBeInTheDocument();

@@ -603,6 +603,50 @@ export class InMemoryIdentityAdapter
     });
   }
 
+  async refreshBrowser(
+    refreshToken: string,
+    command: SessionCommand,
+  ): Promise<SessionTokenOutcome> {
+    return this.criticalSection.run(() => {
+      const credentialScope = commandFingerprint(refreshToken);
+      const key = `session:browser-refresh\u0000${credentialScope}\u0000${command.idempotencyKey}`;
+      const fingerprint = commandFingerprint({ action: "session.browser-refresh", refreshToken });
+      const replay = this.replayToken(key, fingerprint);
+      if (replay) return replay;
+      const sessionId = this.state.refreshIndex.get(refreshToken);
+      const current = sessionId ? this.state.sessions.get(sessionId) : undefined;
+      if (
+        !current ||
+        current.revoked ||
+        Date.parse(current.refreshExpiresAt) <= this.clock.now().getTime()
+      ) {
+        throw forbidden();
+      }
+
+      return this.transact((state) => {
+        const next: StoredSession = {
+          ...current,
+          version: current.version + 1,
+          accessToken: `rahhal-access-${current.id}-version-${current.version + 1}`,
+          refreshToken: `rahhal-refresh-${current.id}-version-${current.version + 1}`,
+          accessExpiresAt: new Date(this.clock.now().getTime() + 15 * 60_000).toISOString(),
+          refreshExpiresAt: new Date(
+            this.clock.now().getTime() + 14 * 24 * 60 * 60_000,
+          ).toISOString(),
+        };
+        state.accessIndex.delete(current.accessToken);
+        state.refreshIndex.delete(current.refreshToken);
+        state.sessions.set(next.id, next);
+        state.accessIndex.set(next.accessToken, next.id);
+        state.refreshIndex.set(next.refreshToken, next.id);
+        const mutation = this.receipt(state, next, "session.refreshed", command, ["continue"]);
+        const outcome = { ...mutation, tokens: this.tokens(next) };
+        state.tokenIdempotency.set(key, { fingerprint, outcome: structuredClone(outcome) });
+        return outcome;
+      });
+    });
+  }
+
   async revoke(
     accessToken: string,
     body: SessionRevokeBody,
@@ -855,6 +899,8 @@ export class InMemoryIdentityAdapter
       readonly refreshToken: string;
       readonly accessExpiresAt: string;
       readonly refreshExpiresAt: string;
+      /** The permanent individual workspace this returning solver enters. */
+      readonly activeWorkspaceId?: WorkspaceId | null;
     },
   ): void {
     const seed = this.seeds.find((candidate) => candidate.user.id === userId);
@@ -868,7 +914,7 @@ export class InMemoryIdentityAdapter
       refreshToken: session.refreshToken,
       accessExpiresAt: session.accessExpiresAt,
       refreshExpiresAt: session.refreshExpiresAt,
-      activeWorkspaceId: null,
+      activeWorkspaceId: session.activeWorkspaceId ?? seed.workspace.id,
       revoked: false,
     };
     this.state.sessions.set(stored.id, stored);

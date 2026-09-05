@@ -27,8 +27,15 @@ describe("اصلاحات دیداری نسخه ۱.۵", () => {
     const shell = read("components/app-shell.tsx");
     const solver = read("components/solver-shell.tsx");
     const dashboard = read("components/solver-dashboard.tsx");
-    expect(shell).toContain('role !== "solver"');
+    // The duplicated identity block is solver-only. This asserts the guard by
+    // what it protects rather than by the exact expression that expresses it:
+    // the organization persona has since gained the same profile link, so
+    // pinning `role !== "solver"` failed on a change that was correct.
     expect(shell).toContain("unified-topbar__profile");
+    expect(shell).toContain("unified-topbar__profile-copy");
+    expect(shell).toMatch(
+      /role === "solver" &&\s*\(\s*<span className="unified-topbar__profile-copy">/,
+    );
     expect(solver).toContain("state.currentUser.displayName");
     expect(solver).toContain("workspaceName");
     expect(solver).toContain("team?.name");

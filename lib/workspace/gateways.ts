@@ -1,9 +1,12 @@
 import type {
+  CreateDirectOfferBody,
   DirectOfferListSuccessEnvelope,
   DirectOfferResource,
   DirectOfferListResource,
   DirectOfferSuccessEnvelope,
   MutationSuccessEnvelope,
+  EligibilitySuccessEnvelope,
+  EligibilityDecisionResource,
   NotificationListResource,
   NotificationListSuccessEnvelope,
   NotificationSummaryResource,
@@ -20,6 +23,8 @@ import type {
   SavedOpportunityListSuccessEnvelope,
   SolverWorkspaceProfileResource,
   SolverWorkspaceProfileSuccessEnvelope,
+  SolverVerificationResource,
+  SolverVerificationSuccessEnvelope,
   TeamInvitationListSuccessEnvelope,
   TeamInvitationResource,
   TeamMembershipRequestListSuccessEnvelope,
@@ -64,6 +69,22 @@ function path(template: string, replacements: Readonly<Record<string, string>>):
 
 export type SolverProfileGateway = {
   read(): Promise<GatewayResult<SolverWorkspaceProfileResource>>;
+  update(input: {
+    readonly expectedVersion: number;
+    readonly patch: Partial<
+      Pick<SolverWorkspaceProfileResource, "headline" | "overview" | "expertise" | "geography">
+    >;
+  }): Promise<GatewayResult<MutationSuccessEnvelope["data"]>>;
+  readVerification(): Promise<GatewayResult<SolverVerificationResource>>;
+  startVerification(
+    expectedVersion: number,
+  ): Promise<GatewayResult<MutationSuccessEnvelope["data"]>>;
+  evaluateEligibility(challengeId: string): Promise<GatewayResult<EligibilityDecisionResource>>;
+  acceptEligibilityGate(input: {
+    readonly challengeId: string;
+    readonly challengeVersionId: string;
+    readonly gate: "nda" | "document_acknowledgement";
+  }): Promise<GatewayResult<MutationSuccessEnvelope["data"]>>;
 };
 
 export function createSolverProfileGateway(scope: WorkspaceScopeResolver): SolverProfileGateway {
@@ -74,6 +95,53 @@ export function createSolverProfileGateway(scope: WorkspaceScopeResolver): Solve
         { headers: headers(scope) },
       );
       return toResult(envelope, (data) => data as SolverWorkspaceProfileResource);
+    },
+    async update({ expectedVersion, patch: profilePatch }) {
+      const envelope = await requestApi<MutationSuccessEnvelope>(apiRoutes.solverProfile, {
+        method: "PATCH",
+        headers: headers(scope, "solver-profile-update"),
+        body: JSON.stringify({ expected_version: expectedVersion, patch: profilePatch }),
+      });
+      return toResult(envelope, (data) => data as MutationSuccessEnvelope["data"]);
+    },
+    async readVerification() {
+      const envelope = await requestApi<SolverVerificationSuccessEnvelope>(
+        apiRoutes.solverVerification,
+        { headers: headers(scope) },
+      );
+      return toResult(envelope, (data) => data as SolverVerificationResource);
+    },
+    async startVerification(expectedVersion) {
+      const envelope = await requestApi<MutationSuccessEnvelope>(
+        apiRoutes.startSolverVerification,
+        {
+          method: "POST",
+          headers: headers(scope, "solver-verification-start"),
+          body: JSON.stringify({ expected_version: expectedVersion }),
+        },
+      );
+      return toResult(envelope, (data) => data as MutationSuccessEnvelope["data"]);
+    },
+    async evaluateEligibility(challengeId) {
+      const envelope = await requestApi<EligibilitySuccessEnvelope>(
+        path(apiRoutes.challengeEligibility, { challengeId }),
+        { headers: headers(scope) },
+      );
+      return toResult(envelope, (data) => data as EligibilityDecisionResource);
+    },
+    async acceptEligibilityGate({ challengeId, challengeVersionId, gate }) {
+      const envelope = await requestApi<MutationSuccessEnvelope>(
+        path(apiRoutes.acceptChallengeEligibilityGate, { challengeId, gate }),
+        {
+          method: "POST",
+          headers: headers(scope, `eligibility-${gate}`),
+          body: JSON.stringify({
+            expected_version: 0,
+            challenge_version_id: challengeVersionId,
+          }),
+        },
+      );
+      return toResult(envelope, (data) => data as MutationSuccessEnvelope["data"]);
     },
   };
 }
@@ -369,6 +437,26 @@ export type ProposalGateway = {
       readonly acceptedChallengeVersionId: string;
     },
   ): Promise<GatewayResult<MutationSuccessEnvelope["data"]>>;
+  submitClarification(
+    proposalId: string,
+    input: {
+      readonly expectedVersion: number;
+      readonly clarificationId: string;
+      readonly response: string;
+    },
+  ): Promise<GatewayResult<MutationSuccessEnvelope["data"]>>;
+  startRevision(
+    proposalId: string,
+    input: { readonly expectedVersion: number; readonly revisionRequestId: string },
+  ): Promise<GatewayResult<MutationSuccessEnvelope["data"]>>;
+  resubmit(
+    proposalId: string,
+    input: {
+      readonly expectedVersion: number;
+      readonly revisionRequestId: string;
+      readonly acceptedChallengeVersionId: string;
+    },
+  ): Promise<GatewayResult<MutationSuccessEnvelope["data"]>>;
 };
 
 export function createProposalGateway(scope: WorkspaceScopeResolver): ProposalGateway {
@@ -413,6 +501,50 @@ export function createProposalGateway(scope: WorkspaceScopeResolver): ProposalGa
           headers: headers(scope, "proposal-submit"),
           body: JSON.stringify({
             expected_version: expectedVersion,
+            accepted_challenge_version_id: acceptedChallengeVersionId,
+          }),
+        },
+      );
+      return toResult(envelope, (data) => data as MutationSuccessEnvelope["data"]);
+    },
+    async submitClarification(proposalId, { expectedVersion, clarificationId, response }) {
+      const envelope = await requestApi<MutationSuccessEnvelope>(
+        path(apiRoutes.submitProposalClarification, { proposalId }),
+        {
+          method: "POST",
+          headers: headers(scope, "proposal-clarification-submit"),
+          body: JSON.stringify({
+            expected_version: expectedVersion,
+            clarification_id: clarificationId,
+            response,
+          }),
+        },
+      );
+      return toResult(envelope, (data) => data as MutationSuccessEnvelope["data"]);
+    },
+    async startRevision(proposalId, { expectedVersion, revisionRequestId }) {
+      const envelope = await requestApi<MutationSuccessEnvelope>(
+        path(apiRoutes.startProposalRevision, { proposalId }),
+        {
+          method: "POST",
+          headers: headers(scope, "proposal-revision-start"),
+          body: JSON.stringify({
+            expected_version: expectedVersion,
+            revision_request_id: revisionRequestId,
+          }),
+        },
+      );
+      return toResult(envelope, (data) => data as MutationSuccessEnvelope["data"]);
+    },
+    async resubmit(proposalId, { expectedVersion, revisionRequestId, acceptedChallengeVersionId }) {
+      const envelope = await requestApi<MutationSuccessEnvelope>(
+        path(apiRoutes.resubmitProposal, { proposalId }),
+        {
+          method: "POST",
+          headers: headers(scope, "proposal-resubmit"),
+          body: JSON.stringify({
+            expected_version: expectedVersion,
+            revision_request_id: revisionRequestId,
             accepted_challenge_version_id: acceptedChallengeVersionId,
           }),
         },
@@ -664,6 +796,76 @@ export function createDirectOfferGateway(scope: WorkspaceScopeResolver): DirectO
   };
 }
 
+export type OrganizationDirectOfferGateway = {
+  list(): Promise<GatewayResult<DirectOfferListResource>>;
+  get(directOfferId: string): Promise<GatewayResult<DirectOfferResource>>;
+  send(
+    input: Omit<CreateDirectOfferBody, "expected_version">,
+  ): Promise<GatewayResult<MutationSuccessEnvelope["data"]>>;
+  cancel(
+    directOfferId: string,
+    input: { readonly expectedVersion: number; readonly reason: string },
+  ): Promise<GatewayResult<MutationSuccessEnvelope["data"]>>;
+  startNegotiation(
+    directOfferId: string,
+    expectedVersion: number,
+  ): Promise<GatewayResult<MutationSuccessEnvelope["data"]>>;
+};
+
+export function createOrganizationDirectOfferGateway(
+  scope: WorkspaceScopeResolver,
+): OrganizationDirectOfferGateway {
+  return {
+    async list() {
+      const envelope = await requestApi<DirectOfferListSuccessEnvelope>(
+        apiRoutes.organizationDirectOffers,
+        { headers: headers(scope) },
+      );
+      return toResult(envelope, (data) => data as DirectOfferListResource);
+    },
+    async get(directOfferId) {
+      const envelope = await requestApi<DirectOfferSuccessEnvelope>(
+        path(apiRoutes.organizationDirectOfferById, { directOfferId }),
+        { headers: headers(scope) },
+      );
+      return toResult(envelope, (data) => data as DirectOfferResource);
+    },
+    async send(input) {
+      const envelope = await requestApi<MutationSuccessEnvelope>(
+        apiRoutes.organizationDirectOffers,
+        {
+          method: "POST",
+          headers: headers(scope, "direct-offer-send"),
+          body: JSON.stringify({ expected_version: 0, ...input }),
+        },
+      );
+      return toResult(envelope, (data) => data as MutationSuccessEnvelope["data"]);
+    },
+    async cancel(directOfferId, { expectedVersion, reason }) {
+      const envelope = await requestApi<MutationSuccessEnvelope>(
+        path(apiRoutes.cancelDirectOffer, { directOfferId }),
+        {
+          method: "POST",
+          headers: headers(scope, "direct-offer-cancel"),
+          body: JSON.stringify({ expected_version: expectedVersion, reason }),
+        },
+      );
+      return toResult(envelope, (data) => data as MutationSuccessEnvelope["data"]);
+    },
+    async startNegotiation(directOfferId, expectedVersion) {
+      const envelope = await requestApi<MutationSuccessEnvelope>(
+        path(apiRoutes.startDirectOfferNegotiation, { directOfferId }),
+        {
+          method: "POST",
+          headers: headers(scope, "direct-offer-negotiate"),
+          body: JSON.stringify({ expected_version: expectedVersion }),
+        },
+      );
+      return toResult(envelope, (data) => data as MutationSuccessEnvelope["data"]);
+    },
+  };
+}
+
 // ---------------------------------------------------------- C8 notifications
 
 export type NotificationGateway = {
@@ -734,6 +936,7 @@ export type WorkspaceGateways = {
   readonly organizationProposals: OrganizationProposalGateway;
   readonly savedOpportunities: SavedOpportunityGateway;
   readonly directOffers: DirectOfferGateway;
+  readonly organizationDirectOffers: OrganizationDirectOfferGateway;
   readonly notifications: NotificationGateway;
 };
 
@@ -745,6 +948,7 @@ export function createWorkspaceGateways(scope: WorkspaceScopeResolver): Workspac
     organizationProposals: createOrganizationProposalGateway(scope),
     savedOpportunities: createSavedOpportunityGateway(scope),
     directOffers: createDirectOfferGateway(scope),
+    organizationDirectOffers: createOrganizationDirectOfferGateway(scope),
     notifications: createNotificationGateway(scope),
   };
 }

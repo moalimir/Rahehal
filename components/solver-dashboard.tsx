@@ -1,6 +1,7 @@
 "use client";
 
-import { useConnectedSolverDashboard } from "@/components/solver/use-connected-dashboard";
+// Loaded on demand: these render only under a live session, and importing them
+// eagerly puts them in the shared demo bundle the budgets refuse.
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { ChallengeOrganizationLogo } from "@/components/challenge-organization-logo";
@@ -413,41 +414,11 @@ export function SolverDashboardExperience({
   const [feedback, setFeedback] = useState("");
   const [personalResumeOpen, setPersonalResumeOpen] = useState(false);
   const projection = workspaceProjection(context.workspaceId, state);
-  // Connected runtime: counts come from the server for the active workspace.
-  // A family that failed to load contributes null, and the card below shows
-  // that explicitly rather than a zero the human would read as real.
-  const connected = useConnectedSolverDashboard();
-  const liveCounts = connected.state.kind === "ready" ? connected.state.data.proposals : null;
+  // This file is the static export's dashboard only. In network mode the
+  // solver routes render `ConnectedSolverRoute`, so nothing here is reachable
+  // under a live session and no server read belongs in it.
   const metrics = useMemo(() => {
     const proposals = projection.proposals;
-    if (liveCounts) {
-      return [
-        {
-          label: "پیش‌نویس‌ها",
-          count: liveCounts.drafts,
-          status: "draft",
-          cta: "مشاهده پیش‌نویس‌ها",
-        },
-        {
-          label: "ارسال‌شده‌ها",
-          count: liveCounts.submitted,
-          status: "submitted",
-          cta: "مشاهده ارسال‌شده‌ها",
-        },
-        {
-          label: "در حال بررسی",
-          count: liveCounts.inReview,
-          status: "reviewing",
-          cta: "مشاهده موارد در حال بررسی",
-        },
-        {
-          label: "نیازمند اقدام",
-          count: liveCounts.needsAction,
-          status: "revision_requested",
-          cta: "مشاهده موارد نیازمند اقدام",
-        },
-      ];
-    }
     return [
       {
         label: "پیش‌نویس‌ها",
@@ -481,7 +452,7 @@ export function SolverDashboardExperience({
         cta: "مشاهده موارد نیازمند اقدام",
       },
     ];
-  }, [liveCounts, projection.proposals]);
+  }, [projection.proposals]);
   const activeTeam =
     context.type === "team"
       ? state.teams.find((candidate) => candidate.id === context.teamId)
@@ -598,8 +569,8 @@ export function SolverDashboardExperience({
         </header>
         <div className="rh-table" role="table" aria-label="آخرین درخواست‌ها">
           <div role="row" className="rh-table__head">
-            <span role="columnheader">عنوان فرصت</span>
-            <span role="columnheader">سازمان</span>
+            <span role="columnheader">شناسه پرونده</span>
+            <span role="columnheader">کد پیگیری</span>
             <span role="columnheader">وضعیت</span>
             <span role="columnheader">آخرین به‌روزرسانی</span>
             <span role="columnheader">اقدام بعدی</span>

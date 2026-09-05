@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Brand } from "@/components/brand";
 import { useWebRuntime } from "@/components/runtime-provider";
+import { workspacesForPersona } from "@/lib/auth/network-session";
 
 export function NetworkOrganizationLogin() {
   const runtime = useWebRuntime();
@@ -25,6 +26,7 @@ export function NetworkOrganizationLogin() {
     }
   };
 
+  const organizationWorkspaces = workspacesForPersona(runtime.me, "org");
   const loading = runtime.sessionStatus === "loading";
   const buttonLabel = busy
     ? "در حال انتقال…"
@@ -56,10 +58,35 @@ export function NetworkOrganizationLogin() {
               </p>
             )}
 
-            {runtime.sessionStatus === "authenticated" ? (
+            {/* A session is not enough: this shortcut is only true when the
+                signed-in human can actually reach an organization workspace.
+                Offering it to a solver sent them to a page that refuses them,
+                which is the chrome promising what the session cannot do. */}
+            {runtime.sessionStatus === "authenticated" && organizationWorkspaces.length > 0 ? (
               <Link className="organization-auth-submit" href="/app/org/challenges">
                 ورود به فضای سازمانی
               </Link>
+            ) : runtime.sessionStatus === "authenticated" ? (
+              <>
+                <p className="organization-auth-message" role="status">
+                  این نشست به هیچ فضای کاری سازمانی دسترسی ندارد. برای ورود سازمانی، ابتدا از نشست
+                  فعلی خارج شوید.
+                </p>
+                <button
+                  type="button"
+                  className="organization-auth-submit"
+                  disabled={busy}
+                  onClick={() => {
+                    setBusy(true);
+                    void runtime.signOut().then(() => void start());
+                  }}
+                >
+                  خروج و ورود با هویت سازمانی
+                </button>
+                <Link className="organization-auth-secondary" href="/app">
+                  بازگشت به فضای کاری خودم
+                </Link>
+              </>
             ) : (
               <button
                 type="button"

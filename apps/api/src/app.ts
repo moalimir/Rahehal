@@ -27,6 +27,7 @@ import {
   type SessionExchangeBody,
   type SessionRefreshBody,
   type SessionRevokeBody,
+  type BrowserSolverActivationSuccessEnvelope,
   type SessionSuccessEnvelope,
   type SuccessEnvelope,
   type SwitchWorkspaceContextBody,
@@ -854,6 +855,12 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
     if (problem.options.retryAfterSeconds !== undefined) {
       void reply.header("retry-after", problem.options.retryAfterSeconds.toString());
     }
+    if (options.browserSession && problem.code === "NO_ACCESS") {
+      const cookies = parseCookies(request.headers.cookie);
+      if (!cookies.has(browserCookieNames.access) && cookies.has(browserCookieNames.refresh)) {
+        void reply.header("x-rahhal-session-refresh", "required");
+      }
+    }
     void reply
       .status(problem.statusCode)
       .send(errorEnvelope(problem, correlationId(request), ports.clock.now().toISOString()));
@@ -1071,6 +1078,100 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
         void reply.header("set-cookie", clearBrowserSessionCookies(settings));
       }
     });
+
+    app.post(fastifyLiteralPath(browserSessionRoutes.sessionRefresh), async (request, reply) => {
+      requireBrowserOrigin(request, settings);
+      const cookies = parseCookies(request.headers.cookie);
+      const accessToken = cookies.get(browserCookieNames.access);
+      if (accessToken && (await ports.sessions.authenticate(accessToken))) {
+        return reply.code(204).send();
+      }
+
+      const refreshToken = cookies.get(browserCookieNames.refresh);
+      if (!refreshToken) {
+        return reply.header("set-cookie", clearBrowserSessionCookies(settings)).code(204).send();
+      }
+      try {
+        const outcome = await ports.sessions.refreshBrowser(
+          refreshToken,
+          idempotencyCommand(request),
+        );
+        return reply
+          .header("set-cookie", sessionCookies(outcome.tokens, settings, ports.clock.now()))
+          .code(204)
+          .send();
+      } catch {
+        return reply.header("set-cookie", clearBrowserSessionCookies(settings)).code(204).send();
+      }
+    });
+
+    /**
+     * Returning sign-in for a solver who already activated.
+     *
+     * Runs the same command as `POST /api/v1/auth/contact-session:exchange`
+     * but returns the receipt only: the tokens go into HttpOnly cookies, so a
+     * browser can complete an OTP sign-in without a credential ever reaching
+     * client JavaScript.
+     */
+    app.post<{ Body: ContactSessionExchangeBody }>(
+      fastifyLiteralPath(browserSessionRoutes.contactSessionExchange),
+      {
+        schema: {
+          body: apiSchemas.ContactSessionExchangeBody,
+          response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+        },
+      },
+      async (request, reply) => {
+        requireBrowserOrigin(request, settings);
+        const outcome = await ports.solverActivation.exchangeContact(
+          request.body,
+          idempotencyCommand(request),
+        );
+        void reply.header(
+          "set-cookie",
+          sessionCookies(outcome.tokens, settings, ports.clock.now()),
+        );
+        return mutationSuccess(outcome, request, ports);
+      },
+    );
+
+    /**
+     * First activation from the browser.
+     *
+     * Same command as `POST /api/v1/solver/activation`; the response carries
+     * the activation facts a caller needs to continue -- which workspace was
+     * created, and whether a team bootstrap is the next action -- and never
+     * the session tokens, which become cookies here.
+     */
+    app.post<{ Body: ActivateSolverBody }>(
+      fastifyLiteralPath(browserSessionRoutes.solverActivation),
+      {
+        schema: {
+          body: apiSchemas.ActivateSolverBody,
+          response: {
+            200: apiSchemas.BrowserSolverActivationSuccessEnvelope,
+            ...apiErrorResponses,
+          },
+        },
+      },
+      async (request, reply): Promise<BrowserSolverActivationSuccessEnvelope> => {
+        requireBrowserOrigin(request, settings);
+        const outcome = await ports.solverActivation.activate(
+          request.body,
+          idempotencyCommand(request),
+        );
+        void reply.header(
+          "set-cookie",
+          sessionCookies(outcome.tokens, settings, ports.clock.now()),
+        );
+        return versionedSuccess(
+          { activation: outcome.activation, receipt: outcome.receipt },
+          request,
+          ports,
+          outcome.entityVersion,
+        );
+      },
+    );
   }
 
   app.post<{ Body: OidcAuthorizationStartBody }>(

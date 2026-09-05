@@ -99,5 +99,19 @@ export const apiRoutes = {
 export const browserSessionRoutes = {
   oidcAuthorizationStart: "/auth/browser/oidc:start",
   oidcCallback: "/auth/browser/callback",
+  sessionRefresh: "/auth/browser/session:refresh",
   sessionRevoke: "/auth/browser/session:revoke",
+  /**
+   * The contact-verification siblings of the OIDC callback.
+   *
+   * `POST /api/v1/auth/contact-session:exchange` and `POST
+   * /api/v1/solver/activation` both return bearer tokens in their response
+   * body, which is correct for a service client and wrong for a browser: the
+   * web runtime keeps credentials in HttpOnly cookies and never exposes them
+   * to client JavaScript. These two routes run the same commands and set the
+   * cookies instead, so a solver can sign in and activate from the browser
+   * without a token ever reaching a script.
+   */
+  contactSessionExchange: "/auth/browser/contact-session:exchange",
+  solverActivation: "/auth/browser/solver:activate",
 } as const;

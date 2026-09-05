@@ -87,6 +87,24 @@ export type SolverActivationSessionResult = {
   readonly receipt: MutationReceipt<SolverActivationId, SolverActivationNextAction>;
 };
 
+/**
+ * What the same-origin browser activation route returns.
+ *
+ * It carries the facts the onboarding flow needs to continue -- which
+ * workspace was created, and whether a team bootstrap is the next action --
+ * and never the session tokens, which the route puts in HttpOnly cookies.
+ */
+export type BrowserSolverActivationResult = {
+  readonly activation: SolverActivationResource;
+  readonly receipt: MutationReceipt<SolverActivationId, SolverActivationNextAction>;
+};
+
+export type BrowserSolverActivationSuccessEnvelope = {
+  readonly ok: true;
+  readonly data: BrowserSolverActivationResult;
+  readonly meta: VersionedApiMeta;
+};
+
 export type SolverActivationSuccessEnvelope = {
   readonly ok: true;
   readonly data: SolverActivationSessionResult;

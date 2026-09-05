@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 
 import { Icon } from "@/components/icons";
 import { useWebRuntime } from "@/components/runtime-provider";
@@ -14,6 +14,12 @@ import { decideTeamPermission, teamRole, type TeamNonOwnerRole } from "@rahhal/d
 import type { GatewayResult } from "@/lib/api/result";
 import { TEAM_ROLE_LABELS } from "@/lib/solver/permissions";
 import { readTeamView, teamViewScopeLost } from "@/lib/workspace/team-view";
+import {
+  membershipStateLabels,
+  teamInvitationStateLabels,
+  teamMembershipRequestStateLabels,
+  teamStatusLabels,
+} from "@/lib/workspace/state-labels";
 
 const nonOwnerRoles: readonly TeamNonOwnerRole[] = [
   teamRole.admin,
@@ -39,9 +45,25 @@ function formatDate(value: string) {
  */
 export function ConnectedTeamsExperience() {
   const runtime = useWebRuntime();
-  const connected = useConnectedFamily(readTeamView, teamViewScopeLost);
+  const router = useRouter();
+  const activeWorkspaceKind = runtime.me?.workspaces.find(
+    (workspace) => workspace.id === runtime.me?.active_context?.workspace_id,
+  )?.kind;
+  const read = useMemo(
+    () => (gateways: Parameters<typeof readTeamView>[0]) =>
+      readTeamView(gateways, activeWorkspaceKind === "team"),
+    [activeWorkspaceKind],
+  );
+  const connected = useConnectedFamily(read, teamViewScopeLost, activeWorkspaceKind);
   const [notice, setNotice] = useState("");
   const [pending, setPending] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [teamName, setTeamName] = useState("");
+  const [teamKind, setTeamKind] = useState("expert-team");
+
+  useEffect(() => {
+    setCreating(new URLSearchParams(window.location.search).get("create") === "1");
+  }, []);
 
   if (connected.state.kind !== "ready")
     return <ConnectedFamilyFallback state={connected.state} label="تیم‌ها" />;
@@ -104,7 +126,7 @@ export function ConnectedTeamsExperience() {
               </small>
               <h1>{team.name}</h1>
               <p>
-                وضعیت {team.status} · نسخه {team.version.toLocaleString("fa-IR")}
+                وضعیت {teamStatusLabels[team.status]} · نسخه {team.version.toLocaleString("fa-IR")}
               </p>
             </div>
           </header>
@@ -124,7 +146,7 @@ export function ConnectedTeamsExperience() {
                   </small>
                   <h3>{member.display_name}</h3>
                   <p>
-                    {TEAM_ROLE_LABELS[member.role]} · {member.state}
+                    {TEAM_ROLE_LABELS[member.role]} · {membershipStateLabels[member.state]}
                   </p>
                 </div>
                 {permission("change-member-role") && member.role !== teamRole.owner && (
@@ -223,7 +245,8 @@ export function ConnectedTeamsExperience() {
                   </small>
                   <h3>{TEAM_ROLE_LABELS[invitation.proposed_role]}</h3>
                   <p>
-                    {invitation.state} · تا {formatDate(invitation.expires_at)}
+                    {teamInvitationStateLabels[invitation.state]} · تا{" "}
+                    {formatDate(invitation.expires_at)}
                   </p>
                 </div>
                 {["sent", "viewed"].includes(invitation.state) && permission("invite-member") && (
@@ -264,7 +287,7 @@ export function ConnectedTeamsExperience() {
                   </small>
                   <h3>{TEAM_ROLE_LABELS[request.requested_role]}</h3>
                   <p>
-                    {request.state} · {request.introduction}
+                    {teamMembershipRequestStateLabels[request.state]} · {request.introduction}
                   </p>
                 </div>
                 {request.state === "requested" && permission("review-membership-request") && (
@@ -349,17 +372,70 @@ export function ConnectedTeamsExperience() {
           </section>
         </>
       ) : (
-        <header className="rh-profile-heading">
-          <div>
-            <h1>تیم‌ها و همکاری</h1>
-            <p>
-              فضای کاری فعال شما یک تیم نیست. برای مدیریت یک تیم، ابتدا به فضای کاری آن تیم بروید.
-            </p>
-          </div>
-          <Link className="rh-profile-outline" href="/app">
-            انتخاب فضای کاری
-          </Link>
-        </header>
+        <>
+          <header className="rh-profile-heading">
+            <div>
+              <h1>تیم‌ها و همکاری</h1>
+              <p>
+                تیم حساب جداگانه ندارد؛ با همین هویت یک فضای تیمی بسازید و سپس اعضا و پیشنهادهای آن
+                را مدیریت کنید.
+              </p>
+            </div>
+            <button
+              className="rh-profile-primary"
+              type="button"
+              onClick={() => setCreating((value) => !value)}
+            >
+              <Icon name="plus" /> {creating ? "بستن فرم" : "ساخت تیم"}
+            </button>
+          </header>
+          {creating && (
+            <form
+              className="rh-card rh-profile-filters"
+              onSubmit={(event) => {
+                event.preventDefault();
+                setPending(true);
+                setNotice("");
+                void gateways!.team
+                  .create({ name: teamName.trim(), teamKind, joinMode: "invite-only" })
+                  .then(async (result) => {
+                    setPending(false);
+                    if (!result.ok) {
+                      setNotice(result.error.message);
+                      return;
+                    }
+                    setNotice(`تیم ساخته شد · شناسه همبستگی ${result.meta.correlation_id}`);
+                    await runtime.refreshMe();
+                    const error = await runtime.switchWorkspace(result.data.entity_id);
+                    if (!error) router.push("/app/solver/dashboard");
+                    else setNotice(error.message);
+                  });
+              }}
+            >
+              <h2>ساخت فضای کاری تیم</h2>
+              <label>
+                <span>نام تیم</span>
+                <input
+                  required
+                  minLength={3}
+                  value={teamName}
+                  onChange={(event) => setTeamName(event.target.value)}
+                />
+              </label>
+              <label>
+                <span>نوع تیم</span>
+                <select value={teamKind} onChange={(event) => setTeamKind(event.target.value)}>
+                  <option value="expert-team">تیم تخصصی</option>
+                  <option value="academic-group">گروه دانشگاهی</option>
+                  <option value="lab">آزمایشگاه</option>
+                </select>
+              </label>
+              <button type="submit" disabled={pending || teamName.trim().length < 3}>
+                {pending ? "در حال ساخت…" : "ساخت تیم و ورود به آن"}
+              </button>
+            </form>
+          )}
+        </>
       )}
 
       <section className="rh-card rh-membership-list" aria-label="دعوت‌های دریافتی من">
@@ -377,7 +453,8 @@ export function ConnectedTeamsExperience() {
               </small>
               <h3>{invitation.team_name}</h3>
               <p>
-                {TEAM_ROLE_LABELS[invitation.proposed_role]} · {invitation.state} · تا{" "}
+                {TEAM_ROLE_LABELS[invitation.proposed_role]} ·{" "}
+                {teamInvitationStateLabels[invitation.state]} · تا{" "}
                 {formatDate(invitation.expires_at)}
               </p>
             </div>
@@ -438,7 +515,8 @@ export function ConnectedTeamsExperience() {
               </small>
               <h3>{request.team_name}</h3>
               <p>
-                {TEAM_ROLE_LABELS[request.requested_role]} · {request.state}
+                {TEAM_ROLE_LABELS[request.requested_role]} ·{" "}
+                {teamMembershipRequestStateLabels[request.state]}
               </p>
             </div>
             {request.state === "requested" && (

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { GatewayResult } from "@/lib/api/result";
 import type { WorkspaceGateways } from "@/lib/workspace/gateways";
@@ -6,6 +6,11 @@ import { readNotifications } from "@/lib/workspace/notification-view";
 import { readOrganizationInbox } from "@/lib/workspace/organization-inbox";
 import { connectedProposalHref, readProposalRecordId } from "@/lib/workspace/proposal-navigation";
 import { proposalListScopeLost, toProposalRow } from "@/lib/workspace/proposal-rows";
+import {
+  countProposals,
+  proposalStatusGroups,
+  readSolverDashboardSummary,
+} from "@/lib/workspace/solver-summary";
 import { readTeamView, teamViewScopeLost } from "@/lib/workspace/team-view";
 
 const meta = { server_time: "2026-09-05T00:00:00.000Z", correlation_id: "cor_test_0001" };
@@ -27,7 +32,7 @@ function gateways(overrides: Record<string, unknown> = {}): WorkspaceGateways {
       list: async () => ok({ items: [], unread_count: 0 }),
     },
     team: {
-      read: async () => ok({}),
+      read: async () => fail("NO_ACCESS"),
       sentInvitations: async () => ok([]),
       incomingInvitations: async () => ok([]),
       incomingRequests: async () => ok([]),
@@ -100,21 +105,28 @@ describe("C9 connected team view", () => {
     // An individual workspace is refused the team read by design. Reporting it
     // would put an error banner on a page that is working correctly, and
     // ejecting the human would lose the invitation list they came for.
+    const read = vi.fn(async () => fail<never>("NO_ACCESS"));
+    const sentInvitations = vi.fn(async () => fail<never>("NO_ACCESS"));
+    const incomingRequests = vi.fn(async () => fail<never>("NO_ACCESS"));
     const view = await readTeamView(
       gateways({
         team: {
-          read: async () => fail("NO_ACCESS"),
-          sentInvitations: async () => fail("NO_ACCESS"),
+          read,
+          sentInvitations,
           incomingInvitations: async () => ok([{ id: "tin_a" }]),
-          incomingRequests: async () => fail("NO_ACCESS"),
+          incomingRequests,
           ownRequests: async () => ok([]),
         },
       }),
+      false,
     );
     expect(view.team).toBeNull();
     expect(view.failures).toEqual([]);
     expect(view.incomingInvitations).toHaveLength(1);
     expect(teamViewScopeLost(view)).toBe(false);
+    expect(read).not.toHaveBeenCalled();
+    expect(sentInvitations).not.toHaveBeenCalled();
+    expect(incomingRequests).not.toHaveBeenCalled();
   });
 
   it("calls a denied own-invitation list lost scope", async () => {
@@ -224,5 +236,85 @@ describe("C9 connected record paths", () => {
     expect(readProposalRecordId("?id=PR-104")).toBeNull();
     expect(readProposalRecordId("?id=../../etc/passwd")).toBeNull();
     expect(readProposalRecordId("")).toBeNull();
+  });
+});
+
+describe("C9 solver dashboard summary parity with the organization side", () => {
+  it("resolves published challenge titles so both sides name a call the same way", async () => {
+    // The organization dashboard shows a challenge by title. The solver
+    // dashboard showed the opaque id, so the two personas described the same
+    // call differently. Titles come from the public projection only.
+    const summary = await readSolverDashboardSummary(
+      gateways({
+        proposals: {
+          list: async () =>
+            ok({
+              items: [
+                { id: "prp_a", challenge_id: "chl_a", state: "draft", updated_at: "2026-09-05" },
+                {
+                  id: "prp_b",
+                  challenge_id: "chl_a",
+                  state: "submitted",
+                  updated_at: "2026-09-05",
+                },
+              ],
+            }),
+        },
+      }),
+    );
+    // No server is reachable in a unit test, so every projection read fails and
+    // the map is empty rather than invented -- which is the required fallback.
+    expect(summary.challengeTitles.size).toBe(0);
+    expect(summary.proposalRows).toHaveLength(2);
+  });
+
+  it("treats a denied team read as an individual workspace, not a failure", async () => {
+    const summary = await readSolverDashboardSummary(gateways());
+    expect(summary.team).toBeNull();
+    expect(summary.failures).toEqual([]);
+  });
+
+  it("reports a genuine team read failure so the card is not silently missing", async () => {
+    const summary = await readSolverDashboardSummary(
+      gateways({
+        team: {
+          read: async () => fail("STORAGE"),
+          sentInvitations: async () => ok([]),
+          incomingInvitations: async () => ok([]),
+          incomingRequests: async () => ok([]),
+          ownRequests: async () => ok([]),
+        },
+      }),
+    );
+    expect(summary.failures.map((failure) => failure.family)).toEqual(["team"]);
+  });
+});
+
+describe("C9 dashboard cards and the list they open agree", () => {
+  it("groups the list by the same table the dashboard counts with", () => {
+    // Filtering the list by exact state while the dashboard counted a group
+    // showed "3 submitted" on one page and one row on the other.
+    expect([...proposalStatusGroups.submitted]).toEqual(
+      expect.arrayContaining(["submitted", "resubmitted", "clarification_submitted"]),
+    );
+    expect([...proposalStatusGroups.reviewing]).toEqual(
+      expect.arrayContaining(["eligibility_review", "eligible", "reviewing"]),
+    );
+    expect([...proposalStatusGroups.draft]).toEqual(
+      expect.arrayContaining(["draft", "revision_draft"]),
+    );
+    expect([...proposalStatusGroups.revision_requested]).toEqual(
+      expect.arrayContaining(["clarification_requested", "revision_requested"]),
+    );
+
+    // Every group the dashboard links to must be a group the list understands.
+    const counts = countProposals({
+      items: [
+        { state: "submitted" },
+        { state: "resubmitted" },
+        { state: "clarification_submitted" },
+      ],
+    } as never);
+    expect(counts.submitted).toBe(3);
   });
 });

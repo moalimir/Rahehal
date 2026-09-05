@@ -1,4 +1,4 @@
-import type { ApiErrorCode, ErrorEnvelope } from "@rahhal/contracts";
+import { browserSessionRoutes, type ApiErrorCode, type ErrorEnvelope } from "@rahhal/contracts";
 import { parseCorrelationId } from "@rahhal/domain";
 
 type ApiEnvelopeLike = {
@@ -36,21 +36,55 @@ function isEnvelope(value: unknown): value is ApiEnvelopeLike {
   return typeof candidate.ok === "boolean" && typeof candidate.meta === "object";
 }
 
+let refreshInFlight: Promise<boolean> | null = null;
+
+async function refreshBrowserSession(): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+  if (!refreshInFlight) {
+    refreshInFlight = fetch(browserSessionRoutes.sessionRefresh, {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: {
+        accept: "application/json",
+        "idempotency-key": idempotencyKey("browser-session-refresh"),
+      },
+    })
+      .then((response) => response.ok)
+      .catch(() => false)
+      .finally(() => {
+        refreshInFlight = null;
+      });
+  }
+  return refreshInFlight;
+}
+
+function apiRequest(path: string, init: RequestInit) {
+  return fetch(path, {
+    ...init,
+    credentials: "same-origin",
+    cache: "no-store",
+    headers: {
+      accept: "application/json",
+      ...(init.body ? { "content-type": "application/json" } : {}),
+      ...init.headers,
+    },
+  });
+}
+
 export async function requestApi<Success extends ApiEnvelopeLike>(
   path: string,
   init: RequestInit = {},
 ): Promise<Success | ErrorEnvelope> {
   try {
-    const response = await fetch(path, {
-      ...init,
-      credentials: "same-origin",
-      cache: "no-store",
-      headers: {
-        accept: "application/json",
-        ...(init.body ? { "content-type": "application/json" } : {}),
-        ...init.headers,
-      },
-    });
+    let response = await apiRequest(path, init);
+    if (
+      response.status === 403 &&
+      response.headers.get("x-rahhal-session-refresh") === "required" &&
+      (await refreshBrowserSession())
+    ) {
+      response = await apiRequest(path, init);
+    }
     const contentType = response.headers.get("content-type") ?? "";
     if (!contentType.includes("application/json")) return unavailable();
     const payload: unknown = await response.json();

@@ -1673,6 +1673,17 @@ const addSolverRoute = (item: InternalRoute) => {
 
 addSolverRoute(
   route(
+    "SOL-02",
+    "/app/solver/opportunities/record",
+    "solver",
+    "جزئیات فرصت متصل",
+    "opportunities",
+    "بررسی شرایط و شروع پیشنهاد",
+    "نمای عمومی فراخوان و احراز شرایط فضای کاری فعال، خوانده‌شده از سرور.",
+  ),
+);
+addSolverRoute(
+  route(
     "SOL-06",
     "/app/solver/teams/new",
     "solver",

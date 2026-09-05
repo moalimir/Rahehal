@@ -11,6 +11,7 @@ import { useWebRuntime } from "@/components/runtime-provider";
 
 import { isNetworkWebRuntime } from "@/lib/runtime/mode";
 import { PreviewDataNotice } from "@/components/organization-preview-notice";
+import { classifyRoute } from "@/lib/routing/route-classification";
 
 const ConnectedNotifications = dynamic(
   () =>
@@ -51,6 +52,51 @@ const ConnectedOrganizationProposalRecord = dynamic(
     loading: () => (
       <section className="rh-card rh-profile-empty" aria-busy="true">
         <span className="sr-only">در حال بارگذاری بخش متصل</span>
+        <div className="route-fallback__skeleton" aria-hidden="true" />
+      </section>
+    ),
+  },
+);
+
+const ConnectedOrganizationDashboard = dynamic(
+  () =>
+    import("@/components/organization/connected-dashboard").then(
+      (module) => module.ConnectedOrganizationDashboard,
+    ),
+  {
+    loading: () => (
+      <section className="rh-card rh-profile-empty" aria-busy="true">
+        <span className="sr-only">در حال بارگذاری داشبورد سازمان</span>
+        <div className="route-fallback__skeleton" aria-hidden="true" />
+      </section>
+    ),
+  },
+);
+
+const ConnectedOrganizationDirectOffers = dynamic(
+  () =>
+    import("@/components/organization/connected-direct-offers").then(
+      (module) => module.ConnectedOrganizationDirectOffers,
+    ),
+  {
+    loading: () => (
+      <section className="rh-card rh-profile-empty" aria-busy="true">
+        <span className="sr-only">در حال بارگذاری دعوت‌های مستقیم</span>
+        <div className="route-fallback__skeleton" aria-hidden="true" />
+      </section>
+    ),
+  },
+);
+
+const ConnectedOrganizationWorkspaceFacts = dynamic(
+  () =>
+    import("@/components/organization/connected-workspace-facts").then(
+      (module) => module.ConnectedOrganizationWorkspaceFacts,
+    ),
+  {
+    loading: () => (
+      <section className="rh-card rh-profile-empty" aria-busy="true">
+        <span className="sr-only">در حال خواندن فضای سازمانی</span>
         <div className="route-fallback__skeleton" aria-hidden="true" />
       </section>
     ),
@@ -255,6 +301,11 @@ function OrgToast({ message, onClose }: { message: string; onClose: () => void }
 
 function OrganizationDashboard() {
   const runtime = useWebRuntime();
+  if (runtime.mode === "network") return <ConnectedOrganizationDashboard />;
+  return <DemoOrganizationDashboard />;
+}
+
+function DemoOrganizationDashboard() {
   const [done, setDone] = useState<string[]>([]);
   /**
    * The greeting is the one thing on this page that must not be a fixture: a
@@ -263,9 +314,7 @@ function OrganizationDashboard() {
    * the preview notice above says so — but who is being greeted comes from the
    * session.
    */
-  const greetedName = isNetworkWebRuntime
-    ? (runtime.me?.user.display_name ?? "همکار گرامی")
-    : "سارا";
+  const greetedName = "سارا";
   const actions = [
     ["ACT-301", "تکمیل داوری مالی پیشنهاد PR-104", "امروز، ۱۶:۳۰", "فوری"],
     ["ACT-298", "پاسخ به درخواست شفاف‌سازی تیم نوآب", "فردا، ۱۰:۰۰", "بالا"],
@@ -425,6 +474,12 @@ function OrganizationDashboard() {
 }
 
 function OrganizationExperts({ invitations = false }: { invitations?: boolean }) {
+  const runtime = useWebRuntime();
+  if (runtime.mode === "network") return <ConnectedOrganizationDirectOffers />;
+  return <DemoOrganizationExperts invitations={invitations} />;
+}
+
+function DemoOrganizationExperts({ invitations = false }: { invitations?: boolean }) {
   const [query, setQuery] = useState("");
   const [minimumFit, setMinimumFit] = useState("all");
   const [invited, setInvited] = useState<string[]>([]);
@@ -1621,11 +1676,23 @@ export function OrganizationWorkspaceExperience({ route }: { route: InternalRout
       case "/app/org/team":
         return <OrganizationTeam />;
       case "/app/org/access":
-        return <OrganizationTeam access />;
+        return isNetworkWebRuntime ? (
+          <ConnectedOrganizationWorkspaceFacts section="access" />
+        ) : (
+          <OrganizationTeam access />
+        );
       case "/app/org/profile":
-        return <OrganizationProfile />;
+        return isNetworkWebRuntime ? (
+          <ConnectedOrganizationWorkspaceFacts section="profile" />
+        ) : (
+          <OrganizationProfile />
+        );
       case "/app/org/settings":
-        return <OrganizationSettings />;
+        return isNetworkWebRuntime ? (
+          <ConnectedOrganizationWorkspaceFacts section="settings" />
+        ) : (
+          <OrganizationSettings />
+        );
       case "/app/org/notifications":
         return <OrganizationNotifications />;
       default:
@@ -1633,9 +1700,19 @@ export function OrganizationWorkspaceExperience({ route }: { route: InternalRout
     }
   }, [route.path]);
   if (!content) return null;
+  const classification = classifyRoute(route.path).classification;
+  if (isNetworkWebRuntime && classification === "unavailable")
+    return (
+      <section className="rh-card rh-profile-empty">
+        <Icon name="lock" />
+        <h1>این بخش در فاز فعلی فعال نیست</h1>
+        <p>برای جلوگیری از نمایش داده نمایشی کنار نشست واقعی، این صفحه غیرفعال است.</p>
+        <Link href="/app/org/dashboard">بازگشت به داشبورد</Link>
+      </section>
+    );
   return (
     <>
-      {isNetworkWebRuntime && <PreviewDataNotice />}
+      {isNetworkWebRuntime && classification === "preview" && <PreviewDataNotice />}
       {content}
     </>
   );

@@ -3,10 +3,9 @@
 import Link from "next/link";
 
 import { Icon } from "@/components/icons";
-import { useSolverContext } from "@/components/solver-shell";
 import { useActiveWorkspaceName } from "@/components/solver/use-connected";
-import { buildSolverHref } from "@/lib/solver/context";
 import { proposalHref } from "@/lib/workspace/proposal-navigation";
+import { formatMinorAmount } from "@/lib/challenges/model";
 import { proposalStateLabels as labels } from "@/lib/workspace/proposal-labels";
 import type { ProposalRecordView } from "@/lib/workspace/proposal-record";
 
@@ -35,7 +34,6 @@ type ProposalRecordContent = NonNullable<ProposalRecordView["proposal"]>["conten
  * not distinguish them either.
  */
 export function ConnectedProposalDetail({ view }: { view: ProposalRecordView }) {
-  const context = useSolverContext();
   const workspaceName = useActiveWorkspaceName();
   const proposal = view.proposal;
   if (!proposal)
@@ -44,7 +42,7 @@ export function ConnectedProposalDetail({ view }: { view: ProposalRecordView }) 
         <Icon name="lock" />
         <h1>پیشنهاد پیدا نشد یا به این فضای کاری تعلق ندارد</h1>
         <p>{view.error?.message ?? "برای حفظ محرمانگی جزئیات بیشتری نمایش داده نمی‌شود."}</p>
-        <Link href={buildSolverHref("/app/solver/proposals", context)}>بازگشت به فهرست</Link>
+        <Link href="/app/solver/proposals">بازگشت به فهرست</Link>
       </section>
     );
   const content = proposal.content;
@@ -58,7 +56,7 @@ export function ConnectedProposalDetail({ view }: { view: ProposalRecordView }) 
       <header className="rh-profile-heading">
         <div>
           <nav aria-label="مسیر صفحه">
-            <Link href={buildSolverHref("/app/solver/proposals", context)}>پیشنهادها</Link>
+            <Link href="/app/solver/proposals">پیشنهادها</Link>
             <span>/</span>
             <span>
               <bdi dir="ltr">{proposal.id}</bdi>
@@ -80,9 +78,7 @@ export function ConnectedProposalDetail({ view }: { view: ProposalRecordView }) 
           {actionable && (
             <Link
               className="rh-profile-primary"
-              href={proposalHref(
-                buildSolverHref(`/app/solver/proposals/${proposal.id}/edit`, context),
-              )}
+              href={proposalHref(`/app/solver/proposals/${proposal.id}/edit`)}
             >
               اعمال اصلاحات
             </Link>
@@ -147,7 +143,7 @@ export function ConnectedProposalDetail({ view }: { view: ProposalRecordView }) 
             <dd>
               {content.budget_amount_minor === null
                 ? "ثبت نشده"
-                : `${(content.budget_amount_minor / 100).toLocaleString("fa-IR")} ${content.budget_currency}`}
+                : `${formatMinorAmount(content.budget_amount_minor)} ${content.budget_currency}`}
             </dd>
           </div>
           <div>

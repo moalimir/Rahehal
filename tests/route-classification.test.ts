@@ -54,4 +54,17 @@ describe("C9 route truthfulness", () => {
       classifyRegisteredRoutes().length,
     );
   });
+
+  it("keeps connected identity and settings routes out of fixture preview", () => {
+    for (const path of [
+      "/app/org/profile",
+      "/app/org/settings",
+      "/app/org/access",
+      "/app/solver/profile",
+      "/app/solver/verification",
+      "/app/solver/settings",
+    ]) {
+      expect(classifyRoute(path).classification).toBe("live");
+    }
+  });
 });

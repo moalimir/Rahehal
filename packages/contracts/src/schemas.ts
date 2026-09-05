@@ -1903,6 +1903,24 @@ export const apiSchemas = {
     true,
   ),
   SolverActivationReadSuccessEnvelope: successEnvelopeFor(solverActivationSchema),
+  /**
+   * The browser sibling of `SolverActivationSuccessEnvelope`. The tokens are
+   * deliberately absent: the same-origin route puts them in HttpOnly cookies,
+   * and `additionalProperties: false` makes leaking them back into the body a
+   * serialization error rather than a silent regression.
+   */
+  BrowserSolverActivationSuccessEnvelope: successEnvelopeFor(
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["activation", "receipt"],
+      properties: {
+        activation: solverActivationSchema,
+        receipt: mutationReceiptSchema,
+      },
+    },
+    true,
+  ),
   OidcAuthorizationStartResult: {
     type: "object",
     additionalProperties: false,

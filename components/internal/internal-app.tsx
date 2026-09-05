@@ -54,6 +54,11 @@ const ConnectedProposalRecord = dynamic(
   { loading: RouteResolving },
 );
 
+const ConnectedSolverRoute = dynamic(
+  () => import("@/components/solver/connected-route").then((module) => module.ConnectedSolverRoute),
+  { loading: RouteResolving },
+);
+
 const SolverCanonicalContinuity = dynamic(
   () =>
     import("@/components/solver-case-continuity").then(
@@ -142,6 +147,8 @@ function renderInternalRoute(
   if (!session) return <SessionRequired role={route.role} returnTo={route.path} />;
   if (!sharedRoute && !canAccessInternalRole(session, route.role)) return <PermissionDenied />;
   const activeRole = sharedRoute ? session.role : route.role;
+  if (activeRole === "solver" && network)
+    return <ConnectedSolverRoute key={`${route.path}:${route.prdId}`} route={route} />;
   if (activeRole === "solver")
     return <SolverRouteExperience key={`${route.path}:${route.prdId}`} route={route} />;
   if (activeRole === "org") {

@@ -10,12 +10,15 @@ import {
 } from "@/components/solver/connected-family-state";
 import { useConnectedFamily } from "@/components/solver/use-connected";
 import type { GatewayResult } from "@/lib/api/result";
+import type { DirectOfferResource, OfferResponseContentResource } from "@rahhal/contracts";
+import { majorAmountToMinor, minorAmountToMajor } from "@/lib/challenges/model";
 import {
   directOffersScopeLost,
   readDirectOffers,
   readSavedOpportunities,
   savedOpportunitiesScopeLost,
 } from "@/lib/workspace/opportunity-view";
+import { directOfferStateLabels } from "@/lib/workspace/state-labels";
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("fa-IR", { dateStyle: "medium" }).format(new Date(value));
@@ -173,7 +176,8 @@ export function ConnectedDirectOffersList() {
                 </small>
                 <h2>{offer.title}</h2>
                 <p>
-                  {offer.state} · مهلت پاسخ {formatDate(offer.response_deadline)}
+                  {directOfferStateLabels[offer.state]} · مهلت پاسخ{" "}
+                  {formatDate(offer.response_deadline)}
                 </p>
               </div>
             </header>
@@ -214,20 +218,6 @@ export function ConnectedDirectOffersList() {
                   شروع پاسخ
                 </button>
               )}
-              {offer.response && offer.response.state === "draft" && (
-                <button
-                  type="button"
-                  disabled={pending || !offer.response.readiness.ready}
-                  onClick={() =>
-                    void run(
-                      () => gateways!.directOffers.submitResponse(offer.id, offer.version),
-                      "پاسخ ارسال شد",
-                    )
-                  }
-                >
-                  ارسال پاسخ
-                </button>
-              )}
               {["received", "viewed", "response_draft"].includes(offer.state) && (
                 <>
                   <label>
@@ -257,12 +247,13 @@ export function ConnectedDirectOffersList() {
                 </>
               )}
             </div>
-            {offer.response && !offer.response.readiness.ready && (
-              <ul aria-label="موارد ناقص پاسخ">
-                {offer.response.readiness.issues.map((issue) => (
-                  <li key={issue.path}>{issue.message}</li>
-                ))}
-              </ul>
+            {offer.response?.state === "draft" && (
+              <ConnectedOfferResponseForm
+                key={`${offer.id}:${offer.response.version}`}
+                offer={offer}
+                pending={pending}
+                run={run}
+              />
             )}
           </article>
         ))}
@@ -274,5 +265,144 @@ export function ConnectedDirectOffersList() {
         )}
       </section>
     </>
+  );
+}
+
+function ConnectedOfferResponseForm({
+  offer,
+  pending,
+  run,
+}: {
+  offer: DirectOfferResource;
+  pending: boolean;
+  run: (command: () => Promise<GatewayResult<unknown>>, success: string) => Promise<void>;
+}) {
+  const gateways = useWebRuntime().workspaceGateways!;
+  const response = offer.response!;
+  const [content, setContent] = useState<OfferResponseContentResource>(response.content);
+  const set = <Key extends keyof OfferResponseContentResource>(
+    key: Key,
+    value: OfferResponseContentResource[Key],
+  ) => setContent((current) => ({ ...current, [key]: value }));
+
+  return (
+    <form
+      className="rh-wizard-fields"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void run(
+          () =>
+            gateways.directOffers.saveResponse(offer.id, {
+              expectedVersion: offer.version,
+              patch: content,
+            }),
+          "پیش‌نویس پاسخ ذخیره شد",
+        );
+      }}
+    >
+      <h3>پاسخ به دعوت</h3>
+      <label>
+        <span>رویکرد پیشنهادی</span>
+        <textarea
+          required
+          minLength={20}
+          rows={4}
+          value={content.approach}
+          onChange={(event) => set("approach", event.target.value)}
+        />
+      </label>
+      <label>
+        <span>دامنه کار</span>
+        <textarea
+          required
+          minLength={10}
+          rows={3}
+          value={content.scope}
+          onChange={(event) => set("scope", event.target.value)}
+        />
+      </label>
+      <label>
+        <span>آمادگی شروع</span>
+        <input
+          required
+          value={content.start_availability}
+          onChange={(event) => set("start_availability", event.target.value)}
+        />
+      </label>
+      <label>
+        <span>مدت اجرا (هفته)</span>
+        <input
+          required
+          dir="ltr"
+          inputMode="numeric"
+          value={content.duration_weeks ?? ""}
+          onChange={(event) =>
+            set("duration_weeks", event.target.value ? Number(event.target.value) : null)
+          }
+        />
+      </label>
+      <label>
+        <span>بودجه پیشنهادی (ریال)</span>
+        <input
+          required
+          dir="ltr"
+          inputMode="numeric"
+          value={
+            content.budget_amount_minor === null
+              ? ""
+              : String(minorAmountToMajor(content.budget_amount_minor))
+          }
+          onChange={(event) => set("budget_amount_minor", majorAmountToMinor(event.target.value))}
+        />
+      </label>
+      <label>
+        <span>مدل پرداخت</span>
+        <input
+          required
+          value={content.payment_model}
+          onChange={(event) => set("payment_model", event.target.value)}
+        />
+      </label>
+      <label>
+        <span>موارد قابل مذاکره</span>
+        <textarea
+          rows={3}
+          value={content.negotiables}
+          onChange={(event) => set("negotiables", event.target.value)}
+        />
+      </label>
+      <label className="rh-wizard-consent">
+        <input
+          type="checkbox"
+          checked={content.authority_confirmed}
+          onChange={(event) => set("authority_confirmed", event.target.checked)}
+        />
+        <span>اختیار ثبت این پاسخ را تأیید می‌کنم</span>
+      </label>
+      {!response.readiness.ready && (
+        <ul aria-label="موارد ناقص پاسخ">
+          {response.readiness.issues.map((issue) => (
+            <li key={issue.path}>{issue.message}</li>
+          ))}
+        </ul>
+      )}
+      <div className="rh-profile-actions">
+        <button type="submit" disabled={pending}>
+          ذخیره پاسخ
+        </button>
+        <button
+          type="button"
+          disabled={pending || !response.readiness.ready}
+          onClick={() =>
+            void run(
+              () => gateways.directOffers.submitResponse(offer.id, offer.version),
+              "پاسخ ارسال شد",
+            )
+          }
+        >
+          ارسال پاسخ
+        </button>
+      </div>
+    </form>
   );
 }

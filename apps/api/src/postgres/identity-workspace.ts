@@ -791,6 +791,106 @@ export class PostgresIdentityWorkspaceAdapter
     });
   }
 
+  async refreshBrowser(
+    refreshToken: string,
+    command: SessionCommand,
+  ): Promise<SessionTokenOutcome> {
+    const refreshDigest = credentialDigest(refreshToken);
+    const requestHash = commandFingerprint({
+      action: "session.browser-refresh",
+      refreshDigest,
+    });
+    return this.unitOfWork.run(async () => {
+      const client = this.unitOfWork.currentClient();
+      const replay = await this.loadCredentialReplay(
+        client,
+        refreshDigest,
+        command.idempotencyKey,
+        requestHash,
+      );
+      if (replay) return this.tokenOutcome(replay, true);
+
+      const result = await client.query<SessionRow>(
+        `
+          SELECT
+            id, user_id, origin_tenant_id, access_token_digest, refresh_token_digest,
+            session_version, active_tenant_id, active_workspace_id, access_expires_at,
+            refresh_expires_at, revoked_at
+          FROM app_session
+          WHERE refresh_token_digest = $1
+          FOR UPDATE
+        `,
+        [refreshDigest],
+      );
+      const current = result.rows[0];
+      const now = this.clock.now();
+      if (
+        !current ||
+        current.revoked_at !== null ||
+        current.refresh_expires_at.getTime() <= now.getTime()
+      ) {
+        const concurrentReplay = await this.loadCredentialReplay(
+          client,
+          refreshDigest,
+          command.idempotencyKey,
+          requestHash,
+        );
+        if (concurrentReplay) return this.tokenOutcome(concurrentReplay, true);
+        throw forbidden();
+      }
+
+      const version = aggregateVersion(current.session_version) + 1;
+      const issued = this.credentials.issue(parseSessionId(current.id), version);
+      const accessExpiresAt = new Date(now.getTime() + 15 * 60_000).toISOString();
+      const refreshExpiresAt = new Date(now.getTime() + 14 * 24 * 60 * 60_000).toISOString();
+      await client.query(
+        `
+          UPDATE app_session
+          SET
+            access_token_digest = $2,
+            refresh_token_digest = $3,
+            session_version = $4,
+            access_expires_at = $5,
+            refresh_expires_at = $6,
+            last_used_at = $7
+          WHERE id = $1
+        `,
+        [
+          current.id,
+          credentialDigest(issued.accessToken),
+          credentialDigest(issued.refreshToken),
+          version,
+          accessExpiresAt,
+          refreshExpiresAt,
+          now.toISOString(),
+        ],
+      );
+      const evidence = await this.sessionEvidence(
+        client,
+        { ...current, session_version: version },
+        "session.refreshed",
+        command,
+        ["continue"],
+        now.toISOString(),
+      );
+      const cached = {
+        ...evidence,
+        kind: "tokens" as const,
+        access_expires_at: accessExpiresAt,
+        refresh_expires_at: refreshExpiresAt,
+      };
+      await this.storeCredentialReplay(
+        client,
+        refreshDigest,
+        command,
+        requestHash,
+        cached,
+        refreshExpiresAt,
+      );
+      return this.tokenOutcome(cached, false);
+    });
+  }
+
   async revoke(
     accessToken: string,
     body: SessionRevokeBody,

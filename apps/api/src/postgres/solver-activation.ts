@@ -360,7 +360,13 @@ export class PostgresSolverActivationAdapter implements SolverActivationPort {
         sessionId,
         userId: actor.user_id,
         tenantId: actor.tenant_id,
-        activeWorkspaceId: null,
+        // A returning solver enters the permanent individual workspace the
+        // activation created, exactly as a first activation does. Leaving the
+        // context null produced a signed-in session no workspace-scoped read
+        // could use: `/app` showed a chooser for the one workspace it had, and
+        // every connected page fell back to its anonymous state. Switching
+        // afterwards remains a normal command.
+        activeWorkspaceId: actor.individual_workspace_id,
         issuedAt: session.issuedAt,
         accessExpiresAt: session.accessExpiresAt,
         refreshExpiresAt: session.refreshExpiresAt,

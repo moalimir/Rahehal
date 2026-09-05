@@ -1,7 +1,10 @@
 "use client";
 
 import { useLayoutEffect, useMemo, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import { RoleAppShell, type AppNavigationItem } from "@/components/app-shell";
+import { useWebRuntime } from "@/components/runtime-provider";
+import { useConnectedShell } from "@/components/solver/use-connected-shell";
 import type { ActiveWorkspace } from "@/domain/solver";
 import {
   DEFAULT_SOLVER_CONTEXT,
@@ -303,17 +306,99 @@ function navigateToWorkspace(workspaceId: string) {
   }
 }
 
-export function SolverWorkspaceShell({
-  children,
-  active,
-  space,
-  currentPath,
-}: {
+type SolverWorkspaceShellProps = {
   children: ReactNode;
   active?: SolverSection;
   space: SolverSpace;
   currentPath?: string;
-}) {
+};
+
+function ConnectedSolverWorkspaceShell({
+  children,
+  active,
+  currentPath,
+}: SolverWorkspaceShellProps) {
+  const runtime = useWebRuntime();
+  const router = useRouter();
+  const connected = useConnectedShell(currentPath);
+  if (!connected) {
+    return (
+      <main className="workspace-resolver" id="main-content" dir="rtl" aria-busy="true">
+        <h1>در حال آماده‌سازی فضای کاری</h1>
+        <p>هویت و دسترسی‌های فعال از سرور خوانده می‌شود.</p>
+      </main>
+    );
+  }
+
+  const activeOption = connected.options.find(
+    (option) => option.id === connected.activeWorkspaceId,
+  );
+  const activeSpace = activeOption?.space ?? "individual";
+  const navigation = (activeSpace === "team" ? teamNavigation : individualNavigation)
+    .map((item) => ({ ...item, href: item.href.split("?")[0] }))
+    .filter((item) =>
+      [
+        "dashboard",
+        "challenges",
+        "received",
+        "proposals",
+        "saved",
+        "invitations",
+        "profile",
+        "settings",
+        "notifications",
+      ].includes(item.key),
+    );
+  const fallbackPath =
+    navigation.find((item) => item.key === active)?.matches?.[0] ?? "/app/solver/dashboard";
+
+  return (
+    <RoleAppShell
+      role="solver"
+      navigation={navigation}
+      currentPath={currentPath ?? fallbackPath}
+      account={{
+        workspaceLabel: connected.workspaceLabel,
+        workspaceName: connected.workspaceName,
+        userName: connected.userName,
+        userRole: connected.userRole,
+      }}
+      rootClassName="rh-shell"
+      contentClassName="rh-main"
+      space={activeSpace}
+      workspaceOptions={[...connected.options]}
+      activeWorkspaceId={connected.activeWorkspaceId}
+      onWorkspaceChange={(workspaceId) => {
+        void runtime.switchWorkspace(workspaceId).then((error) => {
+          if (!error && currentPath && entityScopedPath(currentPath)) {
+            router.push("/app/solver/dashboard");
+          }
+        });
+      }}
+      unreadCount={connected.unreadCount}
+      quickLinks={{
+        opportunities: "/app/solver/opportunities",
+        notifications: "/app/solver/notifications",
+        profile: "/app/solver/profile",
+      }}
+      onSignOut={() => {
+        // A full navigation deliberately discards every provider and gateway
+        // instance after the HttpOnly session cookie is revoked.
+        // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+        void runtime.signOut().then(() => window.location.assign("/auth/login?role=solver"));
+      }}
+    >
+      {children}
+    </RoleAppShell>
+  );
+}
+
+function DemoSolverWorkspaceShell({
+  children,
+  active,
+  space,
+  currentPath,
+}: SolverWorkspaceShellProps) {
   const state = readSolverState();
   const context = readSolverContext();
   const effectiveContext = context.type === space ? context : DEFAULT_SOLVER_CONTEXT;
@@ -396,6 +481,15 @@ export function SolverWorkspaceShell({
     >
       {children}
     </RoleAppShell>
+  );
+}
+
+export function SolverWorkspaceShell(props: SolverWorkspaceShellProps) {
+  const runtime = useWebRuntime();
+  return runtime.mode === "network" ? (
+    <ConnectedSolverWorkspaceShell {...props} />
+  ) : (
+    <DemoSolverWorkspaceShell {...props} />
   );
 }
 

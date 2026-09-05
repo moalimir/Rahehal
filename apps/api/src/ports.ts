@@ -250,6 +250,7 @@ export interface SessionPort {
   authenticate(accessToken: string): Promise<AuthenticatedSession | null>;
   exchange(body: SessionExchangeBody, command: SessionCommand): Promise<SessionTokenOutcome>;
   refresh(body: SessionRefreshBody, command: SessionCommand): Promise<SessionTokenOutcome>;
+  refreshBrowser(refreshToken: string, command: SessionCommand): Promise<SessionTokenOutcome>;
   revoke(
     accessToken: string,
     body: SessionRevokeBody,

@@ -1061,6 +1061,33 @@
   width: 18px;
   color: #16825f;
 }
+.org-profile-checks--unavailable svg {
+  color: #718096;
+}
+.org-connected-facts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.org-connected-facts > div {
+  min-width: 0;
+  padding: 13px 14px;
+  border: 1px solid var(--org-line);
+  border-radius: 9px;
+  background: #f8fafc;
+}
+.org-connected-facts dt {
+  margin-bottom: 5px;
+  color: var(--org-muted);
+  font-size: 12px;
+}
+.org-connected-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--org-navy);
+  font-weight: 800;
+}
 
 .org-settings-layout {
   grid-template-columns: 290px minmax(0, 1fr);
@@ -1326,6 +1353,9 @@
     border-bottom: 1px solid #e8eef3;
   }
   .org-profile-summary {
+    grid-template-columns: 1fr;
+  }
+  .org-connected-facts {
     grid-template-columns: 1fr;
   }
   .org-profile-summary > div {

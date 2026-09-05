@@ -368,7 +368,7 @@ describe("A2 PostgreSQL OIDC authorization", () => {
     expect(denied.statusCode).toBe(403);
   });
 
-  it("keeps browser credentials HttpOnly, enforces same-origin writes, and survives reload", async () => {
+  it("keeps browser credentials HttpOnly, enforces same-origin writes, and refreshes an expired access cookie", async () => {
     const start = await app.inject({
       method: "POST",
       url: "/auth/browser/oidc:start",
@@ -400,6 +400,7 @@ describe("A2 PostgreSQL OIDC authorization", () => {
     expect(exchange.body).not.toContain("rahhal-rt-");
     const sessionCookieValues = setCookieValues(exchange);
     const accessCookie = cookiePair(sessionCookieValues, "rahhal-access");
+    const refreshCookie = cookiePair(sessionCookieValues, "rahhal-refresh");
     expect(sessionCookieValues.join(";")).toContain("HttpOnly");
 
     const me = await app.inject({
@@ -477,11 +478,42 @@ describe("A2 PostgreSQL OIDC authorization", () => {
     });
     expect(created.statusCode).toBe(201);
 
+    currentTime = new Date(currentTime.getTime() + 16 * 60_000);
+    const expired = await app.inject({
+      method: "GET",
+      url: "/api/v1/me",
+      headers: { cookie: accessCookie },
+    });
+    expect(expired.statusCode).toBe(403);
+
+    const refresh = await app.inject({
+      method: "POST",
+      url: "/auth/browser/session:refresh",
+      headers: {
+        cookie: `${accessCookie}; ${refreshCookie}`,
+        origin: "http://localhost:3000",
+        "sec-fetch-site": "same-origin",
+        "idempotency-key": "a3-browser-refresh-owner-alpha",
+      },
+    });
+    expect(refresh.statusCode).toBe(204);
+    const refreshedCookieValues = setCookieValues(refresh);
+    const refreshedAccessCookie = cookiePair(refreshedCookieValues, "rahhal-access");
+    const afterRefresh = await app.inject({
+      method: "GET",
+      url: "/api/v1/me",
+      headers: { cookie: refreshedAccessCookie },
+    });
+    expect(afterRefresh.statusCode).toBe(200);
+    expect(jsonBody<MeResponse>(afterRefresh).data.active_context?.workspace_id).toBe(
+      "wsp_org_alpha",
+    );
+
     const revoke = await app.inject({
       method: "POST",
       url: "/auth/browser/session:revoke",
       headers: {
-        cookie: accessCookie,
+        cookie: refreshedAccessCookie,
         origin: "http://localhost:3000",
         "sec-fetch-site": "same-origin",
         "idempotency-key": "a3-browser-revoke-owner-alpha",
@@ -493,7 +525,7 @@ describe("A2 PostgreSQL OIDC authorization", () => {
     const deniedAfterRevoke = await app.inject({
       method: "GET",
       url: "/api/v1/me",
-      headers: { cookie: accessCookie },
+      headers: { cookie: refreshedAccessCookie },
     });
     expect(deniedAfterRevoke.statusCode).toBe(403);
   });

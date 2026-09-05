@@ -400,6 +400,57 @@ textarea {
   margin-block-start: var(--space-2);
 }
 
+/* `/app` -- the authenticated workspace resolver.
+
+   It renders outside the app shell, like the route fallbacks above and for the
+   same reason: it runs before a workspace, and therefore a persona shell, has
+   been resolved. It shares their centred single-column measure rather than
+   inventing a second one. */
+.workspace-resolver {
+  min-block-size: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  padding: var(--space-12) var(--space-6);
+  text-align: center;
+  color: var(--color-text);
+  background: var(--color-background);
+}
+
+.workspace-resolver > * {
+  max-inline-size: 34rem;
+}
+
+.workspace-resolver h1 {
+  margin: 0;
+  font-size: var(--text-2xl);
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.workspace-resolver p {
+  margin: 0;
+  font-size: var(--text-base);
+  line-height: 1.9;
+  color: var(--color-muted);
+}
+
+.workspace-resolver__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  inline-size: min(100%, 22rem);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.workspace-resolver__list button {
+  inline-size: 100%;
+}
+
 .route-fallback__error {
   color: #b42318;
 }

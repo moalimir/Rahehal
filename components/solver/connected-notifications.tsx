@@ -12,6 +12,7 @@ import {
 import { useConnectedFamily } from "@/components/solver/use-connected";
 import type { NotificationKind } from "@rahhal/domain";
 import type { GatewayResult } from "@/lib/api/result";
+import { proposalHref } from "@/lib/workspace/proposal-navigation";
 import {
   notificationsScopeLost,
   readNotifications,
@@ -60,12 +61,14 @@ function deepLink(
   persona: "solver" | "org",
 ): string | null {
   if (subjectType === "proposal")
-    return persona === "org"
-      ? `/app/org/proposals/${subjectId}`
-      : `/app/solver/proposals/${subjectId}/preview`;
+    return proposalHref(
+      persona === "org"
+        ? `/app/org/proposals/${subjectId}`
+        : `/app/solver/proposals/${subjectId}/preview`,
+    );
   if (subjectType === "team") return "/app/solver/teams";
   if (subjectType === "direct_offer")
-    return persona === "org" ? "/app/org/invitations" : "/app/solver/received";
+    return persona === "org" ? "/app/org/invitations" : "/app/solver/received-proposals";
   return null;
 }
 

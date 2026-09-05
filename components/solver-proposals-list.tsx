@@ -1,16 +1,10 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { ChallengeOrganizationLogo } from "@/components/challenge-organization-logo";
 import { Icon } from "@/components/icons";
 import { useSolverContext } from "@/components/solver-shell";
-import {
-  ConnectedFamilyError,
-  ConnectedFamilyFallback,
-} from "@/components/solver/connected-family-state";
-import { useActiveWorkspaceName, useConnectedFamily } from "@/components/solver/use-connected";
 import { getChallengePublisher } from "@/data/challenge-publishers";
 import { challenges } from "@/data/mock";
 import type { Proposal, ProposalState, SolverState } from "@/domain/solver";
@@ -21,30 +15,7 @@ import {
   subscribeSolverState,
 } from "@/lib/solver/repository";
 import { proposalStateLabels as labels } from "@/lib/workspace/proposal-labels";
-import { proposalHref } from "@/lib/workspace/proposal-navigation";
-import { proposalRecordScopeLost, readProposalRecord } from "@/lib/workspace/proposal-record";
-import {
-  proposalListScopeLost,
-  readProposalList,
-  type ProposalRow,
-} from "@/lib/workspace/proposal-rows";
-
-// Loaded on demand: the connected record is unreachable in demo mode, and an
-// eager import puts it in the shared demo bundle the budgets refuse.
-const ConnectedProposalDetail = dynamic(
-  () =>
-    import("@/components/solver/connected-proposal-detail").then(
-      (module) => module.ConnectedProposalDetail,
-    ),
-  {
-    loading: () => (
-      <section className="rh-card rh-profile-empty" aria-busy="true">
-        <span className="sr-only">در حال بارگذاری پرونده پیشنهاد</span>
-        <div className="route-fallback__skeleton" aria-hidden="true" />
-      </section>
-    ),
-  },
-);
+import type { ProposalRow } from "@/lib/workspace/proposal-rows";
 
 const actionStates = new Set<ProposalState>([
   "draft",
@@ -127,24 +98,15 @@ export function SolverProposalsList() {
       window.history.replaceState({}, "", `#${next}`);
     else window.history.replaceState({}, "", next);
   }, [context, query, sort, status]);
-  // Connected runtime: rows come from the server for the active workspace.
-  // The demo projection below is reached only in demo mode, so a network
-  // session can never fall through to a fixture row while the read is pending.
-  const connected = useConnectedFamily(readProposalList, proposalListScopeLost);
-  const liveWorkspaceName = useActiveWorkspaceName();
-  const activeWorkspaceName = liveWorkspaceName ?? workspaceLabel(state, context.workspaceId);
-  const demoProposals = useMemo(
+  // This list is the static export's only. In network mode the solver routes
+  // render `ConnectedSolverRoute`, which owns the connected proposal list, so
+  // no server read belongs here.
+  const activeWorkspaceName = workspaceLabel(state, context.workspaceId);
+  const proposals: readonly ProposalRow[] = useMemo(
     () =>
-      connected.state.kind === "demo"
-        ? proposalsForWorkspace(context.workspaceId, state).map((proposal) =>
-            demoRow(proposal, state),
-          )
-        : [],
-    [connected.state.kind, context.workspaceId, state],
+      proposalsForWorkspace(context.workspaceId, state).map((proposal) => demoRow(proposal, state)),
+    [context.workspaceId, state],
   );
-  const liveError = connected.state.kind === "ready" ? connected.state.data.error : null;
-  const proposals: readonly ProposalRow[] =
-    connected.state.kind === "ready" ? connected.state.data.rows : demoProposals;
   const visible = useMemo(() => {
     const rows = proposals.filter((proposal) => {
       const selectedStates = statusGroups[status];
@@ -179,22 +141,8 @@ export function SolverProposalsList() {
     ],
   ];
 
-  // `demo` and `ready` both render the list below; the other three states are
-  // the shared fallback. Checking the kind rather than the returned element
-  // matters: a JSX element is always truthy even when the component renders
-  // null, so testing the element would blank the page in demo mode.
-  if (connected.state.kind !== "ready" && connected.state.kind !== "demo")
-    return <ConnectedFamilyFallback state={connected.state} label="پیشنهادها" />;
-
   return (
     <>
-      {liveError && (
-        <ConnectedFamilyError error={liveError} label="فهرست پیشنهادها">
-          <button type="button" onClick={connected.refresh}>
-            تلاش دوباره
-          </button>
-        </ConnectedFamilyError>
-      )}
       <header className="rh-profile-heading">
         <div>
           <small>{activeWorkspaceName}</small>
@@ -346,11 +294,9 @@ export function SolverProposalsList() {
               <div className="rh-work-item__next">
                 <small>اقدام بعدی</small>
                 <Link
-                  href={proposalHref(
-                    buildSolverHref(
-                      `/app/solver/proposals/${proposal.id}/${editable ? "edit" : "preview"}`,
-                      context,
-                    ),
+                  href={buildSolverHref(
+                    `/app/solver/proposals/${proposal.id}/${editable ? "edit" : "preview"}`,
+                    context,
                   )}
                 >
                   {editable ? "ادامه پرونده" : "مشاهده نسخه قفل‌شده"} <Icon name="arrow" />
@@ -397,18 +343,9 @@ export function SolverProposalsList() {
   );
 }
 
+/** The static export's proposal record. The connected one lives in `components/solver`. */
 export function SolverProposalDetail({ proposalId }: { proposalId: string }) {
-  const connected = useConnectedFamily(
-    // The read closes over the record id, so the hook is told the id: without
-    // it, opening a second proposal would keep showing the first one's content.
-    useMemo(() => readProposalRecord(proposalId), [proposalId]),
-    proposalRecordScopeLost,
-    proposalId,
-  );
-  if (connected.state.kind === "demo") return <DemoProposalDetail proposalId={proposalId} />;
-  if (connected.state.kind !== "ready")
-    return <ConnectedFamilyFallback state={connected.state} label="این پیشنهاد" />;
-  return <ConnectedProposalDetail view={connected.state.data} />;
+  return <DemoProposalDetail proposalId={proposalId} />;
 }
 
 function DemoProposalDetail({ proposalId }: { proposalId: string }) {
@@ -480,9 +417,7 @@ function DemoProposalDetail({ proposalId }: { proposalId: string }) {
           {actionable && (
             <Link
               className="rh-profile-primary"
-              href={proposalHref(
-                buildSolverHref(`/app/solver/proposals/${proposal.id}/edit`, context),
-              )}
+              href={buildSolverHref(`/app/solver/proposals/${proposal.id}/edit`, context)}
             >
               اعمال اصلاحات
             </Link>

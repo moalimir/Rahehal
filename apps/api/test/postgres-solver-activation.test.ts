@@ -243,9 +243,15 @@ describe("C7 PostgreSQL solver activation", () => {
     expect(signedIn.receipt.next_actions).toEqual(["select_workspace"]);
     expect(signedIn.tokens.session_id).not.toBe(activated.tokens.session_id);
     const session = await secondRuntime.identity.authenticate(signedIn.tokens.access_token);
+    // A returning solver enters the permanent individual workspace, exactly as
+    // a first activation does. This assertion previously required `null`,
+    // which produced a signed-in session no workspace-scoped read could use:
+    // `/app` offered a chooser for the single workspace it had, and every
+    // connected page family fell back to its anonymous state. `select_workspace`
+    // stays the next action because switching is still available.
     expect(session).toMatchObject({
       userId: activated.activation.user_id,
-      activeWorkspaceId: null,
+      activeWorkspaceId: activated.activation.individual_workspace_id,
     });
     const durableCounts = await database.query<{ users: string; workspaces: string }>(
       `SELECT (SELECT count(*) FROM app_user) AS users,

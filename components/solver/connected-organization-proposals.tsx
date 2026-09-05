@@ -12,6 +12,8 @@ import {
 import { useConnectedFamily } from "@/components/solver/use-connected";
 import type { GatewayResult } from "@/lib/api/result";
 import { proposalHref, readProposalRecordId } from "@/lib/workspace/proposal-navigation";
+import { formatMinorAmount } from "@/lib/challenges/model";
+import { proposalStateLabels } from "@/lib/workspace/proposal-labels";
 import {
   organizationInboxScopeLost,
   organizationProposalScopeLost,
@@ -122,7 +124,7 @@ export function ConnectedOrganizationProposals() {
             <option value="all">همه وضعیت‌ها</option>
             {states.map((value) => (
               <option key={value} value={value}>
-                {value}
+                {proposalStateLabels[value]}
               </option>
             ))}
           </select>
@@ -142,7 +144,7 @@ export function ConnectedOrganizationProposals() {
                   {formatDate(item.submitted_at)}
                 </p>
               </div>
-              <span className="org-status is-info">{item.state}</span>
+              <span className="org-status is-info">{proposalStateLabels[item.state]}</span>
             </header>
             <dl>
               <div>
@@ -199,6 +201,9 @@ export function ConnectedOrganizationProposalDetail({ proposalId }: { proposalId
   const { run, pending, toast } = useCommandRunner(connected.refresh);
   const [question, setQuestion] = useState("");
   const [decisionReason, setDecisionReason] = useState("");
+  const [resolution, setResolution] = useState("");
+  const [revisionScope, setRevisionScope] = useState("");
+  const [revisionDeadline, setRevisionDeadline] = useState("");
 
   if (connected.state.kind !== "ready")
     return (
@@ -225,6 +230,18 @@ export function ConnectedOrganizationProposalDetail({ proposalId }: { proposalId
   const content = proposal.content;
   const version = proposal.submitted_version;
   const openClarification = proposal.clarifications.find((item) => item.state === "submitted");
+  const revisionDeadlineIso = revisionDeadline ? new Date(revisionDeadline).toISOString() : "";
+  const canStartEligibility = proposal.state === "submitted";
+  const canDecideEligibility = proposal.state === "eligibility_review";
+  const canRequestClarification = proposal.state === "eligible";
+  const canResolveClarification = proposal.state === "clarification_submitted";
+  const canRequestRevision = proposal.state === "reviewing";
+  const hasOrganizationAction =
+    canStartEligibility ||
+    canDecideEligibility ||
+    canRequestClarification ||
+    canResolveClarification ||
+    canRequestRevision;
   return (
     <div className="org-workspace-page">
       {toast}
@@ -239,7 +256,8 @@ export function ConnectedOrganizationProposalDetail({ proposalId }: { proposalId
           </nav>
           <h1>{content.title || view.challenge?.title || "پیشنهاد دریافتی"}</h1>
           <p>
-            {proposal.state} · نسخه {version.version_number.toLocaleString("fa-IR")} · قفل‌شده در{" "}
+            {proposalStateLabels[proposal.state]} · نسخه{" "}
+            {version.version_number.toLocaleString("fa-IR")} · قفل‌شده در{" "}
             {formatDate(version.locked_at)}
           </p>
         </div>
@@ -270,7 +288,7 @@ export function ConnectedOrganizationProposalDetail({ proposalId }: { proposalId
             <dd>
               {content.budget_amount_minor === null
                 ? "ثبت نشده"
-                : `${(content.budget_amount_minor / 100).toLocaleString("fa-IR")} ${content.budget_currency}`}
+                : `${formatMinorAmount(content.budget_amount_minor)} ${content.budget_currency}`}
             </dd>
           </div>
         </dl>
@@ -287,26 +305,41 @@ export function ConnectedOrganizationProposalDetail({ proposalId }: { proposalId
               <strong>پاسخ:</strong> {clarification.response ?? "هنوز پاسخی ثبت نشده است"}
             </p>
             <small>
-              {clarification.state} · {formatDate(clarification.requested_at)}
+              {clarification.state === "resolved"
+                ? "جمع‌بندی‌شده"
+                : clarification.state === "submitted"
+                  ? "پاسخ دریافت شده"
+                  : "در انتظار پاسخ"}{" "}
+              · {formatDate(clarification.requested_at)}
             </small>
-            {clarification.state === "submitted" && (
-              <button
-                type="button"
-                disabled={pending || !decisionReason.trim()}
-                onClick={() =>
-                  void run(
-                    () =>
-                      gateways!.organizationProposals.resolveClarification(proposal.id, {
-                        expectedVersion: proposal.version,
-                        clarificationId: clarification.id,
-                        resolution: decisionReason.trim(),
-                      }),
-                    "شفاف‌سازی بسته شد",
-                  )
-                }
-              >
-                بستن شفاف‌سازی
-              </button>
+            {clarification.state === "submitted" && canResolveClarification && (
+              <div>
+                <label>
+                  <span>جمع‌بندی پاسخ</span>
+                  <textarea
+                    value={resolution}
+                    onChange={(event) => setResolution(event.target.value)}
+                    rows={3}
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={pending || !resolution.trim()}
+                  onClick={() =>
+                    void run(
+                      () =>
+                        gateways!.organizationProposals.resolveClarification(proposal.id, {
+                          expectedVersion: proposal.version,
+                          clarificationId: clarification.id,
+                          resolution: resolution.trim(),
+                        }),
+                      "شفاف‌سازی بسته شد",
+                    )
+                  }
+                >
+                  ثبت جمع‌بندی و شروع بررسی
+                </button>
+              </div>
             )}
           </article>
         ))}
@@ -315,39 +348,7 @@ export function ConnectedOrganizationProposalDetail({ proposalId }: { proposalId
 
       <section className="org-card" aria-label="اقدام‌های سازمان">
         <h2>اقدام روی این نسخه</h2>
-        <label>
-          <span>پرسش شفاف‌سازی</span>
-          <textarea
-            value={question}
-            onChange={(event) => setQuestion(event.target.value)}
-            rows={3}
-          />
-        </label>
-        <button
-          type="button"
-          disabled={pending || !question.trim()}
-          onClick={() =>
-            void run(
-              () =>
-                gateways!.organizationProposals.requestClarification(proposal.id, {
-                  expectedVersion: proposal.version,
-                  question: question.trim(),
-                }),
-              "درخواست شفاف‌سازی ثبت شد",
-            )
-          }
-        >
-          درخواست شفاف‌سازی
-        </button>
-        <label>
-          <span>دلیل تصمیم یا جمع‌بندی</span>
-          <textarea
-            value={decisionReason}
-            onChange={(event) => setDecisionReason(event.target.value)}
-            rows={3}
-          />
-        </label>
-        <div className="rh-profile-actions">
+        {canStartEligibility && (
           <button
             type="button"
             disabled={pending}
@@ -364,41 +365,128 @@ export function ConnectedOrganizationProposalDetail({ proposalId }: { proposalId
           >
             شروع بررسی شرایط
           </button>
-          <button
-            type="button"
-            disabled={pending || !decisionReason.trim()}
-            onClick={() =>
-              void run(
-                () =>
-                  gateways!.organizationProposals.decideEligibility(proposal.id, {
-                    expectedVersion: proposal.version,
-                    decision: "eligible",
-                    reason: decisionReason.trim(),
-                  }),
-                "واجد شرایط ثبت شد",
-              )
-            }
-          >
-            واجد شرایط
-          </button>
-          <button
-            type="button"
-            disabled={pending || !decisionReason.trim()}
-            onClick={() =>
-              void run(
-                () =>
-                  gateways!.organizationProposals.decideEligibility(proposal.id, {
-                    expectedVersion: proposal.version,
-                    decision: "ineligible",
-                    reason: decisionReason.trim(),
-                  }),
-                "فاقد شرایط ثبت شد",
-              )
-            }
-          >
-            فاقد شرایط
-          </button>
-        </div>
+        )}
+        {canDecideEligibility && (
+          <>
+            <label>
+              <span>دلیل تصمیم</span>
+              <textarea
+                value={decisionReason}
+                onChange={(event) => setDecisionReason(event.target.value)}
+                rows={3}
+              />
+            </label>
+            <div className="rh-profile-actions">
+              <button
+                type="button"
+                disabled={pending || !decisionReason.trim()}
+                onClick={() =>
+                  void run(
+                    () =>
+                      gateways!.organizationProposals.decideEligibility(proposal.id, {
+                        expectedVersion: proposal.version,
+                        decision: "eligible",
+                        reason: decisionReason.trim(),
+                      }),
+                    "واجد شرایط ثبت شد",
+                  )
+                }
+              >
+                واجد شرایط
+              </button>
+              <button
+                type="button"
+                disabled={pending || !decisionReason.trim()}
+                onClick={() =>
+                  void run(
+                    () =>
+                      gateways!.organizationProposals.decideEligibility(proposal.id, {
+                        expectedVersion: proposal.version,
+                        decision: "ineligible",
+                        reason: decisionReason.trim(),
+                      }),
+                    "فاقد شرایط ثبت شد",
+                  )
+                }
+              >
+                فاقد شرایط
+              </button>
+            </div>
+          </>
+        )}
+        {canRequestClarification && (
+          <>
+            <label>
+              <span>پرسش شفاف‌سازی</span>
+              <textarea
+                value={question}
+                onChange={(event) => setQuestion(event.target.value)}
+                rows={3}
+              />
+            </label>
+            <button
+              type="button"
+              disabled={pending || !question.trim()}
+              onClick={() =>
+                void run(
+                  () =>
+                    gateways!.organizationProposals.requestClarification(proposal.id, {
+                      expectedVersion: proposal.version,
+                      question: question.trim(),
+                    }),
+                  "درخواست شفاف‌سازی ثبت شد",
+                )
+              }
+            >
+              درخواست شفاف‌سازی
+            </button>
+          </>
+        )}
+        {canRequestRevision && (
+          <>
+            <label>
+              <span>دامنه اصلاحات درخواستی</span>
+              <textarea
+                value={revisionScope}
+                onChange={(event) => setRevisionScope(event.target.value)}
+                rows={3}
+              />
+            </label>
+            <label>
+              <span>مهلت ارسال نسخه اصلاح‌شده</span>
+              <input
+                type="datetime-local"
+                value={revisionDeadline}
+                onChange={(event) => setRevisionDeadline(event.target.value)}
+              />
+            </label>
+            <button
+              type="button"
+              disabled={
+                pending ||
+                !revisionScope.trim() ||
+                !revisionDeadlineIso ||
+                Date.parse(revisionDeadlineIso) <= Date.now()
+              }
+              onClick={() =>
+                void run(
+                  () =>
+                    gateways!.organizationProposals.requestRevision(proposal.id, {
+                      expectedVersion: proposal.version,
+                      scope: revisionScope.trim(),
+                      revisionDeadline: revisionDeadlineIso,
+                    }),
+                  "درخواست اصلاحات ثبت شد",
+                )
+              }
+            >
+              درخواست نسخه اصلاح‌شده
+            </button>
+          </>
+        )}
+        {!hasOrganizationAction && (
+          <p>در وضعیت فعلی، اقدام تازه‌ای برای سازمان در این مرحله وجود ندارد.</p>
+        )}
         {openClarification && (
           <p>
             یک شفاف‌سازی پاسخ‌داده‌شده در انتظار جمع‌بندی است:{" "}
