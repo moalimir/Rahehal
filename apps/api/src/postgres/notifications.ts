@@ -260,6 +260,31 @@ export class PostgresNotificationAdapter implements NotificationPort {
     });
   }
 
+  /**
+   * The next receipt number for one target, serialized against itself.
+   *
+   * The advisory lock is taken on the target rather than on the idempotency
+   * key, because two different keys acting on the same target would otherwise
+   * read the same maximum and one of them would lose the unique constraint --
+   * turning a legitimate concurrent command into an unretryable storage error.
+   * It is a transaction-scoped lock, so it releases with the unit of work.
+   */
+  private async nextReceiptVersion(
+    client: PoolClient,
+    entityType: string,
+    entityId: string,
+  ): Promise<number> {
+    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+      `receipt:${entityType}:${entityId}`,
+    ]);
+    const result = await client.query<{ next: string }>(
+      `SELECT COALESCE(MAX(entity_version), 0) + 1 AS next FROM mutation_receipt
+       WHERE entity_type = $1 AND entity_id = $2`,
+      [entityType, entityId],
+    );
+    return Number(result.rows[0]?.next ?? 1);
+  }
+
   private async lockIdempotency(
     client: PoolClient,
     context: WorkspaceCommandContext,
@@ -326,12 +351,20 @@ export class PostgresNotificationAdapter implements NotificationPort {
   ): Promise<MutationOutcome<Target, NotificationNextAction>> {
     const auditId = parseAuditEventId(this.ids.next("aud"));
     const receiptId = parseReceiptId(this.ids.next("rcp"));
+    // `mutation_receipt` is unique on (entity_type, entity_id, entity_version).
+    // Read state has no aggregate version, so a constant 1 made every command
+    // after the first for a given target collide -- `mark-all-read` is addressed
+    // at the workspace, so it succeeded exactly once per workspace and returned
+    // `503 STORAGE` with a retry hint that could never succeed thereafter.
+    // Numbering receipts per target keeps them unique and says something true:
+    // this is the nth recorded read command against that target.
+    const entityVersion = await this.nextReceiptVersion(client, targetType, target);
     // Read state is a per-recipient projection with no downstream consumer, so
     // it records audit, receipt, and idempotency but emits no outbox event:
     // the worker allowlist would dead-letter an event nothing subscribes to.
     const cached: CachedMutation = {
       entity_id: target,
-      entity_version: 1,
+      entity_version: entityVersion,
       receipt_id: receiptId,
       audit_event_id: auditId,
       timestamp: occurredAt,
@@ -358,7 +391,7 @@ export class PostgresNotificationAdapter implements NotificationPort {
       `INSERT INTO mutation_receipt (
          id, tenant_id, workspace_id, entity_type, entity_id, entity_version,
          audit_event_id, correlation_id, next_actions, occurred_at
-       ) VALUES ($1,$2,$3,$4,$5,1,$6,$7,$8::jsonb,$9)`,
+       ) VALUES ($1,$2,$3,$4,$5,$10,$6,$7,$8::jsonb,$9)`,
       [
         receiptId,
         context.tenantId,
@@ -369,6 +402,7 @@ export class PostgresNotificationAdapter implements NotificationPort {
         context.correlationId,
         JSON.stringify(nextActions),
         occurredAt,
+        entityVersion,
       ],
     );
     await client.query(

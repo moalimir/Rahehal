@@ -228,6 +228,36 @@ describe("C8 PostgreSQL notification projection and read model", () => {
     expect(readRow.rows[0]?.read_at).not.toBeNull();
   });
 
+  it("keeps mark-all-read usable after the first time in a workspace", async () => {
+    await seedProposalRows();
+    await emitProposalSubmitted("evt_c8_repeat_0001");
+    await consumer.pollOnce();
+    await notifications.markAllRead(command("c8-repeat-read-all-0001"));
+
+    // `mutation_receipt` is unique on (entity_type, entity_id, entity_version)
+    // and this command is addressed at the workspace, so a constant version
+    // made every later mark-all-read collide -- the button worked exactly once
+    // per workspace and then returned an unretryable storage error forever.
+    await emitProposalSubmitted("evt_c8_repeat_0002");
+    await consumer.pollOnce();
+    expect((await notifications.summary(orgScope)).unread_count).toBe(1);
+    const second = await notifications.markAllRead(command("c8-repeat-read-all-0002"));
+    expect(second.entityVersion).toBe(2);
+    expect((await notifications.summary(orgScope)).unread_count).toBe(0);
+
+    // A third with nothing left to mark still succeeds: the command is
+    // idempotent in effect, not merely on a repeated idempotency key.
+    const third = await notifications.markAllRead(command("c8-repeat-read-all-0003"));
+    expect(third.entityVersion).toBe(3);
+
+    const receipts = await database.query<{ entity_version: number }>(
+      `SELECT entity_version FROM mutation_receipt
+       WHERE entity_type = 'workspace' AND entity_id = $1 ORDER BY entity_version`,
+      [orgScope.workspaceId],
+    );
+    expect(receipts.rows.map((row) => Number(row.entity_version))).toEqual([1, 2, 3]);
+  });
+
   it("bounds a page and keeps the cursor stable", async () => {
     await seedProposalRows();
     for (let index = 0; index < 5; index += 1) {
