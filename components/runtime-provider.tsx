@@ -22,6 +22,7 @@ import type { ChallengeGateway } from "@/lib/challenges/gateway";
 import { createNetworkChallengeGateway } from "@/lib/challenges/adapters/network";
 import { demoChallengeGateway } from "@/lib/challenges/runtime";
 import { createNetworkChallengeGovernanceGateway } from "@/lib/challenges/adapters/network-governance";
+import { createWorkspaceGateways, type WorkspaceGateways } from "@/lib/workspace/gateways";
 import type { ChallengeGovernanceGateway } from "@/lib/challenges/governance";
 import { idempotencyKey, requestApi } from "@/lib/api/http";
 import { webRuntimeMode, type WebRuntimeMode } from "@/lib/runtime/mode";
@@ -33,6 +34,13 @@ type WebRuntimeContextValue = {
   readonly challengeGateway: ChallengeGateway;
   /** Null in demo mode: attributed publication gates exist only server-side. */
   readonly governanceGateway: ChallengeGovernanceGateway | null;
+  /**
+   * Connected workspace gateways for the C1-C8 page families. Null in demo
+   * mode: the static export has no server authority, and a page must show its
+   * demo/preview boundary rather than a gateway that silently returns
+   * fixtures.
+   */
+  readonly workspaceGateways: WorkspaceGateways | null;
   readonly sessionStatus: NetworkSessionStatus;
   readonly me: MeResource | null;
   readonly sessionVersion: number | null;
@@ -49,6 +57,7 @@ const standaloneDemoRuntime: WebRuntimeContextValue = {
   mode: "demo",
   challengeGateway: demoChallengeGateway,
   governanceGateway: null,
+  workspaceGateways: null,
   sessionStatus: "demo",
   me: null,
   sessionVersion: null,
@@ -70,7 +79,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
   const commandKeysRef = useRef(new Map<string, string>());
   // The gateway reads the active workspace at request time, never at render time,
   // so the mutable scope and the gateway that closes over it are created together.
-  const [{ scope, challengeGateway, governanceGateway }] = useState(() => {
+  const [{ scope, challengeGateway, governanceGateway, workspaceGateways }] = useState(() => {
     const workspaceScope: { activeWorkspaceId: string | null } = { activeWorkspaceId: null };
     const activeWorkspaceId = () => workspaceScope.activeWorkspaceId;
     return {
@@ -83,6 +92,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
       governanceGateway: network
         ? createNetworkChallengeGovernanceGateway({ activeWorkspaceId })
         : null,
+      workspaceGateways: network ? createWorkspaceGateways({ activeWorkspaceId }) : null,
     };
   });
 
@@ -168,6 +178,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
       mode: webRuntimeMode,
       challengeGateway,
       governanceGateway,
+      workspaceGateways,
       sessionStatus,
       me,
       sessionVersion,
@@ -180,6 +191,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     [
       challengeGateway,
       governanceGateway,
+      workspaceGateways,
       me,
       refreshMe,
       sessionError,

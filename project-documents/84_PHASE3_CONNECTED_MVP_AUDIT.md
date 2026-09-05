@@ -136,6 +136,21 @@ Minimum final commands are the full frontend release bundle from AGENTS.md plus 
 
 ## 10. Status
 
+**2026-09-05 — C9 stage 1 landed (gateway foundation).** The slice is staged because it is roughly three times C6-C8 combined and a partial page conversion is worse than none. Stage 1 built the foundation and the audit baseline without converting any page family.
+
+Closed in stage 1:
+
+- `/app` is now a registered route, not a fallback string other surfaces link to hopefully. It resolves one reachable workspace by entering it, several by an explicit chooser, none by a useful next action, and honors `returnTo` only when it belongs to the persona that resolved.
+- Session-aware public chrome now covers the mobile drawer and the footer as well as the desktop header, through the same demo-safe boundary, so the partial change section 2 recorded is complete for those surfaces.
+- Connected gateways exist for the C1-C8 families and are wired into `RuntimeProvider`, null in demo mode so a demo page shows its preview boundary rather than a gateway that silently answers with fixtures.
+- Every registered route is classified: **339 paths — 12 live, 212 preview, 45 unavailable, 70 redirect**, locked by a behavior that fails if a connected MVP route is downgraded or a later-phase surface is marked live.
+
+Still open, and the measure of the remaining stages:
+
+- 33 files still read `localStorage`, `sessionStorage`, or the demo solver repository; no page family has been converted yet.
+- The 212 preview routes include the MVP-core solver and organization families that stages 2+ must make live.
+- The [83](83_UI_UX_AUDIT_PLAN.md) RTL/a11y/responsive rubric requires owner visual review. AGENTS.md forbids self-certifying visual snapshots, so this gate stays open independently of implementation progress.
+
 | Item                            | Status         |
 | ------------------------------- | -------------- |
 | Audit baseline and route matrix | `ready`        |

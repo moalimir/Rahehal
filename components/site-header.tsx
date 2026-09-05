@@ -187,26 +187,34 @@ export function SiteHeader({
                 ),
               )}
             </nav>
-            <div className="drawer-actions">
-              <Link
-                className="button button--secondary header-login-option"
-                href="/auth/organization/login"
-                onClick={() => setOpen(false)}
-                aria-label="ورود یا شروع همکاری سازمانی"
-              >
-                <Icon className="audience-entry-icon" name="organization" />
-                سازمان
-              </Link>
-              <Link
-                className="button button--primary header-login-option"
-                href="/auth/login?role=solver"
-                onClick={() => setOpen(false)}
-                aria-label="ورود یا ایجاد حساب حل‌کننده"
-              >
-                <Icon className="audience-entry-icon" name="solver" />
-                حل‌کننده
-              </Link>
-            </div>
+            {/* The drawer is the mobile equivalent of the header's audience
+                entry, so it follows the same session rule: a signed-in human
+                is offered the way into their workspace, not another invitation
+                to sign up. */}
+            <SessionAware
+              fallback={
+                <div className="drawer-actions">
+                  <Link
+                    className="button button--secondary header-login-option"
+                    href="/auth/organization/login"
+                    onClick={() => setOpen(false)}
+                    aria-label="ورود یا شروع همکاری سازمانی"
+                  >
+                    <Icon className="audience-entry-icon" name="organization" />
+                    سازمان
+                  </Link>
+                  <Link
+                    className="button button--primary header-login-option"
+                    href="/auth/login?role=solver"
+                    onClick={() => setOpen(false)}
+                    aria-label="ورود یا ایجاد حساب حل‌کننده"
+                  >
+                    <Icon className="audience-entry-icon" name="solver" />
+                    حل‌کننده
+                  </Link>
+                </div>
+              }
+            />
           </div>
         </div>
       )}
