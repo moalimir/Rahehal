@@ -203,7 +203,19 @@ services:
       - no-new-privileges:true
     environment:
       NODE_ENV: development
-      RAHHAL_WORKER_MODE: demo
+      # C8 projects notifications from durable outbox claims, so the local
+      # worker runs against PostgreSQL rather than the in-memory skeleton.
+      RAHHAL_WORKER_MODE: postgres
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: rahhal
+      PGUSER: rahhal
+      PGPASSWORD: ${RAHHAL_POSTGRES_PASSWORD:-rahhal-local-only}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      database-setup:
+        condition: service_completed_successfully
     stop_grace_period: 15s
 
 volumes:

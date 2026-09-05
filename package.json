@@ -52,7 +52,7 @@
     "test:organization": "npm run build:packages && vitest run tests/organization-parity-v25.test.tsx",
     "test:contracts": "npm run build:packages && npm run test --workspace @rahhal/contracts",
     "test:api": "npm run build:packages && npm run test --workspace @rahhal/api",
-    "test:postgres": "npm run build:packages && npm run test:postgres --workspace @rahhal/api",
+    "test:postgres": "npm run build:packages && npm run build --workspace @rahhal/worker && npm run test:postgres --workspace @rahhal/api",
     "test:worker": "npm run build:packages && npm run test --workspace @rahhal/worker",
     "test:smoke": "node scripts/smoke-static.mjs",
     "test:standalone-interactive": "node scripts/smoke-standalone-interactive.mjs",

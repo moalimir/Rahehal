@@ -20,6 +20,7 @@ import {
   organizationRoles,
   offerResponseStates,
   platformRoles,
+  notificationKinds,
   proposalStates,
   publicationGates,
   teamInvitationStates,
@@ -765,6 +766,51 @@ const organizationProposalResourceSchema = {
     clarifications: { type: "array", items: proposalClarificationSchema },
     revision_requests: { type: "array", items: proposalRevisionRequestSchema },
   },
+} as const;
+
+const notificationSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "tenant_id",
+    "workspace_id",
+    "user_id",
+    "kind",
+    "subject_type",
+    "subject_id",
+    "read_at",
+    "occurred_at",
+  ],
+  properties: {
+    id: idSchema("ntf"),
+    tenant_id: idSchema("ten"),
+    workspace_id: idSchema("wsp"),
+    user_id: idSchema("usr"),
+    kind: { type: "string", enum: notificationKinds },
+    subject_type: { type: "string", enum: ["proposal", "team", "direct_offer"] },
+    subject_id: { type: "string", minLength: 5, maxLength: 80 },
+    read_at: nullableDateTimeSchema,
+    occurred_at: dateTimeSchema,
+  },
+} as const;
+
+const notificationListSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["items", "unread_count"],
+  properties: {
+    items: { type: "array", items: notificationSchema },
+    unread_count: { type: "integer", minimum: 0 },
+    next_cursor: { type: "string", minLength: 1, maxLength: 200 },
+  },
+} as const;
+
+const notificationSummarySchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["unread_count"],
+  properties: { unread_count: { type: "integer", minimum: 0 } },
 } as const;
 
 const organizationProposalInboxSchema = {
@@ -2281,6 +2327,38 @@ export const apiSchemas = {
   OrganizationProposalInbox: organizationProposalInboxSchema,
   OrganizationProposalSuccessEnvelope: successEnvelopeFor(organizationProposalResourceSchema),
   OrganizationProposalInboxSuccessEnvelope: successEnvelopeFor(organizationProposalInboxSchema),
+  Notification: notificationSchema,
+  NotificationList: notificationListSchema,
+  NotificationSummary: notificationSummarySchema,
+  NotificationListSuccessEnvelope: successEnvelopeFor(notificationListSchema),
+  NotificationSummarySuccessEnvelope: successEnvelopeFor(notificationSummarySchema),
+  NotificationParams: {
+    type: "object",
+    additionalProperties: false,
+    required: ["notificationId"],
+    properties: { notificationId: idSchema("ntf") },
+  },
+  NotificationListQuery: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      limit: { type: "integer", minimum: 1, maximum: 50 },
+      cursor: { type: "string", minLength: 1, maxLength: 200 },
+      unread_only: { type: "boolean" },
+    },
+  },
+  MarkNotificationReadBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version"],
+    properties: { expected_version: { const: 0 } },
+  },
+  MarkAllNotificationsReadBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version"],
+    properties: { expected_version: { const: 0 } },
+  },
   CreateProposalBody: {
     type: "object",
     additionalProperties: false,

@@ -3,6 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
   "engines": {
     "node": ">=20.9.0",
     "npm": ">=10.0.0"
@@ -16,11 +26,13 @@
   },
   "dependencies": {
     "@rahhal/contracts": "0.1.0",
-    "@rahhal/domain": "0.1.0"
+    "@rahhal/domain": "0.1.0",
+    "pg": "8.23.0"
   },
   "devDependencies": {
     "@rahhal/testkit": "0.1.0",
     "@types/node": "22.18.0",
+    "@types/pg": "8.23.1",
     "tsx": "4.23.12",
     "typescript": "5.9.2",
     "vitest": "4.1.10"

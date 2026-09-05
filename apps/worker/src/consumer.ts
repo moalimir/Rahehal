@@ -53,13 +53,13 @@ export type OutboxConsumerOptions = {
 
 export const defaultMaxDeliveryAttempts = 3;
 
-export class OutboxConsumer {
+export class OutboxConsumer<Transaction = void> {
   private readonly maxDeliveryAttempts: number;
 
   constructor(
     private readonly source: OutboxSource,
-    private readonly ledger: DeliveryLedger,
-    private readonly handler: OutboxHandler,
+    private readonly ledger: DeliveryLedger<Transaction>,
+    private readonly handler: OutboxHandler<Transaction>,
     private readonly clock: WorkerClock,
     options: OutboxConsumerOptions = {},
   ) {
@@ -104,8 +104,8 @@ export class OutboxConsumer {
           attempt: claim.attempt,
           idempotencyKey: event.event_id,
         });
-        const handled = await this.ledger.runOnce(event.event_id, async () =>
-          this.handler.handle(event, context),
+        const handled = await this.ledger.runOnce(event.event_id, async (transaction) =>
+          this.handler.handle(event, context, transaction),
         );
         await this.source.markPublished(claim.claimId, this.clock.now().toISOString());
         if (handled) delivered += 1;

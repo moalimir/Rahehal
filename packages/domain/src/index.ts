@@ -1,6 +1,7 @@
 export * from "./activation.js";
 export * from "./challenge.js";
 export * from "./id.js";
+export * from "./notification.js";
 export * from "./opportunity.js";
 export * from "./proposal.js";
 export * from "./solver-profile.js";

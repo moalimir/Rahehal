@@ -1837,10 +1837,12 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
     // The suite normally migrates an empty database, so the backfill path --
     // and the ordering bug where the pairing constraint was added before it --
     // is invisible without this.
-    // Eight migrations sit above 0010: 0019 (C7 activation), 0018
-    // (C6 opportunities/offers), 0017 (C5 clarification/revision), 0016
-    // (C4 submission), 0015 (C2 teams), 0014 (C1 solver profile/eligibility),
-    // 0013 (proposal foundation), then 0012.
+    // Nine migrations sit above 0010: 0020 (C8 notifications), 0019 (C7
+    // activation), 0018 (C6 opportunities/offers), 0017 (C5
+    // clarification/revision), 0016 (C4 submission), 0015 (C2 teams), 0014 (C1
+    // solver profile/eligibility), 0013 (proposal foundation), then 0012.
+    const c8Down = await runMigrations(database, "down");
+    expect(c8Down.applied).toEqual(["0020_c8_notifications"]);
     const c7Down = await runMigrations(database, "down");
     expect(c7Down.applied).toEqual(["0019_c7_solver_activation"]);
     const c6Down = await runMigrations(database, "down");
@@ -1873,6 +1875,7 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
       "0017_c5_proposal_clarification_revision",
       "0018_c6_opportunities_direct_offers",
       "0019_c7_solver_activation",
+      "0020_c8_notifications",
     ]);
 
     const restored = await database.query<{

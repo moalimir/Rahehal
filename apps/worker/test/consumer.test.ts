@@ -64,11 +64,18 @@ describe("idempotent outbox consumer", () => {
       deadLettered: 0,
     });
     expect(handle).toHaveBeenCalledTimes(1);
-    expect(handle).toHaveBeenCalledWith(event, {
-      claimId: "claim_00000001",
-      attempt: 1,
-      idempotencyKey: event.event_id,
-    });
+    // The third argument is the ledger's transaction. An in-memory ledger has
+    // none, so it passes `undefined`; the PostgreSQL ledger passes the client
+    // that makes the effect and the delivery record commit together.
+    expect(handle).toHaveBeenCalledWith(
+      event,
+      {
+        claimId: "claim_00000001",
+        attempt: 1,
+        idempotencyKey: event.event_id,
+      },
+      undefined,
+    );
     expect(ledger.has(event.event_id)).toBe(true);
     expect(source.pendingCount()).toBe(0);
     expect(source.publishedCount()).toBe(2);

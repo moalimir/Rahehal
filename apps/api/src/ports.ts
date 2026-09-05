@@ -12,6 +12,9 @@ import type {
   CreateChallengeBody,
   MeResource,
   MutationReceipt,
+  NotificationListResource,
+  NotificationNextAction,
+  NotificationSummaryResource,
   OidcAuthorizationStartBody,
   OidcAuthorizationStartResult,
   ChallengePublicationStateBody,
@@ -106,6 +109,7 @@ import type {
   TeamMembershipRequestId,
   TeamPolicy,
   VerificationId,
+  NotificationId,
   SavedOpportunityId,
   SessionId,
   TenantId,
@@ -149,6 +153,7 @@ export type IdFactory = {
       | "aud"
       | "cor"
       | "evt"
+      | "ntf"
       | "oat"
       | "act"
       | "otp",
@@ -618,6 +623,24 @@ export interface ProposalPort {
   ): Promise<OrganizationProposalResource | null>;
 }
 
+export type NotificationListQuery = {
+  readonly limit?: number;
+  readonly cursor?: string;
+  readonly unreadOnly?: boolean;
+};
+
+export interface NotificationPort {
+  list(scope: WorkspaceScope, query: NotificationListQuery): Promise<NotificationListResource>;
+  summary(scope: WorkspaceScope): Promise<NotificationSummaryResource>;
+  markRead(
+    id: string,
+    context: WorkspaceCommandContext,
+  ): Promise<MutationOutcome<NotificationId, NotificationNextAction>>;
+  markAllRead(
+    context: WorkspaceCommandContext,
+  ): Promise<MutationOutcome<WorkspaceId, NotificationNextAction>>;
+}
+
 export interface OpportunityPort {
   listSaved(scope: OpportunityScope): Promise<SavedOpportunityListResource>;
   save(
@@ -706,6 +729,7 @@ export type ApiPorts = {
   readonly teams: TeamPort;
   readonly proposals: ProposalPort;
   readonly opportunities: OpportunityPort;
+  readonly notifications: NotificationPort;
   readonly decisionAudit: AccessDecisionAuditPort;
   readonly clock: Clock;
   readonly ids: IdFactory;

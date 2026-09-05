@@ -61,9 +61,12 @@ beforeAll(async () => {
     "0017_c5_proposal_clarification_revision",
     "0018_c6_opportunities_direct_offers",
     "0019_c7_solver_activation",
+    "0020_c8_notifications",
   ]);
 
   // Newest first.
+  const c8Down = await runMigrations(database, "down");
+  expect(c8Down.applied).toEqual(["0020_c8_notifications"]);
   const c7Down = await runMigrations(database, "down");
   expect(c7Down.applied).toEqual(["0019_c7_solver_activation"]);
   const c6Down = await runMigrations(database, "down");
@@ -132,6 +135,7 @@ beforeAll(async () => {
     "0017_c5_proposal_clarification_revision",
     "0018_c6_opportunities_direct_offers",
     "0019_c7_solver_activation",
+    "0020_c8_notifications",
   ]);
   const noOpUp = await runMigrations(database, "up");
   expect(noOpUp.applied).toEqual([]);
@@ -172,8 +176,10 @@ describe("A1a PostgreSQL foundation", () => {
       "identity_link",
       "membership",
       "mutation_receipt",
+      "notification",
       "offer_response",
       "oidc_authorization_attempt",
+      "outbox_delivery",
       "outbox_event",
       "proposal",
       "proposal_clarification",
@@ -269,6 +275,10 @@ describe("A1a PostgreSQL foundation", () => {
       },
       {
         id: "0019_c7_solver_activation",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+      {
+        id: "0020_c8_notifications",
         checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
       },
     ]);
@@ -550,6 +560,8 @@ describe("A1a PostgreSQL foundation", () => {
   });
 
   it("fails the A1b migration atomically for an orphaned existing session", async () => {
+    const c8Down = await runMigrations(database, "down");
+    expect(c8Down.applied).toEqual(["0020_c8_notifications"]);
     const c7Down = await runMigrations(database, "down");
     expect(c7Down.applied).toEqual(["0019_c7_solver_activation"]);
     const c6Down = await runMigrations(database, "down");
@@ -646,6 +658,7 @@ describe("A1a PostgreSQL foundation", () => {
       "0017_c5_proposal_clarification_revision",
       "0018_c6_opportunities_direct_offers",
       "0019_c7_solver_activation",
+      "0020_c8_notifications",
     ]);
   });
 });

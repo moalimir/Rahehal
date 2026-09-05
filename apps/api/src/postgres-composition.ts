@@ -27,6 +27,7 @@ import {
   oidcRuntimeSettings,
   PostgresOidcAuthorizationAdapter,
 } from "./postgres/oidc-authorization.js";
+import { PostgresNotificationAdapter } from "./postgres/notifications.js";
 import { PostgresUnitOfWork } from "./postgres/unit-of-work.js";
 import { HmacSessionCredentialIssuer } from "./session-credentials.js";
 
@@ -122,6 +123,7 @@ export async function createPostgresApiComposition(
     ids,
   );
   const teams = new PostgresTeamAdapter(unitOfWork, clock, ids);
+  const notifications = new PostgresNotificationAdapter(unitOfWork, clock, ids);
   const proposals = new PostgresProposalAdapter(unitOfWork, teams, clock, ids);
   const opportunities = new PostgresOpportunityAdapter(unitOfWork, teams, clock, ids);
 
@@ -142,6 +144,7 @@ export async function createPostgresApiComposition(
       teams,
       proposals,
       opportunities,
+      notifications,
       decisionAudit,
       clock,
       ids,

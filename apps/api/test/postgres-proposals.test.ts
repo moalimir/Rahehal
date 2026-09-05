@@ -917,6 +917,7 @@ describe("C4 PostgreSQL proposal submission", () => {
     );
     if (!before?.tracking_code) throw new Error("Expected the first submitted tracking code.");
 
+    expect((await runMigrations(database, "down")).applied).toEqual(["0020_c8_notifications"]);
     expect((await runMigrations(database, "down")).applied).toEqual(["0019_c7_solver_activation"]);
     expect((await runMigrations(database, "down")).applied).toEqual([
       "0018_c6_opportunities_direct_offers",
@@ -932,6 +933,7 @@ describe("C4 PostgreSQL proposal submission", () => {
       "0017_c5_proposal_clarification_revision",
       "0018_c6_opportunities_direct_offers",
       "0019_c7_solver_activation",
+      "0020_c8_notifications",
     ]);
 
     const restored = await database.query(

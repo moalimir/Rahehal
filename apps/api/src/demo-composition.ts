@@ -12,6 +12,7 @@ import {
   type User,
   type Workspace,
 } from "@rahhal/domain";
+import { InMemoryNotificationAdapter } from "./in-memory-notifications.js";
 import { InMemoryAccessDecisionAudit } from "./in-memory-audit.js";
 import { InMemoryChallengeRepository } from "./in-memory-challenges.js";
 import { InMemoryCriticalSection } from "./in-memory-critical-section.js";
@@ -597,6 +598,7 @@ export function createDemoApiComposition(options: {
   }
   const clock = options.clock ?? systemClock;
   const ids = options.ids ?? new MonotonicIdFactory();
+  const notifications = new InMemoryNotificationAdapter(clock, ids);
   const decisionAudit = new InMemoryAccessDecisionAudit();
   const criticalSection = new InMemoryCriticalSection();
   const seeds = demoSeeds(clock.now().toISOString());
@@ -672,6 +674,7 @@ export function createDemoApiComposition(options: {
       teams,
       proposals,
       opportunities,
+      notifications,
       decisionAudit,
       clock,
       ids,

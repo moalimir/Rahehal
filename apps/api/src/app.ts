@@ -43,6 +43,10 @@ import {
   type CreateProposalBody,
   type DecideTeamMembershipRequestBody,
   type LeaveTeamBody,
+  type MarkAllNotificationsReadBody,
+  type MarkNotificationReadBody,
+  type NotificationListSuccessEnvelope,
+  type NotificationSummarySuccessEnvelope,
   type PatchProposalBody,
   type SubmitProposalBody,
   type StartProposalEligibilityReviewBody,
@@ -233,6 +237,29 @@ async function runAuthorizedWorkspace<Result>(
     session,
     workspaceId,
     { ...authorization, correlationId: correlationId(request) },
+    operation,
+  );
+}
+
+/**
+ * Notifications belong to the authenticated human inside whichever workspace is
+ * active, so the guard resolves access without narrowing by workspace kind. It
+ * still runs the full authority check, which is what makes a revoked session,
+ * removed membership, or switched context deny the list and its deep links
+ * immediately rather than serving a stale projection.
+ */
+async function runAuthorizedWorkspaceRead<Result>(
+  request: FastifyRequest,
+  ports: ApiPorts,
+  session: AuthenticatedSession,
+  action: string,
+  operation: (access: WorkspaceAccess) => Result | Promise<Result>,
+): Promise<Result> {
+  return runAuthorizedWorkspace(
+    request,
+    ports,
+    session,
+    { action, entityType: "notification", allows: () => true },
     operation,
   );
 }
@@ -3546,6 +3573,149 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
             ...command,
           }),
       ),
+  );
+
+  // `fastifyLiteralPath` escapes the action suffix's colon; without it the
+  // `:read` in `/notifications/{id}:read` is parsed as a second route
+  // parameter and the params schema rejects the extra property.
+  const fastifyNotificationPath = (path: string) =>
+    fastifyLiteralPath(path).replace(
+      "{notificationId}",
+      ":notificationId(^ntf_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$)",
+    );
+
+  app.get<{ Querystring: { limit?: number; cursor?: string; unread_only?: boolean } }>(
+    apiRoutes.notifications,
+    {
+      schema: {
+        querystring: apiSchemas.NotificationListQuery,
+        response: { 200: apiSchemas.NotificationListSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request): Promise<NotificationListSuccessEnvelope> => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runAuthorizedWorkspaceRead(
+        request,
+        ports,
+        session,
+        "notification:list",
+        async (access) =>
+          success(
+            await ports.notifications.list(challengeScope(session, access), {
+              ...(request.query.limit === undefined ? {} : { limit: request.query.limit }),
+              ...(request.query.cursor === undefined ? {} : { cursor: request.query.cursor }),
+              ...(request.query.unread_only === undefined
+                ? {}
+                : { unreadOnly: request.query.unread_only }),
+            }),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.get(
+    apiRoutes.notificationSummary,
+    {
+      schema: {
+        response: { 200: apiSchemas.NotificationSummarySuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request): Promise<NotificationSummarySuccessEnvelope> => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runAuthorizedWorkspaceRead(
+        request,
+        ports,
+        session,
+        "notification:summary",
+        async (access) =>
+          success(
+            await ports.notifications.summary(challengeScope(session, access)),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.post<{ Params: { notificationId: string }; Body: MarkNotificationReadBody }>(
+    fastifyNotificationPath(apiRoutes.markNotificationRead),
+    {
+      schema: {
+        params: apiSchemas.NotificationParams,
+        body: apiSchemas.MarkNotificationReadBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      return runAuthorizedWorkspaceRead(
+        request,
+        ports,
+        session,
+        "notification:read",
+        async (access) =>
+          mutationSuccess(
+            await ports.notifications.markRead(request.params.notificationId, {
+              ...challengeScope(session, access),
+              ...command,
+            }),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.post<{ Body: MarkAllNotificationsReadBody }>(
+    fastifyLiteralPath(apiRoutes.markAllNotificationsRead),
+    {
+      schema: {
+        body: apiSchemas.MarkAllNotificationsReadBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      return runAuthorizedWorkspaceRead(
+        request,
+        ports,
+        session,
+        "notification:read-all",
+        async (access) =>
+          mutationSuccess(
+            await ports.notifications.markAllRead({
+              ...challengeScope(session, access),
+              ...command,
+            }),
+            request,
+            ports,
+          ),
+      );
+    },
   );
 
   return app;

@@ -15,6 +15,7 @@ import { PostgresIdentityWorkspaceAdapter } from "../src/postgres/identity-works
 import { runMigrations } from "../src/postgres/migrations.js";
 import { PostgresOidcAuthorizationAdapter } from "../src/postgres/oidc-authorization.js";
 import { seedSyntheticData } from "../src/postgres/seeds.js";
+import { PostgresNotificationAdapter } from "../src/postgres/notifications.js";
 import { PostgresUnitOfWork } from "../src/postgres/unit-of-work.js";
 import { PostgresOpportunityAdapter } from "../src/postgres/opportunities.js";
 import { commandFingerprint, MonotonicIdFactory, RandomIdFactory } from "../src/primitives.js";
@@ -157,6 +158,7 @@ beforeAll(async () => {
       teams,
       proposals: new PostgresProposalAdapter(unitOfWork, teams, clock, ids),
       opportunities: new PostgresOpportunityAdapter(unitOfWork, teams, clock, ids),
+      notifications: new PostgresNotificationAdapter(unitOfWork, clock, ids),
       decisionAudit: audit,
       clock,
       ids,

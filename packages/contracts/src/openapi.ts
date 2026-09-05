@@ -1105,6 +1105,103 @@ export const openApiDocument = {
         "ResubmitProposalBody",
       ),
     },
+    [apiRoutes.notifications]: {
+      get: {
+        operationId: "listNotifications",
+        tags: ["Notification"],
+        summary: "List the active workspace notifications for the authenticated human",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          workspaceHeader,
+          {
+            name: "limit",
+            in: "query",
+            required: false,
+            schema: { type: "integer", minimum: 1, maximum: 50 },
+          },
+          {
+            name: "cursor",
+            in: "query",
+            required: false,
+            schema: { type: "string", minLength: 1, maxLength: 200 },
+          },
+          {
+            name: "unread_only",
+            in: "query",
+            required: false,
+            schema: { type: "boolean" },
+          },
+        ],
+        responses: {
+          "200": {
+            description: "A bounded page of notifications with the unread count.",
+            content: jsonContent("NotificationListSuccessEnvelope"),
+          },
+          "403": protectedCommandErrors["403"],
+          "503": protectedCommandErrors["503"],
+        },
+      },
+    },
+    [apiRoutes.notificationSummary]: {
+      get: {
+        operationId: "readNotificationSummary",
+        tags: ["Notification"],
+        summary: "Read the unread notification count for the active workspace",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader],
+        responses: {
+          "200": {
+            description: "The authoritative unread count.",
+            content: jsonContent("NotificationSummarySuccessEnvelope"),
+          },
+          "403": protectedCommandErrors["403"],
+          "503": protectedCommandErrors["503"],
+        },
+      },
+    },
+    [apiRoutes.markNotificationRead]: {
+      post: {
+        operationId: "markNotificationRead",
+        tags: ["Notification"],
+        summary: "Mark one owned notification read",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          workspaceHeader,
+          idempotencyHeader,
+          {
+            name: "notificationId",
+            in: "path",
+            required: true,
+            schema: { type: "string", pattern: "^ntf_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$" },
+          },
+        ],
+        requestBody: { required: true, content: jsonContent("MarkNotificationReadBody") },
+        responses: {
+          "200": {
+            description: "The atomic mutation receipt.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.markAllNotificationsRead]: {
+      post: {
+        operationId: "markAllNotificationsRead",
+        tags: ["Notification"],
+        summary: "Mark every unread notification in the active workspace read",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader],
+        requestBody: { required: true, content: jsonContent("MarkAllNotificationsReadBody") },
+        responses: {
+          "200": {
+            description: "The atomic mutation receipt.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
     [apiRoutes.organizationProposalInbox]: {
       get: {
         operationId: "listOrganizationProposalInbox",

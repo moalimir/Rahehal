@@ -22,6 +22,7 @@ export const idPrefixes = {
   teamInvitation: "tiv",
   teamMembershipRequest: "tmr",
   solverActivation: "act",
+  notification: "ntf",
   contactVerificationAttempt: "otp",
   reviewAssignment: "rva",
   rubric: "rub",
@@ -63,6 +64,7 @@ export type EligibilityGateAcceptanceId = PrefixedId<"ega">;
 export type TeamInvitationId = PrefixedId<"tiv">;
 export type TeamMembershipRequestId = PrefixedId<"tmr">;
 export type SolverActivationId = PrefixedId<"act">;
+export type NotificationId = PrefixedId<"ntf">;
 export type ContactVerificationAttemptId = PrefixedId<"otp">;
 export type ReviewAssignmentId = PrefixedId<"rva">;
 export type RubricId = PrefixedId<"rub">;
@@ -98,6 +100,7 @@ export type EntityId =
   | TeamInvitationId
   | TeamMembershipRequestId
   | SolverActivationId
+  | NotificationId
   | ContactVerificationAttemptId
   | ReviewAssignmentId
   | RubricId
@@ -233,6 +236,7 @@ export const parseTeamMembershipRequestId = createIdentifierParser(
   idPrefixes.teamMembershipRequest,
 );
 export const parseSolverActivationId = createIdentifierParser(idPrefixes.solverActivation);
+export const parseNotificationId = createIdentifierParser(idPrefixes.notification);
 export const parseContactVerificationAttemptId = createIdentifierParser(
   idPrefixes.contactVerificationAttempt,
 );
