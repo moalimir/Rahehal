@@ -609,6 +609,22 @@ This is the third documentation-drift defect found by hand in two sessions (the 
 
 **Explicitly not done in stage 1:** no page family has been converted, so the 33 files that read browser storage or the demo repository still do. The [83](83_UI_UX_AUDIT_PLAN.md) RTL/a11y/responsive rubric that C9's acceptance requires needs owner visual review; AGENTS.md forbids self-certifying visual snapshots, so that gate stays open regardless of how many stages land.
 
+### 2026-09-05 — C9 stage 2: the solver proposal list and live dashboard counts
+
+**Scope:** converting the first page family, the solver dashboard. Its blocking dependency was missing: `/api/v1/proposals` was POST-only, so neither the dashboard counts nor the proposal list page had a workspace-scoped list to read.
+
+**Added:** `GET /api/v1/proposals` returns the active solver workspace's own proposals. It carries list facts only — id, challenge, state, tracking code, version, readiness, timestamps — and deliberately omits content and version history, so a list cannot become a way to bulk-read drafts. The in-memory adapter mirrors the same rule so demo and connected runtimes cannot diverge.
+
+**Frontend:** `readSolverDashboardSummary` reads profile, proposals, and notifications concurrently for the active workspace. A family that fails contributes `null` rather than zero, because a dashboard showing "0 drafts" when the drafts request was denied is the fake-count failure C9 exists to remove; one failure degrades that card alone. The dashboard prefers these live counts and keeps its local projection only in demo mode, and the hook re-reads when the active workspace changes, so switching refreshes the numbers instead of leaving the previous workspace's on screen.
+
+**Defect found by the live check:** the PostgreSQL list applied workspace scope but not the `edit-proposal` gate that `getScoped` applies, so a team viewer could enumerate proposals they are refused when opening one — states, tracking codes, and readiness. The in-memory adapter did apply the gate, so the two runtimes had already diverged. The gate is now evaluated per row, with team authority resolved twice rather than once per row since only the assignment term varies.
+
+**A regression test that first proved nothing:** the initial version created the proposal in the individual workspace, so the viewer saw an empty list from workspace scoping alone and passed with the gate removed. It now creates the proposal in the team workspace and fails against the ungated code, which is what makes it evidence.
+
+**Evidence:** PostgreSQL 124/124 across 12 files; native 484/484 across 66 files; API 103/103; contracts 15/15; live route review 11/11 covering empty list, draft appearance, content omission, server readiness, submitted state and tracking code, cross-workspace isolation, viewer refusal, organization refusal, and unauthenticated refusal; typecheck, lint, format, workspace boundaries; `docker:smoke` with restart persistence.
+
+**Remaining in C9:** the other page families — proposals list and builder, teams, saved and offers, organization inbox and detail, notifications — plus the [83](83_UI_UX_AUDIT_PLAN.md) rubric, which still needs owner visual review.
+
 ### 2026-09-05 — C7 review: activation verified live, one Persian-first defect fixed
 
 **Scope:** reviewing C7 against the running stack — contact verification, activation, returning sign-in, and the abuse controls — plus the PostgreSQL suite and the static gates.

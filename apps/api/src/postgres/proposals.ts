@@ -848,11 +848,12 @@ export class PostgresProposalAdapter implements ProposalPort {
         lock_version: string | number;
         submitted_at: Date | null;
         updated_at: Date;
+        assigned_membership_ids: readonly string[];
         content: unknown;
       }>(
         `SELECT proposal.id, proposal.challenge_id, proposal.state, proposal.tracking_code,
                 proposal.lock_version, proposal.submitted_at, proposal.updated_at,
-                version.content
+                proposal.assigned_membership_ids, version.content
          FROM proposal
          JOIN proposal_version AS version
            ON version.id = proposal.current_version_id AND version.proposal_id = proposal.id
@@ -861,8 +862,20 @@ export class PostgresProposalAdapter implements ProposalPort {
          LIMIT 200`,
         [scope.tenantId, scope.workspaceId],
       );
+      // The same `edit-proposal` gate `getScoped` applies, evaluated per row
+      // because assignment differs per proposal. Without it a viewer or an
+      // unassigned contributor could enumerate states, tracking codes, and
+      // readiness for records they are refused when they open one. Team
+      // authority is resolved twice rather than once per row: only the
+      // assignment term varies.
+      const allowedUnassigned = await this.permitted(scope, "edit-proposal", []);
+      const allowedWhenAssigned = await this.permitted(scope, "edit-proposal", [
+        scope.membershipId,
+      ]);
       const items = [];
       for (const row of result.rows) {
+        const assigned = row.assigned_membership_ids.includes(scope.membershipId);
+        if (!allowedUnassigned && !(allowedWhenAssigned && assigned)) continue;
         if (!isProposalState(row.state)) {
           throw new Error("Database returned invalid proposal state");
         }

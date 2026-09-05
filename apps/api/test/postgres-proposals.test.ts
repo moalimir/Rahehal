@@ -1060,6 +1060,23 @@ describe("C5 PostgreSQL proposal clarification and revision", () => {
     expect(foreignList.items.some((item) => item.id === proposalId)).toBe(false);
   });
 
+  it("hides the list from a role that cannot open the records", async () => {
+    // The proposal must live in the team workspace, or the viewer sees an
+    // empty list from workspace scoping alone and the permission gate is
+    // never exercised.
+    const created = await proposals.create(
+      { expected_version: 0, challenge_id: challengeId, draft: readyProposalDraft() },
+      teamOwner("c9-pg-list-viewer-create"),
+    );
+    const ownerList = await proposals.listScoped(teamOwner("c9-pg-list-viewer-owner"));
+    expect(ownerList.items.some((item) => item.id === created.receipt.entity_id)).toBe(true);
+
+    // A viewer who is refused `getScoped` must not be able to enumerate the
+    // same proposal's state, tracking code, and readiness through the list.
+    const viewerList = await proposals.listScoped(teamViewer("c9-pg-list-viewer-scope"));
+    expect(viewerList.items).toHaveLength(0);
+  });
+
   it("records an ineligible decision as a terminal receipt", async () => {
     // The ineligible branch was never exercised: it passed an empty
     // `next_actions`, which `mutation_receipt_next_actions_check` rejects, so
