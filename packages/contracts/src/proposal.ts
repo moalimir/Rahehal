@@ -219,6 +219,17 @@ export type OrganizationProposalInboxItemResource = {
 };
 
 export type OrganizationProposalResource = OrganizationProposalInboxItemResource & {
+  /**
+   * The proposal aggregate's current version.
+   *
+   * C4/C5 organization commands all require `expected_version`, so a granted
+   * organization has to be able to read it: without this the contract asks for
+   * a token it never hands out, and only a caller that already knows the
+   * sequence — a test — can issue those commands. It stays out of the inbox
+   * row, which is closed, and out of the public projection, which must not
+   * reveal how often a private record has changed.
+   */
+  readonly version: number;
   readonly content: ProposalContentResource;
   readonly clarifications: readonly ProposalClarificationResource[];
   readonly revision_requests: readonly ProposalRevisionRequestResource[];

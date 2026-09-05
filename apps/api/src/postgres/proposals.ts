@@ -201,6 +201,8 @@ type OrganizationProposalInboxRow = {
 
 type OrganizationProposalRow = OrganizationProposalInboxRow & {
   readonly content: unknown;
+  /** The aggregate version the organization's C4/C5 commands must send back. */
+  readonly version: unknown;
 };
 
 const proposalNextActions = [
@@ -338,6 +340,7 @@ function organizationProposalResource(
   assertProposalContent(row.content);
   return {
     ...organizationProposalInboxItem(row),
+    version: aggregateVersion(row.version),
     content: structuredClone(row.content),
     clarifications,
     revision_requests: revisionRequests,
@@ -1730,6 +1733,7 @@ export class PostgresProposalAdapter implements ProposalPort {
       const result = await this.unitOfWork.currentClient().query<OrganizationProposalRow>(
         `SELECT proposal.id, proposal.challenge_id, proposal.owner_workspace_kind,
                 proposal.state, proposal.tracking_code, proposal.submitted_at,
+                proposal.lock_version AS version,
                 version.id AS proposal_version_id, version.version_number,
                 version.base_version_id, version.accepted_challenge_version_id,
                 version.changed_fields, version.content_hash, version.locked_at,

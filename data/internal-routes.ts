@@ -984,6 +984,16 @@ const canonicalInternalRoutes: InternalRoute[] = [
     "بازکردن پیشنهاد جدید",
     "مدیریت پیشنهادهای همه پرونده‌های مجاز سازمان.",
   ),
+  // The organization's grant-scoped record path; see the solver sibling above.
+  route(
+    "ORG-08",
+    "/app/org/proposals/record",
+    "org",
+    "پرونده پیشنهاد دریافتی",
+    "proposal-inbox",
+    "مشاهده پرونده",
+    "نسخه قفل‌شده دریافتی، در چارچوب دسترسی اعطاشده هنگام ارسال.",
+  ),
   route(
     "ORG-13",
     "/app/org/pilots",
@@ -1175,6 +1185,46 @@ const canonicalInternalRoutes: InternalRoute[] = [
       step === "review" ? "ارسال نهایی راه‌حل" : "ذخیره و ادامه",
       summary,
     ),
+  ),
+  // Connected record paths. A server-generated `prp_…` can never be a
+  // pre-generated static route, so both builds register these and the id
+  // travels as `?id=` -- the same convention `CONNECTED_RECORD_PATH` uses for
+  // challenges. They are inert in the demo export.
+  route(
+    "SOL-05",
+    "/app/solver/proposals/record",
+    "solver",
+    "پرونده پیشنهاد",
+    "proposal-status",
+    "مشاهده پرونده",
+    "پرونده پیشنهاد فضای کاری فعال، خوانده‌شده از سرور با شناسه پایدار.",
+  ),
+  route(
+    "SOL-05",
+    "/app/solver/proposals/record/preview",
+    "solver",
+    "پیش‌نمایش پرونده پیشنهاد",
+    "proposal-status",
+    "مشاهده نسخه",
+    "پیش‌نمایش نسخه جاری پیشنهاد خوانده‌شده از سرور.",
+  ),
+  route(
+    "SOL-05",
+    "/app/solver/proposals/record/edit",
+    "solver",
+    "ویرایش پرونده پیشنهاد",
+    "proposal-builder",
+    "ذخیره نسخه",
+    "ویرایش پیش‌نویس پیشنهاد خوانده‌شده از سرور.",
+  ),
+  route(
+    "SOL-05",
+    "/app/solver/proposals/record/versions",
+    "solver",
+    "نسخه‌های پرونده پیشنهاد",
+    "proposal-status",
+    "مقایسه نسخه‌ها",
+    "تاریخچه نسخه‌های پیشنهاد خوانده‌شده از سرور.",
   ),
   route(
     "SOL-05",

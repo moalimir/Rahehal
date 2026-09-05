@@ -504,6 +504,26 @@ describe("C4 authoritative proposal submission", () => {
     expect(resource).not.toHaveProperty("tenant_id");
     expect(resource).not.toHaveProperty("owner_workspace_id");
 
+    // Every C4/C5 organization command requires `expected_version`, so the
+    // granted organization has to be able to read it. Without this the
+    // contract asks for a token it never hands out, and only a caller that
+    // already knows the sequence -- a test -- can issue those commands.
+    expect(resource.version).toBeGreaterThan(0);
+    expect(detail.json<OrganizationProposalSuccessEnvelope>().meta.entity_version).toBe(
+      resource.version,
+    );
+    // The inbox row stays closed: the version belongs to the per-record read,
+    // which re-checks the grant at that moment.
+    expect(item).not.toHaveProperty("version");
+
+    const decidedFromInboxVersion = await app.inject({
+      method: "POST",
+      url: apiRoutes.startProposalEligibilityReview.replace("{proposalId}", proposalId),
+      headers: headers(demoApiCredentials.foreignOwner, "c4-org-version-read-0001"),
+      payload: { expected_version: resource.version },
+    });
+    expect(decidedFromInboxVersion.statusCode).toBe(200);
+
     const outOfScope = await app.inject({
       method: "GET",
       url: apiRoutes.organizationProposalById.replace("{proposalId}", proposalId),

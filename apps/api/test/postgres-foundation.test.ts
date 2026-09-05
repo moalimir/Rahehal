@@ -62,9 +62,12 @@ beforeAll(async () => {
     "0018_c6_opportunities_direct_offers",
     "0019_c7_solver_activation",
     "0020_c8_notifications",
+    "0021_c6_offer_deadline_single_clock",
   ]);
 
   // Newest first.
+  const offerClockDown = await runMigrations(database, "down");
+  expect(offerClockDown.applied).toEqual(["0021_c6_offer_deadline_single_clock"]);
   const c8Down = await runMigrations(database, "down");
   expect(c8Down.applied).toEqual(["0020_c8_notifications"]);
   const c7Down = await runMigrations(database, "down");
@@ -136,6 +139,7 @@ beforeAll(async () => {
     "0018_c6_opportunities_direct_offers",
     "0019_c7_solver_activation",
     "0020_c8_notifications",
+    "0021_c6_offer_deadline_single_clock",
   ]);
   const noOpUp = await runMigrations(database, "up");
   expect(noOpUp.applied).toEqual([]);
@@ -279,6 +283,10 @@ describe("A1a PostgreSQL foundation", () => {
       },
       {
         id: "0020_c8_notifications",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+      {
+        id: "0021_c6_offer_deadline_single_clock",
         checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
       },
     ]);
@@ -560,6 +568,8 @@ describe("A1a PostgreSQL foundation", () => {
   });
 
   it("fails the A1b migration atomically for an orphaned existing session", async () => {
+    const offerClockDown = await runMigrations(database, "down");
+    expect(offerClockDown.applied).toEqual(["0021_c6_offer_deadline_single_clock"]);
     const c8Down = await runMigrations(database, "down");
     expect(c8Down.applied).toEqual(["0020_c8_notifications"]);
     const c7Down = await runMigrations(database, "down");
@@ -659,6 +669,7 @@ describe("A1a PostgreSQL foundation", () => {
       "0018_c6_opportunities_direct_offers",
       "0019_c7_solver_activation",
       "0020_c8_notifications",
+      "0021_c6_offer_deadline_single_clock",
     ]);
   });
 });

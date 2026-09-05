@@ -1,11 +1,14 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ConfirmDialog } from "@/components/internal/shared";
 import { Icon } from "@/components/icons";
 import { PersonAvatar } from "@/components/person-avatar";
+import { useWebRuntime } from "@/components/runtime-provider";
 import { useSolverContext } from "@/components/solver-shell";
+
 import { TeamResumeDialog, type TeamResumeSummary } from "@/components/team-resume-dialog";
 import type { SolverState, TeamRole } from "@/domain/solver";
 import { teamRole } from "@rahhal/domain";
@@ -30,6 +33,22 @@ import {
   teamPermission,
   transferOwnership,
 } from "@/lib/solver/repository";
+
+// Loaded on demand: the connected surfaces are only reachable in network mode,
+// and importing them eagerly puts them in the shared demo bundle, which the
+// performance budgets refuse.
+const ConnectedTeamsExperience = dynamic(
+  () =>
+    import("@/components/solver/connected-teams").then((module) => module.ConnectedTeamsExperience),
+  {
+    loading: () => (
+      <section className="rh-card rh-profile-empty" aria-busy="true">
+        <span className="sr-only">در حال بارگذاری بخش متصل</span>
+        <div className="route-fallback__skeleton" aria-hidden="true" />
+      </section>
+    ),
+  },
+);
 
 function useStore() {
   const [state, setState] = useState<SolverState>(() => readSolverState());
@@ -58,7 +77,21 @@ function ReceiptToast({ value, onClose }: { value: string; onClose: () => void }
   );
 }
 
+/**
+ * The teams surface for the active workspace.
+ *
+ * In network mode this is the C2 server aggregate; the demo projection below
+ * is reached only by the static export. There is deliberately no blend of the
+ * two: a page that read live members but issued demo commands would show a
+ * receipt for a change the server never made.
+ */
 export function SolverTeamsOverview() {
+  const runtime = useWebRuntime();
+  if (runtime.mode === "network") return <ConnectedTeamsExperience />;
+  return <DemoTeamsOverview />;
+}
+
+function DemoTeamsOverview() {
   const context = useSolverContext();
   const state = useStore();
   if (context.type === "team") return <SolverTeamManagement />;
@@ -801,7 +834,14 @@ export function SolverTeamManagement({ initialTab = "overview" }: { initialTab?:
   );
 }
 
+/** Invitations and membership requests; connected in network mode. */
 export function SolverInvitationsExperience() {
+  const runtime = useWebRuntime();
+  if (runtime.mode === "network") return <ConnectedTeamsExperience />;
+  return <DemoInvitationsExperience />;
+}
+
+function DemoInvitationsExperience() {
   const context = useSolverContext();
   const state = useStore();
   const [notice, setNotice] = useState("");

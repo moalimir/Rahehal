@@ -2951,7 +2951,9 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
             request.params.proposalId,
           );
           if (!resource) throw notFound();
-          return success(resource, request, ports);
+          // Versioned like the solver's own read: the organization's C4/C5
+          // commands all require `expected_version`, so the read has to supply it.
+          return versionedSuccess(resource, request, ports, resource.version);
         },
         canReadChallenge,
       );

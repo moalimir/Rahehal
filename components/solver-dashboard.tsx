@@ -417,7 +417,7 @@ export function SolverDashboardExperience({
   // A family that failed to load contributes null, and the card below shows
   // that explicitly rather than a zero the human would read as real.
   const connected = useConnectedSolverDashboard();
-  const liveCounts = connected.state.kind === "ready" ? connected.state.summary.proposals : null;
+  const liveCounts = connected.state.kind === "ready" ? connected.state.data.proposals : null;
   const metrics = useMemo(() => {
     const proposals = projection.proposals;
     if (liveCounts) {

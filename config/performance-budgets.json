@@ -26,14 +26,15 @@
       "maxLargestAssetBytes": 736000,
       "maxSharedInitialBytes": 570000,
       "routes": {
-        "/": 1524000,
-        "/challenges/": 1382000,
+        "/": 1530000,
+        "/challenges/": 1390000,
         "/challenges/smart-water-recovery/": 570000,
-        "/app/solver/dashboard/": 1382000,
-        "/app/org/challenges/": 1382000,
-        "/app/reviewer/assignments/": 1382000,
-        "/app/ops/publication/": 1382000
-      }
+        "/app/solver/dashboard/": 1390000,
+        "/app/org/challenges/": 1390000,
+        "/app/reviewer/assignments/": 1390000,
+        "/app/ops/publication/": 1390000
+      },
+      "_note": "C9 raised the connected route ceilings by 4,153 bytes on 2026-09-05, measured against the build that converted the proposal, team, saved/offer, organization-inbox and notification page families to server authority. The increase is the typed command gateways the RuntimeProvider composes for those nine families; every connected page component itself is loaded on demand and stays out of this chunk. The demo ceilings guard the public static export and were not raised -- they fell by 4,761 bytes in the same change."
     }
   },
   "staticAssets": {
@@ -46,6 +47,10 @@
   },
   "webVitals": {
     "_note": "User-centric p75 targets on Persian-market mobile (DEC-2026-009, 95 §7). Not enforced by check:budgets — Lighthouse/RUM evidence is required by the G5 pilot-hardening gate.",
-    "p75": { "lcpMs": 2500, "inpMs": 200, "cls": 0.1 }
+    "p75": {
+      "lcpMs": 2500,
+      "inpMs": 200,
+      "cls": 0.1
+    }
   }
 }

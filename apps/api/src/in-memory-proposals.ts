@@ -1142,6 +1142,7 @@ export class InMemoryProposalAdapter implements ProposalPort {
       owner_workspace_kind: proposal.owner_workspace_kind,
       state: proposal.state,
       tracking_code: proposal.tracking_code,
+      version: proposal.version,
       submitted_at: proposal.submitted_at,
       submitted_version: {
         id: version.id,
@@ -1164,9 +1165,14 @@ export class InMemoryProposalAdapter implements ProposalPort {
       .filter((item): item is OrganizationProposalResource => item !== null)
       .sort((left, right) => right.submitted_at.localeCompare(left.submitted_at))
       .slice(0, 100)
-      .map(({ content, ...item }): OrganizationProposalInboxItemResource => {
+      // The inbox row stays closed: content and the aggregate version belong to
+      // the per-record read, which re-checks the grant at that moment.
+      .map(({ content, version, clarifications, revision_requests, ...item }) => {
         void content;
-        return item;
+        void version;
+        void clarifications;
+        void revision_requests;
+        return item satisfies OrganizationProposalInboxItemResource;
       });
     return { items };
   }

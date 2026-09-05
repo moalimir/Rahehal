@@ -1,36 +1,50 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { ChallengeOrganizationLogo } from "@/components/challenge-organization-logo";
 import { Icon } from "@/components/icons";
 import { useSolverContext } from "@/components/solver-shell";
+import {
+  ConnectedFamilyError,
+  ConnectedFamilyFallback,
+} from "@/components/solver/connected-family-state";
+import { useActiveWorkspaceName, useConnectedFamily } from "@/components/solver/use-connected";
 import { getChallengePublisher } from "@/data/challenge-publishers";
 import { challenges } from "@/data/mock";
-import type { ProposalState, SolverState } from "@/domain/solver";
+import type { Proposal, ProposalState, SolverState } from "@/domain/solver";
 import { buildSolverHref } from "@/lib/solver/context";
 import {
   proposalsForWorkspace,
   readSolverState,
   subscribeSolverState,
 } from "@/lib/solver/repository";
+import { proposalStateLabels as labels } from "@/lib/workspace/proposal-labels";
+import { proposalHref } from "@/lib/workspace/proposal-navigation";
+import { proposalRecordScopeLost, readProposalRecord } from "@/lib/workspace/proposal-record";
+import {
+  proposalListScopeLost,
+  readProposalList,
+  type ProposalRow,
+} from "@/lib/workspace/proposal-rows";
 
-const labels: Record<ProposalState, string> = {
-  draft: "پیش‌نویس",
-  submitted: "ارسال‌شده",
-  eligibility_review: "بررسی شرایط",
-  eligible: "واجد شرایط",
-  ineligible: "فاقد شرایط",
-  clarification_requested: "نیازمند شفاف‌سازی",
-  clarification_submitted: "شفاف‌سازی ارسال‌شده",
-  reviewing: "در حال بررسی",
-  revision_requested: "نیازمند اصلاح",
-  revision_draft: "پیش‌نویس اصلاح",
-  resubmitted: "اصلاحات ارسال‌شده",
-  selected: "منتخب",
-  rejected: "ردشده",
-  withdrawn: "پس‌گرفته‌شده",
-};
+// Loaded on demand: the connected record is unreachable in demo mode, and an
+// eager import puts it in the shared demo bundle the budgets refuse.
+const ConnectedProposalDetail = dynamic(
+  () =>
+    import("@/components/solver/connected-proposal-detail").then(
+      (module) => module.ConnectedProposalDetail,
+    ),
+  {
+    loading: () => (
+      <section className="rh-card rh-profile-empty" aria-busy="true">
+        <span className="sr-only">در حال بارگذاری پرونده پیشنهاد</span>
+        <div className="route-fallback__skeleton" aria-hidden="true" />
+      </section>
+    ),
+  },
+);
 
 const actionStates = new Set<ProposalState>([
   "draft",
@@ -60,6 +74,26 @@ function workspaceLabel(state: SolverState, workspaceId: string) {
   return workspaceId === state.personalWorkspace.id
     ? state.personalWorkspace.name
     : (state.teams.find((team) => team.workspaceId === workspaceId)?.name ?? workspaceId);
+}
+
+/**
+ * The demo projection rendered through the same row the server produces, so
+ * the list has one render path. The fixture publisher and title stay on this
+ * side of the boundary: a connected row carries neither.
+ */
+function demoRow(proposal: Proposal, state: SolverState): ProposalRow {
+  const version = state.proposalVersions.find((item) => item.id === proposal.currentVersionId);
+  return {
+    id: proposal.id,
+    challengeId: proposal.challengeId,
+    challengeTitle: challenges.find((item) => item.id === proposal.challengeId)?.title ?? null,
+    publisherName: getChallengePublisher(proposal.challengeId).name,
+    state: proposal.state,
+    updatedAt: proposal.updatedAt,
+    versionNumber: version?.number ?? 1,
+    trackingCode: proposal.trackingCode ?? null,
+    ready: false,
+  };
 }
 
 export function SolverProposalsList() {
@@ -93,16 +127,33 @@ export function SolverProposalsList() {
       window.history.replaceState({}, "", `#${next}`);
     else window.history.replaceState({}, "", next);
   }, [context, query, sort, status]);
-  const proposals = proposalsForWorkspace(context.workspaceId, state);
+  // Connected runtime: rows come from the server for the active workspace.
+  // The demo projection below is reached only in demo mode, so a network
+  // session can never fall through to a fixture row while the read is pending.
+  const connected = useConnectedFamily(readProposalList, proposalListScopeLost);
+  const liveWorkspaceName = useActiveWorkspaceName();
+  const activeWorkspaceName = liveWorkspaceName ?? workspaceLabel(state, context.workspaceId);
+  const demoProposals = useMemo(
+    () =>
+      connected.state.kind === "demo"
+        ? proposalsForWorkspace(context.workspaceId, state).map((proposal) =>
+            demoRow(proposal, state),
+          )
+        : [],
+    [connected.state.kind, context.workspaceId, state],
+  );
+  const liveError = connected.state.kind === "ready" ? connected.state.data.error : null;
+  const proposals: readonly ProposalRow[] =
+    connected.state.kind === "ready" ? connected.state.data.rows : demoProposals;
   const visible = useMemo(() => {
     const rows = proposals.filter((proposal) => {
-      const challenge = challenges.find((item) => item.id === proposal.challengeId);
-      const publisher = getChallengePublisher(proposal.challengeId);
       const selectedStates = statusGroups[status];
       return (
         (status === "all" ||
           (selectedStates ? selectedStates.includes(proposal.state) : proposal.state === status)) &&
-        `${proposal.id} ${challenge?.title ?? ""} ${publisher.name}`.includes(query.trim())
+        `${proposal.id} ${proposal.challengeTitle ?? ""} ${proposal.publisherName ?? ""}`.includes(
+          query.trim(),
+        )
       );
     });
     return [...rows].sort((a, b) => {
@@ -128,11 +179,25 @@ export function SolverProposalsList() {
     ],
   ];
 
+  // `demo` and `ready` both render the list below; the other three states are
+  // the shared fallback. Checking the kind rather than the returned element
+  // matters: a JSX element is always truthy even when the component renders
+  // null, so testing the element would blank the page in demo mode.
+  if (connected.state.kind !== "ready" && connected.state.kind !== "demo")
+    return <ConnectedFamilyFallback state={connected.state} label="پیشنهادها" />;
+
   return (
     <>
+      {liveError && (
+        <ConnectedFamilyError error={liveError} label="فهرست پیشنهادها">
+          <button type="button" onClick={connected.refresh}>
+            تلاش دوباره
+          </button>
+        </ConnectedFamilyError>
+      )}
       <header className="rh-profile-heading">
         <div>
-          <small>{workspaceLabel(state, context.workspaceId)}</small>
+          <small>{activeWorkspaceName}</small>
           <h1>پیشنهادها و پرونده‌های {context.type === "team" ? "تیم" : "من"}</h1>
           <p>هر ردیف از proposal canonical همان workspace ساخته و به شناسه خودش متصل می‌شود.</p>
         </div>
@@ -217,7 +282,6 @@ export function SolverProposalsList() {
           </div>
         </header>
         {visible.map((proposal) => {
-          const challenge = challenges.find((item) => item.id === proposal.challengeId);
           const editable = [
             "draft",
             "revision_requested",
@@ -230,13 +294,21 @@ export function SolverProposalsList() {
               key={proposal.id}
             >
               <div className="rh-work-item__identity">
-                <span className="rh-work-item__logo">
-                  <ChallengeOrganizationLogo challengeId={proposal.challengeId} size="small" />
-                </span>
+                {proposal.publisherName && (
+                  <span className="rh-work-item__logo">
+                    <ChallengeOrganizationLogo challengeId={proposal.challengeId} size="small" />
+                  </span>
+                )}
                 <div>
-                  <strong>{challenge?.title ?? `فرصت ${proposal.challengeId}`}</strong>
+                  <strong>
+                    {proposal.challengeTitle ?? (
+                      <>
+                        فرصت <bdi dir="ltr">{proposal.challengeId}</bdi>
+                      </>
+                    )}
+                  </strong>
                   <small>
-                    {getChallengePublisher(proposal.challengeId).name} ·{" "}
+                    {proposal.publisherName ? `${proposal.publisherName} · ` : ""}
                     <bdi dir="ltr">{proposal.id}</bdi>
                   </small>
                 </div>
@@ -258,21 +330,27 @@ export function SolverProposalsList() {
                 </div>
                 <div>
                   <dt>نسخه جاری</dt>
-                  <dd>
-                    <bdi dir="ltr">{proposal.currentVersionId}</bdi>
-                  </dd>
+                  <dd>{proposal.versionNumber.toLocaleString("fa-IR")}</dd>
                 </div>
                 <div>
-                  <dt>فضای ارسال</dt>
-                  <dd>{workspaceLabel(state, proposal.ownerWorkspaceId)}</dd>
+                  <dt>کد پیگیری</dt>
+                  <dd>
+                    {proposal.trackingCode ? (
+                      <bdi dir="ltr">{proposal.trackingCode}</bdi>
+                    ) : (
+                      "تا ارسال نهایی صادر نمی‌شود"
+                    )}
+                  </dd>
                 </div>
               </dl>
               <div className="rh-work-item__next">
                 <small>اقدام بعدی</small>
                 <Link
-                  href={buildSolverHref(
-                    `/app/solver/proposals/${proposal.id}/${editable ? "edit" : "preview"}`,
-                    context,
+                  href={proposalHref(
+                    buildSolverHref(
+                      `/app/solver/proposals/${proposal.id}/${editable ? "edit" : "preview"}`,
+                      context,
+                    ),
                   )}
                 >
                   {editable ? "ادامه پرونده" : "مشاهده نسخه قفل‌شده"} <Icon name="arrow" />
@@ -320,6 +398,20 @@ export function SolverProposalsList() {
 }
 
 export function SolverProposalDetail({ proposalId }: { proposalId: string }) {
+  const connected = useConnectedFamily(
+    // The read closes over the record id, so the hook is told the id: without
+    // it, opening a second proposal would keep showing the first one's content.
+    useMemo(() => readProposalRecord(proposalId), [proposalId]),
+    proposalRecordScopeLost,
+    proposalId,
+  );
+  if (connected.state.kind === "demo") return <DemoProposalDetail proposalId={proposalId} />;
+  if (connected.state.kind !== "ready")
+    return <ConnectedFamilyFallback state={connected.state} label="این پیشنهاد" />;
+  return <ConnectedProposalDetail view={connected.state.data} />;
+}
+
+function DemoProposalDetail({ proposalId }: { proposalId: string }) {
   const context = useSolverContext();
   const state = readSolverState();
   const proposal = proposalsForWorkspace(context.workspaceId, state).find(
@@ -388,7 +480,9 @@ export function SolverProposalDetail({ proposalId }: { proposalId: string }) {
           {actionable && (
             <Link
               className="rh-profile-primary"
-              href={buildSolverHref(`/app/solver/proposals/${proposal.id}/edit`, context)}
+              href={proposalHref(
+                buildSolverHref(`/app/solver/proposals/${proposal.id}/edit`, context),
+              )}
             >
               اعمال اصلاحات
             </Link>

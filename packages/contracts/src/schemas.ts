@@ -788,12 +788,14 @@ const organizationProposalResourceSchema = {
   ...organizationProposalInboxItemSchema,
   required: [
     ...organizationProposalInboxItemSchema.required,
+    "version",
     "content",
     "clarifications",
     "revision_requests",
   ],
   properties: {
     ...organizationProposalInboxItemSchema.properties,
+    version: { type: "integer", minimum: 1 },
     content: proposalContentSchema,
     clarifications: { type: "array", items: proposalClarificationSchema },
     revision_requests: { type: "array", items: proposalRevisionRequestSchema },
@@ -2360,7 +2362,7 @@ export const apiSchemas = {
   OrganizationProposalInboxItem: organizationProposalInboxItemSchema,
   OrganizationProposal: organizationProposalResourceSchema,
   OrganizationProposalInbox: organizationProposalInboxSchema,
-  OrganizationProposalSuccessEnvelope: successEnvelopeFor(organizationProposalResourceSchema),
+  OrganizationProposalSuccessEnvelope: successEnvelopeFor(organizationProposalResourceSchema, true),
   OrganizationProposalInboxSuccessEnvelope: successEnvelopeFor(organizationProposalInboxSchema),
   Notification: notificationSchema,
   NotificationList: notificationListSchema,

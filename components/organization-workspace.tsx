@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@/components/icons";
@@ -7,14 +8,61 @@ import { PersonAvatar } from "@/components/person-avatar";
 import type { InternalRoute } from "@/data/internal-routes";
 import { createDirectOffer, listDirectOffers, type DirectOffer } from "@/lib/offers/store";
 import { useWebRuntime } from "@/components/runtime-provider";
+
 import { isNetworkWebRuntime } from "@/lib/runtime/mode";
 import { PreviewDataNotice } from "@/components/organization-preview-notice";
+
+const ConnectedNotifications = dynamic(
+  () =>
+    import("@/components/solver/connected-notifications").then(
+      (module) => module.ConnectedNotifications,
+    ),
+  {
+    loading: () => (
+      <section className="rh-card rh-profile-empty" aria-busy="true">
+        <span className="sr-only">در حال بارگذاری بخش متصل</span>
+        <div className="route-fallback__skeleton" aria-hidden="true" />
+      </section>
+    ),
+  },
+);
+
+const ConnectedOrganizationProposals = dynamic(
+  () =>
+    import("@/components/solver/connected-organization-proposals").then(
+      (module) => module.ConnectedOrganizationProposals,
+    ),
+  {
+    loading: () => (
+      <section className="rh-card rh-profile-empty" aria-busy="true">
+        <span className="sr-only">در حال بارگذاری بخش متصل</span>
+        <div className="route-fallback__skeleton" aria-hidden="true" />
+      </section>
+    ),
+  },
+);
+
+const ConnectedOrganizationProposalRecord = dynamic(
+  () =>
+    import("@/components/solver/connected-organization-proposals").then(
+      (module) => module.ConnectedOrganizationProposalRecord,
+    ),
+  {
+    loading: () => (
+      <section className="rh-card rh-profile-empty" aria-busy="true">
+        <span className="sr-only">در حال بارگذاری بخش متصل</span>
+        <div className="route-fallback__skeleton" aria-hidden="true" />
+      </section>
+    ),
+  },
+);
 
 const topLevelOrganizationPaths = new Set([
   "/app/org/dashboard",
   "/app/org/experts",
   "/app/org/invitations",
   "/app/org/proposals",
+  "/app/org/proposals/record",
   "/app/org/pilots",
   "/app/org/contracts-payments",
   "/app/org/reports",
@@ -693,7 +741,20 @@ function OrganizationExperts({ invitations = false }: { invitations?: boolean })
   );
 }
 
+/**
+ * The organization's received proposals.
+ *
+ * In network mode this is the grant-scoped C4 inbox. The fixture list below
+ * showed scores, budgets, and solver names the inbox resource does not carry
+ * and the organization has no grant to see; it is the static export's only.
+ */
 function OrganizationProposals() {
+  const runtime = useWebRuntime();
+  if (runtime.mode === "network") return <ConnectedOrganizationProposals />;
+  return <DemoOrganizationProposals />;
+}
+
+function DemoOrganizationProposals() {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
   const [selected, setSelected] = useState<string[]>([]);
@@ -1452,7 +1513,25 @@ function OrganizationSettings() {
   );
 }
 
+/**
+ * Organization notifications.
+ *
+ * In network mode these are the same C8 projection the solver side reads,
+ * scoped to the organization workspace. The fixture list below is the static
+ * export's only; it never renders under a live session.
+ */
 function OrganizationNotifications() {
+  const runtime = useWebRuntime();
+  if (runtime.mode === "network")
+    return (
+      <div className="org-workspace-page">
+        <ConnectedNotifications persona="org" />
+      </div>
+    );
+  return <DemoOrganizationNotifications />;
+}
+
+function DemoOrganizationNotifications() {
   const [read, setRead] = useState<string[]>([]);
   const items = [
     [
@@ -1531,6 +1610,8 @@ export function OrganizationWorkspaceExperience({ route }: { route: InternalRout
         return <OrganizationExperts invitations />;
       case "/app/org/proposals":
         return <OrganizationProposals />;
+      case "/app/org/proposals/record":
+        return <ConnectedOrganizationProposalRecord />;
       case "/app/org/pilots":
         return <OrganizationPilots />;
       case "/app/org/contracts-payments":
