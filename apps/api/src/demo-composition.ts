@@ -16,11 +16,14 @@ import { InMemoryAccessDecisionAudit } from "./in-memory-audit.js";
 import { InMemoryChallengeRepository } from "./in-memory-challenges.js";
 import { InMemoryCriticalSection } from "./in-memory-critical-section.js";
 import { InMemoryIdentityAdapter } from "./in-memory-identity.js";
+import { InMemorySolverActivationAdapter } from "./in-memory-solver-activation.js";
 import { InMemoryOpportunityAdapter } from "./in-memory-opportunities.js";
 import { InMemoryProposalAdapter } from "./in-memory-proposals.js";
 import { InMemorySolverWorkspaceAdapter } from "./in-memory-solver-workspaces.js";
 import { InMemoryTeamAdapter } from "./in-memory-teams.js";
 import { MonotonicIdFactory, systemClock } from "./primitives.js";
+import { DevelopmentContactVerificationAdapter } from "./development-contact-verification.js";
+import { HmacSessionCredentialIssuer } from "./session-credentials.js";
 import type { ApiPorts, Clock, DemoIdentitySeed, IdFactory } from "./ports.js";
 
 export const demoApiCredentials = {
@@ -577,6 +580,7 @@ export type DemoApiComposition = {
   readonly teams: InMemoryTeamAdapter;
   readonly proposals: InMemoryProposalAdapter;
   readonly opportunities: InMemoryOpportunityAdapter;
+  readonly solverActivation: InMemorySolverActivationAdapter;
 };
 
 export function createDemoApiComposition(options: {
@@ -609,6 +613,23 @@ export function createDemoApiComposition(options: {
   challenges.seed(demoPublishedChallengeAggregate(clock.now().toISOString()));
   challenges.seedPublicProjection(demoPublicChallenge(clock.now().toISOString()));
   const solverWorkspaces = new InMemorySolverWorkspaceAdapter(seeds, challenges, clock, ids);
+  const contactVerification = new DevelopmentContactVerificationAdapter(
+    {
+      code: "12345",
+      flowSecret: "rahhal-demo-contact-verification-secret-0001",
+    },
+    clock,
+    ids,
+  );
+  const solverActivation = new InMemorySolverActivationAdapter(
+    contactVerification,
+    identity,
+    solverWorkspaces,
+    new HmacSessionCredentialIssuer("rahhal-demo-session-credential-secret-0001"),
+    criticalSection,
+    clock,
+    ids,
+  );
   const teams = new InMemoryTeamAdapter(seeds, identity, solverWorkspaces, clock, ids);
   const proposals = new InMemoryProposalAdapter(challenges, solverWorkspaces, teams, clock, ids);
   const opportunities = new InMemoryOpportunityAdapter(
@@ -630,13 +651,16 @@ export function createDemoApiComposition(options: {
     teams,
     proposals,
     opportunities,
+    solverActivation,
     ports: {
       oidcAuthorization: {
         async start() {
           throw new Error("The demo API does not publish a real OIDC authorization flow");
         },
       },
+      contactVerification,
       sessions: identity,
+      solverActivation,
       workspaces: identity,
       authority: identity,
       challenges,

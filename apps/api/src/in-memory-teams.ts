@@ -640,7 +640,7 @@ export class InMemoryTeamAdapter implements TeamPort {
     actorUserId: import("@rahhal/domain").UserId,
   ): Promise<readonly TeamInvitationResource[]> {
     const user = this.identity.userForTeam(actorUserId);
-    if (!user?.emailVerified) return [];
+    if (!user?.emailVerified || !user.primaryEmail) return [];
     const normalized = email(user.primaryEmail);
     return [...this.invitations.values()]
       .filter(
@@ -662,6 +662,7 @@ export class InMemoryTeamAdapter implements TeamPort {
     if (
       !invitation ||
       !user?.emailVerified ||
+      !user.primaryEmail ||
       (invitation.recipient_user_id !== context.actorUserId &&
         invitation.recipient_email !== email(user.primaryEmail))
     )

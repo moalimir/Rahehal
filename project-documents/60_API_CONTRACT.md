@@ -76,7 +76,7 @@ OIDC authorization start returns the provider URL plus one-time browser-held sta
 
 ## 4. Error contract
 
-Maps the seven canonical error codes to HTTP plus a stable envelope. Errors are **non-enumerating** for protected records (a hidden record and a denied record both return `404` to non-members).
+Maps the canonical error codes to HTTP plus a stable envelope. Errors are **non-enumerating** for protected records (a hidden record and a denied record both return `404` to non-members).
 
 ```jsonc
 {
@@ -95,32 +95,46 @@ Maps the seven canonical error codes to HTTP plus a stable envelope. Errors are 
 }
 ```
 
-| `code`             | HTTP                       | When                                        | Recovery hint                                    |
-| ------------------ | -------------------------- | ------------------------------------------- | ------------------------------------------------ |
-| `VALIDATION`       | 422                        | Field/schema/readiness failure              | Field-level errors in `error.fields`             |
-| `NO_ACCESS`        | 403 (or 404 for protected) | AuthN/AuthZ deny                            | Non-enumerating for protected records            |
-| `NOT_FOUND`        | 404                        | Unknown/removed/cross-tenant ID             | Never falls back to a sample (invariant 20 §7.5) |
-| `INVALID_STATE`    | 409                        | Transition not allowed from current state   | Show current state + allowed transitions         |
-| `CONFLICT`         | 409                        | Stale `expected_version` / duplicate unique | Return `current_version`; refetch & merge        |
-| `STORAGE`          | 503                        | Transient persistence/provider failure      | Safe to retry with same idempotency key          |
-| `STEP_UP_REQUIRED` | 403                        | Authenticated action needs fresh step-up    | Start the approved IdP step-up flow              |
+| `code`                 | HTTP                       | When                                        | Recovery hint                                    |
+| ---------------------- | -------------------------- | ------------------------------------------- | ------------------------------------------------ |
+| `VALIDATION`           | 422                        | Field/schema/readiness failure              | Field-level errors in `error.fields`             |
+| `NO_ACCESS`            | 403 (or 404 for protected) | AuthN/AuthZ deny                            | Non-enumerating for protected records            |
+| `NOT_FOUND`            | 404                        | Unknown/removed/cross-tenant ID             | Never falls back to a sample (invariant 20 §7.5) |
+| `INVALID_STATE`        | 409                        | Transition not allowed from current state   | Show current state + allowed transitions         |
+| `CONFLICT`             | 409                        | Stale `expected_version` / duplicate unique | Return `current_version`; refetch & merge        |
+| `STORAGE`              | 503                        | Transient persistence/provider failure      | Safe to retry with same idempotency key          |
+| `STEP_UP_REQUIRED`     | 403                        | Authenticated action needs fresh step-up    | Start the approved IdP step-up flow              |
+| `VERIFICATION_EXPIRED` | 409                        | Contact-verification attempt expired        | Start contact verification again                 |
+| `VERIFICATION_LOCKED`  | 409                        | Verification attempt exhausted              | Start contact verification again                 |
+| `RATE_LIMITED`         | 429                        | Start/resend frequency exceeded             | Retry after the response's `Retry-After` delay   |
+| `ACTIVATION_REQUIRED`  | 409                        | Verified contact has no solver activation   | Activate the individual solver identity          |
 
 Rate-limited requests return `429` with `Retry-After`. All errors carry `correlation_id`.
 
 ## 5. MVP slice endpoints
 
-The OpenAPI now has exactly **60 paths / 65 operations**: the completed Phase-1/2 surface, C1 solver facts/eligibility, C2 team lifecycle, C3 proposal draft create/read/save, C4 proposal submission plus organization inbox/detail reads, and C5 bilateral eligibility/clarification/revision commands. Every implemented write carries `expected_version` and `Idempotency-Key`; every protected solver/team/profile/proposal route and protected challenge write additionally requires `X-Workspace-Id`. B3's challenge create/save fields (`verification_required`, `document_gate_required`, `allowed_applicant_types`, `nda_required`, and `proposal_deadline`) become the immutable rule snapshot C1/C4 read for the exact published version. Entries labelled future below are not part of the current contract. PostgreSQL mode validates signed issuer/audience/nonce, exact state/redirect, S256 PKCE, the existing `(issuer, subject)` link, and a verified matching contact before issuing digest-only app credentials. Contact verification remains distinct from workspace verification. RLS, the managed production IdP, and managed step-up remain later gates.
+The OpenAPI now has exactly **79 paths / 86 operations**: the completed Phase-1/2 surface, C1 solver facts/eligibility, C2 team lifecycle, C3 proposal draft create/read/save, C4 proposal submission plus organization inbox/detail reads, C5 bilateral eligibility/clarification/revision commands, C6 saved opportunities/direct offers, and C7 solver contact verification/activation. Every implemented write carries `expected_version` and `Idempotency-Key`; every protected solver/team/profile/proposal route and protected challenge write additionally requires `X-Workspace-Id`. B3's challenge create/save fields (`verification_required`, `document_gate_required`, `allowed_applicant_types`, `nda_required`, and `proposal_deadline`) become the immutable rule snapshot C1/C4 read for the exact published version. Entries labelled future below are not part of the current contract. PostgreSQL mode validates signed issuer/audience/nonce, exact state/redirect, S256 PKCE, the existing `(issuer, subject)` link, and a verified matching contact before issuing digest-only app credentials. C7 adds an independent provider assertion route for self-service solvers; contact verification remains distinct from workspace verification. RLS, the managed production IdP, and managed step-up remain later gates.
 
 ### 5.1 Identity & context
 
 ```
 POST /auth/oidc:start              # exact redirect → provider authorization URL + one-time PKCE values
 POST /auth/session:exchange        # OIDC code → app session (thin; IdP owns credentials/OTP)
+POST /auth/contact-verification:start
+POST /auth/contact-verifications/{attemptId}:resend
+POST /auth/contact-verifications/{attemptId}:verify
+POST /auth/contact-session:exchange # verified contact → returning solver session
 POST /auth/session:refresh
 POST /auth/session:revoke
+POST /solver/activation            # verified contact → one human + permanent individual workspace
+GET  /solver/activation            # authenticated activation/start-intent record
 GET  /me                           # user + memberships + available workspaces
 POST /me/context:switch            # set active workspace (validated vs membership)
 ```
+
+C7 contact start/resend/verify operations are provider-neutral and return only masked destination metadata plus typed pending/verified state. Expired and exhausted attempts return `VERIFICATION_EXPIRED`/`VERIFICATION_LOCKED`; bounded start/resend sends return `RATE_LIMITED` with `Retry-After`; unknown attempts, wrong codes, malformed/replayed assertions, and consumed assertions share non-enumerating denial behavior. Verification returns a short-lived one-time provider assertion, never an app password or stored OTP secret.
+
+`POST /solver/activation` consumes that assertion and atomically creates the app identity, solver tenant, permanent individual workspace/membership, blank C1 profile, `not_started` workspace verification, session, receipt, audit, outbox, and idempotency result. Its `start_intent` is only `individual|team`; team intent returns `create_team`, after which the client uses C2's separate team-create command. `POST /auth/contact-session:exchange` consumes a fresh assertion for a previously activated human and returns a session with no active workspace so existing context selection remains authoritative. Exact idempotent replay returns the original receipt/session result; another use of a consumed assertion is denied.
 
 ### 5.2 Challenge (organization)
 

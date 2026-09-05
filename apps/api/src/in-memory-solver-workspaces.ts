@@ -22,6 +22,7 @@ import {
   type VerificationId,
   type WorkspaceId,
   type TeamWorkspace,
+  type Workspace,
 } from "@rahhal/domain";
 
 import { ApiProblem, forbidden, idempotencyConflict, notFound, staleVersion } from "./errors.js";
@@ -107,6 +108,18 @@ export class InMemorySolverWorkspaceAdapter implements SolverWorkspacePort, Elig
   }
 
   initializeTeamWorkspaceForTeam(workspace: TeamWorkspace): void {
+    this.initializeSolverWorkspace(workspace);
+  }
+
+  initializeIndividualWorkspaceForActivation(
+    workspace: Extract<Workspace, { readonly kind: "individual" }>,
+  ): void {
+    this.initializeSolverWorkspace(workspace);
+  }
+
+  private initializeSolverWorkspace(
+    workspace: Extract<Workspace, { readonly kind: "individual" | "team" }>,
+  ): void {
     if (this.profiles.has(workspace.id) || this.verifications.has(workspace.id)) {
       throw new Error("The demo team solver facts already exist");
     }
@@ -115,8 +128,8 @@ export class InMemorySolverWorkspaceAdapter implements SolverWorkspacePort, Elig
     this.profiles.set(workspace.id, {
       tenant_id: workspace.tenantId,
       workspace_id: workspace.id,
-      workspace_kind: "team",
-      applicant_type: workspace.teamKind,
+      workspace_kind: workspace.kind,
+      applicant_type: workspace.kind === "individual" ? "individual" : workspace.teamKind,
       ...facts,
       readiness: evaluateSolverProfileReadiness(facts),
       version: 1,

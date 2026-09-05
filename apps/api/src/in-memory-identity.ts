@@ -650,6 +650,8 @@ export class InMemoryIdentityAdapter
           display_name: userSeed.user.displayName,
           primary_email: userSeed.user.primaryEmail,
           email_verified: userSeed.user.emailVerified,
+          primary_phone: userSeed.user.primaryPhone ?? null,
+          phone_verified: userSeed.user.phoneVerified ?? false,
         },
         memberships: seeds.map((seed) =>
           membershipResource(
@@ -781,7 +783,7 @@ export class InMemoryIdentityAdapter
     const normalized = email.trim().toLocaleLowerCase("en-US");
     return (
       this.seeds.find(
-        (seed) => seed.user.primaryEmail.trim().toLocaleLowerCase("en-US") === normalized,
+        (seed) => seed.user.primaryEmail?.trim().toLocaleLowerCase("en-US") === normalized,
       )?.user ?? null
     );
   }
@@ -800,6 +802,78 @@ export class InMemoryIdentityAdapter
     if (existingIndex >= 0) this.seeds[existingIndex] = next;
     else this.seeds.push(next);
     this.state.membershipStates.set(membership.id, membership.state);
+  }
+
+  addActivatedIndividualForSolver(
+    user: User,
+    workspace: Extract<Workspace, { readonly kind: "individual" }>,
+    membership: Membership,
+    session: {
+      readonly id: SessionId;
+      readonly accessToken: string;
+      readonly refreshToken: string;
+      readonly accessExpiresAt: string;
+      readonly refreshExpiresAt: string;
+      readonly activeWorkspaceId: WorkspaceId | null;
+    },
+  ): void {
+    this.seeds.push({
+      user,
+      workspace,
+      membership,
+      authorizationCode: `unused-${session.id}`,
+      codeVerifier: `unused-${session.id}`,
+      redirectUri: "http://localhost.invalid/unused",
+      oidcState: `unused-${session.id}`,
+      sessionId: session.id,
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken,
+    });
+    this.state.membershipStates.set(membership.id, "active");
+    const stored: StoredSession = {
+      id: session.id,
+      userId: user.id,
+      tenantId: workspace.tenantId,
+      version: 1,
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken,
+      accessExpiresAt: session.accessExpiresAt,
+      refreshExpiresAt: session.refreshExpiresAt,
+      activeWorkspaceId: session.activeWorkspaceId,
+      revoked: false,
+    };
+    this.state.sessions.set(stored.id, stored);
+    this.state.accessIndex.set(stored.accessToken, stored.id);
+    this.state.refreshIndex.set(stored.refreshToken, stored.id);
+  }
+
+  addContactSessionForSolver(
+    userId: UserId,
+    session: {
+      readonly id: SessionId;
+      readonly accessToken: string;
+      readonly refreshToken: string;
+      readonly accessExpiresAt: string;
+      readonly refreshExpiresAt: string;
+    },
+  ): void {
+    const seed = this.seeds.find((candidate) => candidate.user.id === userId);
+    if (!seed) throw new Error("Unknown demo solver identity");
+    const stored: StoredSession = {
+      id: session.id,
+      userId,
+      tenantId: seed.workspace.tenantId,
+      version: 1,
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken,
+      accessExpiresAt: session.accessExpiresAt,
+      refreshExpiresAt: session.refreshExpiresAt,
+      activeWorkspaceId: null,
+      revoked: false,
+    };
+    this.state.sessions.set(stored.id, stored);
+    this.state.accessIndex.set(stored.accessToken, stored.id);
+    this.state.refreshIndex.set(stored.refreshToken, stored.id);
   }
 
   updateTeamMembershipForTeam(membership: Membership): void {

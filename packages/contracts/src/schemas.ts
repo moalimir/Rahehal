@@ -31,6 +31,8 @@ import {
   workspaceKinds,
   workspaceRoles,
   verificationStates,
+  contactVerificationChannels,
+  solverStartIntents,
 } from "@rahhal/domain";
 
 import { apiErrorCodes } from "./envelopes.js";
@@ -78,12 +80,25 @@ const workspaceContextResourceSchema = {
 const userResourceSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["id", "display_name", "primary_email", "email_verified"],
+  required: [
+    "id",
+    "display_name",
+    "primary_email",
+    "email_verified",
+    "primary_phone",
+    "phone_verified",
+  ],
   properties: {
     id: idSchema("usr"),
     display_name: { type: "string", minLength: 1, maxLength: 200 },
-    primary_email: { type: "string", format: "email", maxLength: 320 },
+    primary_email: {
+      anyOf: [{ type: "string", format: "email", maxLength: 320 }, { type: "null" }],
+    },
     email_verified: { type: "boolean" },
+    primary_phone: {
+      anyOf: [{ type: "string", pattern: "^09[0-9]{9}$", maxLength: 40 }, { type: "null" }],
+    },
+    phone_verified: { type: "boolean" },
   },
 } as const;
 
@@ -194,6 +209,54 @@ const sessionTokenSetSchema = {
     token_type: { const: "Bearer" },
     access_token_expires_at: dateTimeSchema,
     refresh_token_expires_at: dateTimeSchema,
+  },
+} as const;
+
+const contactVerificationAttemptSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "attempt_id",
+    "channel",
+    "masked_destination",
+    "state",
+    "version",
+    "expires_at",
+    "resend_available_at",
+    "attempts_remaining",
+  ],
+  properties: {
+    attempt_id: idSchema("otp"),
+    channel: { type: "string", enum: contactVerificationChannels },
+    masked_destination: { type: "string", minLength: 3, maxLength: 320 },
+    state: { type: "string", enum: ["pending", "verified"] },
+    version: { type: "integer", minimum: 1 },
+    expires_at: dateTimeSchema,
+    resend_available_at: dateTimeSchema,
+    attempts_remaining: { type: "integer", minimum: 0, maximum: 5 },
+  },
+} as const;
+
+const solverActivationSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "user_id",
+    "tenant_id",
+    "individual_workspace_id",
+    "start_intent",
+    "version",
+    "activated_at",
+  ],
+  properties: {
+    id: idSchema("act"),
+    user_id: idSchema("usr"),
+    tenant_id: idSchema("ten"),
+    individual_workspace_id: idSchema("wsp"),
+    start_intent: { type: "string", enum: solverStartIntents },
+    version: { const: 1 },
+    activated_at: dateTimeSchema,
   },
 } as const;
 
@@ -1647,6 +1710,119 @@ export const apiSchemas = {
       redirect_uri: { type: "string", format: "uri", maxLength: 2_048 },
     },
   },
+  StartContactVerificationBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "channel", "destination"],
+    properties: {
+      expected_version: { const: 0 },
+      channel: { type: "string", enum: contactVerificationChannels },
+      destination: { type: "string", minLength: 3, maxLength: 320 },
+    },
+  },
+  ContactVerificationAttempt: contactVerificationAttemptSchema,
+  ContactVerificationAttemptSuccessEnvelope: successEnvelopeFor(
+    contactVerificationAttemptSchema,
+    true,
+  ),
+  ResendContactVerificationBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version"],
+    properties: { expected_version: { type: "integer", minimum: 1 } },
+  },
+  VerifyContactBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "code"],
+    properties: {
+      expected_version: { type: "integer", minimum: 1 },
+      // Persian and Arabic-Indic digits are accepted alongside ASCII: the
+      // provider normalizes them, and a Persian-first product cannot reject
+      // the digits its own keyboards produce before that normalization runs.
+      code: { type: "string", pattern: "^[0-9\\u06F0-\\u06F9\\u0660-\\u0669]{5}$" },
+    },
+  },
+  VerifiedContact: {
+    type: "object",
+    additionalProperties: false,
+    required: ["attempt", "verification_token", "verification_token_expires_at"],
+    properties: {
+      attempt: {
+        ...contactVerificationAttemptSchema,
+        properties: {
+          ...contactVerificationAttemptSchema.properties,
+          state: { const: "verified" },
+        },
+      },
+      verification_token: { type: "string", minLength: 32, maxLength: 4096 },
+      verification_token_expires_at: dateTimeSchema,
+    },
+  },
+  VerifiedContactSuccessEnvelope: successEnvelopeFor(
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["attempt", "verification_token", "verification_token_expires_at"],
+      properties: {
+        attempt: {
+          ...contactVerificationAttemptSchema,
+          properties: {
+            ...contactVerificationAttemptSchema.properties,
+            state: { const: "verified" },
+          },
+        },
+        verification_token: { type: "string", minLength: 32, maxLength: 4096 },
+        verification_token_expires_at: dateTimeSchema,
+      },
+    },
+    true,
+  ),
+  ContactSessionExchangeBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "verification_token"],
+    properties: {
+      expected_version: { const: 0 },
+      verification_token: { type: "string", minLength: 32, maxLength: 4096 },
+    },
+  },
+  ActivateSolverBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "verification_token", "display_name", "start_intent"],
+    properties: {
+      expected_version: { const: 0 },
+      verification_token: { type: "string", minLength: 32, maxLength: 4096 },
+      display_name: { type: "string", minLength: 1, maxLength: 200 },
+      start_intent: { type: "string", enum: solverStartIntents },
+    },
+  },
+  SolverActivation: solverActivationSchema,
+  SolverActivationSessionResult: {
+    type: "object",
+    additionalProperties: false,
+    required: ["activation", "tokens", "receipt"],
+    properties: {
+      activation: solverActivationSchema,
+      tokens: sessionTokenSetSchema,
+      receipt: mutationReceiptSchema,
+    },
+  },
+  SolverActivationSuccessEnvelope: successEnvelopeFor(
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["activation", "tokens", "receipt"],
+      properties: {
+        activation: solverActivationSchema,
+        tokens: sessionTokenSetSchema,
+        receipt: mutationReceiptSchema,
+      },
+    },
+    true,
+  ),
+  SolverActivationReadSuccessEnvelope: successEnvelopeFor(solverActivationSchema),
   OidcAuthorizationStartResult: {
     type: "object",
     additionalProperties: false,

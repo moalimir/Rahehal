@@ -15,6 +15,7 @@ export type ApiProblemOptions = {
   readonly readiness?: ApiReadiness;
   readonly recovery?: string;
   readonly eligibility?: EligibilityDecisionResource;
+  readonly retryAfterSeconds?: number;
   /**
    * Denial reason for the `audit_event` row, never for the client envelope.
    * A route that denies inside an authorized transaction cannot audit there:

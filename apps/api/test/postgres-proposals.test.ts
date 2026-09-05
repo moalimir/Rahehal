@@ -901,7 +901,7 @@ describe("C4 PostgreSQL proposal submission", () => {
     ).rejects.toMatchObject({ code: "55000" });
   });
 
-  it("preserves submitted grant bindings across a C5 then C4 down/up cycle", async () => {
+  it("preserves submitted grant bindings across a C7 through C4 down/up cycle", async () => {
     const created = await createReady(individual("c4-pg-create-migration-cycle-0001"));
     await proposals.submit(
       created.receipt.entity_id,
@@ -917,6 +917,7 @@ describe("C4 PostgreSQL proposal submission", () => {
     );
     if (!before?.tracking_code) throw new Error("Expected the first submitted tracking code.");
 
+    expect((await runMigrations(database, "down")).applied).toEqual(["0019_c7_solver_activation"]);
     expect((await runMigrations(database, "down")).applied).toEqual([
       "0018_c6_opportunities_direct_offers",
     ]);
@@ -930,6 +931,7 @@ describe("C4 PostgreSQL proposal submission", () => {
       "0016_c4_proposal_submission",
       "0017_c5_proposal_clarification_revision",
       "0018_c6_opportunities_direct_offers",
+      "0019_c7_solver_activation",
     ]);
 
     const restored = await database.query(

@@ -24,6 +24,7 @@ The default static export remains a clearly labeled fixture/offline demo under D
 - `OrganizationWorkspaceExperience` explicitly renders fixture dashboards, proposal rows, notification rows, expert/offers, profile, and settings behind `PreviewDataNotice`. Only the Phase-1/2 challenge authoring/governance/public projection slice is authoritative.
 - C1 solver profile/verification and eligibility ports are now composed, typed in runtime schemas/OpenAPI, and executable through the API. The connected solver pages still use browser/demo authority, and proposal commands/queries remain unimplemented until C3–C5.
 - C2 team policy and lifecycle ports are now composed, typed in runtime schemas/OpenAPI, and executable through the API. Membership removal/archive already cut server authority immediately; the connected team pages still use browser/demo commands until C9, and C8 still owns the notification projection.
+- C7 contact-verification and solver-activation ports are now composed, typed in runtime schemas/OpenAPI, and executable through the API. The development provider covers email/mobile start, resend, verify, expiry, lockout, bounded requests, one-time assertion consumption, returning sign-in, and production refusal. Migration `0019` creates one durable human/individual activation; optional team intent continues through C2. The rendered auth/onboarding pages still require C9 synchronization before they can claim this authority in network mode.
 - Solver notifications and organization notifications are fixture/browser-repository projections. The worker is demo-only; there is no authoritative in-app notification read model or read/unread API.
 - Anonymous protected-route handling already preserves `returnTo` and renders an explicit session-required state. Phase 3 must retain this behavior and add authenticated-route redirects, expiry recovery, and workspace selection.
 
@@ -141,8 +142,8 @@ Minimum final commands are the full frontend release bundle from AGENTS.md plus 
 | C1 solver facts/eligibility     | `verification` |
 | C2 team backend                 | `verification` |
 | C3 proposal draft backend       | `verification` |
-| C4–C6 proposal/offers backend   | `not-started`  |
-| C7 activation/OTP scheme        | `not-started`  |
+| C4–C6 proposal/offers backend   | `verification` |
+| C7 activation/OTP scheme        | `verification` |
 | C8 summaries/notifications      | `not-started`  |
 | C9 frontend synchronization     | `not-started`  |
 | C10 browser certification       | `not-started`  |

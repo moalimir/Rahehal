@@ -19,6 +19,7 @@ const errorResponse = (description: string) => ({
 const commonCommandErrors = {
   "403": errorResponse("The subject is not allowed to perform this action or step-up is required."),
   "409": errorResponse("The aggregate version or state conflicts with the command."),
+  "429": errorResponse("The command is temporarily rate limited."),
   "422": errorResponse("The command failed schema or domain validation."),
   "503": errorResponse("The authoritative store is temporarily unavailable."),
 } as const;
@@ -49,6 +50,13 @@ const challengeIdParameter = {
   name: "challengeId",
   required: true,
   schema: { type: "string", pattern: "^chl_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$" },
+} as const;
+
+const contactVerificationAttemptIdParameter = {
+  in: "path",
+  name: "attemptId",
+  required: true,
+  schema: { type: "string", pattern: "^otp_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$" },
 } as const;
 
 const teamInvitationIdParameter = {
@@ -223,6 +231,101 @@ export const openApiDocument = {
           },
           "409": commonCommandErrors["409"],
           "422": commonCommandErrors["422"],
+          "503": commonCommandErrors["503"],
+        },
+      },
+    },
+    [apiRoutes.contactVerificationStart]: {
+      post: {
+        operationId: "startContactVerification",
+        tags: ["Session"],
+        summary: "Start provider-owned email or mobile verification without enumerating identity",
+        parameters: [idempotencyHeader],
+        requestBody: { required: true, content: jsonContent("StartContactVerificationBody") },
+        responses: {
+          "200": {
+            description: "A typed provider verification attempt.",
+            content: jsonContent("ContactVerificationAttemptSuccessEnvelope"),
+          },
+          ...commonCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.resendContactVerification]: {
+      post: {
+        operationId: "resendContactVerification",
+        tags: ["Session"],
+        summary: "Resend a pending provider verification challenge",
+        parameters: [idempotencyHeader, contactVerificationAttemptIdParameter],
+        requestBody: { required: true, content: jsonContent("ResendContactVerificationBody") },
+        responses: {
+          "200": {
+            description: "The advanced provider verification attempt.",
+            content: jsonContent("ContactVerificationAttemptSuccessEnvelope"),
+          },
+          ...commonCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.verifyContact]: {
+      post: {
+        operationId: "verifyContact",
+        tags: ["Session"],
+        summary: "Verify a provider challenge and receive a one-time provider assertion",
+        parameters: [idempotencyHeader, contactVerificationAttemptIdParameter],
+        requestBody: { required: true, content: jsonContent("VerifyContactBody") },
+        responses: {
+          "200": {
+            description: "A short-lived assertion for session exchange or first activation.",
+            content: jsonContent("VerifiedContactSuccessEnvelope"),
+          },
+          ...commonCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.contactSessionExchange]: {
+      post: {
+        operationId: "exchangeContactSession",
+        tags: ["Session"],
+        summary: "Consume a verified contact assertion for an existing solver session",
+        parameters: [idempotencyHeader],
+        requestBody: { required: true, content: jsonContent("ContactSessionExchangeBody") },
+        responses: {
+          "200": {
+            description: "The application session and its mutation receipt.",
+            content: jsonContent("SessionSuccessEnvelope"),
+          },
+          ...commonCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.solverActivation]: {
+      post: {
+        operationId: "activateSolver",
+        tags: ["Identity"],
+        summary: "Activate one human identity and its permanent individual solver workspace",
+        parameters: [idempotencyHeader],
+        requestBody: { required: true, content: jsonContent("ActivateSolverBody") },
+        responses: {
+          "200": {
+            description: "The durable activation, active individual session, and atomic receipt.",
+            content: jsonContent("SolverActivationSuccessEnvelope"),
+          },
+          ...commonCommandErrors,
+        },
+      },
+      get: {
+        operationId: "getSolverActivation",
+        tags: ["Identity"],
+        summary: "Read the authenticated human's durable solver activation intent",
+        security: [{ bearerAuth: [] }],
+        responses: {
+          "200": {
+            description: "The durable solver activation.",
+            content: jsonContent("SolverActivationReadSuccessEnvelope"),
+          },
+          "403": commonCommandErrors["403"],
+          "404": errorResponse("The solver activation is unavailable."),
           "503": commonCommandErrors["503"],
         },
       },

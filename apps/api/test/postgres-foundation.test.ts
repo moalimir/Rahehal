@@ -60,9 +60,12 @@ beforeAll(async () => {
     "0016_c4_proposal_submission",
     "0017_c5_proposal_clarification_revision",
     "0018_c6_opportunities_direct_offers",
+    "0019_c7_solver_activation",
   ]);
 
   // Newest first.
+  const c7Down = await runMigrations(database, "down");
+  expect(c7Down.applied).toEqual(["0019_c7_solver_activation"]);
   const c6Down = await runMigrations(database, "down");
   expect(c6Down.applied).toEqual(["0018_c6_opportunities_direct_offers"]);
   const c5Down = await runMigrations(database, "down");
@@ -128,6 +131,7 @@ beforeAll(async () => {
     "0016_c4_proposal_submission",
     "0017_c5_proposal_clarification_revision",
     "0018_c6_opportunities_direct_offers",
+    "0019_c7_solver_activation",
   ]);
   const noOpUp = await runMigrations(database, "up");
   expect(noOpUp.applied).toEqual([]);
@@ -160,6 +164,7 @@ describe("A1a PostgreSQL foundation", () => {
       "challenge_approval",
       "challenge_public_projection",
       "challenge_version",
+      "contact_verification_consumption",
       "direct_offer",
       "eligibility_gate_acceptance",
       "eligibility_rule",
@@ -176,6 +181,7 @@ describe("A1a PostgreSQL foundation", () => {
       "proposal_version",
       "saved_opportunity",
       "schema_migration",
+      "solver_activation",
       "solver_workspace_profile",
       "team_invitation",
       "team_membership_request",
@@ -259,6 +265,10 @@ describe("A1a PostgreSQL foundation", () => {
       },
       {
         id: "0018_c6_opportunities_direct_offers",
+        checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
+      },
+      {
+        id: "0019_c7_solver_activation",
         checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
       },
     ]);
@@ -540,6 +550,8 @@ describe("A1a PostgreSQL foundation", () => {
   });
 
   it("fails the A1b migration atomically for an orphaned existing session", async () => {
+    const c7Down = await runMigrations(database, "down");
+    expect(c7Down.applied).toEqual(["0019_c7_solver_activation"]);
     const c6Down = await runMigrations(database, "down");
     expect(c6Down.applied).toEqual(["0018_c6_opportunities_direct_offers"]);
     const c5Down = await runMigrations(database, "down");
@@ -633,6 +645,7 @@ describe("A1a PostgreSQL foundation", () => {
       "0016_c4_proposal_submission",
       "0017_c5_proposal_clarification_revision",
       "0018_c6_opportunities_direct_offers",
+      "0019_c7_solver_activation",
     ]);
   });
 });

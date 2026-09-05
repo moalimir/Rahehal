@@ -31,10 +31,11 @@ npm run docker:up
 npm run docker:smoke
 ```
 
-The initializer creates an ignored mode-0600 `.env` with independent random A2 flow/session
-secrets and refuses to replace an existing file. The default local endpoints are web
+The initializer creates an ignored mode-0600 `.env` with independent random A2 flow/session and C7 contact-verification flow secrets and refuses to replace an existing file. The default local endpoints are web
 `http://localhost:3000`, API OpenAPI `http://localhost:3001/api/v1/openapi.json`, and the synthetic
 Dex issuer `http://dex.localhost:5556/dex`. Override host ports without editing Compose:
+
+An `.env` created before C7 must be upgraded manually with a random `SOLVER_OTP_FLOW_SECRET` of at least 32 bytes; the initializer deliberately never rewrites an existing local file.
 
 ```bash
 RAHHAL_WEB_PORT=3100 RAHHAL_API_PORT=3101 npm run docker:up
@@ -48,7 +49,7 @@ npm run docker:logs
 npm run docker:down
 ```
 
-`docker:build` refreshes changed targets. `docker:up` waits for Dex and PostgreSQL, runs the guarded one-shot migration/seed container, then starts the PostgreSQL-composed API and waits for HTTP health. `docker:smoke` creates a challenge with the synthetic session, restarts the API container, and reads the same record back. Dex exposes one synthetic local login (`owner-alpha@synthetic.invalid` / `rahhal-local-owner`) and an exact `http://localhost:3000/auth/browser/callback` redirect, which A3 connects to the web through the same-origin browser-session routes. The images run as unprivileged users on read-only root filesystems with all Linux capabilities dropped; writable temporary space is bounded `tmpfs`. Published ports bind to `127.0.0.1`, not the LAN. Do not weaken those defaults to simulate a server.
+`docker:build` refreshes changed targets. `docker:up` waits for Dex and PostgreSQL, runs the guarded one-shot migration/seed container, then starts the PostgreSQL-composed API and waits for HTTP health. `docker:smoke` creates a challenge with the synthetic session, restarts the API container, and reads the same record back. Dex exposes one synthetic local login (`owner-alpha@synthetic.invalid` / `rahhal-local-owner`) and an exact `http://localhost:3000/auth/browser/callback` redirect, which A3 connects to the web through the same-origin browser-session routes. C7's local email/mobile verification provider uses the configured synthetic code `12345`; it keeps challenges in process memory, persists no OTP payload, and refuses production startup. The images run as unprivileged users on read-only root filesystems with all Linux capabilities dropped; writable temporary space is bounded `tmpfs`. Published ports bind to `127.0.0.1`, not the LAN. Do not weaken those defaults to simulate a server.
 
 The stack is intentionally incomplete but no longer browser-authoritative for the delivered challenge slice. Phase 1 supplies PostgreSQL identity/workspace authorization, transaction-scoped challenge draft create/read/save, local OIDC, and the connected browser gateway. Phase 2 carries that slice through ops triage, full readiness, four attributed approval gates, publication, a structurally separate public projection, live-call controls, and a purpose/gate-scoped platform queue/brief. The managed production IdP, MFA/step-up, RLS, abuse controls, private file pipeline, and authoritative worker remain later gates; no application event crosses from the API process to the worker yet.
 

@@ -1,6 +1,10 @@
 import { Pool } from "pg";
 
 import { RandomIdFactory, systemClock } from "./primitives.js";
+import {
+  DevelopmentContactVerificationAdapter,
+  developmentContactVerificationSettings,
+} from "./development-contact-verification.js";
 import type {
   ApiPorts,
   Clock,
@@ -17,6 +21,7 @@ import { PostgresOpportunityAdapter } from "./postgres/opportunities.js";
 import { PostgresPublicChallengeAdapter } from "./postgres/public-challenges.js";
 import { PostgresProposalAdapter } from "./postgres/proposals.js";
 import { PostgresSolverWorkspaceAdapter } from "./postgres/solver-workspaces.js";
+import { PostgresSolverActivationAdapter } from "./postgres/solver-activation.js";
 import { PostgresTeamAdapter } from "./postgres/teams.js";
 import {
   oidcRuntimeSettings,
@@ -25,8 +30,8 @@ import {
 import { PostgresUnitOfWork } from "./postgres/unit-of-work.js";
 import { HmacSessionCredentialIssuer } from "./session-credentials.js";
 
-// B4's publish transaction and B5's public read both need the projection table.
-const requiredMigration = "0018_c6_opportunities_direct_offers";
+// C7 composition depends on the complete identity/solver activation schema.
+const requiredMigration = "0019_c7_solver_activation";
 
 type OidcAdapter = OidcExchangePort & OidcAuthorizationPort;
 
@@ -64,6 +69,7 @@ export async function createPostgresApiComposition(
   const clock = options.clock ?? systemClock;
   const ids = options.ids ?? new RandomIdFactory();
   const settings = options.oidc ? undefined : oidcRuntimeSettings(environment);
+  const contactVerificationSettings = developmentContactVerificationSettings(environment);
   const credentials =
     options.credentials ??
     new HmacSessionCredentialIssuer(required(environment, "SESSION_CREDENTIAL_SECRET"));
@@ -100,9 +106,21 @@ export async function createPostgresApiComposition(
     ids,
     decisionAudit,
   );
+  const contactVerification = new DevelopmentContactVerificationAdapter(
+    contactVerificationSettings,
+    clock,
+    ids,
+  );
   const challenges = new PostgresChallengeAdapter(unitOfWork, clock, ids);
   const publicChallenges = new PostgresPublicChallengeAdapter(unitOfWork);
   const solverWorkspaces = new PostgresSolverWorkspaceAdapter(unitOfWork, clock, ids);
+  const solverActivation = new PostgresSolverActivationAdapter(
+    unitOfWork,
+    contactVerification,
+    credentials,
+    clock,
+    ids,
+  );
   const teams = new PostgresTeamAdapter(unitOfWork, clock, ids);
   const proposals = new PostgresProposalAdapter(unitOfWork, teams, clock, ids);
   const opportunities = new PostgresOpportunityAdapter(unitOfWork, teams, clock, ids);
@@ -112,7 +130,9 @@ export async function createPostgresApiComposition(
     unitOfWork,
     ports: {
       oidcAuthorization: oidc,
+      contactVerification,
       sessions: identity,
+      solverActivation,
       workspaces: identity,
       authority: identity,
       challenges,

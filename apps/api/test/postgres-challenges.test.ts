@@ -109,6 +109,9 @@ function postgresRuntimeEnvironment(): NodeJS.ProcessEnv {
     OIDC_ALLOW_INSECURE_HTTP: "true",
     OIDC_FLOW_SECRET: "a1c-runtime-test-oidc-flow-secret-00000001",
     SESSION_CREDENTIAL_SECRET: "a1c-runtime-test-session-secret-00000001",
+    SOLVER_CONTACT_VERIFICATION_PROVIDER: "development",
+    SOLVER_OTP_DEVELOPMENT_CODE: "12345",
+    SOLVER_OTP_FLOW_SECRET: "c7-runtime-test-contact-flow-secret-000001",
   };
 }
 
@@ -1834,10 +1837,12 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
     // The suite normally migrates an empty database, so the backfill path --
     // and the ordering bug where the pairing constraint was added before it --
     // is invisible without this.
-    // Seven migrations sit above 0010: 0018 (C6 opportunities/offers), 0017
-    // (C5 clarification/revision), 0016
+    // Eight migrations sit above 0010: 0019 (C7 activation), 0018
+    // (C6 opportunities/offers), 0017 (C5 clarification/revision), 0016
     // (C4 submission), 0015 (C2 teams), 0014 (C1 solver profile/eligibility),
     // 0013 (proposal foundation), then 0012.
+    const c7Down = await runMigrations(database, "down");
+    expect(c7Down.applied).toEqual(["0019_c7_solver_activation"]);
     const c6Down = await runMigrations(database, "down");
     expect(c6Down.applied).toEqual(["0018_c6_opportunities_direct_offers"]);
     const c5Down = await runMigrations(database, "down");
@@ -1867,6 +1872,7 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
       "0016_c4_proposal_submission",
       "0017_c5_proposal_clarification_revision",
       "0018_c6_opportunities_direct_offers",
+      "0019_c7_solver_activation",
     ]);
 
     const restored = await database.query<{

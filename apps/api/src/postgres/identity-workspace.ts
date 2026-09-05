@@ -84,8 +84,10 @@ type AccessRow = {
 type UserRow = {
   readonly id: string;
   readonly display_name: string;
-  readonly primary_email: string;
+  readonly primary_email: string | null;
   readonly email_verified: boolean;
+  readonly primary_phone: string | null;
+  readonly phone_verified: boolean;
 };
 
 type IdempotencyRow = {
@@ -585,7 +587,7 @@ export class PostgresIdentityWorkspaceAdapter
       const principal = await client.query<{
         user_id: string;
         tenant_id: string;
-        primary_email: string;
+        primary_email: string | null;
       }>(
         `
           SELECT link.user_id, membership.tenant_id, app_user.primary_email
@@ -603,7 +605,12 @@ export class PostgresIdentityWorkspaceAdapter
       );
       const actor = principal.rows[0];
       if (!actor) throw forbidden();
-      if (actor.primary_email.trim().toLowerCase() !== identity.verifiedEmail) throw forbidden();
+      if (
+        !actor.primary_email ||
+        actor.primary_email.trim().toLowerCase() !== identity.verifiedEmail
+      ) {
+        throw forbidden();
+      }
 
       await this.oidc.consume(identity);
 
@@ -891,7 +898,8 @@ export class PostgresIdentityWorkspaceAdapter
 
       const userResult = await client.query<UserRow>(
         `
-          SELECT id, display_name, primary_email::text, email_verified
+          SELECT id, display_name, primary_email::text, email_verified,
+                 primary_phone, phone_verified
           FROM app_user
           WHERE id = $1
           FOR SHARE
@@ -937,6 +945,8 @@ export class PostgresIdentityWorkspaceAdapter
           display_name: user.display_name,
           primary_email: user.primary_email,
           email_verified: user.email_verified,
+          primary_phone: user.primary_phone,
+          phone_verified: user.phone_verified,
         },
         memberships: accesses.map((access) => membershipResource(access.membership)),
         workspaces: accesses.map((access) => workspaceResource(access.workspace)),

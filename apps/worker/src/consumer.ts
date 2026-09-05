@@ -4,6 +4,7 @@ import {
   opportunityOutboxEventTypes,
   proposalOutboxEventTypes,
   solverOutboxEventTypes,
+  solverActivationOutboxEventTypes,
   teamOutboxEventTypes,
 } from "@rahhal/domain";
 import type {
@@ -22,6 +23,7 @@ export const supportedOutboxEventTypes = [
   ...proposalOutboxEventTypes,
   ...opportunityOutboxEventTypes,
   ...solverOutboxEventTypes,
+  ...solverActivationOutboxEventTypes,
   ...teamOutboxEventTypes,
   "session.exchanged",
   "session.refreshed",

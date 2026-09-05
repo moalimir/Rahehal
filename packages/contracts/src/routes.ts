@@ -1,6 +1,11 @@
 export const apiRoutes = {
   openApi: "/api/v1/openapi.json",
   oidcAuthorizationStart: "/api/v1/auth/oidc:start",
+  contactVerificationStart: "/api/v1/auth/contact-verification:start",
+  resendContactVerification: "/api/v1/auth/contact-verifications/{attemptId}:resend",
+  verifyContact: "/api/v1/auth/contact-verifications/{attemptId}:verify",
+  contactSessionExchange: "/api/v1/auth/contact-session:exchange",
+  solverActivation: "/api/v1/solver/activation",
   sessionExchange: "/api/v1/auth/session:exchange",
   sessionRefresh: "/api/v1/auth/session:refresh",
   sessionRevoke: "/api/v1/auth/session:revoke",

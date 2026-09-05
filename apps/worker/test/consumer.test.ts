@@ -3,6 +3,7 @@ import {
   opportunityOutboxEventTypes,
   parsePrefixedId,
   proposalOutboxEventTypes,
+  solverActivationOutboxEventTypes,
   teamOutboxEventTypes,
 } from "@rahhal/domain";
 import { buildOutboxEvent, fixedTimestamp } from "@rahhal/testkit";
@@ -38,6 +39,12 @@ describe("idempotent outbox consumer", () => {
       expect(isSupportedOutboxEventType(eventType)).toBe(true);
     }
     for (const eventType of opportunityOutboxEventTypes) {
+      expect(isSupportedOutboxEventType(eventType)).toBe(true);
+    }
+  });
+
+  it("accepts C7 activation and contact-session events through the worker boundary", () => {
+    for (const eventType of solverActivationOutboxEventTypes) {
       expect(isSupportedOutboxEventType(eventType)).toBe(true);
     }
   });

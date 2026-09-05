@@ -21,6 +21,8 @@ export const idPrefixes = {
   eligibilityGateAcceptance: "ega",
   teamInvitation: "tiv",
   teamMembershipRequest: "tmr",
+  solverActivation: "act",
+  contactVerificationAttempt: "otp",
   reviewAssignment: "rva",
   rubric: "rub",
   rubricVersion: "rbv",
@@ -60,6 +62,8 @@ export type VerificationId = PrefixedId<"ver">;
 export type EligibilityGateAcceptanceId = PrefixedId<"ega">;
 export type TeamInvitationId = PrefixedId<"tiv">;
 export type TeamMembershipRequestId = PrefixedId<"tmr">;
+export type SolverActivationId = PrefixedId<"act">;
+export type ContactVerificationAttemptId = PrefixedId<"otp">;
 export type ReviewAssignmentId = PrefixedId<"rva">;
 export type RubricId = PrefixedId<"rub">;
 export type RubricVersionId = PrefixedId<"rbv">;
@@ -93,6 +97,8 @@ export type EntityId =
   | EligibilityGateAcceptanceId
   | TeamInvitationId
   | TeamMembershipRequestId
+  | SolverActivationId
+  | ContactVerificationAttemptId
   | ReviewAssignmentId
   | RubricId
   | RubricVersionId
@@ -123,6 +129,8 @@ const entityIdPrefixes = [
   idPrefixes.eligibilityGateAcceptance,
   idPrefixes.teamInvitation,
   idPrefixes.teamMembershipRequest,
+  idPrefixes.solverActivation,
+  idPrefixes.contactVerificationAttempt,
   idPrefixes.reviewAssignment,
   idPrefixes.rubric,
   idPrefixes.rubricVersion,
@@ -223,6 +231,10 @@ export const parseTeamInvitationId = createIdentifierParser(idPrefixes.teamInvit
 export const isTeamMembershipRequestId = createIdentifierGuard(idPrefixes.teamMembershipRequest);
 export const parseTeamMembershipRequestId = createIdentifierParser(
   idPrefixes.teamMembershipRequest,
+);
+export const parseSolverActivationId = createIdentifierParser(idPrefixes.solverActivation);
+export const parseContactVerificationAttemptId = createIdentifierParser(
+  idPrefixes.contactVerificationAttempt,
 );
 export const parseReceiptId = createIdentifierParser(idPrefixes.receipt);
 export const parseAuditEventId = createIdentifierParser(idPrefixes.auditEvent);

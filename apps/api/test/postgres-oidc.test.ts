@@ -19,6 +19,8 @@ import { PostgresUnitOfWork } from "../src/postgres/unit-of-work.js";
 import { PostgresOpportunityAdapter } from "../src/postgres/opportunities.js";
 import { commandFingerprint, MonotonicIdFactory, RandomIdFactory } from "../src/primitives.js";
 import { HmacSessionCredentialIssuer } from "../src/session-credentials.js";
+import { DevelopmentContactVerificationAdapter } from "../src/development-contact-verification.js";
+import { PostgresSolverActivationAdapter } from "../src/postgres/solver-activation.js";
 import { FakeOidcProvider } from "./support/fake-oidc-provider.js";
 import { testDatabaseAdminUrl } from "./support/database.js";
 
@@ -127,11 +129,25 @@ beforeAll(async () => {
     audit,
   );
   const solverWorkspaces = new PostgresSolverWorkspaceAdapter(unitOfWork, clock, ids);
+  const contactVerification = new DevelopmentContactVerificationAdapter(
+    { code: "12345", flowSecret: "postgres-oidc-contact-secret-0000000001" },
+    clock,
+    ids,
+  );
+  const solverActivation = new PostgresSolverActivationAdapter(
+    unitOfWork,
+    contactVerification,
+    new HmacSessionCredentialIssuer(credentialSecret),
+    clock,
+    ids,
+  );
   const teams = new PostgresTeamAdapter(unitOfWork, clock, ids);
   app = buildApi(
     {
       oidcAuthorization: oidc,
+      contactVerification,
       sessions: identity,
+      solverActivation,
       workspaces: identity,
       authority: identity,
       challenges: new PostgresChallengeAdapter(unitOfWork, clock, ids),

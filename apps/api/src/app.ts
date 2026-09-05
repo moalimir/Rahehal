@@ -74,6 +74,15 @@ import {
   type SubmitOfferResponseBody,
   type UnsaveOpportunityBody,
   type ViewDirectOfferBody,
+  type ActivateSolverBody,
+  type ContactSessionExchangeBody,
+  type ContactVerificationAttemptSuccessEnvelope,
+  type ResendContactVerificationBody,
+  type SolverActivationReadSuccessEnvelope,
+  type SolverActivationSuccessEnvelope,
+  type StartContactVerificationBody,
+  type VerifiedContactSuccessEnvelope,
+  type VerifyContactBody,
 } from "@rahhal/contracts";
 import {
   decideTeamPermission,
@@ -140,6 +149,7 @@ type TeamWorkspaceParams = { workspaceId: string };
 type TeamMemberParams = { membershipId: string };
 type ProposalParams = { proposalId: string };
 type DirectOfferParams = { directOfferId: string };
+type ContactVerificationParams = { attemptId: string };
 
 type BrowserOidcCallbackQuery = {
   readonly code: string;
@@ -154,6 +164,7 @@ const apiErrorResponses = {
   403: apiSchemas.ErrorEnvelope,
   404: apiSchemas.ErrorEnvelope,
   409: apiSchemas.ErrorEnvelope,
+  429: apiSchemas.ErrorEnvelope,
   422: apiSchemas.ErrorEnvelope,
   503: apiSchemas.ErrorEnvelope,
 } as const;
@@ -426,6 +437,12 @@ const fastifyDirectOfferPath = (path: string) =>
   fastifyLiteralPath(path).replace(
     "{directOfferId}",
     ":directOfferId(^dof_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$)",
+  );
+
+const fastifyContactVerificationPath = (path: string) =>
+  fastifyLiteralPath(path).replace(
+    "{attemptId}",
+    ":attemptId(^otp_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$)",
   );
 
 async function runTeamAction<Result>(
@@ -806,6 +823,9 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
           : new ApiProblem(503, "STORAGE", "The service could not complete the request", {
               recovery: "retry_with_same_idempotency_key",
             });
+    if (problem.options.retryAfterSeconds !== undefined) {
+      void reply.header("retry-after", problem.options.retryAfterSeconds.toString());
+    }
     void reply
       .status(problem.statusCode)
       .send(errorEnvelope(problem, correlationId(request), ports.clock.now().toISOString()));
@@ -1041,6 +1061,133 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
         correlation_id: correlationId(request),
       },
     }),
+  );
+
+  app.post<{ Body: StartContactVerificationBody }>(
+    fastifyLiteralPath(apiRoutes.contactVerificationStart),
+    {
+      schema: {
+        body: apiSchemas.StartContactVerificationBody,
+        response: {
+          200: apiSchemas.ContactVerificationAttemptSuccessEnvelope,
+          ...apiErrorResponses,
+        },
+      },
+    },
+    async (request): Promise<ContactVerificationAttemptSuccessEnvelope> => {
+      const attempt = await ports.contactVerification.start(
+        request.body,
+        idempotencyCommand(request),
+      );
+      return versionedSuccess(attempt, request, ports, attempt.version);
+    },
+  );
+
+  app.post<{ Params: ContactVerificationParams; Body: ResendContactVerificationBody }>(
+    fastifyContactVerificationPath(apiRoutes.resendContactVerification),
+    {
+      schema: {
+        body: apiSchemas.ResendContactVerificationBody,
+        response: {
+          200: apiSchemas.ContactVerificationAttemptSuccessEnvelope,
+          ...apiErrorResponses,
+        },
+      },
+    },
+    async (request): Promise<ContactVerificationAttemptSuccessEnvelope> => {
+      const attempt = await ports.contactVerification.resend(
+        request.params.attemptId,
+        request.body,
+        idempotencyCommand(request),
+      );
+      return versionedSuccess(attempt, request, ports, attempt.version);
+    },
+  );
+
+  app.post<{ Params: ContactVerificationParams; Body: VerifyContactBody }>(
+    fastifyContactVerificationPath(apiRoutes.verifyContact),
+    {
+      schema: {
+        body: apiSchemas.VerifyContactBody,
+        response: { 200: apiSchemas.VerifiedContactSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request): Promise<VerifiedContactSuccessEnvelope> => {
+      const verified = await ports.contactVerification.verify(
+        request.params.attemptId,
+        request.body,
+        idempotencyCommand(request),
+      );
+      return versionedSuccess(verified, request, ports, verified.attempt.version);
+    },
+  );
+
+  app.post<{ Body: ContactSessionExchangeBody }>(
+    fastifyLiteralPath(apiRoutes.contactSessionExchange),
+    {
+      schema: {
+        body: apiSchemas.ContactSessionExchangeBody,
+        response: { 200: apiSchemas.SessionSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request): Promise<SessionSuccessEnvelope> => {
+      const outcome = await ports.solverActivation.exchangeContact(
+        request.body,
+        idempotencyCommand(request),
+      );
+      return versionedSuccess(
+        { tokens: outcome.tokens, receipt: outcome.receipt },
+        request,
+        ports,
+        outcome.entityVersion,
+      );
+    },
+  );
+
+  app.post<{ Body: ActivateSolverBody }>(
+    apiRoutes.solverActivation,
+    {
+      schema: {
+        body: apiSchemas.ActivateSolverBody,
+        response: { 200: apiSchemas.SolverActivationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request): Promise<SolverActivationSuccessEnvelope> => {
+      const outcome = await ports.solverActivation.activate(
+        request.body,
+        idempotencyCommand(request),
+      );
+      return versionedSuccess(
+        {
+          activation: outcome.activation,
+          tokens: outcome.tokens,
+          receipt: outcome.receipt,
+        },
+        request,
+        ports,
+        outcome.entityVersion,
+      );
+    },
+  );
+
+  app.get(
+    apiRoutes.solverActivation,
+    {
+      schema: {
+        response: { 200: apiSchemas.SolverActivationReadSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request): Promise<SolverActivationReadSuccessEnvelope> => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const activation = await ports.solverActivation.get(session.userId);
+      if (!activation) throw notFound();
+      return success(activation, request, ports);
+    },
   );
 
   app.post<{ Body: SessionExchangeBody }>(

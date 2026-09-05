@@ -104,8 +104,10 @@ export type ActiveWorkspaceContext = {
 export type User = {
   readonly id: UserId;
   readonly displayName: string;
-  readonly primaryEmail: string;
+  readonly primaryEmail: string | null;
   readonly emailVerified: boolean;
+  readonly primaryPhone?: string | null;
+  readonly phoneVerified?: boolean;
 };
 
 export function isWorkspaceKind(value: unknown): value is WorkspaceKind {

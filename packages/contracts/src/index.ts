@@ -1,3 +1,4 @@
+export * from "./activation.js";
 export * from "./challenge.js";
 export * from "./envelopes.js";
 export * from "./events.js";

@@ -154,6 +154,9 @@ services:
       RAHHAL_BROWSER_ORIGIN: http://localhost:3000
       OIDC_FLOW_SECRET: ${RAHHAL_OIDC_FLOW_SECRET:?run npm run docker:env:init}
       SESSION_CREDENTIAL_SECRET: ${RAHHAL_SESSION_CREDENTIAL_SECRET:?run npm run docker:env:init}
+      SOLVER_CONTACT_VERIFICATION_PROVIDER: development
+      SOLVER_OTP_DEVELOPMENT_CODE: "12345"
+      SOLVER_OTP_FLOW_SECRET: ${SOLVER_OTP_FLOW_SECRET:?add SOLVER_OTP_FLOW_SECRET to .env}
     depends_on:
       oidc:
         condition: service_healthy

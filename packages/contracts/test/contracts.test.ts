@@ -32,6 +32,11 @@ describe("authoritative API contracts", () => {
 
   it("carries optimistic concurrency in every implemented command body", () => {
     expect(apiSchemas.OidcAuthorizationStartBody.required).toContain("expected_version");
+    expect(apiSchemas.StartContactVerificationBody.required).toContain("expected_version");
+    expect(apiSchemas.ResendContactVerificationBody.required).toContain("expected_version");
+    expect(apiSchemas.VerifyContactBody.required).toContain("expected_version");
+    expect(apiSchemas.ContactSessionExchangeBody.required).toContain("expected_version");
+    expect(apiSchemas.ActivateSolverBody.required).toContain("expected_version");
     expect(apiSchemas.SessionExchangeBody.required).toContain("expected_version");
     expect(apiSchemas.SessionRefreshBody.required).toContain("expected_version");
     expect(apiSchemas.SessionRevokeBody.required).toContain("expected_version");
@@ -97,6 +102,11 @@ describe("authoritative API contracts", () => {
       expect.arrayContaining([
         apiRoutes.openApi,
         apiRoutes.oidcAuthorizationStart,
+        apiRoutes.contactVerificationStart,
+        apiRoutes.resendContactVerification,
+        apiRoutes.verifyContact,
+        apiRoutes.contactSessionExchange,
+        apiRoutes.solverActivation,
         apiRoutes.sessionExchange,
         apiRoutes.sessionRefresh,
         apiRoutes.sessionRevoke,
@@ -186,6 +196,26 @@ describe("authoritative API contracts", () => {
     ]);
     expect(apiSchemas.EligibilityDecision.properties).not.toHaveProperty("contact_verified");
     expect(apiSchemas.SolverWorkspaceProfile.properties).not.toHaveProperty("verification_state");
+  });
+
+  it("publishes provider-neutral C7 activation without an app password or team credential", () => {
+    expect(apiSchemas.StartContactVerificationBody.properties.channel.enum).toEqual([
+      "email",
+      "mobile",
+    ]);
+    expect(apiSchemas.StartContactVerificationBody.properties).not.toHaveProperty("password");
+    expect(apiSchemas.ActivateSolverBody.properties.start_intent.enum).toEqual([
+      "individual",
+      "team",
+    ]);
+    expect(apiSchemas.ActivateSolverBody.properties).not.toHaveProperty("team_kind");
+    expect(apiSchemas.SolverActivation.required).toContain("individual_workspace_id");
+    expect(openApiDocument.paths[apiRoutes.solverActivation].post.operationId).toBe(
+      "activateSolver",
+    );
+    expect(openApiDocument.paths[apiRoutes.contactSessionExchange].post.operationId).toBe(
+      "exchangeContactSession",
+    );
   });
 
   it("publishes the complete C2 team policy and recipient-safe lifecycle", () => {

@@ -81,6 +81,15 @@ import type {
   SubmitOfferResponseBody,
   UnsaveOpportunityBody,
   ViewDirectOfferBody,
+  ActivateSolverBody,
+  ContactSessionExchangeBody,
+  ContactVerificationAttemptResource,
+  ResendContactVerificationBody,
+  SolverActivationResource,
+  SolverActivationSessionResult,
+  StartContactVerificationBody,
+  VerifiedContactResource,
+  VerifyContactBody,
 } from "@rahhal/contracts";
 import type {
   ChallengeApprovalId,
@@ -105,6 +114,8 @@ import type {
   Workspace,
   WorkspaceId,
   WorkspaceRole,
+  ContactVerificationChannel,
+  ContactVerificationAttemptId,
 } from "@rahhal/domain";
 
 export type Clock = {
@@ -114,6 +125,8 @@ export type Clock = {
 export type IdFactory = {
   next(
     prefix:
+      | "usr"
+      | "ten"
       | "ses"
       | "chl"
       | "chv"
@@ -136,7 +149,9 @@ export type IdFactory = {
       | "aud"
       | "cor"
       | "evt"
-      | "oat",
+      | "oat"
+      | "act"
+      | "otp",
   ): string;
 };
 
@@ -173,6 +188,33 @@ export interface OidcAuthorizationPort {
   ): Promise<OidcAuthorizationStartResult>;
 }
 
+export type VerifiedContactAssertion = {
+  readonly assertionId: ContactVerificationAttemptId;
+  readonly issuer: string;
+  readonly subject: string;
+  readonly channel: ContactVerificationChannel;
+  readonly destination: string;
+  readonly expiresAt: string;
+};
+
+export interface ContactVerificationProviderPort {
+  start(
+    body: StartContactVerificationBody,
+    command: SessionCommand,
+  ): Promise<ContactVerificationAttemptResource>;
+  resend(
+    attemptId: string,
+    body: ResendContactVerificationBody,
+    command: SessionCommand,
+  ): Promise<ContactVerificationAttemptResource>;
+  verify(
+    attemptId: string,
+    body: VerifyContactBody,
+    command: SessionCommand,
+  ): Promise<VerifiedContactResource>;
+  assertion(verificationToken: string): Promise<VerifiedContactAssertion | null>;
+}
+
 export type IssuedSessionCredentials = {
   readonly accessToken: string;
   readonly refreshToken: string;
@@ -207,6 +249,22 @@ export interface SessionPort {
     body: SessionRevokeBody,
     command: SessionCommand,
   ): Promise<SessionRevokeOutcome>;
+}
+
+export type SolverActivationOutcome = {
+  readonly activation: SolverActivationResource;
+  readonly tokens: SessionTokenSet;
+  readonly receipt: SolverActivationSessionResult["receipt"];
+  readonly entityVersion: number;
+};
+
+export interface SolverActivationPort {
+  exchangeContact(
+    body: ContactSessionExchangeBody,
+    command: SessionCommand,
+  ): Promise<SessionTokenOutcome>;
+  activate(body: ActivateSolverBody, command: SessionCommand): Promise<SolverActivationOutcome>;
+  get(userId: UserId): Promise<SolverActivationResource | null>;
 }
 
 export type WorkspaceAccess = {
@@ -636,7 +694,9 @@ export interface AccessDecisionAuditPort {
 
 export type ApiPorts = {
   readonly oidcAuthorization: OidcAuthorizationPort;
+  readonly contactVerification: ContactVerificationProviderPort;
   readonly sessions: SessionPort;
+  readonly solverActivation: SolverActivationPort;
   readonly workspaces: WorkspacePort;
   readonly authority: WorkspaceAuthorityUnitOfWorkPort;
   readonly challenges: ChallengePort;
