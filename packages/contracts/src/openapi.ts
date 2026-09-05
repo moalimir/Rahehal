@@ -1018,6 +1018,21 @@ export const openApiDocument = {
       ),
     },
     [apiRoutes.proposals]: {
+      get: {
+        operationId: "listProposals",
+        tags: ["Proposal"],
+        summary: "List the active solver workspace's own proposals",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader],
+        responses: {
+          "200": {
+            description: "The workspace-scoped proposal list.",
+            content: jsonContent("ProposalListSuccessEnvelope"),
+          },
+          "403": protectedCommandErrors["403"],
+          "503": protectedCommandErrors["503"],
+        },
+      },
       post: {
         operationId: "createProposalDraft",
         tags: ["Proposal"],

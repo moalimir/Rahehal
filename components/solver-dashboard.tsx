@@ -1,5 +1,6 @@
 "use client";
 
+import { useConnectedSolverDashboard } from "@/components/solver/use-connected-dashboard";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { ChallengeOrganizationLogo } from "@/components/challenge-organization-logo";
@@ -412,8 +413,41 @@ export function SolverDashboardExperience({
   const [feedback, setFeedback] = useState("");
   const [personalResumeOpen, setPersonalResumeOpen] = useState(false);
   const projection = workspaceProjection(context.workspaceId, state);
+  // Connected runtime: counts come from the server for the active workspace.
+  // A family that failed to load contributes null, and the card below shows
+  // that explicitly rather than a zero the human would read as real.
+  const connected = useConnectedSolverDashboard();
+  const liveCounts = connected.state.kind === "ready" ? connected.state.summary.proposals : null;
   const metrics = useMemo(() => {
     const proposals = projection.proposals;
+    if (liveCounts) {
+      return [
+        {
+          label: "پیش‌نویس‌ها",
+          count: liveCounts.drafts,
+          status: "draft",
+          cta: "مشاهده پیش‌نویس‌ها",
+        },
+        {
+          label: "ارسال‌شده‌ها",
+          count: liveCounts.submitted,
+          status: "submitted",
+          cta: "مشاهده ارسال‌شده‌ها",
+        },
+        {
+          label: "در حال بررسی",
+          count: liveCounts.inReview,
+          status: "reviewing",
+          cta: "مشاهده موارد در حال بررسی",
+        },
+        {
+          label: "نیازمند اقدام",
+          count: liveCounts.needsAction,
+          status: "revision_requested",
+          cta: "مشاهده موارد نیازمند اقدام",
+        },
+      ];
+    }
     return [
       {
         label: "پیش‌نویس‌ها",
@@ -447,7 +481,7 @@ export function SolverDashboardExperience({
         cta: "مشاهده موارد نیازمند اقدام",
       },
     ];
-  }, [projection.proposals]);
+  }, [liveCounts, projection.proposals]);
   const activeTeam =
     context.type === "team"
       ? state.teams.find((candidate) => candidate.id === context.teamId)

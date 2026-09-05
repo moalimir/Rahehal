@@ -1,4 +1,5 @@
 import type {
+  ProposalListResource,
   CreateProposalBody,
   DecideProposalEligibilityBody,
   MutationReceipt,
@@ -420,6 +421,32 @@ export class InMemoryProposalAdapter implements ProposalPort {
       state.proposals.set(scopeKey(context, id), { current: resource, versions: [resource] });
       return this.record(state, resource, context, "proposal.draft.created", key, fingerprint);
     });
+  }
+
+  async listScoped(scope: ProposalScope): Promise<ProposalListResource> {
+    // Mirrors the PostgreSQL adapter: owning-workspace scope first, current
+    // team authority second, and list facts only -- never draft content.
+    const items = [];
+    for (const stored of this.state.proposals.values()) {
+      const current = stored.current;
+      if (current.tenant_id !== scope.tenantId) continue;
+      if (current.owner_workspace_id !== scope.workspaceId) continue;
+      if (!(await this.permitted(scope, "edit-proposal", current.assigned_membership_ids))) {
+        continue;
+      }
+      items.push({
+        id: current.id,
+        challenge_id: current.challenge_id,
+        state: current.state,
+        tracking_code: current.tracking_code,
+        version: current.version,
+        readiness: current.readiness,
+        submitted_at: current.submitted_at,
+        updated_at: current.updated_at,
+      });
+    }
+    items.sort((left, right) => right.updated_at.localeCompare(left.updated_at));
+    return { items };
   }
 
   async getScoped(scope: ProposalScope, id: string): Promise<ProposalResource | null> {

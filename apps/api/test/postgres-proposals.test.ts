@@ -1044,6 +1044,22 @@ describe("C5 PostgreSQL proposal clarification and revision", () => {
     return created.receipt.entity_id;
   }
 
+  it("lists only the owning workspace's proposals without their content", async () => {
+    const proposalId = await createSubmitted("c9-pg-list-0001");
+    const listed = await proposals.listScoped(individual("c9-pg-list-scope"));
+    const row = listed.items.find((item) => item.id === proposalId);
+    expect(row).toBeDefined();
+    // A list is for finding a record, not for bulk-reading drafts.
+    expect(row).not.toHaveProperty("content");
+    expect(row).not.toHaveProperty("versions");
+    expect(row?.state).toBe("submitted");
+
+    // A different workspace in the same tenant must not see it.
+    const foreign = { ...individual("c9-pg-list-foreign"), workspaceId: teamWorkspaceId };
+    const foreignList = await proposals.listScoped(foreign);
+    expect(foreignList.items.some((item) => item.id === proposalId)).toBe(false);
+  });
+
   it("records an ineligible decision as a terminal receipt", async () => {
     // The ineligible branch was never exercised: it passed an empty
     // `next_actions`, which `mutation_receipt_next_actions_check` rejects, so

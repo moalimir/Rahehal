@@ -13,6 +13,7 @@ import type {
   MeResource,
   MutationReceipt,
   NotificationListResource,
+  ProposalListResource,
   NotificationNextAction,
   NotificationSummaryResource,
   OidcAuthorizationStartBody,
@@ -565,6 +566,7 @@ export interface ProposalPort {
     body: CreateProposalBody,
     context: ProposalCommandContext,
   ): Promise<MutationOutcome<ProposalId, ProposalNextAction>>;
+  listScoped(scope: ProposalScope): Promise<ProposalListResource>;
   getScoped(scope: ProposalScope, id: string): Promise<ProposalResource | null>;
   patch(
     id: string,

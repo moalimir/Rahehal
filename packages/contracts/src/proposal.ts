@@ -248,8 +248,30 @@ export type EligibilityDecisionResource = {
   readonly evaluated_at: string;
 };
 
+/**
+ * One row of the solver's own proposal list. It carries the facts a list and a
+ * dashboard count need and stops there: proposal content stays behind the
+ * per-record read, so a list cannot become a way to bulk-read drafts.
+ */
+export type ProposalListItemResource = {
+  readonly id: ProposalId;
+  readonly challenge_id: ChallengeId;
+  readonly state: ProposalState;
+  readonly tracking_code: string | null;
+  readonly version: number;
+  readonly readiness: ProposalReadinessResource;
+  readonly submitted_at: string | null;
+  readonly updated_at: string;
+};
+
+export type ProposalListResource = {
+  readonly items: readonly ProposalListItemResource[];
+};
+
 export type ProposalSuccessEnvelope = SuccessEnvelope<ProposalResource>;
 export type OrganizationProposalSuccessEnvelope = SuccessEnvelope<OrganizationProposalResource>;
 export type OrganizationProposalInboxSuccessEnvelope =
   SuccessEnvelope<OrganizationProposalInboxResource>;
 export type EligibilitySuccessEnvelope = SuccessEnvelope<EligibilityDecisionResource>;
+
+export type ProposalListSuccessEnvelope = SuccessEnvelope<ProposalListResource>;

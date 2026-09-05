@@ -729,6 +729,38 @@ const organizationProposalVersionSchema = {
   },
 } as const;
 
+const proposalListItemSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "challenge_id",
+    "state",
+    "tracking_code",
+    "version",
+    "readiness",
+    "submitted_at",
+    "updated_at",
+  ],
+  properties: {
+    id: idSchema("prp"),
+    challenge_id: idSchema("chl"),
+    state: { type: "string", enum: proposalStates },
+    tracking_code: { type: ["string", "null"], maxLength: 100 },
+    version: { type: "integer", minimum: 1 },
+    readiness: proposalReadinessSchema,
+    submitted_at: nullableDateTimeSchema,
+    updated_at: dateTimeSchema,
+  },
+} as const;
+
+const proposalListSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["items"],
+  properties: { items: { type: "array", items: proposalListItemSchema } },
+} as const;
+
 const organizationProposalInboxItemSchema = {
   type: "object",
   additionalProperties: false,
@@ -2321,6 +2353,9 @@ export const apiSchemas = {
   ProposalRevisionRequest: proposalRevisionRequestSchema,
   Proposal: proposalResourceSchema,
   ProposalSuccessEnvelope: successEnvelopeFor(proposalResourceSchema, true),
+  ProposalListItem: proposalListItemSchema,
+  ProposalList: proposalListSchema,
+  ProposalListSuccessEnvelope: successEnvelopeFor(proposalListSchema),
   OrganizationProposalVersion: organizationProposalVersionSchema,
   OrganizationProposalInboxItem: organizationProposalInboxItemSchema,
   OrganizationProposal: organizationProposalResourceSchema,

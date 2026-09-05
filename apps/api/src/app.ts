@@ -57,6 +57,7 @@ import {
   type RequestProposalRevisionBody,
   type StartProposalRevisionBody,
   type ResubmitProposalBody,
+  type ProposalListSuccessEnvelope,
   type ProposalSuccessEnvelope,
   type OrganizationProposalInboxSuccessEnvelope,
   type OrganizationProposalSuccessEnvelope,
@@ -2599,6 +2600,33 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
             request,
             ports,
           ),
+      );
+    },
+  );
+
+  app.get(
+    apiRoutes.proposals,
+    {
+      schema: {
+        response: { 200: apiSchemas.ProposalListSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request): Promise<ProposalListSuccessEnvelope> => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runSolverActorAction(
+        request,
+        ports,
+        session,
+        "proposal:list",
+        "proposal",
+        undefined,
+        async (access) =>
+          success(await ports.proposals.listScoped(proposalScope(session, access)), request, ports),
       );
     },
   );

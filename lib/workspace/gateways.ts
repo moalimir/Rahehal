@@ -8,6 +8,8 @@ import type {
   OrganizationProposalInboxSuccessEnvelope,
   OrganizationProposalResource,
   OrganizationProposalSuccessEnvelope,
+  ProposalListResource,
+  ProposalListSuccessEnvelope,
   ProposalResource,
   ProposalSuccessEnvelope,
   SolverWorkspaceProfileResource,
@@ -86,6 +88,7 @@ export function createTeamGateway(scope: WorkspaceScopeResolver): TeamGateway {
 // ------------------------------------------------------------- C3–C5 proposals
 
 export type ProposalGateway = {
+  list(): Promise<GatewayResult<ProposalListResource>>;
   get(proposalId: string): Promise<GatewayResult<ProposalResource>>;
   create(input: {
     readonly challengeId: string;
@@ -108,6 +111,12 @@ export type ProposalGateway = {
 
 export function createProposalGateway(scope: WorkspaceScopeResolver): ProposalGateway {
   return {
+    async list() {
+      const envelope = await requestApi<ProposalListSuccessEnvelope>(apiRoutes.proposals, {
+        headers: headers(scope),
+      });
+      return toResult(envelope, (data) => data as ProposalListResource);
+    },
     async get(proposalId) {
       const envelope = await requestApi<ProposalSuccessEnvelope>(
         path(apiRoutes.proposalById, { proposalId }),

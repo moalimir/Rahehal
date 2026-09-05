@@ -7,6 +7,7 @@ import type {
   OrganizationProposalResource,
   PatchProposalBody,
   ProposalClarificationResource,
+  ProposalListResource,
   ProposalNextAction,
   ProposalResource,
   ProposalVersionResource,
@@ -830,6 +831,55 @@ export class PostgresProposalAdapter implements ProposalPort {
       const resource = await this.findScoped(client, context, proposalId, false);
       if (!resource) throw new Error("Created proposal could not be read in its owning scope");
       return this.record(client, resource, context, "proposal.draft.created", requestHash);
+    });
+  }
+
+  async listScoped(scope: ProposalScope): Promise<ProposalListResource> {
+    return this.unitOfWork.run(async () => {
+      const client = this.unitOfWork.currentClient();
+      // Scoped by the owning workspace before anything else, and deliberately
+      // without version history or content: a list is for finding a record,
+      // not for reading every draft in one request.
+      const result = await client.query<{
+        id: string;
+        challenge_id: string;
+        state: string;
+        tracking_code: string | null;
+        lock_version: string | number;
+        submitted_at: Date | null;
+        updated_at: Date;
+        content: unknown;
+      }>(
+        `SELECT proposal.id, proposal.challenge_id, proposal.state, proposal.tracking_code,
+                proposal.lock_version, proposal.submitted_at, proposal.updated_at,
+                version.content
+         FROM proposal
+         JOIN proposal_version AS version
+           ON version.id = proposal.current_version_id AND version.proposal_id = proposal.id
+         WHERE proposal.tenant_id = $1 AND proposal.owner_workspace_id = $2
+         ORDER BY proposal.updated_at DESC, proposal.id DESC
+         LIMIT 200`,
+        [scope.tenantId, scope.workspaceId],
+      );
+      const items = [];
+      for (const row of result.rows) {
+        if (!isProposalState(row.state)) {
+          throw new Error("Database returned invalid proposal state");
+        }
+        assertProposalContent(row.content);
+        const version = aggregateVersion(row.lock_version);
+        items.push({
+          id: parseProposalId(row.id),
+          challenge_id: parseChallengeId(row.challenge_id),
+          state: row.state,
+          tracking_code: row.tracking_code,
+          version,
+          readiness: proposalReadiness(row.content, version),
+          submitted_at: row.submitted_at?.toISOString() ?? null,
+          updated_at: row.updated_at.toISOString(),
+        });
+      }
+      return { items };
     });
   }
 
