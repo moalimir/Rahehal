@@ -108,6 +108,34 @@ describe("connected solver workspace polish", () => {
     expect(profile).toContain("setHeadline(profile.headline)");
   });
 
+  it("gives personal and team profiles distinct résumé language and live completion guidance", () => {
+    expect(profile).toContain('"پروفایل تیم"');
+    expect(profile).toContain('"پروفایل و رزومه"');
+    expect(profile).toContain('"معرفی تیم"');
+    expect(profile).toContain('"درباره من"');
+    expect(profile).toContain('role="progressbar"');
+    expect(profile).toContain("completionPercent");
+    expect(profile).toContain("تغییرات ذخیره‌نشده دارید.");
+    expect(profile).toContain("پروفایل کامل است");
+    expect(profile).not.toContain("آماده ارسال پیشنهاد");
+    expect(css).toContain(".rh-connected-profile-layout");
+    expect(css).toContain(".rh-connected-profile-summary__details");
+  });
+
+  it("keeps profile feedback human-readable and scoped to the workspace that changed", () => {
+    expect(profile).toContain("notice?.workspaceId === profile.workspace_id");
+    expect(profile).toContain("تغییرات پروفایل با موفقیت ذخیره شد.");
+    expect(profile).not.toContain("شناسه همبستگی");
+  });
+
+  it("does not offer team profile or verification mutations to read-only members", () => {
+    expect(profile).toContain('decideTeamPermission("edit-team-profile"');
+    expect(profile).toContain("canEditProfile &&");
+    expect(profile).toContain("canManageVerification &&");
+    expect(profile).toContain("دسترسی فقط مشاهده");
+    expect(profile).toContain("شروع احراز برای مالک یا مدیر تیم در دسترس است.");
+  });
+
   it("lists the teams a human belongs to on the teams page", () => {
     // The page was titled "تیم‌ها و همکاری" and listed no teams: from an
     // individual workspace it showed only invitations, so someone who owned
