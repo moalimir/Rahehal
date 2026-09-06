@@ -72,6 +72,18 @@ describe("record identity", () => {
     const { container } = render(<RecordReference code={null} />);
     expect(container).toBeEmptyDOMElement();
   });
+
+  it("can shrink inside a grid or flex cell", () => {
+    // The chip's own `min-width: auto` floor resolves to its min-content
+    // width, which outranks `max-inline-size` -- a 64-character fingerprint
+    // then spilled out of its cell and across the ones beside it. Both rules
+    // are load-bearing: one lets the chip shrink, the other ellipsises its
+    // text once it has.
+    const css = readFileSync("app/solver-workspace.css", "utf8");
+    expect(css).toMatch(/\.rh-record-id\s*\{[^}]*min-inline-size:\s*0/);
+    expect(css).toMatch(/\.rh-record-id\s*\{[^}]*max-inline-size:\s*100%/);
+    expect(css).toMatch(/\.rh-record-id bdi\s*\{[^}]*text-overflow:\s*ellipsis/);
+  });
 });
 
 describe("connected surfaces lead with the human reference", () => {

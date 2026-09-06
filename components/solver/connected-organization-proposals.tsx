@@ -95,6 +95,48 @@ export function ConnectedOrganizationProposals() {
     ["resubmitted", "clarification_submitted"].includes(row.item.state),
   ).length;
 
+  /**
+   * The inbox grouped by the call each proposal answers.
+   *
+   * A flat list forced an organization running several calls at once to read
+   * the challenge line on every card to work out which competition it was
+   * looking at, and offered no way to see how one call was doing. Proposals
+   * are only comparable within a call, so the call is the unit.
+   *
+   * Groups are ordered by the work waiting in them, then by recency: a call
+   * with answered clarifications sitting unread is the one that should be at
+   * the top of the page.
+   */
+  const groups = useMemo(() => {
+    const byChallenge = new Map<
+      string,
+      { challenge: (typeof visible)[number]["challenge"]; rows: typeof visible }
+    >();
+    for (const row of visible) {
+      const existing = byChallenge.get(row.item.challenge_id);
+      if (existing) existing.rows.push(row);
+      else byChallenge.set(row.item.challenge_id, { challenge: row.challenge, rows: [row] });
+    }
+    return [...byChallenge.entries()]
+      .map(([challengeId, group]) => ({
+        challengeId,
+        challenge: group.challenge,
+        rows: [...group.rows].sort((left, right) =>
+          right.item.submitted_at.localeCompare(left.item.submitted_at),
+        ),
+        waiting: group.rows.filter((row) =>
+          ["submitted", "resubmitted", "clarification_submitted"].includes(row.item.state),
+        ).length,
+        latest: group.rows.reduce(
+          (newest, row) => (row.item.submitted_at > newest ? row.item.submitted_at : newest),
+          "",
+        ),
+      }))
+      .sort(
+        (left, right) => right.waiting - left.waiting || right.latest.localeCompare(left.latest),
+      );
+  }, [visible]);
+
   if (connected.state.kind !== "ready")
     return (
       <div className="org-workspace-page">
@@ -199,68 +241,85 @@ export function ConnectedOrganizationProposals() {
         )}
       </section>
 
-      <section className="org-connected-inbox" aria-label="فهرست پیشنهادهای دریافتی">
-        {visible.map(({ item, challenge }) => (
-          <article className="org-connected-inbox-card" key={item.id}>
-            <header>
-              <div className="org-connected-inbox-card__title">
-                {/* The tracking code is the reference an organization quotes
-                    back to a solver, so it leads. The challenge id below it
-                    was the same opaque string twice -- once as a fallback
-                    title, once labelled "فراخوان" -- and neither told anyone
-                    which call this was. */}
-                <small>
-                  کد پیگیری <bdi dir="ltr">{item.tracking_code}</bdi>
-                </small>
-                <h2>{challenge?.title ?? "فراخوان بدون عنوان عمومی"}</h2>
-                <p>{challenge ? challenge.category : "این فراخوان دیگر عمومی نیست"}</p>
-              </div>
-              <span className={`org-status ${proposalTone(item.state)}`}>
-                {proposalStateLabels[item.state]}
-              </span>
-            </header>
-            <dl className="org-connected-inbox-card__facts">
-              <div>
-                <dt>نوع فضای حل‌کننده</dt>
-                <dd>{item.owner_workspace_kind === "team" ? "فضای تیمی" : "فضای شخصی"}</dd>
-              </div>
-              <div>
-                <dt>نسخه قفل‌شده</dt>
-                <dd>شماره {item.submitted_version.version_number.toLocaleString("fa-IR")}</dd>
-              </div>
-              <div>
-                <dt>زمان دریافت</dt>
-                <dd>{formatDate(item.submitted_at)}</dd>
-              </div>
-            </dl>
-            <div className="org-connected-inbox-card__evidence">
-              <Icon name="shield" />
-              <span>
-                <small>نسخه و اثر انگشت محتوا</small>
-                <RecordId value={item.submitted_version.id} label="شناسه نسخه ارسالی" />
-                <bdi dir="ltr">{item.submitted_version.content_hash.slice(0, 16)}</bdi>
-              </span>
+      {groups.map((group) => (
+        <section
+          className="org-connected-inbox-group"
+          key={group.challengeId}
+          aria-label={`پیشنهادهای فراخوان ${group.challenge?.title ?? group.challengeId}`}
+        >
+          <header className="org-connected-inbox-group__head">
+            <div>
+              <h2>{group.challenge?.title ?? "فراخوان بدون عنوان عمومی"}</h2>
+              <p>
+                {group.challenge ? (
+                  <>
+                    {group.challenge.category} · مهلت{" "}
+                    {formatDate(group.challenge.proposal_deadline)}
+                  </>
+                ) : (
+                  "این فراخوان دیگر در نمای عمومی خوانده نمی‌شود."
+                )}
+              </p>
             </div>
-            <footer>
-              <p>نسخه دقیق ارسالی در {formatDate(item.submitted_version.locked_at)} قفل شده است.</p>
-              <Link className="is-primary" href={proposalHref(`/app/org/proposals/${item.id}`)}>
-                مشاهده پرونده <Icon name="arrow" />
-              </Link>
-            </footer>
-          </article>
-        ))}
-        {!visible.length && !connected.state.data.error && (
-          <div className="org-card rh-profile-empty">
-            <Icon name="search" />
-            <h2>{rows.length ? "موردی با این فیلتر پیدا نشد" : "هنوز پیشنهادی دریافت نشده است"}</h2>
-            <p>
-              {rows.length
-                ? "عبارت جست‌وجو یا وضعیت انتخاب‌شده را تغییر دهید."
-                : "پیشنهادهای ارسال‌شده به فراخوان‌های سازمان در اینجا ظاهر می‌شوند."}
-            </p>
+            <div className="org-connected-inbox-group__counts">
+              <span>
+                <strong>{group.rows.length.toLocaleString("fa-IR")}</strong> پیشنهاد
+              </span>
+              {group.waiting > 0 && (
+                <span className="is-waiting">
+                  <strong>{group.waiting.toLocaleString("fa-IR")}</strong> منتظر اقدام شما
+                </span>
+              )}
+            </div>
+          </header>
+
+          <div className="org-connected-inbox">
+            {group.rows.map(({ item }) => (
+              <article className="org-connected-inbox-card" key={item.id}>
+                <header>
+                  <div className="org-connected-inbox-card__title">
+                    {/* The call is named once, in the group header above, so a
+                        card identifies the submission instead of repeating it.
+                        The tracking code is what an organization quotes back
+                        to a solver, which makes it the card's own name. */}
+                    <h3>
+                      <bdi dir="ltr">{item.tracking_code}</bdi>
+                    </h3>
+                    <p>
+                      {item.owner_workspace_kind === "team" ? "فضای تیمی" : "فضای شخصی"} ·{" "}
+                      {formatDate(item.submitted_at)}
+                    </p>
+                  </div>
+                  <span className={`org-status ${proposalTone(item.state)}`}>
+                    {proposalStateLabels[item.state]}
+                  </span>
+                </header>
+                <footer>
+                  <span className="org-connected-inbox-card__version">
+                    نسخه قفل‌شده {item.submitted_version.version_number.toLocaleString("fa-IR")} ·
+                    قفل در {formatDate(item.submitted_version.locked_at)}
+                  </span>
+                  <Link className="is-primary" href={proposalHref(`/app/org/proposals/${item.id}`)}>
+                    مشاهده پرونده <Icon name="arrow" />
+                  </Link>
+                </footer>
+              </article>
+            ))}
           </div>
-        )}
-      </section>
+        </section>
+      ))}
+
+      {!visible.length && !connected.state.data.error && (
+        <div className="org-card rh-profile-empty">
+          <Icon name="search" />
+          <h2>{rows.length ? "موردی با این فیلتر پیدا نشد" : "هنوز پیشنهادی دریافت نشده است"}</h2>
+          <p>
+            {rows.length
+              ? "عبارت جست‌وجو یا وضعیت انتخاب‌شده را تغییر دهید."
+              : "پیشنهادهای ارسال‌شده به فراخوان‌های سازمان در اینجا ظاهر می‌شوند."}
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -336,13 +395,45 @@ export function ConnectedOrganizationProposalDetail({ proposalId }: { proposalId
             </span>
           </nav>
           <h1>{content.title || view.challenge?.title || "پیشنهاد دریافتی"}</h1>
-          <p>
-            {proposalStateLabels[proposal.state]} · نسخه{" "}
-            {version.version_number.toLocaleString("fa-IR")} · قفل‌شده در{" "}
-            {formatDate(version.locked_at)}
-          </p>
+          <p>{view.challenge ? `در پاسخ به «${view.challenge.title}»` : "فراخوان این سازمان"}</p>
         </div>
       </header>
+
+      {/* The evidence an organization needs to prove which exact version it
+          decided on. It used to sit on every inbox card, where it competed
+          with the facts that decide whether to open a proposal at all; here
+          it is beside the decision it supports. */}
+      <section className="org-connected-record-rail" aria-label="شناسه و شواهد نسخه">
+        <div>
+          <small>وضعیت</small>
+          <strong className={`org-status ${proposalTone(proposal.state)}`}>
+            {proposalStateLabels[proposal.state]}
+          </strong>
+        </div>
+        <div>
+          <small>کد پیگیری</small>
+          <strong>
+            <bdi dir="ltr">{proposal.tracking_code}</bdi>
+          </strong>
+        </div>
+        <div>
+          <small>فضای حل‌کننده</small>
+          <strong>{proposal.owner_workspace_kind === "team" ? "فضای تیمی" : "فضای شخصی"}</strong>
+        </div>
+        <div>
+          <small>نسخه قفل‌شده</small>
+          <strong>شماره {version.version_number.toLocaleString("fa-IR")}</strong>
+          <RecordId value={version.id} label="شناسه نسخه ارسالی" />
+        </div>
+        <div>
+          <small>قفل‌شده در</small>
+          <strong>{formatDate(version.locked_at)}</strong>
+        </div>
+        <div>
+          <small>اثر انگشت محتوا</small>
+          <RecordId value={version.content_hash} label="اثر انگشت محتوای نسخه" />
+        </div>
+      </section>
 
       <section className="org-card" aria-label="محتوای نسخه ارسالی">
         <h2>محتوای نسخه ارسالی</h2>

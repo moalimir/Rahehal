@@ -9449,6 +9449,11 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  /* As a grid or flex item the chip's own `min-width: auto` floor resolves to
+     its min-content width, which outranks `max-inline-size` -- a 64-character
+     fingerprint then spilled across the cells beside it. Both are needed:
+     this lets the chip shrink, the rule below lets its text ellipsise. */
+  min-inline-size: 0;
   max-inline-size: 100%;
   padding: 3px 8px;
   border: 1px solid #dbe4ee;
@@ -9465,6 +9470,10 @@
 }
 
 .rh-record-id bdi {
+  /* A flex item defaults to `min-width: auto`, which refuses to shrink below
+     its content. Without this the chip ignored `max-inline-size` and a 64-hex
+     fingerprint spilled across the grid cells beside it. */
+  min-inline-size: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

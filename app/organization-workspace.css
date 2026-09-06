@@ -1967,3 +1967,130 @@
   outline-offset: 2px;
   border-radius: 4px;
 }
+
+/* Inbox grouped by call ----------------------------------------------------
+   Proposals are only comparable within the call they answer, so the call is
+   the unit an organization reads. A flat list made someone running several
+   calls at once check the challenge line on every card to know which
+   competition they were looking at. */
+.org-connected-inbox-group {
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid var(--org-line);
+  border-radius: 16px;
+  background: #fbfdfe;
+}
+
+.org-connected-inbox-group__head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.org-connected-inbox-group__head h2 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 18px;
+  line-height: 1.6;
+}
+
+.org-connected-inbox-group__head p {
+  margin: 5px 0 0;
+  color: var(--org-muted);
+  font-size: 12px;
+}
+
+.org-connected-inbox-group__counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.org-connected-inbox-group__counts span {
+  padding: 5px 11px;
+  border-radius: 999px;
+  background: #eef4f9;
+  color: #4a6076;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* The one count that means work is waiting carries the only colour, so a
+   glance down the page finds the calls that need attention. */
+.org-connected-inbox-group__counts .is-waiting {
+  background: #fdf1de;
+  color: #8a5a12;
+}
+
+.org-connected-inbox-card h3 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.org-connected-inbox-card__title p {
+  margin: 4px 0 0;
+  color: var(--org-muted);
+  font-size: 12px;
+}
+
+.org-connected-inbox-card > footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--org-line);
+}
+
+.org-connected-inbox-card__version {
+  color: var(--org-muted);
+  font-size: 12px;
+}
+
+/* Record evidence rail ----------------------------------------------------
+   The identity and cryptographic evidence a decision is attributable to,
+   beside the decision rather than repeated on every list row. */
+.org-connected-record-rail {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+  margin-top: 16px;
+  padding: 18px;
+  border: 1px solid var(--org-line);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.org-connected-record-rail > div {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  align-content: start;
+}
+
+.org-connected-record-rail small {
+  color: var(--org-muted);
+  font-size: 12px;
+}
+
+.org-connected-record-rail strong {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.org-connected-record-rail .org-status {
+  justify-self: start;
+}
+
+@media (max-width: 760px) {
+  .org-connected-inbox-group__head,
+  .org-connected-inbox-card > header {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
