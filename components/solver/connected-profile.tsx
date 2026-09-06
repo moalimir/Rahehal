@@ -9,6 +9,7 @@ import {
   ConnectedFamilyError,
   ConnectedFamilyFallback,
 } from "@/components/solver/connected-family-state";
+import { RecordId } from "@/components/solver/record-identity";
 import { useConnectedFamily } from "@/components/solver/use-connected";
 import type {
   SolverVerificationResource,
@@ -751,6 +752,13 @@ export function ConnectedSolverSettings() {
               </dd>
             </div>
           </dl>
+          <div className="rh-connected-settings-workspace-id">
+            <div>
+              <strong>شناسه فضای کاری</strong>
+              <p>برای پشتیبانی، گزارش خطا یا هماهنگی فنی از این شناسه استفاده کنید.</p>
+            </div>
+            <RecordId value={activeWorkspace.id} label="شناسه فضای کاری" />
+          </div>
         </section>
         <section className="rh-card rh-connected-settings-card">
           <header className="rh-connected-card-head">

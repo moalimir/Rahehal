@@ -11115,3 +11115,905 @@
     order: 2;
   }
 }
+
+/* Connected team directory and management workspace. */
+.rh-team-management-hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 0.58fr);
+  gap: 24px 34px;
+  overflow: hidden;
+  padding: 28px 30px 0;
+  border-color: #cce5e9 !important;
+  background:
+    radial-gradient(circle at 6% 0%, rgba(3, 169, 183, 0.14), transparent 34%),
+    linear-gradient(112deg, #f9fdfd 35%, #edf9fa) !important;
+}
+
+.rh-team-management-hero::after {
+  content: "";
+  position: absolute;
+  inset: auto auto -82px -46px;
+  inline-size: 210px;
+  block-size: 210px;
+  border: 34px solid rgba(0, 155, 169, 0.055);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.rh-team-management-hero__main {
+  position: relative;
+  z-index: 1;
+  min-inline-size: 0;
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+}
+
+.rh-team-management-hero__icon,
+.rh-team-directory-hero__icon {
+  inline-size: 62px;
+  block-size: 62px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(0, 148, 161, 0.14);
+  border-radius: 18px;
+  color: #008e9d;
+  background: rgba(255, 255, 255, 0.8);
+  box-shadow: 0 10px 26px rgba(0, 91, 108, 0.08);
+}
+
+.rh-team-management-hero__icon svg,
+.rh-team-directory-hero__icon svg {
+  inline-size: 29px;
+}
+
+.rh-team-management-hero__main small,
+.rh-team-directory-hero__copy small {
+  color: #058c99;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.rh-team-management-hero__main h1,
+.rh-team-directory-hero__copy h1 {
+  margin: 6px 0 5px;
+  color: #08284b;
+  font-size: clamp(23px, 3vw, 31px);
+  line-height: 1.45;
+}
+
+.rh-team-management-hero__main p,
+.rh-team-directory-hero__copy p {
+  max-inline-size: 650px;
+  margin: 0;
+  color: #63798d;
+  font-size: 13px;
+  line-height: 1.9;
+}
+
+.rh-team-management-hero__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-block-start: 13px;
+}
+
+.rh-team-management-hero__badges span {
+  padding: 5px 10px;
+  border: 1px solid #cfe5e8;
+  border-radius: 999px;
+  color: #27707a;
+  background: rgba(255, 255, 255, 0.74);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.rh-team-management-hero__stats {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-self: stretch;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid rgba(0, 141, 154, 0.16);
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.74);
+  backdrop-filter: blur(8px);
+}
+
+.rh-team-management-hero__stats > div {
+  min-inline-size: 0;
+  display: grid;
+  place-content: center;
+  gap: 5px;
+  padding: 18px 11px;
+  text-align: center;
+}
+
+.rh-team-management-hero__stats > div + div {
+  border-inline-start: 1px solid #dcebed;
+}
+
+.rh-team-management-hero__stats dt {
+  color: #6e8292;
+  font-size: 12px;
+}
+
+.rh-team-management-hero__stats dd {
+  margin: 0;
+  color: #075166;
+  font-size: 27px;
+  font-weight: 850;
+}
+
+.rh-team-workspace-identity {
+  position: relative;
+  z-index: 1;
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-inline: -30px;
+  padding: 14px 30px;
+  border-block-start: 1px solid rgba(0, 142, 155, 0.14);
+  background: rgba(255, 255, 255, 0.66);
+}
+
+.rh-team-workspace-identity small,
+.rh-team-workspace-identity p {
+  display: block;
+  margin: 0;
+}
+
+.rh-team-workspace-identity small {
+  color: #315d6e;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.rh-team-workspace-identity p {
+  margin-block-start: 2px;
+  color: #788b98;
+  font-size: 12px;
+}
+
+.rh-team-directory-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 0.45fr);
+  align-items: center;
+  gap: 30px;
+  padding: 28px 30px;
+  border-color: #cce5e9 !important;
+  background:
+    radial-gradient(circle at 8% 5%, rgba(5, 169, 183, 0.13), transparent 34%),
+    linear-gradient(112deg, #f9fdfd, #edf9fa) !important;
+}
+
+.rh-team-directory-hero__copy {
+  min-inline-size: 0;
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+}
+
+.rh-team-directory-hero__side {
+  display: grid;
+  gap: 14px;
+  padding-inline-start: 26px;
+  border-inline-start: 1px solid #d5e7ea;
+}
+
+.rh-team-directory-hero__side dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid #d6e7ea;
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.rh-team-directory-hero__side dl > div {
+  display: grid;
+  gap: 2px;
+  padding: 12px 14px;
+}
+
+.rh-team-directory-hero__side dl > div + div {
+  border-inline-start: 1px solid #e0eaec;
+}
+
+.rh-team-directory-hero__side dt {
+  color: #708392;
+  font-size: 12px;
+}
+
+.rh-team-directory-hero__side dd {
+  margin: 0;
+  color: #075166;
+  font-size: 21px;
+  font-weight: 850;
+}
+
+.rh-team-directory-hero__side > button {
+  inline-size: 100%;
+  justify-content: center;
+}
+
+.rh-team-section,
+.rh-team-invite-form {
+  min-inline-size: 0;
+  overflow: hidden;
+}
+
+.rh-team-section__head,
+.rh-team-invite-form__head {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 19px 22px;
+  border-block-end: 1px solid #e7edf2;
+  background: linear-gradient(105deg, #fff, #f9fcfd);
+}
+
+.rh-team-section__icon,
+.rh-team-invite-form__head > span {
+  inline-size: 44px;
+  block-size: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  color: #058b99;
+  background: #e8f8f8;
+}
+
+.rh-team-section__icon.is-mail {
+  color: #216a97;
+  background: #edf6fc;
+}
+
+.rh-team-section__icon.is-amber {
+  color: #946500;
+  background: #fff5d9;
+}
+
+.rh-team-section__icon.is-soft {
+  color: #607486;
+  background: #eff3f6;
+}
+
+.rh-team-section__icon svg,
+.rh-team-invite-form__head > span svg {
+  inline-size: 21px;
+}
+
+.rh-team-section__head h2,
+.rh-team-section__head p,
+.rh-team-invite-form__head h2,
+.rh-team-invite-form__head p {
+  margin: 0;
+}
+
+.rh-team-section__head h2,
+.rh-team-invite-form__head h2 {
+  color: #0c294d;
+  font-size: 16px;
+}
+
+.rh-team-section__head p,
+.rh-team-invite-form__head p {
+  margin-block-start: 3px;
+  color: #748497;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.rh-team-section__body {
+  padding: 8px 22px 18px;
+}
+
+.rh-team-member-list,
+.rh-team-activity-list {
+  display: grid;
+}
+
+.rh-team-member-row,
+.rh-team-activity-list > article {
+  min-inline-size: 0;
+  display: grid;
+  align-items: center;
+  gap: 14px;
+  padding-block: 15px;
+  border-block-end: 1px solid #edf1f4;
+}
+
+.rh-team-member-row:last-child,
+.rh-team-activity-list > article:last-child {
+  border-block-end: 0;
+}
+
+.rh-team-member-row {
+  grid-template-columns: 46px minmax(0, 1fr) auto;
+}
+
+.rh-team-member-row__avatar {
+  inline-size: 46px;
+  block-size: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 13px;
+  color: #087985;
+  background: #eaf7f7;
+  font-size: 17px;
+  font-weight: 850;
+}
+
+.rh-team-member-row__identity,
+.rh-team-activity-list > article > div:first-child {
+  min-inline-size: 0;
+}
+
+.rh-team-member-row h3,
+.rh-team-member-row p,
+.rh-team-activity-list h3,
+.rh-team-activity-list p {
+  margin: 0;
+}
+
+.rh-team-member-row h3,
+.rh-team-activity-list h3 {
+  color: #173657;
+  font-size: 13px;
+}
+
+.rh-team-member-row p,
+.rh-team-activity-list p {
+  margin-block: 3px 7px;
+  color: #718297;
+  font-size: 12px;
+  line-height: 1.75;
+}
+
+.rh-team-activity-list > article {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.rh-team-activity-list small {
+  display: block;
+  margin-block-end: 3px;
+  color: #6e8092;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.rh-team-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.rh-team-row-actions button,
+.rh-team-row-actions select,
+.rh-team-text-action,
+.rh-team-space-grid footer button {
+  min-block-size: 38px;
+  padding-inline: 13px;
+  border: 1px solid #cfdae4;
+  border-radius: 9px;
+  color: #31556e;
+  background: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.rh-team-row-actions button.is-primary {
+  border-color: #079ba8;
+  color: #fff;
+  background: #079ba8;
+}
+
+.rh-team-row-actions button.is-danger,
+.rh-team-text-action.is-danger {
+  border-color: #edcdd2;
+  color: #a44250;
+  background: #fff8f9;
+}
+
+.rh-team-row-actions button:hover:enabled,
+.rh-team-text-action:hover:enabled,
+.rh-team-space-grid footer button:hover:enabled {
+  border-color: #8fb8c2;
+  background: #f2fafb;
+}
+
+.rh-team-row-actions button:disabled,
+.rh-team-row-actions select:disabled,
+.rh-team-text-action:disabled,
+.rh-team-space-grid footer button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.rh-team-inbox-grid,
+.rh-team-collaboration-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 18px;
+}
+
+.rh-team-empty {
+  min-block-size: 124px;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-items: center;
+  gap: 13px;
+  padding: 20px 8px;
+}
+
+.rh-team-empty > span {
+  inline-size: 44px;
+  block-size: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #7a8e9e;
+  background: #f0f4f6;
+}
+
+.rh-team-empty svg {
+  inline-size: 20px;
+}
+
+.rh-team-empty strong {
+  color: #38556d;
+  font-size: 13px;
+}
+
+.rh-team-empty p {
+  margin: 4px 0 0;
+  color: #7b8b9b;
+  font-size: 12px;
+  line-height: 1.75;
+}
+
+.rh-team-invite-form__head small {
+  color: #058b99;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.rh-team-invite-form__fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(220px, 0.8fr);
+  gap: 17px;
+  padding: 22px;
+}
+
+.rh-team-invite-form .rh-connected-field select {
+  inline-size: 100%;
+  min-block-size: 46px;
+  padding-inline: 13px;
+  border: 1px solid #ccd8e4;
+  border-radius: 10px;
+  outline: none;
+  color: #102b4f;
+  background: #fff;
+  font: inherit;
+  font-size: 13px;
+}
+
+.rh-team-invite-form .rh-connected-field select:focus {
+  border-color: #00a5b4;
+  box-shadow: 0 0 0 3px rgba(0, 165, 180, 0.12);
+}
+
+.rh-team-invite-form__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 15px 22px;
+  border-block-start: 1px solid #e7edf2;
+  background: #f9fbfc;
+}
+
+.rh-team-invite-form__actions p {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  color: #6d8091;
+  font-size: 12px;
+}
+
+.rh-team-invite-form__actions p svg {
+  inline-size: 15px;
+}
+
+.rh-team-invite-form__actions button {
+  min-block-size: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding-inline: 19px;
+  border: 1px solid #079aa7;
+  border-radius: 10px;
+  color: #fff;
+  background: #079aa7;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.rh-team-invite-form__actions button:disabled {
+  border-color: #cad8dd;
+  color: #85959f;
+  background: #dfe8eb;
+  cursor: not-allowed;
+}
+
+.rh-team-danger-zone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 18px 22px;
+  border-color: #eadcdf !important;
+  background: #fffafa !important;
+}
+
+.rh-team-danger-zone > div:first-child {
+  min-inline-size: 0;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
+  gap: 11px;
+}
+
+.rh-team-danger-zone > div:first-child > span {
+  inline-size: 42px;
+  block-size: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  color: #9b5c65;
+  background: #f9e9eb;
+}
+
+.rh-team-danger-zone svg {
+  inline-size: 19px;
+}
+
+.rh-team-danger-zone h2,
+.rh-team-danger-zone p {
+  margin: 0;
+}
+
+.rh-team-danger-zone h2 {
+  color: #5c3640;
+  font-size: 14px;
+}
+
+.rh-team-danger-zone p {
+  margin-block-start: 3px;
+  color: #8d7077;
+  font-size: 12px;
+}
+
+.rh-team-space-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 13px;
+  padding: 18px 22px 22px;
+}
+
+.rh-team-space-grid > article {
+  min-inline-size: 0;
+  display: grid;
+  align-content: start;
+  gap: 13px;
+  padding: 16px;
+  border: 1px solid #dfe7ed;
+  border-radius: 13px;
+  background: #fff;
+}
+
+.rh-team-space-grid > article.is-active {
+  border-color: #8fd2d7;
+  background: #f5fbfb;
+  box-shadow: inset 3px 0 #08a0ab;
+}
+
+.rh-team-space-card__title {
+  min-inline-size: 0;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.rh-team-space-card__title > span {
+  inline-size: 40px;
+  block-size: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  color: #087f8c;
+  background: #eaf7f7;
+}
+
+.rh-team-space-card__title svg {
+  inline-size: 19px;
+}
+
+.rh-team-space-card__title h3,
+.rh-team-space-card__title p {
+  margin: 0;
+}
+
+.rh-team-space-card__title h3 {
+  overflow: hidden;
+  color: #173657;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rh-team-space-card__title p {
+  margin-block-start: 2px;
+  color: #748598;
+  font-size: 12px;
+}
+
+.rh-team-space-grid footer {
+  min-block-size: 38px;
+  display: flex;
+  align-items: end;
+  margin-block-start: auto;
+}
+
+.rh-team-space-grid footer button,
+.rh-team-active-label {
+  inline-size: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+
+.rh-team-space-grid footer button svg {
+  inline-size: 15px;
+  transform: rotate(180deg);
+}
+
+.rh-team-active-label {
+  min-block-size: 38px;
+  border-radius: 9px;
+  color: #087681;
+  background: #e8f6f6;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.rh-team-active-label svg {
+  inline-size: 16px;
+}
+
+.rh-connected-settings-workspace-id {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 0 22px 20px;
+  padding: 14px 15px;
+  border: 1px solid #d9e7ea;
+  border-radius: 11px;
+  background: #f5fafb;
+}
+
+.rh-connected-settings-workspace-id strong,
+.rh-connected-settings-workspace-id p {
+  display: block;
+  margin: 0;
+}
+
+.rh-connected-settings-workspace-id strong {
+  color: #284e61;
+  font-size: 12px;
+}
+
+.rh-connected-settings-workspace-id p {
+  margin-block-start: 3px;
+  color: #718593;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+@media (max-width: 980px) {
+  .rh-team-management-hero,
+  .rh-team-directory-hero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rh-team-directory-hero__side {
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 0.45fr);
+    align-items: center;
+    padding-block-start: 22px;
+    padding-inline-start: 0;
+    border-block-start: 1px solid #d5e7ea;
+    border-inline-start: 0;
+  }
+
+  .rh-team-space-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .rh-team-inbox-grid,
+  .rh-team-collaboration-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rh-team-invite-form__fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rh-team-management-hero {
+    padding: 23px 22px 0;
+  }
+
+  .rh-team-workspace-identity {
+    margin-inline: -22px;
+    padding-inline: 22px;
+  }
+}
+
+@media (max-width: 580px) {
+  .rh-team-management-hero,
+  .rh-team-directory-hero {
+    padding-inline: 18px;
+    border-radius: 16px;
+  }
+
+  .rh-team-management-hero {
+    padding-block-start: 21px;
+  }
+
+  .rh-team-management-hero__main,
+  .rh-team-directory-hero__copy {
+    grid-template-columns: 48px minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .rh-team-management-hero__icon,
+  .rh-team-directory-hero__icon {
+    inline-size: 48px;
+    block-size: 48px;
+    border-radius: 14px;
+  }
+
+  .rh-team-management-hero__icon svg,
+  .rh-team-directory-hero__icon svg {
+    inline-size: 23px;
+  }
+
+  .rh-team-management-hero__main h1,
+  .rh-team-directory-hero__copy h1 {
+    font-size: 21px;
+  }
+
+  .rh-team-management-hero__stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .rh-team-management-hero__stats > div {
+    padding: 13px 6px;
+  }
+
+  .rh-team-management-hero__stats dt {
+    min-block-size: 38px;
+  }
+
+  .rh-team-management-hero__stats dd {
+    font-size: 22px;
+  }
+
+  .rh-team-workspace-identity,
+  .rh-connected-settings-workspace-id {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .rh-team-workspace-identity {
+    margin-inline: -18px;
+    padding-inline: 18px;
+  }
+
+  .rh-team-workspace-identity .rh-record-id,
+  .rh-connected-settings-workspace-id .rh-record-id {
+    inline-size: 100%;
+    justify-content: center;
+  }
+
+  .rh-team-directory-hero__side {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rh-team-space-grid {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 15px 17px 18px;
+  }
+
+  .rh-team-member-row {
+    grid-template-columns: 42px minmax(0, 1fr);
+  }
+
+  .rh-team-member-row__avatar {
+    inline-size: 42px;
+    block-size: 42px;
+  }
+
+  .rh-team-member-row > .rh-team-row-actions {
+    grid-column: 1 / -1;
+    justify-content: stretch;
+    flex-wrap: wrap;
+  }
+
+  .rh-team-member-row > .rh-team-row-actions > * {
+    flex: 1 1 120px;
+  }
+
+  .rh-team-member-row > .rh-team-row-actions select,
+  .rh-team-member-row > .rh-team-row-actions button {
+    inline-size: 100%;
+  }
+
+  .rh-team-activity-list > article {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rh-team-activity-list > article > .rh-team-row-actions,
+  .rh-team-activity-list > article > .rh-team-text-action {
+    justify-self: stretch;
+  }
+
+  .rh-team-activity-list > article > .rh-team-text-action {
+    inline-size: 100%;
+  }
+
+  .rh-team-invite-form__actions,
+  .rh-team-danger-zone {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .rh-team-invite-form__actions button,
+  .rh-team-danger-zone > .rh-team-row-actions,
+  .rh-team-danger-zone > .rh-team-row-actions button {
+    inline-size: 100%;
+  }
+
+  .rh-team-section__head,
+  .rh-team-invite-form__head {
+    padding-inline: 18px;
+  }
+
+  .rh-team-section__body,
+  .rh-team-invite-form__fields,
+  .rh-team-invite-form__actions {
+    padding-inline: 18px;
+  }
+}

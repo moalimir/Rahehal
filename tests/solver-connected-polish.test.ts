@@ -181,4 +181,30 @@ describe("connected solver workspace polish", () => {
     expect(teams).toContain("دعوت‌های در انتظار پاسخ");
     expect(teams).toContain("دعوت‌های پاسخ‌داده‌شده");
   });
+
+  it("presents team management as one responsive workspace rather than generic cards", () => {
+    expect(teams).toContain("rh-team-management-hero");
+    expect(teams).toContain("rh-team-management-hero__stats");
+    expect(teams).toContain("rh-team-invite-form");
+    expect(teams).toContain("rh-team-collaboration-grid");
+    expect(teams).toContain("<TeamEmptyState");
+    expect(teams).not.toContain('className="rh-card rh-profile-filters"');
+    expect(css).toMatch(
+      /@media \(max-width: 760px\)[\s\S]*?\.rh-team-collaboration-grid\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\)/,
+    );
+  });
+
+  it("keeps workspace ids available as labelled copy controls", () => {
+    expect(teams).toContain('<RecordId value={team.workspace_id} label="شناسه فضای کاری تیم" />');
+    expect(teams).not.toMatch(/<bdi dir="ltr">\{team\.workspace_id\}<\/bdi>/);
+    expect(profile).toContain('<RecordId value={activeWorkspace.id} label="شناسه فضای کاری" />');
+    expect(profile).toContain("rh-connected-settings-workspace-id");
+  });
+
+  it("offers every canonical team kind during connected team creation", () => {
+    expect(teams).toContain('<option value="expert-team">تیم مستقل</option>');
+    expect(teams).toContain('<option value="company">شرکت رسمی</option>');
+    expect(teams).toContain('<option value="academic-group">گروه دانشگاهی</option>');
+    expect(teams).toContain('<option value="lab">آزمایشگاه</option>');
+  });
 });
