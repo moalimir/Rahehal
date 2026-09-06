@@ -48,6 +48,12 @@ const navigation: Record<Exclude<AppShellRole, "solver">, AppNavigationItem[]> =
       matches: ["/app/org/access", "/app/org/team"],
       icon: "people",
     },
+    {
+      key: "notifications",
+      label: "اعلان‌ها",
+      href: "/app/org/notifications",
+      icon: "notification",
+    },
     { key: "profile", label: "پروفایل سازمان", href: "/app/org/profile", icon: "people" },
     { key: "settings", label: "تنظیمات سازمان", href: "/app/org/settings", icon: "shield" },
   ],
@@ -165,9 +171,15 @@ export function ConfiguredRoleShell({
       }
     : accounts[role];
 
-  const roleScopedNavigation = connectedOrganization
-    ? networkOrganizationNavigation(navigation[role], activeMembership?.role)
-    : navigation[role];
+  const roleScopedNavigation = (
+    connectedOrganization
+      ? networkOrganizationNavigation(navigation[role], activeMembership?.role)
+      : navigation[role]
+  ).map((item) =>
+    item.key === "notifications" && connectedOrganization && unreadCount > 0
+      ? { ...item, badge: unreadCount.toLocaleString("fa-IR") }
+      : item,
+  );
 
   return (
     <RoleAppShell

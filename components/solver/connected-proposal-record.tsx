@@ -1,11 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Icon } from "@/components/icons";
-import { SolverProposalDetail } from "@/components/solver-proposals-list";
+import { ConnectedFamilyFallback } from "@/components/solver/connected-family-state";
+import { ConnectedProposalDetail } from "@/components/solver/connected-proposal-detail";
+import { useConnectedFamily } from "@/components/solver/use-connected";
 import { readProposalRecordId } from "@/lib/workspace/proposal-navigation";
+import { proposalRecordScopeLost, readProposalRecord } from "@/lib/workspace/proposal-record";
 
 /**
  * The connected proposal record page.
@@ -14,6 +17,11 @@ import { readProposalRecordId } from "@/lib/workspace/proposal-navigation";
  * pre-generated static path. Resolution happens on mount rather than at render
  * so the static export's build-time render sees the same neutral placeholder a
  * connected first paint does.
+ *
+ * The record itself is read from the server. This route previously rendered
+ * the demo repository's detail, so a real `prp_…` was never found there and
+ * every connected record answered "not found" without asking the server at
+ * all -- a live route falling back to fixture authority.
  */
 export function ConnectedProposalRecord() {
   const [proposalId, setProposalId] = useState<string | null | undefined>(undefined);
@@ -45,5 +53,20 @@ export function ConnectedProposalRecord() {
       </section>
     );
 
-  return <SolverProposalDetail proposalId={proposalId} />;
+  return <ConnectedProposalRecordDetail proposalId={proposalId} />;
+}
+
+function ConnectedProposalRecordDetail({ proposalId }: { proposalId: string }) {
+  const connected = useConnectedFamily(
+    // The read closes over the record id, so the hook is told the id: without
+    // it, opening a second proposal would keep showing the first one's content.
+    useMemo(() => readProposalRecord(proposalId), [proposalId]),
+    proposalRecordScopeLost,
+    proposalId,
+  );
+
+  if (connected.state.kind !== "ready")
+    return <ConnectedFamilyFallback state={connected.state} label="این پیشنهاد" />;
+
+  return <ConnectedProposalDetail view={connected.state.data} />;
 }

@@ -1096,15 +1096,6 @@ const canonicalInternalRoutes: InternalRoute[] = [
   ),
   route(
     "SOL-03",
-    "/app/solver/invitations",
-    "solver",
-    "دعوت‌های حل‌کننده",
-    "invitations",
-    "پاسخ به دعوت",
-    "دعوت، مهلت پاسخ، محرمانگی و وضعیت پاسخ.",
-  ),
-  route(
-    "SOL-03",
     "/app/solver/invitations/INV-204",
     "solver",
     "جزئیات دعوت INV-204",

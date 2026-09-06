@@ -38,12 +38,19 @@ describe("تطابق کامل فضای سازمان با فرد و تیم در �
       "href",
       "/app/org/proposals",
     );
-    expect(screen.getByRole("link", { name: "اعلان‌ها" })).toHaveAttribute(
+    // Notifications are reachable from the quick links and from the sidebar,
+    // the same pair the solver shell offers, so the query has to say which.
+    const quickLinks = screen.getByRole("navigation", { name: "پیوندهای سریع" });
+    expect(within(quickLinks).getByRole("link", { name: "اعلان‌ها" })).toHaveAttribute(
       "href",
       "/app/org/notifications",
     );
 
     const primaryNavigation = screen.getByRole("navigation", { name: "ناوبری اصلی" });
+    expect(within(primaryNavigation).getByRole("link", { name: "اعلان‌ها" })).toHaveAttribute(
+      "href",
+      "/app/org/notifications",
+    );
     for (const label of [
       "داشبورد سازمان",
       "مسئله‌ها و چالش‌ها",

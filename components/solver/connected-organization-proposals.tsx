@@ -306,7 +306,6 @@ export function ConnectedOrganizationProposalDetail({ proposalId }: { proposalId
 
   const content = proposal.content;
   const version = proposal.submitted_version;
-  const openClarification = proposal.clarifications.find((item) => item.state === "submitted");
   const revisionDeadlineIso = revisionDeadline ? new Date(revisionDeadline).toISOString() : "";
   const canStartEligibility = proposal.state === "submitted";
   const canDecideEligibility = proposal.state === "eligibility_review";
@@ -564,10 +563,14 @@ export function ConnectedOrganizationProposalDetail({ proposalId }: { proposalId
         {!hasOrganizationAction && (
           <p>در وضعیت فعلی، اقدام تازه‌ای برای سازمان در این مرحله وجود ندارد.</p>
         )}
-        {openClarification && (
+        {canResolveClarification && (
+          // The only action in this state is closing the answered clarification,
+          // and that control belongs beside the question it answers rather than
+          // here. Without this line the panel rendered a heading and an opaque
+          // `pcl_…` identifier, which reads as a section that failed to load.
           <p>
-            یک شفاف‌سازی پاسخ‌داده‌شده در انتظار جمع‌بندی است:{" "}
-            <bdi dir="ltr">{openClarification.id}</bdi>
+            پاسخ شفاف‌سازی رسیده است. برای ادامه، جمع‌بندی خود را در همان بخش «شفاف‌سازی‌ها» بالاتر
+            ثبت کنید.
           </p>
         )}
       </section>

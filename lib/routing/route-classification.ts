@@ -54,7 +54,6 @@ const liveConnectedRoutes: Readonly<Record<string, string>> = {
   "/app/solver/saved": "C6",
   "/app/solver/received-proposals": "C6",
   "/app/solver/teams": "C2",
-  "/app/solver/invitations": "C2",
   "/app/solver/profile": "C1",
   "/app/solver/verification": "C1/C9",
   "/app/solver/settings": "C9",

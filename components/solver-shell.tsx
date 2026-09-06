@@ -86,9 +86,9 @@ const individualNavigation: AppNavigationItem[] = [
   },
   {
     key: "invitations",
-    label: "دعوت‌نامه‌های تیمی",
-    href: "/app/solver/invitations?space=individual",
-    matches: ["/app/solver/invitations", "/app/solver/teams"],
+    label: "تیم‌ها و همکاری",
+    href: "/app/solver/teams?space=individual",
+    matches: ["/app/solver/teams", "/app/solver/invitations"],
     icon: "people",
   },
   {
@@ -172,9 +172,9 @@ const teamNavigation: AppNavigationItem[] = [
   },
   {
     key: "invitations",
-    label: "درخواست‌های عضویت",
-    href: "/app/solver/invitations?space=team",
-    matches: ["/app/solver/invitations", "/app/solver/teams"],
+    label: "تیم‌ها و همکاری",
+    href: "/app/solver/teams?space=team",
+    matches: ["/app/solver/teams", "/app/solver/invitations"],
     icon: "people",
   },
   {

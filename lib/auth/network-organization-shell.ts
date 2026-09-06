@@ -10,6 +10,9 @@ const navigationRequirements: Record<string, keyof OrganizationCapabilities | nu
   dashboard: null,
   challenges: null,
   profile: null,
+  // Every member reads their own workspace's notifications; nothing about the
+  // read model is gated on authoring or managing the organization.
+  notifications: null,
   experts: "authorChallenges",
   proposals: "authorChallenges",
   pilots: "authorChallenges",
@@ -24,6 +27,7 @@ const connectedNavigation = new Set([
   "challenges",
   "experts",
   "proposals",
+  "notifications",
   "access",
   "profile",
   "settings",
