@@ -265,6 +265,23 @@ function filled(value: string, minimum = 2): boolean {
 }
 
 /**
+ * Persian and Arabic-Indic digits read as the ASCII digits they are.
+ *
+ * A Persian keyboard produces ۶, not 6, so a week count typed the way the
+ * product asks for it was rejected as badly formatted with no hint why. The
+ * contact-verification code path already normalizes the same way; readiness has
+ * to agree, because it is the rule draft reads, preview and submit all share.
+ */
+function weeks(value: string): string {
+  const persian = "\u06F0\u06F1\u06F2\u06F3\u06F4\u06F5\u06F6\u06F7\u06F8\u06F9";
+  const arabic = "\u0660\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668\u0669";
+  return value
+    .trim()
+    .replace(/[\u06F0-\u06F9]/g, (digit) => String(persian.indexOf(digit)))
+    .replace(/[\u0660-\u0669]/g, (digit) => String(arabic.indexOf(digit)));
+}
+
+/**
  * One deterministic readiness rule shared by draft reads, preview and submit,
  * so all three report identical field-level errors — the same contract B1
  * established for challenges.
@@ -294,9 +311,11 @@ export function evaluateProposalReadiness(
     add("/content/technical_approach", "min_length", "رویکرد فنی را شرح دهید.");
   if (!filled(content.successMetrics, 10))
     add("/content/success_metrics", "min_length", "سنجه‌های موفقیت را مشخص کنید.");
-  if (!/^\d{1,2}$/.test(content.prototypeWeeks) || Number(content.prototypeWeeks) < 1)
+  const prototypeWeeks = weeks(content.prototypeWeeks);
+  if (!/^\d{1,2}$/.test(prototypeWeeks) || Number(prototypeWeeks) < 1)
     add("/content/prototype_weeks", "format", "زمان نمونه اولیه را به هفته وارد کنید.");
-  if (!/^\d{1,3}$/.test(content.durationWeeks) || Number(content.durationWeeks) < 1)
+  const durationWeeks = weeks(content.durationWeeks);
+  if (!/^\d{1,3}$/.test(durationWeeks) || Number(durationWeeks) < 1)
     add("/content/duration_weeks", "format", "مدت اجرا را به هفته وارد کنید.");
   if (!filled(content.ipStatus, 2))
     add("/content/ip_status", "required", "وضعیت مالکیت فکری را مشخص کنید.");

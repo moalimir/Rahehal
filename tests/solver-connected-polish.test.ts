@@ -56,8 +56,34 @@ describe("connected solver workspace polish", () => {
   it("keeps notification rows and the header badge synchronized", () => {
     expect(notifications).toContain("announceNotificationStateChanged()");
     expect(notifications).toContain("window.setInterval(refreshVisible, 15_000)");
-    expect(unreadBadge).toContain("window.addEventListener(NOTIFICATION_STATE_CHANGED");
     expect(unreadBadge).toContain("NOTIFICATION_POLL_INTERVAL_MS = 15_000");
+    // The 15s poll is visibility-gated so a background tab stays quiet, but the
+    // commit announcement is not: it re-reads whatever the document's
+    // visibility happens to be, or the header keeps a count the page below it
+    // has already cleared.
+    expect(unreadBadge).toContain("window.addEventListener(NOTIFICATION_STATE_CHANGED, refresh)");
+    expect(unreadBadge).toContain(
+      "window.setInterval(refreshVisible, NOTIFICATION_POLL_INTERVAL_MS)",
+    );
+  });
+
+  it("names what a notification's identifier belongs to", () => {
+    // Every row printed a bare `wsp_…`/`prp_…` under its headline, which reads
+    // as noise and, in Persian, reorders around the punctuation beside it.
+    // `RecordId` is the sanctioned place for an opaque identifier: labelled,
+    // isolated, and copyable.
+    expect(notifications).toContain("<RecordId value={item.subject_id}");
+    expect(notifications).toContain('proposal: "شناسه پیشنهاد"');
+    expect(notifications).not.toMatch(/<bdi dir="ltr">\{item\.subject_id\}<\/bdi>/);
+  });
+
+  it("gives the solver sidebar the unread badge the organization already had", () => {
+    // The solver had only the topbar dot, so the same unread state was
+    // announced at two different volumes depending on which persona you were.
+    const shell = readFileSync("components/solver-shell.tsx", "utf8");
+    expect(shell).toContain('item.key === "notifications" && connected.unreadCount > 0');
+    const roleShells = readFileSync("components/role-shells.tsx", "utf8");
+    expect(roleShells).toContain('item.key === "notifications"');
   });
 
   it("makes direct offers explicitly workspace-scoped and deep-linkable", () => {

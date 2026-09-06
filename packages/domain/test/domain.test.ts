@@ -387,6 +387,41 @@ describe("C1 proposal eligibility", () => {
   });
 });
 
+/** A proposal whose every readiness rule already passes. */
+const readyContent: ProposalContent = {
+  title: "راهکار کاهش مصرف انرژی",
+  problemStatement: "شرح کامل مسئله و وضعیت عملیاتی موجود در کارخانه.",
+  valueProposition: "راهکار پیشنهادی مصرف را با سنجش مستمر کاهش می‌دهد.",
+  maturityLevel: "prototype",
+  prototypeWeeks: "8",
+  technologies: ["sensor"],
+  technicalApproach: "رویکرد فنی کامل برای نمونه‌سازی و ارزیابی راهکار.",
+  architecture: "edge",
+  dataNeeds: "telemetry",
+  successMetrics: "کاهش حداقل بیست درصدی مصرف انرژی.",
+  ipStatus: "owned",
+  durationWeeks: "16",
+  roadmap: "pilot",
+  dependencies: "access",
+  pilotLocation: "site",
+  risks: "integration",
+  mitigation: "staged rollout",
+  leadName: "Solver",
+  teamSummary: "team",
+  relevantExperience: "experience",
+  budgetAmountMinor: 100_000,
+  budgetCurrency: "IRR",
+  paymentModel: "milestone",
+  budgetRationale: "estimate",
+  startAvailability: "two-weeks",
+  teamAvailability: "part-time",
+  ndaAccepted: true,
+  conflictDeclared: true,
+  ipAccepted: true,
+  accuracyConfirmed: true,
+  attachmentIds: [],
+};
+
 describe("Phase 3 proposal lifecycle", () => {
   it("limits the C5 worker allowlist to canonical metadata-only proposal facts", () => {
     expect(proposalOutboxEventTypes).toEqual([
@@ -448,39 +483,7 @@ describe("Phase 3 proposal lifecycle", () => {
   });
 
   it("rejects malformed money and unconfirmed declarations", () => {
-    const content: ProposalContent = {
-      title: "راهکار کاهش مصرف انرژی",
-      problemStatement: "شرح کامل مسئله و وضعیت عملیاتی موجود در کارخانه.",
-      valueProposition: "راهکار پیشنهادی مصرف را با سنجش مستمر کاهش می‌دهد.",
-      maturityLevel: "prototype",
-      prototypeWeeks: "8",
-      technologies: ["sensor"],
-      technicalApproach: "رویکرد فنی کامل برای نمونه‌سازی و ارزیابی راهکار.",
-      architecture: "edge",
-      dataNeeds: "telemetry",
-      successMetrics: "کاهش حداقل بیست درصدی مصرف انرژی.",
-      ipStatus: "owned",
-      durationWeeks: "16",
-      roadmap: "pilot",
-      dependencies: "access",
-      pilotLocation: "site",
-      risks: "integration",
-      mitigation: "staged rollout",
-      leadName: "Solver",
-      teamSummary: "team",
-      relevantExperience: "experience",
-      budgetAmountMinor: 100_000,
-      budgetCurrency: "IRR",
-      paymentModel: "milestone",
-      budgetRationale: "estimate",
-      startAvailability: "two-weeks",
-      teamAvailability: "part-time",
-      ndaAccepted: true,
-      conflictDeclared: true,
-      ipAccepted: true,
-      accuracyConfirmed: true,
-      attachmentIds: [],
-    };
+    const content = readyContent;
 
     expect(evaluateProposalReadiness(content).ready).toBe(true);
     expect(
@@ -495,6 +498,38 @@ describe("Phase 3 proposal lifecycle", () => {
       "/content/budget_currency",
       "/content/accuracy_confirmed",
     ]);
+  });
+
+  it("reads a week count written in Persian or Arabic-Indic digits", () => {
+    // `\d` matches ASCII only, so a solver typing ۸ on the Persian keyboard the
+    // product is built around was told the field was malformed, with no way to
+    // discover that only Latin digits were accepted. Readiness is the rule
+    // draft reads, preview and submit all share, so the whole submission was
+    // unreachable from a Persian keyboard.
+    const persian = evaluateProposalReadiness({
+      ...readyContent,
+      prototypeWeeks: "۸",
+      durationWeeks: "۱۶",
+    });
+    expect(persian.issues).toEqual([]);
+    expect(persian.ready).toBe(true);
+
+    const arabic = evaluateProposalReadiness({
+      ...readyContent,
+      prototypeWeeks: "٨",
+      durationWeeks: "١٦",
+    });
+    expect(arabic.ready).toBe(true);
+
+    // Normalization is not permission: a non-numeric or zero week count is
+    // still refused, in either script.
+    expect(
+      evaluateProposalReadiness({
+        ...readyContent,
+        prototypeWeeks: "۰",
+        durationWeeks: "هشت",
+      }).issues.map((issue) => issue.path),
+    ).toEqual(["/content/prototype_weeks", "/content/duration_weeks"]);
   });
 });
 

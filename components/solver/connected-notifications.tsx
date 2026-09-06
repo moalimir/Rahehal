@@ -12,6 +12,7 @@ import {
 import { useConnectedFamily } from "@/components/solver/use-connected";
 import type { NotificationKind } from "@rahhal/domain";
 import type { GatewayResult } from "@/lib/api/result";
+import { RecordId } from "@/components/solver/record-identity";
 import { proposalHref } from "@/lib/workspace/proposal-navigation";
 import {
   notificationsScopeLost,
@@ -56,6 +57,13 @@ const kindLabels: Record<NotificationKind, string> = {
  * re-checks access at that moment rather than trusting the access the
  * projection saw when the row was written.
  */
+/** What the opaque identifier under a notification belongs to. */
+const subjectLabels: Record<NotificationView["items"][number]["subject_type"], string> = {
+  proposal: "شناسه پیشنهاد",
+  team: "شناسه فضای تیمی",
+  direct_offer: "شناسه دعوت مستقیم",
+};
+
 function deepLink(
   subjectType: NotificationView["items"][number]["subject_type"],
   subjectId: string,
@@ -199,9 +207,7 @@ export function ConnectedNotifications({ persona }: { persona: "solver" | "org" 
                   }).format(new Date(item.occurred_at))}
                 </small>
                 <h3>{kindLabels[item.kind] ?? item.kind}</h3>
-                <p title={item.subject_id}>
-                  <bdi dir="ltr">{item.subject_id}</bdi>
-                </p>
+                <RecordId value={item.subject_id} label={subjectLabels[item.subject_type]} />
               </div>
               <div className="rh-connected-notification-list__actions">
                 {href && (

@@ -335,7 +335,16 @@ function ConnectedSolverWorkspaceShell({
   );
   const activeSpace = activeOption?.space ?? "individual";
   const navigation = (activeSpace === "team" ? teamNavigation : individualNavigation)
-    .map((item) => ({ ...item, href: item.href.split("?")[0] }))
+    .map((item) => ({
+      ...item,
+      href: item.href.split("?")[0],
+      // The same badge the organization sidebar carries. Without it the solver
+      // had only the topbar dot, so the two personas disagreed about how loudly
+      // an unread notification is announced.
+      ...(item.key === "notifications" && connected.unreadCount > 0
+        ? { badge: connected.unreadCount.toLocaleString("fa-IR") }
+        : {}),
+    }))
     .filter((item) =>
       [
         "dashboard",

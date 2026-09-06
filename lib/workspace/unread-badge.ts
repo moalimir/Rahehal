@@ -57,13 +57,18 @@ export function useUnreadNotificationCount(refreshKey?: string): number {
       if (document.visibilityState === "visible") refresh();
     };
     const interval = window.setInterval(refreshVisible, NOTIFICATION_POLL_INTERVAL_MS);
-    window.addEventListener(NOTIFICATION_STATE_CHANGED, refreshVisible);
+    // The announcement is not a poll. It says a notification command committed
+    // in this document, so it re-reads unconditionally: gating it on visibility
+    // left the header contradicting the page it sits above -- the row said read
+    // and the badge still said unread -- whenever the document was not visible
+    // at the moment the command resolved.
+    window.addEventListener(NOTIFICATION_STATE_CHANGED, refresh);
     window.addEventListener("focus", refreshVisible);
     document.addEventListener("visibilitychange", refreshVisible);
     return () => {
       requestSequence.current += 1;
       window.clearInterval(interval);
-      window.removeEventListener(NOTIFICATION_STATE_CHANGED, refreshVisible);
+      window.removeEventListener(NOTIFICATION_STATE_CHANGED, refresh);
       window.removeEventListener("focus", refreshVisible);
       document.removeEventListener("visibilitychange", refreshVisible);
     };
