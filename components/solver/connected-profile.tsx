@@ -123,6 +123,7 @@ function ConnectedSolverProfileForm({
   const [geography, setGeography] = useState(profile.geography.join("، "));
   const [notice, setNotice] = useState("");
   const [pending, setPending] = useState(false);
+  const readinessIssues = profile.readiness.issues;
 
   const runVerification = async () => {
     if (!verification) return;
@@ -138,8 +139,8 @@ function ConnectedSolverProfileForm({
   };
 
   return (
-    <>
-      <header className="rh-profile-heading">
+    <div className="rh-connected-profile-page">
+      <header className="rh-profile-heading rh-connected-page-head">
         <div>
           <small>
             {verificationOnly
@@ -155,6 +156,16 @@ function ConnectedSolverProfileForm({
               : "این اطلاعات مستقیماً از فضای کاری فعال خوانده و همان‌جا ذخیره می‌شود."}
           </p>
         </div>
+        {!verificationOnly && (
+          <div className="rh-connected-page-head__status" aria-label="وضعیت آمادگی پروفایل">
+            <span>{profile.workspace_kind === "team" ? "فضای تیمی" : "فضای شخصی"}</span>
+            <strong>
+              {profile.readiness.ready
+                ? "پروفایل آماده است"
+                : `${readinessIssues.length.toLocaleString("fa-IR")} مورد تا آمادگی`}
+            </strong>
+          </div>
+        )}
       </header>
 
       {failures.map((failure) => (
@@ -167,7 +178,7 @@ function ConnectedSolverProfileForm({
 
       {!verificationOnly && (
         <form
-          className="rh-card rh-settings-page"
+          className="rh-card rh-connected-profile-form"
           onSubmit={(event) => {
             event.preventDefault();
             setPending(true);
@@ -193,36 +204,50 @@ function ConnectedSolverProfileForm({
               });
           }}
         >
-          <div className="rh-wizard-fields">
-            <label>
+          <header className="rh-connected-card-head">
+            <span className="rh-connected-card-head__icon">
+              <Icon name={profile.workspace_kind === "team" ? "people" : "user"} />
+            </span>
+            <div>
+              <h2>اطلاعات حرفه‌ای</h2>
+              <p>معرفی کوتاه و دقیق، پیدا کردن تخصص شما را برای فرصت‌های مناسب آسان‌تر می‌کند.</p>
+            </div>
+          </header>
+          <div className="rh-connected-profile-form__grid">
+            <label className="rh-connected-field">
               <span>عنوان حرفه‌ای</span>
               <input
                 required
                 minLength={5}
                 value={headline}
                 onChange={(e) => setHeadline(e.target.value)}
+                placeholder="برای نمونه: متخصص پایش و تحلیل داده صنعتی"
               />
+              <small>نقش یا ارزش حرفه‌ای شما در یک عبارت کوتاه</small>
             </label>
-            <label>
-              <span>معرفی حرفه‌ای</span>
-              <textarea
-                required
-                minLength={20}
-                rows={5}
-                value={overview}
-                onChange={(e) => setOverview(e.target.value)}
-              />
-            </label>
-            <label>
+            <label className="rh-connected-field">
               <span>تخصص‌ها</span>
               <input
                 required
                 value={expertise}
                 onChange={(e) => setExpertise(e.target.value)}
-                placeholder="با ویرگول جدا کنید"
+                placeholder="تحلیل داده، اینترنت اشیا، نگهداری پیش‌بینانه"
               />
+              <small>هر تخصص را با ویرگول جدا کنید</small>
             </label>
-            <label>
+            <label className="rh-connected-field is-wide">
+              <span>معرفی حرفه‌ای</span>
+              <textarea
+                required
+                minLength={20}
+                rows={6}
+                value={overview}
+                onChange={(e) => setOverview(e.target.value)}
+                placeholder="تجربه، توانمندی و نوع مسئله‌هایی را که حل می‌کنید توضیح دهید."
+              />
+              <small>یک معرفی روشن از تجربه و رویکرد کاری این فضای حل‌کننده</small>
+            </label>
+            <label className="rh-connected-field is-wide">
               <span>محدوده جغرافیایی</span>
               <input
                 required
@@ -230,38 +255,60 @@ function ConnectedSolverProfileForm({
                 onChange={(e) => setGeography(e.target.value)}
                 placeholder="برای نمونه: تهران، اصفهان"
               />
+              <small>شهرها یا ناحیه‌هایی که امکان همکاری و اجرای پروژه دارید</small>
             </label>
           </div>
-          <button className="rh-profile-primary" type="submit" disabled={pending}>
-            {pending ? "در حال ذخیره…" : "ذخیره پروفایل"}
-          </button>
+          <footer className="rh-connected-form-actions">
+            <p>پس از ذخیره، آمادگی پروفایل دوباره روی سرور محاسبه می‌شود.</p>
+            <button className="rh-profile-primary" type="submit" disabled={pending}>
+              <Icon name="check" /> {pending ? "در حال ذخیره…" : "ذخیره پروفایل"}
+            </button>
+          </footer>
         </form>
       )}
 
-      <section className="rh-card rh-team-origin-note">
-        <Icon name={verification?.state === "verified" ? "check" : "shield"} />
+      <section className="rh-card rh-connected-verification-card">
+        <span className="rh-connected-verification-card__icon">
+          <Icon name={verification?.state === "verified" ? "check" : "shield"} />
+        </span>
         <div>
-          <strong>
-            احراز فضای کاری:{" "}
-            {verification ? verificationLabels[verification.state] : "در دسترس نیست"}
-          </strong>
+          <small>وضعیت احراز فضای کاری</small>
+          <strong>{verification ? verificationLabels[verification.state] : "در دسترس نیست"}</strong>
           <p>
             تأیید راه ارتباطی ورود با احراز فضای کاری یکی نیست. فراخوان‌هایی که احراز می‌خواهند تا
             پایان بررسی قابل ارسال نیستند.
           </p>
         </div>
         {verification?.state === "not_started" && (
-          <button type="button" disabled={pending} onClick={() => void runVerification()}>
+          <button
+            className="rh-profile-primary"
+            type="button"
+            disabled={pending}
+            onClick={() => void runVerification()}
+          >
             شروع درخواست احراز
           </button>
         )}
+        {!verificationOnly && verification?.state !== "not_started" && (
+          <Link className="rh-profile-outline" href="/app/solver/verification">
+            مشاهده جزئیات احراز
+          </Link>
+        )}
       </section>
 
-      {profile.readiness.issues.length > 0 && (
-        <section className="rh-card rh-profile-empty" role="status">
-          <h2>موارد باقی‌مانده برای آمادگی</h2>
+      {readinessIssues.length > 0 && (
+        <section className="rh-card rh-connected-readiness" role="status">
+          <header>
+            <span>
+              <Icon name="spark" />
+            </span>
+            <div>
+              <small>راهنمای تکمیل</small>
+              <h2>موارد باقی‌مانده برای آمادگی</h2>
+            </div>
+          </header>
           <ul>
-            {profile.readiness.issues.map((issue) => (
+            {readinessIssues.map((issue) => (
               <li key={issue.path}>{issue.message}</li>
             ))}
           </ul>
@@ -278,7 +325,7 @@ function ConnectedSolverProfileForm({
           </button>
         </div>
       )}
-    </>
+    </div>
   );
 }
 
@@ -309,49 +356,93 @@ export function ConnectedSolverSettings() {
   }
 
   return (
-    <div className="rh-settings-page">
-      <header className="rh-profile-heading">
+    <div className="rh-connected-settings-page">
+      <header className="rh-profile-heading rh-connected-page-head">
         <div>
           <small>حساب و فضای کاری فعال</small>
-          <h1>تنظیمات حل‌کننده</h1>
-          <p>اطلاعات مرجع نشست نمایش داده می‌شود؛ کنترل نمایشی قابل ذخیره وجود ندارد.</p>
+          <h1>{activeWorkspace.kind === "team" ? "تنظیمات تیم" : "تنظیمات حل‌کننده"}</h1>
+          <p>وضعیت حساب، فضای فعال و قابلیت‌های قابل مدیریت را یکجا مرور کنید.</p>
         </div>
+        <span className="rh-connected-page-head__badge">
+          <Icon name={activeWorkspace.kind === "team" ? "people" : "user"} /> {roleLabel}
+        </span>
       </header>
-      <section className="rh-card rh-settings-content">
-        <div className="rh-setting-details">
-          <p>
-            <span>نام کاربر</span>
-            <strong>{runtime.me.user.display_name}</strong>
-          </p>
-          <p>
-            <span>فضای کاری</span>
-            <strong>{activeWorkspace.name}</strong>
-          </p>
-          <p>
-            <span>نقش فعال</span>
-            <strong>{roleLabel}</strong>
-          </p>
-          <p>
-            <span>راه ارتباطی</span>
-            <strong dir="ltr">
-              {runtime.me.user.primary_email ?? runtime.me.user.primary_phone ?? "ثبت نشده"}
-            </strong>
-          </p>
-          <p>
-            <span>زبان و منطقه زمانی</span>
-            <strong>فارسی · تهران</strong>
-          </p>
-        </div>
-      </section>
-      <section className="rh-card rh-team-origin-note">
-        <Icon name="shield" />
+      <div className="rh-connected-settings-grid">
+        <section className="rh-card rh-connected-settings-card is-account">
+          <header className="rh-connected-card-head">
+            <span className="rh-connected-card-head__icon">
+              <Icon name="user" />
+            </span>
+            <div>
+              <h2>حساب و فضای فعال</h2>
+              <p>این اطلاعات از نشست متصل خوانده می‌شود.</p>
+            </div>
+          </header>
+          <dl className="rh-connected-facts-grid">
+            <div>
+              <dt>نام کاربر</dt>
+              <dd>{runtime.me.user.display_name}</dd>
+            </div>
+            <div>
+              <dt>فضای کاری</dt>
+              <dd>{activeWorkspace.name}</dd>
+            </div>
+            <div>
+              <dt>نقش فعال</dt>
+              <dd>{roleLabel}</dd>
+            </div>
+            <div>
+              <dt>راه ارتباطی</dt>
+              <dd dir="ltr">
+                {runtime.me.user.primary_email ?? runtime.me.user.primary_phone ?? "ثبت نشده"}
+              </dd>
+            </div>
+          </dl>
+        </section>
+        <section className="rh-card rh-connected-settings-card">
+          <header className="rh-connected-card-head">
+            <span className="rh-connected-card-head__icon is-soft">
+              <Icon name="grid" />
+            </span>
+            <div>
+              <h2>ترجیحات محصول</h2>
+              <p>تنظیمات فعال در نسخه فعلی</p>
+            </div>
+          </header>
+          <dl className="rh-connected-settings-list">
+            <div>
+              <dt>زبان و جهت</dt>
+              <dd>فارسی · راست‌به‌چپ</dd>
+            </div>
+            <div>
+              <dt>منطقه زمانی</dt>
+              <dd>تهران</dd>
+            </div>
+            <div>
+              <dt>اعلان درون‌برنامه‌ای</dt>
+              <dd>فعال</dd>
+            </div>
+          </dl>
+        </section>
+      </div>
+      <section className="rh-card rh-connected-verification-card rh-connected-settings-verification">
+        <span className="rh-connected-verification-card__icon">
+          <Icon name="shield" />
+        </span>
         <div>
+          <small>مسیر مستقل و متصل</small>
           <strong>احراز فضای کاری مسیر مستقل و متصل دارد.</strong>
-          <p>امنیت نشست، 2FA، حریم خصوصی و کانال تحویل اعلان در فاز فعلی قابل تغییر نیستند.</p>
+          <p>وضعیت احراز را ببینید یا در صورت نیاز درخواست بررسی را آغاز کنید.</p>
         </div>
         <Link className="rh-profile-outline" href="/app/solver/verification">
-          مشاهده وضعیت احراز
+          <Icon name="eye" /> مشاهده وضعیت احراز
         </Link>
+      </section>
+      <section className="rh-connected-settings-boundary" role="note">
+        <Icon name="lock" />
+        <p>
+          امنیت نشست، ورود دومرحله‌ای، حریم خصوصی و کانال تحویل اعلان در فاز فعلی قابل تغییر نیستند.
+        </p>
       </section>
     </div>
   );

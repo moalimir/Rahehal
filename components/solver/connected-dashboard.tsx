@@ -64,9 +64,9 @@ export function ConnectedSolverDashboard() {
   });
 
   return (
-    <>
-      <section className="rh-dashboard-hero">
-        <div>
+    <div className="rh-connected-dashboard">
+      <section className="rh-dashboard-hero rh-connected-dashboard-hero">
+        <div className="rh-connected-dashboard-hero__content">
           <small className="rh-dashboard-hero__context">
             <Icon name={team ? "people" : "user"} />
             {team ? "فضای تیمی فعال" : "فضای شخصی فعال"}
@@ -81,9 +81,24 @@ export function ConnectedSolverDashboard() {
                   ? `${actionable.length.toLocaleString("fa-IR")} مورد از ${rows.length.toLocaleString("fa-IR")} پیشنهاد این فضا منتظر اقدام شماست.`
                   : `${rows.length.toLocaleString("fa-IR")} پیشنهاد در این فضای کاری دارید و اقدام بازی روی آن‌ها نیست.`}
           </p>
-          <Link className="rh-button rh-button--primary" href="/app/solver/opportunities">
-            مشاهده فرصت‌های منتشرشده
-          </Link>
+          <div className="rh-connected-dashboard-hero__actions">
+            <Link className="rh-button rh-button--primary" href="/app/solver/opportunities">
+              مشاهده فرصت‌های منتشرشده <Icon name="arrow" />
+            </Link>
+            <Link className="rh-button rh-button--secondary" href="/app/solver/proposals">
+              راه‌حل‌های من
+            </Link>
+          </div>
+        </div>
+        <div className="rh-connected-dashboard-hero__summary" aria-label="خلاصه فضای کاری">
+          <article>
+            <span>همه پیشنهادها</span>
+            <strong>{rows.length.toLocaleString("fa-IR")}</strong>
+          </article>
+          <article className={actionable.length > 0 ? "has-action" : ""}>
+            <span>منتظر اقدام</span>
+            <strong>{actionable.length.toLocaleString("fa-IR")}</strong>
+          </article>
         </div>
       </section>
 
@@ -95,7 +110,7 @@ export function ConnectedSolverDashboard() {
         </ConnectedFamilyError>
       ))}
 
-      <div className="rh-dashboard-top">
+      <div className="rh-dashboard-top rh-connected-dashboard-top">
         <ConnectedProfileCard
           profile={summary.profile}
           userName={userName}
@@ -106,7 +121,10 @@ export function ConnectedSolverDashboard() {
       </div>
 
       {team && (
-        <section className="rh-card rh-membership-list" aria-label="وضعیت تیم">
+        <section
+          className="rh-card rh-membership-list rh-connected-team-summary"
+          aria-label="وضعیت تیم"
+        >
           <header>
             <div>
               <h2>تیم شما</h2>
@@ -129,19 +147,31 @@ export function ConnectedSolverDashboard() {
         </section>
       )}
 
-      <section className="rh-card rh-metrics-card">
+      <section className="rh-card rh-metrics-card rh-connected-metrics-card">
         <header>
-          <h2>خلاصه وضعیت راه‌حل‌ها</h2>
+          <div>
+            <small>نمای وضعیت</small>
+            <h2>خلاصه راه‌حل‌ها</h2>
+          </div>
           <span>{workspaceName ?? "فضای کاری فعال"}</span>
         </header>
         {summary.proposals ? (
           <div>
             {metrics.map(([label, field, icon, status], index) => (
               <article key={field} className={`tone-${index}`}>
-                <Icon name={icon} />
-                <span>{label}</span>
-                <strong>{summary.proposals![field].toLocaleString("fa-IR")}</strong>
-                <Link href={`/app/solver/proposals?status=${status}`}>مشاهده فهرست</Link>
+                <span className="rh-connected-metric__icon">
+                  <Icon name={icon} />
+                </span>
+                <div>
+                  <span>{label}</span>
+                  <strong>{summary.proposals![field].toLocaleString("fa-IR")}</strong>
+                </div>
+                <Link
+                  href={`/app/solver/proposals?status=${status}`}
+                  aria-label={`مشاهده ${label}`}
+                >
+                  <Icon name="arrow" />
+                </Link>
               </article>
             ))}
           </div>
@@ -150,7 +180,7 @@ export function ConnectedSolverDashboard() {
         )}
       </section>
 
-      <section className="rh-card rh-membership-list">
+      <section className="rh-card rh-membership-list rh-connected-recent-proposals">
         <header>
           <div>
             <h2>پیشنهادهای اخیر</h2>
@@ -186,7 +216,7 @@ export function ConnectedSolverDashboard() {
           );
         })}
         {summary.proposalRows && rows.length === 0 && (
-          <div className="rh-profile-empty">
+          <div className="rh-connected-dashboard-empty">
             <Icon name="search" />
             <h3>هنوز پیشنهادی در این فضا ندارید</h3>
             <p>یک فراخوان منتشرشده را باز کنید و اولین پیش‌نویس خود را بسازید.</p>
@@ -194,6 +224,6 @@ export function ConnectedSolverDashboard() {
           </div>
         )}
       </section>
-    </>
+    </div>
   );
 }

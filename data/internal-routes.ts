@@ -481,7 +481,7 @@ export const internalRoutes: InternalRoute[] = [
     "SOL-02A",
     "/solver/received-proposals",
     "solver",
-    "پیشنهادات دریافتی",
+    "دعوت‌های همکاری دریافتی",
     "invitations",
     "بررسی پیشنهاد",
     "دعوت‌ها و پیشنهادهای مستقیم سازمان‌ها با مهلت پاسخ و اقدام بعدی.",

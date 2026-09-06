@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Icon } from "@/components/icons";
 import { PersonAvatar } from "@/components/person-avatar";
 import type { ProposalListResource, SolverWorkspaceProfileResource } from "@rahhal/contracts";
+import { proposalStateLabels } from "@/lib/workspace/proposal-labels";
 import { proposalHref } from "@/lib/workspace/proposal-navigation";
 
 /**
@@ -29,11 +30,19 @@ export function ConnectedProfileCard({
   const team = profile?.workspace_kind === "team";
   const issues = profile?.readiness.issues ?? [];
   return (
-    <section className="rh-card rh-profile-card">
-      <div className="rh-profile-card__head">
-        <PersonAvatar name={userName} className="rh-avatar rh-avatar--large" />
+    <section className="rh-card rh-connected-dashboard-card rh-connected-profile-card">
+      <header className="rh-connected-dashboard-card__head">
+        <span className="rh-connected-dashboard-card__icon">
+          <Icon name={team ? "people" : "user"} />
+        </span>
         <div>
           <small>{team ? "پروفایل تیم" : "پروفایل حرفه‌ای"}</small>
+          <h2>آمادگی برای همکاری</h2>
+        </div>
+      </header>
+      <div className="rh-connected-profile-card__identity">
+        <PersonAvatar name={userName} className="rh-avatar rh-avatar--large" />
+        <div>
           <h2>{team ? workspaceName : userName}</h2>
           <p>{profile?.headline || "هنوز عنوانی برای این پروفایل ثبت نشده است."}</p>
         </div>
@@ -42,7 +51,7 @@ export function ConnectedProfileCard({
           not as a percentage. Showing the outstanding count is the honest
           rendering of that; a progress bar here would be a number nothing
           produced. */}
-      <div className="rh-progress-label">
+      <div className="rh-connected-profile-card__readiness">
         <span>
           {profile === null
             ? "وضعیت پروفایل در دسترس نیست"
@@ -53,20 +62,23 @@ export function ConnectedProfileCard({
         {profile?.readiness.ready && <Icon name="check" />}
       </div>
       {issues.length > 0 && (
-        <ul className="rh-skill-row">
+        <ul className="rh-connected-profile-card__issues">
           {issues.slice(0, 3).map((issue) => (
             <li key={issue.path}>{issue.message}</li>
           ))}
         </ul>
       )}
-      <div className="rh-skill-row">
+      <div className="rh-connected-profile-card__skills" aria-label="تخصص‌های ثبت‌شده">
         {(profile?.expertise ?? []).slice(0, 2).map((skill) => (
           <span key={skill}>{skill}</span>
         ))}
       </div>
-      <Link className="rh-button rh-button--ghost" href={href}>
-        تکمیل پروفایل
-      </Link>
+      <footer>
+        <Link className="rh-button rh-button--ghost" href={href}>
+          {profile?.readiness.ready ? "مشاهده پروفایل" : "تکمیل پروفایل"}
+          <Icon name="arrow" />
+        </Link>
+      </footer>
     </section>
   );
 }
@@ -92,39 +104,59 @@ export function ConnectedActionCard({
     ),
   );
   return (
-    <section className="rh-card rh-action-card">
-      <header>
-        <h2>اقدام‌های موردنیاز شما</h2>
+    <section className="rh-card rh-connected-dashboard-card rh-connected-action-card">
+      <header className="rh-connected-dashboard-card__head">
+        <span className="rh-connected-dashboard-card__icon is-amber">
+          <Icon name="notification" />
+        </span>
+        <div>
+          <small>صف اقدام</small>
+          <h2>اقدام‌های موردنیاز شما</h2>
+        </div>
+        <strong className="rh-connected-action-card__count">
+          {actionable.length.toLocaleString("fa-IR")}
+        </strong>
       </header>
       {actionable.length === 0 ? (
-        <p>
-          {rows.length === 0
-            ? "هنوز پیشنهادی در این فضای کاری ندارید. از صفحه فرصت‌ها شروع کنید."
-            : "اقدام بازی روی پیشنهادهای شما نیست."}
-        </p>
+        <div className="rh-connected-action-card__empty">
+          <span>
+            <Icon name="check" />
+          </span>
+          <div>
+            <strong>{rows.length === 0 ? "هنوز اقدامی ساخته نشده" : "همه‌چیز به‌روز است"}</strong>
+            <p>
+              {rows.length === 0
+                ? "با شروع یک پیشنهاد، کارهای بعدی آن اینجا نمایش داده می‌شود."
+                : "در حال حاضر پرونده‌ای منتظر پاسخ یا اصلاح شما نیست."}
+            </p>
+          </div>
+        </div>
       ) : (
-        <ul>
+        <ul className="rh-connected-action-card__list">
           {actionable.slice(0, 3).map((row) => {
             const title = titles.get(row.challenge_id);
             return (
               <li key={row.id}>
+                <span>
+                  <Icon name="arrow" />
+                </span>
                 <Link href={proposalHref(`/app/solver/proposals/${row.id}/edit`)}>
-                  {title ? (
-                    <>ادامه «{title}»</>
-                  ) : (
-                    <>
-                      ادامه پرونده <bdi dir="ltr">{row.tracking_code ?? row.id}</bdi>
-                    </>
-                  )}
+                  <strong>{title ? `ادامه «${title}»` : "ادامه پرونده"}</strong>
+                  <small>
+                    {proposalStateLabels[row.state]} ·{" "}
+                    <bdi dir="ltr">{row.tracking_code ?? row.id}</bdi>
+                  </small>
                 </Link>
               </li>
             );
           })}
         </ul>
       )}
-      <Link className="rh-button rh-button--ghost" href="/app/solver/proposals">
-        مشاهده همه پیشنهادها
-      </Link>
+      <footer>
+        <Link className="rh-button rh-button--ghost" href="/app/solver/proposals">
+          مشاهده همه پیشنهادها <Icon name="arrow" />
+        </Link>
+      </footer>
     </section>
   );
 }

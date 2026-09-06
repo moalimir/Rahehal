@@ -52,7 +52,7 @@ const individualNavigation: AppNavigationItem[] = [
   },
   {
     key: "received",
-    label: "پیشنهادهای دریافتی",
+    label: "دعوت‌های همکاری",
     href: "/app/solver/received-proposals?space=individual",
     matches: ["/app/solver/received-proposals"],
     icon: "notification",
@@ -138,7 +138,7 @@ const teamNavigation: AppNavigationItem[] = [
   },
   {
     key: "received",
-    label: "پیشنهادهای دریافتی",
+    label: "دعوت‌های همکاری",
     href: "/app/solver/received-proposals?space=team",
     matches: ["/app/solver/received-proposals"],
     icon: "notification",
