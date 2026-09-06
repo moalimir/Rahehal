@@ -631,6 +631,28 @@ export class PostgresIdentityWorkspaceAdapter
         [actor.user_id, this.clock.now().toISOString()],
       );
 
+      /**
+       * A single reachable workspace is not a choice.
+       *
+       * The exchange left the active context null and always answered
+       * `select_workspace`, so every sign-in landed on a chooser -- even for a
+       * platform operator or an organization member who has exactly one
+       * workspace and no decision to make. `/app`'s contract already says one
+       * reachable workspace enters it; this is the server half of that. Two or
+       * more still resolve to null, because then the choice is real.
+       */
+      const reachable = await client.query<{ tenant_id: string; workspace_id: string }>(
+        `
+          SELECT membership.tenant_id, membership.workspace_id
+          FROM membership
+          JOIN workspace ON workspace.id = membership.workspace_id
+          WHERE membership.user_id = $1 AND membership.state = 'active'
+          LIMIT 2
+        `,
+        [actor.user_id],
+      );
+      const onlyWorkspace = reachable.rowCount === 1 ? reachable.rows[0] : null;
+
       const sessionId = parseSessionId(this.ids.next("ses"));
       const version = 1;
       const issued = this.credentials.issue(sessionId, version);
@@ -643,7 +665,7 @@ export class PostgresIdentityWorkspaceAdapter
             id, user_id, origin_tenant_id, token_family_id, access_token_digest,
             refresh_token_digest, session_version, active_tenant_id, active_workspace_id,
             issued_at, access_expires_at, refresh_expires_at, last_used_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, NULL, $8, $9, $10, $8)
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $11, $12, $8, $9, $10, $8)
         `,
         [
           sessionId,
@@ -656,6 +678,8 @@ export class PostgresIdentityWorkspaceAdapter
           issuedAt.toISOString(),
           accessExpiresAt,
           refreshExpiresAt,
+          onlyWorkspace?.tenant_id ?? null,
+          onlyWorkspace?.workspace_id ?? null,
         ],
       );
       const evidence = await this.sessionEvidence(
@@ -668,7 +692,7 @@ export class PostgresIdentityWorkspaceAdapter
         },
         "session.exchanged",
         command,
-        ["select_workspace"],
+        [onlyWorkspace ? "continue" : "select_workspace"],
         issuedAt.toISOString(),
       );
       const cached = {

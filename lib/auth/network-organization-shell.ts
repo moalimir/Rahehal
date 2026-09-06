@@ -46,6 +46,26 @@ export function networkOrganizationRoleLabel(role: WorkspaceRole): string {
   return roleLabels[role] ?? "عضو سازمان";
 }
 
+/**
+ * Platform staff roles, for the operations and review chrome.
+ *
+ * Those shells previously showed a fixture person, so no label was needed.
+ * Naming the signed-in human means naming their role too, and a raw
+ * `platform:ops` in the sidebar is the identifier problem in another place.
+ */
+const platformRoleLabels: Partial<Record<WorkspaceRole, string>> = {
+  "platform:ops": "کارشناس عملیات پلتفرم",
+  "platform:finance": "کارشناس مالی پلتفرم",
+  "platform:legal": "کارشناس حقوقی پلتفرم",
+  "platform:reviewer": "داور پلتفرم",
+  "platform:admin": "مدیر پلتفرم",
+};
+
+/** The label for any workspace role a connected shell might display. */
+export function networkWorkspaceRoleLabel(role: WorkspaceRole, fallback: string): string {
+  return roleLabels[role] ?? platformRoleLabels[role] ?? fallback;
+}
+
 export function networkOrganizationNavigation(
   items: readonly AppNavigationItem[],
   role: WorkspaceRole | undefined,

@@ -477,15 +477,46 @@ describe("A1b PostgreSQL identity, workspace, and transaction boundary", () => {
     expect(persisted.rows[0]).toMatchObject({
       access_token_digest: credentialDigest(first.tokens.access_token),
       refresh_token_digest: credentialDigest(first.tokens.refresh_token),
-      active_workspace_id: null,
+      // This human holds exactly one workspace, so the exchange enters it
+      // rather than answering a chooser with a single button on it.
+      active_workspace_id: ownerWorkspaceId,
       last_authenticated_at: new Date(fixedTimestamp),
     });
+    expect(first.receipt.next_actions).toEqual(["continue"]);
     for (const serialized of [persisted.rows[0]?.session_row, persisted.rows[0]?.replay_row]) {
       expect(serialized).not.toContain(first.tokens.access_token);
       expect(serialized).not.toContain(first.tokens.refresh_token);
       expect(serialized).not.toContain(localOidcRecord.authorizationCode);
       expect(serialized).not.toContain(localOidcRecord.codeVerifier);
     }
+  });
+
+  it("still asks a human who holds two workspaces to choose", async () => {
+    // The auto-entry above must not become "pick the first one for them".
+    // Where the choice is real the exchange has to leave it open, because
+    // guessing would silently scope the next command to a workspace the
+    // person did not intend.
+    await database.query(
+      `
+        INSERT INTO membership (
+          id, tenant_id, workspace_id, workspace_kind, user_id, role, state, lock_version
+        ) VALUES ('mem_owner_alpha_second', 'ten_org_beta', 'wsp_org_beta', 'org',
+                  'usr_owner_alpha', 'org:member', 'active', 1)
+        ON CONFLICT (id) DO NOTHING
+      `,
+    );
+
+    const outcome = await adapter.exchange(
+      exchangeBody(),
+      command("a1b-exchange-two-workspaces", 41),
+    );
+    expect(outcome.receipt.next_actions).toEqual(["select_workspace"]);
+
+    const stored = await database.query<{ active_workspace_id: string | null }>(
+      "SELECT active_workspace_id FROM app_session WHERE id = $1",
+      [outcome.tokens.session_id],
+    );
+    expect(stored.rows[0]?.active_workspace_id).toBeNull();
   });
 
   it("rolls back session, audit, outbox, and replay metadata on commit failure", async () => {

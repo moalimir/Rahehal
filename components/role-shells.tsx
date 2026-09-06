@@ -7,6 +7,7 @@ import { useUnreadNotificationCount } from "@/lib/workspace/unread-badge";
 import {
   networkOrganizationNavigation,
   networkOrganizationRoleLabel,
+  networkWorkspaceRoleLabel,
 } from "@/lib/auth/network-organization-shell";
 
 const navigation: Record<Exclude<AppShellRole, "solver">, AppNavigationItem[]> = {
@@ -144,12 +145,28 @@ export function ConfiguredRoleShell({
   const organizationShell = role === "org";
   const runtime = useWebRuntime();
   const connectedOrganization = organizationShell && runtime.mode === "network";
+  /**
+   * Any signed-in role, not just the organization.
+   *
+   * Sign-out was wired to `connectedOrganization`, so a platform operator or a
+   * reviewer with a real OIDC session had no way to end it from the chrome --
+   * the one control a connected session must always offer. They authenticate
+   * through the same provider the organization does, so they return to the
+   * same login.
+   */
+  const connectedSession = runtime.mode === "network" && runtime.sessionStatus === "authenticated";
   const organizationWorkspaces = connectedOrganization
     ? (runtime.me?.workspaces.filter((workspace) => workspace.kind === "org") ?? [])
     : [];
   const activeWorkspace = organizationWorkspaces.find(
     (workspace) => workspace.id === runtime.me?.active_context?.workspace_id,
   );
+  /** The signed-in workspace for any connected role, organization or platform. */
+  const connectedWorkspace = connectedSession
+    ? runtime.me?.workspaces.find(
+        (workspace) => workspace.id === runtime.me?.active_context?.workspace_id,
+      )
+    : undefined;
   const activeMembership = runtime.me?.memberships.find(
     (membership) => membership.workspace_id === activeWorkspace?.id,
   );
@@ -169,7 +186,26 @@ export function ConfiguredRoleShell({
           ? networkOrganizationRoleLabel(activeMembership.role)
           : "عضو بدون فضای فعال",
       }
-    : accounts[role];
+    : connectedSession && connectedWorkspace
+      ? {
+          // A reviewer or platform operator was captioned with a fixture person
+          // -- "ندا اکبری" -- while the page beside them showed their real
+          // queue. Chrome is the one place a human trusts to say who they are,
+          // so it names the signed-in human or nothing.
+          workspaceLabel: accounts[role].workspaceLabel,
+          workspaceName: connectedWorkspace.name,
+          userName: runtime.me?.user.display_name ?? "کاربر راه‌حل",
+          userRole: (() => {
+            const membership = runtime.me?.memberships.find(
+              (candidate) =>
+                candidate.workspace_id === connectedWorkspace.id && candidate.state === "active",
+            );
+            return membership
+              ? networkWorkspaceRoleLabel(membership.role, accounts[role].userRole)
+              : accounts[role].userRole;
+          })(),
+        }
+      : accounts[role];
 
   const roleScopedNavigation = (
     connectedOrganization
@@ -205,7 +241,7 @@ export function ConfiguredRoleShell({
           : undefined
       }
       onSignOut={
-        connectedOrganization
+        connectedSession
           ? () => {
               // A full document navigation is deliberate after revoking a session:
               // it discards every in-memory gateway, cache, and provider value that

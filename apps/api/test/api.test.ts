@@ -463,7 +463,7 @@ describe("authoritative Fastify API foundation", () => {
     expect(snapshot.outboxEvents).toHaveLength(4);
   });
 
-  it("selects the first held workspace without a pre-existing workspace header", async () => {
+  it("enters the only workspace a human holds without asking them to choose", async () => {
     const exchange = await app.inject({
       method: "POST",
       url: apiRoutes.sessionExchange,
@@ -471,6 +471,13 @@ describe("authoritative Fastify API foundation", () => {
       payload: exchangeBody(),
     });
     const session = exchange.json<SessionSuccessEnvelope>();
+
+    // A single reachable workspace is not a choice. The exchange used to leave
+    // the context null and answer `select_workspace` regardless, so every
+    // sign-in landed on a chooser with one button on it and the first scoped
+    // request after signing in was refused.
+    expect(session.data.receipt.next_actions).toEqual(["continue"]);
+
     const beforeSwitch = await app.inject({
       method: "POST",
       url: apiRoutes.challenges,
@@ -481,9 +488,19 @@ describe("authoritative Fastify API foundation", () => {
       },
       payload: buildCreateChallengeBody(),
     });
-    expect(beforeSwitch.statusCode).toBe(404);
-    expect(beforeSwitch.json<ErrorEnvelope>().error.code).toBe("NOT_FOUND");
+    expect(beforeSwitch.statusCode).toBe(201);
 
+    const entered = await app.inject({
+      method: "GET",
+      url: apiRoutes.me,
+      headers: { authorization: `Bearer ${session.data.tokens.access_token}` },
+    });
+    expect(entered.json<SuccessEnvelope<MeResource>>().data.active_context?.workspace_id).toBe(
+      demoApiCredentials.owner.workspaceId,
+    );
+
+    // Switching to the workspace already active stays a valid, versioned,
+    // replayable command rather than becoming a special case.
     const switchRequest = {
       method: "POST" as const,
       url: apiRoutes.switchWorkspaceContext,
