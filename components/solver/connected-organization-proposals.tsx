@@ -11,7 +11,9 @@ import {
 } from "@/components/solver/connected-family-state";
 import { useConnectedFamily } from "@/components/solver/use-connected";
 import type { GatewayResult } from "@/lib/api/result";
+import { RecordId } from "@/components/solver/record-identity";
 import { proposalHref, readProposalRecordId } from "@/lib/workspace/proposal-navigation";
+import { currencyLabels } from "@/domain/challenge";
 import { formatMinorAmount } from "@/lib/challenges/model";
 import { proposalStateLabels } from "@/lib/workspace/proposal-labels";
 import {
@@ -202,13 +204,16 @@ export function ConnectedOrganizationProposals() {
           <article className="org-connected-inbox-card" key={item.id}>
             <header>
               <div className="org-connected-inbox-card__title">
+                {/* The tracking code is the reference an organization quotes
+                    back to a solver, so it leads. The challenge id below it
+                    was the same opaque string twice -- once as a fallback
+                    title, once labelled "فراخوان" -- and neither told anyone
+                    which call this was. */}
                 <small>
                   کد پیگیری <bdi dir="ltr">{item.tracking_code}</bdi>
                 </small>
-                <h2>{challenge?.title ?? <bdi dir="ltr">{item.challenge_id}</bdi>}</h2>
-                <p>
-                  فراخوان <bdi dir="ltr">{item.challenge_id}</bdi>
-                </p>
+                <h2>{challenge?.title ?? "فراخوان بدون عنوان عمومی"}</h2>
+                <p>{challenge ? challenge.category : "این فراخوان دیگر عمومی نیست"}</p>
               </div>
               <span className={`org-status ${proposalTone(item.state)}`}>
                 {proposalStateLabels[item.state]}
@@ -232,7 +237,7 @@ export function ConnectedOrganizationProposals() {
               <Icon name="shield" />
               <span>
                 <small>نسخه و اثر انگشت محتوا</small>
-                <bdi dir="ltr">{item.submitted_version.id}</bdi>
+                <RecordId value={item.submitted_version.id} label="شناسه نسخه ارسالی" />
                 <bdi dir="ltr">{item.submitted_version.content_hash.slice(0, 16)}</bdi>
               </span>
             </div>
@@ -364,7 +369,7 @@ export function ConnectedOrganizationProposalDetail({ proposalId }: { proposalId
             <dd>
               {content.budget_amount_minor === null
                 ? "ثبت نشده"
-                : `${formatMinorAmount(content.budget_amount_minor)} ${content.budget_currency}`}
+                : `${formatMinorAmount(content.budget_amount_minor)} ${currencyLabels[content.budget_currency]}`}
             </dd>
           </div>
         </dl>

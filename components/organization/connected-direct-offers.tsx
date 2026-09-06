@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Icon } from "@/components/icons";
+import { RecordId } from "@/components/solver/record-identity";
 import { useWebRuntime } from "@/components/runtime-provider";
 import type { ChallengePublicProjectionResource, DirectOfferResource } from "@rahhal/contracts";
 import type { WorkspaceId } from "@rahhal/domain";
@@ -305,10 +306,8 @@ export function ConnectedOrganizationDirectOffers() {
                   <Icon name="mail" />
                 </span>
                 <div>
-                  <small>
-                    <bdi dir="ltr">{offer.id}</bdi>
-                  </small>
                   <h2>{offer.title}</h2>
+                  <RecordId value={offer.id} label="شناسه دعوت" />
                 </div>
               </div>
               <span className={`org-status ${offerTone(offer.state)}`}>
@@ -318,7 +317,8 @@ export function ConnectedOrganizationDirectOffers() {
             <div className="org-connected-offer-card__meta">
               <span>
                 <Icon name="people" />
-                گیرنده <bdi dir="ltr">{offer.recipient_workspace_id}</bdi>
+                {offer.recipient_workspace_kind === "team" ? "فضای تیمی" : "فضای شخصی"} گیرنده
+                <RecordId value={offer.recipient_workspace_id} label="شناسه فضای کاری گیرنده" />
               </span>
               <span>
                 <Icon name="history" />

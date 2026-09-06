@@ -11739,3 +11739,79 @@
     inline-size: 100%;
   }
 }
+
+/* Record identity ---------------------------------------------------------
+   A tracking code is a reference a human quotes; an opaque server id is a
+   routing key. The first reads as a caption above the title, the second as a
+   demoted copyable chip, so a card never leads with 32 hex characters. */
+.rh-record-reference {
+  display: inline-block;
+  margin: 0;
+  color: #7b899a;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+.rh-record-id {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-inline-size: 100%;
+  padding: 3px 8px;
+  border: 1px solid #dbe4ee;
+  border-radius: 999px;
+  background: #f4f7fb;
+  color: #6b7a8d;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.6;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+
+.rh-record-id bdi {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rh-record-id svg {
+  flex: none;
+  inline-size: 13px;
+  block-size: 13px;
+}
+
+.rh-record-id:hover {
+  border-color: #b9c9db;
+  background: #eaf1f8;
+  color: #3f5468;
+}
+
+.rh-record-id:focus-visible {
+  outline: 2px solid #1f7a8c;
+  outline-offset: 2px;
+}
+
+.rh-record-id.is-copied {
+  border-color: #9ed7c8;
+  background: #e8f7f2;
+  color: #14705c;
+}
+
+/* 44x44 minimum target on touch, where the chip is the only way to take the
+   identifier and a mis-tap costs the whole interaction. */
+@media (pointer: coarse) {
+  .rh-record-id {
+    min-block-size: 44px;
+    padding-inline: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rh-record-id {
+    transition: none;
+  }
+}

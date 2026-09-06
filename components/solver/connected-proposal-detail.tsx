@@ -4,7 +4,9 @@ import Link from "next/link";
 
 import { Icon } from "@/components/icons";
 import { useActiveWorkspaceName } from "@/components/solver/use-connected";
+import { RecordId } from "@/components/solver/record-identity";
 import { proposalHref } from "@/lib/workspace/proposal-navigation";
+import { currencyLabels } from "@/domain/challenge";
 import { formatMinorAmount } from "@/lib/challenges/model";
 import { proposalStateLabels as labels } from "@/lib/workspace/proposal-labels";
 import type { ProposalRecordView } from "@/lib/workspace/proposal-record";
@@ -55,20 +57,23 @@ export function ConnectedProposalDetail({ view }: { view: ProposalRecordView }) 
     <>
       <header className="rh-profile-heading">
         <div>
+          {/* The last crumb carries the tracking code once one is issued --
+              the reference a human quotes -- and the record's state before
+              that. It deliberately does not repeat the heading below it, and
+              it never shows the opaque id, which says nothing and cannot be
+              read aloud. */}
           <nav aria-label="مسیر صفحه">
             <Link href="/app/solver/proposals">پیشنهادها</Link>
             <span>/</span>
             <span>
-              <bdi dir="ltr">{proposal.id}</bdi>
+              {proposal.tracking_code ? (
+                <bdi dir="ltr">{proposal.tracking_code}</bdi>
+              ) : (
+                labels[proposal.state]
+              )}
             </span>
           </nav>
-          <h1>
-            {content.title || view.challengeTitle || (
-              <>
-                پیشنهاد <bdi dir="ltr">{proposal.id}</bdi>
-              </>
-            )}
-          </h1>
+          <h1>{content.title || view.challengeTitle || "پیش‌نویس بدون عنوان"}</h1>
           <p>
             {workspaceName ? `${workspaceName} · ` : ""}
             {labels[proposal.state]}
@@ -88,10 +93,9 @@ export function ConnectedProposalDetail({ view }: { view: ProposalRecordView }) 
       <section className="rh-summary-grid rh-summary-grid--three" aria-label="خلاصه پیشنهاد">
         <article className="rh-card">
           <div>
-            <small>شناسه و نسخه</small>
-            <strong>
-              <bdi dir="ltr">{proposal.id}</bdi> · نسخه {proposal.version.toLocaleString("fa-IR")}
-            </strong>
+            <small>نسخه پرونده</small>
+            <strong>نسخه {proposal.version.toLocaleString("fa-IR")}</strong>
+            <RecordId value={proposal.id} label="شناسه پیشنهاد" />
           </div>
         </article>
         <article className="rh-card">
@@ -124,8 +128,8 @@ export function ConnectedProposalDetail({ view }: { view: ProposalRecordView }) 
       <section className="rh-card rh-solver-flow-card">
         <h2>محتوای نسخه جاری</h2>
         <p>
-          این صفحه مستقیماً از نسخه <bdi dir="ltr">{proposal.current_version_id}</bdi> روی سرور
-          خوانده شده است.
+          این صفحه مستقیماً از نسخه {proposal.version.toLocaleString("fa-IR")} روی سرور خوانده شده
+          است.
         </p>
         <dl>
           {contentFields.map(([label, field]) => (
@@ -143,7 +147,7 @@ export function ConnectedProposalDetail({ view }: { view: ProposalRecordView }) 
             <dd>
               {content.budget_amount_minor === null
                 ? "ثبت نشده"
-                : `${formatMinorAmount(content.budget_amount_minor)} ${content.budget_currency}`}
+                : `${formatMinorAmount(content.budget_amount_minor)} ${currencyLabels[content.budget_currency]}`}
             </dd>
           </div>
           <div>
@@ -174,9 +178,6 @@ export function ConnectedProposalDetail({ view }: { view: ProposalRecordView }) 
         {versions.map((version) => (
           <article key={version.id}>
             <div>
-              <small>
-                <bdi dir="ltr">{version.id}</bdi>
-              </small>
               <h3>
                 نسخه {version.version_number.toLocaleString("fa-IR")}{" "}
                 {version.locked ? "· قفل‌شده" : ""}
@@ -186,6 +187,7 @@ export function ConnectedProposalDetail({ view }: { view: ProposalRecordView }) 
                   ? `تغییر در ${version.changed_fields.length.toLocaleString("fa-IR")} بخش`
                   : "نسخه پایه"}
               </p>
+              <RecordId value={version.id} label="شناسه نسخه" />
             </div>
             <time dateTime={version.created_at}>
               {new Intl.DateTimeFormat("fa-IR", { dateStyle: "medium", timeStyle: "short" }).format(

@@ -12,6 +12,7 @@ import {
 import { useConnectedFamily } from "@/components/solver/use-connected";
 import { decideTeamPermission, teamRole, type TeamNonOwnerRole } from "@rahhal/domain";
 import type { GatewayResult } from "@/lib/api/result";
+import { RecordId } from "@/components/solver/record-identity";
 import { TEAM_ROLE_LABELS } from "@/lib/solver/permissions";
 import { readTeamView, teamViewScopeLost } from "@/lib/workspace/team-view";
 import {
@@ -141,13 +142,11 @@ export function ConnectedTeamsExperience() {
             {team.members.map((member) => (
               <article key={member.id}>
                 <div>
-                  <small>
-                    <bdi dir="ltr">{member.id}</bdi>
-                  </small>
                   <h3>{member.display_name}</h3>
                   <p>
                     {TEAM_ROLE_LABELS[member.role]} · {membershipStateLabels[member.state]}
                   </p>
+                  <RecordId value={member.id} label="شناسه عضویت" />
                 </div>
                 {permission("change-member-role") && member.role !== teamRole.owner && (
                   <div className="rh-profile-actions">
@@ -282,9 +281,6 @@ export function ConnectedTeamsExperience() {
             {view.incomingRequests.map((request) => (
               <article key={request.id}>
                 <div>
-                  <small>
-                    <bdi dir="ltr">{request.id}</bdi>
-                  </small>
                   <h3>{TEAM_ROLE_LABELS[request.requested_role]}</h3>
                   <p>
                     {teamMembershipRequestStateLabels[request.state]} · {request.introduction}
@@ -448,9 +444,6 @@ export function ConnectedTeamsExperience() {
         {view.incomingInvitations.map((invitation) => (
           <article key={invitation.id}>
             <div>
-              <small>
-                <bdi dir="ltr">{invitation.id}</bdi>
-              </small>
               <h3>{invitation.team_name}</h3>
               <p>
                 {TEAM_ROLE_LABELS[invitation.proposed_role]} ·{" "}
@@ -510,9 +503,6 @@ export function ConnectedTeamsExperience() {
         {view.ownRequests.map((request) => (
           <article key={request.id}>
             <div>
-              <small>
-                <bdi dir="ltr">{request.id}</bdi>
-              </small>
               <h3>{request.team_name}</h3>
               <p>
                 {TEAM_ROLE_LABELS[request.requested_role]} ·{" "}

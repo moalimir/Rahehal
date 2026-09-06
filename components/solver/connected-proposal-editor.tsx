@@ -11,6 +11,7 @@ import type {
   ProposalResource,
 } from "@rahhal/contracts";
 import { majorAmountToMinor, minorAmountToMajor } from "@/lib/challenges/model";
+import { RecordId } from "@/components/solver/record-identity";
 import { proposalStateLabels } from "@/lib/workspace/proposal-labels";
 import { proposalHref, readProposalRecordId } from "@/lib/workspace/proposal-navigation";
 
@@ -211,10 +212,16 @@ export function ConnectedProposalEditor() {
       <header className="rh-profile-heading rh-connected-page-head rh-connected-proposal-head">
         <div>
           <small className="rh-connected-proposal-head__id">
-            <bdi dir="ltr">{proposal.id}</bdi> · نسخه {proposal.version.toLocaleString("fa-IR")}
+            {proposal.tracking_code ? (
+              <bdi dir="ltr">{proposal.tracking_code}</bdi>
+            ) : (
+              "پیش‌نویس ارسال‌نشده"
+            )}{" "}
+            · نسخه {proposal.version.toLocaleString("fa-IR")}
           </small>
           <h1>{editable ? "تدوین پیشنهاد" : "اقدام روی پیشنهاد"}</h1>
           <p>هر ذخیره یک نسخه سروری تازه می‌سازد؛ ارسال نهایی همان نسخه را قفل می‌کند.</p>
+          <RecordId value={proposal.id} label="شناسه پیشنهاد" />
         </div>
         <Link
           className="rh-profile-outline"

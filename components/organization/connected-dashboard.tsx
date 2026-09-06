@@ -148,8 +148,12 @@ export function ConnectedOrganizationDashboard() {
                     <bdi dir="ltr">{proposal.tracking_code}</bdi>
                   </strong>
                   <small>
-                    فراخوان <bdi dir="ltr">{proposal.challenge_id}</bdi> ·{" "}
-                    {proposalStateLabels[proposal.state]}
+                    {/* The organization's own challenges are already loaded on
+                        this page, so the call a proposal answers can be named
+                        rather than printed as an opaque id. */}
+                    {state.challenges?.find((challenge) => challenge.id === proposal.challenge_id)
+                      ?.title || "فراخوان این سازمان"}{" "}
+                    · {proposalStateLabels[proposal.state]}
                   </small>
                 </div>
                 <Link href={proposalHref(`/app/org/proposals/${proposal.id}`)}>مشاهده پرونده</Link>
@@ -172,9 +176,7 @@ export function ConnectedOrganizationDashboard() {
               <article key={challenge.id}>
                 <div>
                   <strong>{challenge.title || "پیش‌نویس بدون عنوان"}</strong>
-                  <small>
-                    {challengeStatusLabels[challenge.status]} · <bdi dir="ltr">{challenge.id}</bdi>
-                  </small>
+                  <small>{challengeStatusLabels[challenge.status]}</small>
                 </div>
                 <Link href={challengeHref(`/app/org/challenges/${challenge.id}/overview`)}>
                   بازکردن

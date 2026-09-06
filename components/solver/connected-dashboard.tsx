@@ -198,15 +198,14 @@ export function ConnectedSolverDashboard() {
             <article key={row.id} className={actionable.includes(row) ? "is-unread" : ""}>
               <div>
                 <small>
-                  <bdi dir="ltr">{row.tracking_code ?? row.id}</bdi> · {formatDate(row.updated_at)}
-                </small>
-                <h3>
-                  {title ?? (
+                  {row.tracking_code ? (
                     <>
-                      فراخوان <bdi dir="ltr">{row.challenge_id}</bdi>
+                      <bdi dir="ltr">{row.tracking_code}</bdi> ·{" "}
                     </>
-                  )}
-                </h3>
+                  ) : null}
+                  {formatDate(row.updated_at)}
+                </small>
+                <h3>{title ?? "فراخوان بدون عنوان عمومی"}</h3>
                 <p>{proposalStateLabels[row.state]}</p>
               </div>
               <Link href={proposalHref(`/app/solver/proposals/${row.id}/preview`)}>

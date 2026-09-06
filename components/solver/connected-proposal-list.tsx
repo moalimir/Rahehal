@@ -10,6 +10,7 @@ import {
 } from "@/components/solver/connected-family-state";
 import { useConnectedFamily } from "@/components/solver/use-connected";
 import { proposalStateLabels } from "@/lib/workspace/proposal-labels";
+import { RecordId, RecordReference } from "@/components/solver/record-identity";
 import { proposalHref } from "@/lib/workspace/proposal-navigation";
 import { proposalListScopeLost, readProposalList } from "@/lib/workspace/proposal-rows";
 import { proposalStatusGroups } from "@/lib/workspace/solver-summary";
@@ -116,14 +117,17 @@ export function ConnectedProposalList() {
           return (
             <article key={row.id}>
               <div>
-                <small>
-                  <bdi dir="ltr">{row.trackingCode ?? row.id}</bdi>
-                </small>
-                <h2>{row.challengeTitle ?? <bdi dir="ltr">{row.challengeId}</bdi>}</h2>
+                {/* A tracking code is a reference; the proposal's own id is
+                    not. Leading with the id titled every unsubmitted draft
+                    with 32 hex characters and pushed the call it answers
+                    underneath. */}
+                <RecordReference code={row.trackingCode} />
+                <h2>{row.challengeTitle ?? "فراخوان بدون عنوان عمومی"}</h2>
                 <p>
                   {proposalStateLabels[row.state]} · نسخه{" "}
                   {row.versionNumber.toLocaleString("fa-IR")} · {formatDate(row.updatedAt)}
                 </p>
+                <RecordId value={row.id} label="شناسه پیشنهاد" />
               </div>
               <Link href={href}>{editable ? "ادامه و اقدام" : "مشاهده پرونده"}</Link>
             </article>
