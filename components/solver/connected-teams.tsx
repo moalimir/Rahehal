@@ -29,6 +29,8 @@ const nonOwnerRoles: readonly TeamNonOwnerRole[] = [
   teamRole.viewer,
 ] as readonly TeamNonOwnerRole[];
 
+type PageNotice = { readonly tone: "success" | "error"; readonly message: string };
+
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("fa-IR", { dateStyle: "medium" }).format(new Date(value));
 }
@@ -56,7 +58,7 @@ export function ConnectedTeamsExperience() {
     [activeWorkspaceKind],
   );
   const connected = useConnectedFamily(read, teamViewScopeLost, activeWorkspaceKind);
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState<PageNotice | null>(null);
   const [pending, setPending] = useState(false);
   const [creating, setCreating] = useState(false);
   const [teamName, setTeamName] = useState("");
@@ -85,11 +87,11 @@ export function ConnectedTeamsExperience() {
     const result = await command();
     setPending(false);
     if (result.ok) {
-      setNotice(`${success} · شناسه همبستگی ${result.meta.correlation_id}`);
+      setNotice({ tone: "success", message: success });
       connected.refresh();
       return;
     }
-    setNotice(result.error.message);
+    setNotice({ tone: "error", message: result.error.message });
   };
 
   const team = view.team;
@@ -132,13 +134,60 @@ export function ConnectedTeamsExperience() {
       ? decideTeamPermission(action, { role: membership.role, policy: team.policy }).allowed
       : false;
 
+  const createTeam = async () => {
+    setPending(true);
+    setNotice(null);
+    try {
+      const result = await gateways!.team.create({
+        name: teamName.trim(),
+        teamKind,
+        joinMode: "invite-only",
+      });
+      if (!result.ok) {
+        setPending(false);
+        setNotice({ tone: "error", message: result.error.message });
+        return;
+      }
+      const refreshed = await runtime.refreshMe();
+      if (!refreshed) {
+        setPending(false);
+        setNotice({
+          tone: "error",
+          message:
+            "تیم ساخته شد، اما فهرست فضاهای کاری تازه نشد. صفحه را بازخوانی کنید؛ نیازی به ساخت دوباره نیست.",
+        });
+        return;
+      }
+      const error = await runtime.switchWorkspace(result.data.entity_id);
+      if (error) {
+        setPending(false);
+        setNotice({
+          tone: "error",
+          message: `تیم ساخته شد، اما ورود به فضای آن انجام نشد: ${error.message}`,
+        });
+        return;
+      }
+      router.push("/app/solver/dashboard");
+    } catch {
+      setPending(false);
+      setNotice({
+        tone: "error",
+        message:
+          "ارتباط با سرویس ساخت تیم قطع شد. دوباره تلاش کنید؛ اطلاعات حساب شخصی شما محفوظ است.",
+      });
+    }
+  };
+
   return (
-    <>
+    <div className="rh-connected-teams-page">
       {notice && (
-        <div className="rh-profile-toast" role="status">
-          <Icon name="check" />
-          <span>{notice}</span>
-          <button type="button" onClick={() => setNotice("")} aria-label="بستن پیام">
+        <div
+          className={`rh-profile-toast ${notice.tone === "error" ? "is-error" : ""}`}
+          role={notice.tone === "error" ? "alert" : "status"}
+        >
+          <Icon name={notice.tone === "error" ? "notification" : "check"} />
+          <span>{notice.message}</span>
+          <button type="button" onClick={() => setNotice(null)} aria-label="بستن پیام">
             <Icon name="close" />
           </button>
         </div>
@@ -404,6 +453,7 @@ export function ConnectedTeamsExperience() {
         <>
           <header className="rh-profile-heading">
             <div>
+              <small>فضاهای کاری شما</small>
               <h1>تیم‌ها و همکاری</h1>
               <p>
                 تیم حساب جداگانه ندارد؛ با همین هویت یک فضای تیمی بسازید و سپس اعضا و پیشنهادهای آن
@@ -413,55 +463,117 @@ export function ConnectedTeamsExperience() {
             <button
               className="rh-profile-primary"
               type="button"
-              onClick={() => setCreating((value) => !value)}
+              aria-expanded={creating}
+              aria-controls="connected-team-create"
+              onClick={() => {
+                setCreating((value) => !value);
+                setNotice(null);
+              }}
             >
-              <Icon name="plus" /> {creating ? "بستن فرم" : "ساخت تیم"}
+              <Icon name={creating ? "close" : "plus"} /> {creating ? "بستن فرم" : "ساخت تیم"}
             </button>
           </header>
           {creating && (
             <form
-              className="rh-card rh-profile-filters"
+              className="rh-card rh-team-create-card"
+              id="connected-team-create"
               onSubmit={(event) => {
                 event.preventDefault();
-                setPending(true);
-                setNotice("");
-                void gateways!.team
-                  .create({ name: teamName.trim(), teamKind, joinMode: "invite-only" })
-                  .then(async (result) => {
-                    setPending(false);
-                    if (!result.ok) {
-                      setNotice(result.error.message);
-                      return;
-                    }
-                    setNotice(`تیم ساخته شد · شناسه همبستگی ${result.meta.correlation_id}`);
-                    await runtime.refreshMe();
-                    const error = await runtime.switchWorkspace(result.data.entity_id);
-                    if (!error) router.push("/app/solver/dashboard");
-                    else setNotice(error.message);
-                  });
+                void createTeam();
               }}
             >
-              <h2>ساخت فضای کاری تیم</h2>
-              <label>
-                <span>نام تیم</span>
-                <input
-                  required
-                  minLength={3}
-                  value={teamName}
-                  onChange={(event) => setTeamName(event.target.value)}
-                />
-              </label>
-              <label>
-                <span>نوع تیم</span>
-                <select value={teamKind} onChange={(event) => setTeamKind(event.target.value)}>
-                  <option value="expert-team">تیم تخصصی</option>
-                  <option value="academic-group">گروه دانشگاهی</option>
-                  <option value="lab">آزمایشگاه</option>
-                </select>
-              </label>
-              <button type="submit" disabled={pending || teamName.trim().length < 3}>
-                {pending ? "در حال ساخت…" : "ساخت تیم و ورود به آن"}
-              </button>
+              <header className="rh-team-create-card__head">
+                <span>
+                  <Icon name="people" />
+                </span>
+                <div>
+                  <small>مرحله بعد از فعال‌سازی شخصی</small>
+                  <h2>ساخت فضای کاری تیم</h2>
+                  <p>
+                    یک نام و نوع برای تیم انتخاب کنید. شما مالک نخست تیم می‌شوید و بعداً اعضا را با
+                    نقش مشخص دعوت می‌کنید.
+                  </p>
+                </div>
+              </header>
+
+              <ol className="rh-team-create-steps" aria-label="مسیر شروع تیم">
+                <li className="is-complete">
+                  <Icon name="check" />
+                  <span>
+                    <strong>هویت شخصی</strong>
+                    <small>فعال و محفوظ</small>
+                  </span>
+                </li>
+                <li className="is-active">
+                  <span>۲</span>
+                  <span>
+                    <strong>ساخت تیم</strong>
+                    <small>نام و نوع تیم</small>
+                  </span>
+                </li>
+                <li>
+                  <span>۳</span>
+                  <span>
+                    <strong>تکمیل پروفایل</strong>
+                    <small>پس از ورود به تیم</small>
+                  </span>
+                </li>
+              </ol>
+
+              <div className="rh-team-create-fields">
+                <label>
+                  <span>نام تیم</span>
+                  <input
+                    required
+                    minLength={3}
+                    maxLength={120}
+                    autoFocus
+                    autoComplete="organization"
+                    value={teamName}
+                    onChange={(event) => {
+                      setTeamName(event.target.value);
+                      setNotice(null);
+                    }}
+                    placeholder="مثلاً تیم بهینه‌سازی انرژی"
+                  />
+                  <small>نامی روشن انتخاب کنید که حوزه یا هویت تیم را نشان دهد.</small>
+                </label>
+                <label>
+                  <span>نوع تیم</span>
+                  <select value={teamKind} onChange={(event) => setTeamKind(event.target.value)}>
+                    <option value="expert-team">تیم تخصصی</option>
+                    <option value="academic-group">گروه دانشگاهی</option>
+                    <option value="lab">آزمایشگاه</option>
+                  </select>
+                  <small>این انتخاب برای معرفی درست تیم در فرصت‌ها استفاده می‌شود.</small>
+                </label>
+              </div>
+
+              <div className="rh-team-create-policy">
+                <Icon name="lock" />
+                <div>
+                  <strong>عضویت اولیه فقط با دعوت</strong>
+                  <p>
+                    پس از ساخت، می‌توانید اعضا را دعوت و برای هر نفر نقش و دامنه‌ی همکاری تعیین
+                    کنید.
+                  </p>
+                </div>
+              </div>
+
+              <footer className="rh-team-create-actions">
+                <button
+                  type="button"
+                  className="is-secondary"
+                  disabled={pending}
+                  onClick={() => setCreating(false)}
+                >
+                  فعلاً نه
+                </button>
+                <button type="submit" disabled={pending || teamName.trim().length < 3}>
+                  {pending ? "در حال ساخت فضای تیم…" : "ساخت تیم و ورود به آن"}
+                  {!pending && <Icon name="arrow" />}
+                </button>
+              </footer>
             </form>
           )}
         </>
@@ -626,7 +738,7 @@ export function ConnectedTeamsExperience() {
         ))}
         {!view.ownRequests.length && <p>درخواستی ثبت نکرده‌اید.</p>}
       </section>
-    </>
+    </div>
   );
 }
 

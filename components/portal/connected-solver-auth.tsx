@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { Brand } from "@/components/brand";
+import { Icon } from "@/components/icons";
 import { useWebRuntime } from "@/components/runtime-provider";
 import type { GatewayFailure } from "@/lib/api/result";
 import {
@@ -40,6 +41,40 @@ type Stage =
   | { readonly kind: "activate"; readonly verificationToken: string };
 
 const channelLabels = { mobile: "شماره همراه", email: "رایانامه" } as const;
+
+const authSteps = [
+  { key: "contact", label: "راه ارتباطی" },
+  { key: "code", label: "تأیید تماس" },
+  { key: "activate", label: "شروع همکاری" },
+] as const;
+
+function stageIndex(stage: Stage): number {
+  return authSteps.findIndex((step) => step.key === stage.kind);
+}
+
+function stageHeading(stage: Stage): { eyebrow: string; title: string; description: string } {
+  if (stage.kind === "code") {
+    return {
+      eyebrow: "تأیید راه ارتباطی",
+      title: "کد تأیید را وارد کنید",
+      description: "با تأیید کد، اگر پیش‌تر عضو راه‌حل بوده‌اید مستقیم وارد فضای کاری می‌شوید.",
+    };
+  }
+  if (stage.kind === "activate") {
+    return {
+      eyebrow: "فعال‌سازی برای اولین بار",
+      title: "حضور خود را در راه‌حل بسازید",
+      description:
+        "ابتدا هویت شخصی شما ساخته می‌شود؛ سپس می‌توانید شخصی ادامه دهید یا یک تیم بسازید.",
+    };
+  }
+  return {
+    eyebrow: "ویژه متخصصان و تیم‌ها",
+    title: "ورود یا شروع همکاری",
+    description:
+      "با یک کد یک‌بارمصرف وارد شوید؛ برای شروع به رمز عبور یا حساب جداگانه‌ی تیم نیاز ندارید.",
+  };
+}
 
 function safeSolverReturnTo(value: string | null, fallback: string): string {
   return value?.startsWith("/app/solver/") && !value.startsWith("/app/solver//") ? value : fallback;
@@ -193,6 +228,8 @@ export function ConnectedSolverAuth({
     stage.kind === "code"
       ? Math.max(0, Math.ceil((Date.parse(stage.resendAvailableAt) - now) / 1_000))
       : 0;
+  const currentStep = stageIndex(stage);
+  const heading = stageHeading(stage);
 
   if (runtime.sessionStatus === "authenticated") {
     return (
@@ -214,157 +251,262 @@ export function ConnectedSolverAuth({
       <main className="solver-login-main" id="main-content">
         <section className="solver-login-form-panel">
           <div className="solver-login-card">
-            <span className="organization-auth-badge">پنل متخصصان و تیم‌ها</span>
-            <h1>ورود یا ثبت‌نام حل‌گر</h1>
-            <p>برای مشاهده چالش‌ها و مدیریت راه‌حل‌های خود، کد یک‌بارمصرف دریافت کنید.</p>
+            <div className="solver-auth-intro">
+              <span className="organization-auth-badge">{heading.eyebrow}</span>
+              <h1>{heading.title}</h1>
+              <p>{heading.description}</p>
+            </div>
 
-            {error && (
-              <p className="organization-auth-message is-error" role="alert">
-                {error}
-              </p>
-            )}
-            {notice && !error && (
-              <p className="organization-auth-message is-success" role="status">
-                {notice}
-              </p>
-            )}
+            <ol
+              className="solver-auth-progress"
+              aria-label={`مرحله ${(currentStep + 1).toLocaleString("fa-IR")} از ۳`}
+            >
+              {authSteps.map((step, index) => (
+                <li
+                  key={step.key}
+                  className={
+                    index < currentStep ? "is-complete" : index === currentStep ? "is-active" : ""
+                  }
+                  aria-current={index === currentStep ? "step" : undefined}
+                >
+                  <span>
+                    {index < currentStep ? (
+                      <Icon name="check" />
+                    ) : (
+                      (index + 1).toLocaleString("fa-IR")
+                    )}
+                  </span>
+                  <small>{step.label}</small>
+                </li>
+              ))}
+            </ol>
 
-            {stage.kind === "contact" && (
-              <form onSubmit={start} noValidate>
-                <div className="solver-login-tabs" role="radiogroup" aria-label="راه ارتباطی">
-                  {(["mobile", "email"] as const).map((value) => (
+            <div className="solver-auth-stage-card">
+              {error && (
+                <div className="organization-auth-message is-error" role="alert">
+                  <Icon name="notification" />
+                  <span>{error}</span>
+                </div>
+              )}
+              {notice && !error && (
+                <div className="organization-auth-message is-success" role="status">
+                  <Icon name="check" />
+                  <span>{notice}</span>
+                </div>
+              )}
+
+              {stage.kind === "contact" && (
+                <form onSubmit={start} noValidate>
+                  <fieldset className="solver-auth-channel-fieldset">
+                    <legend>کد را چگونه دریافت می‌کنید؟</legend>
+                    <div className="solver-login-tabs">
+                      {(["mobile", "email"] as const).map((value) => (
+                        <button
+                          type="button"
+                          key={value}
+                          className={channel === value ? "is-active" : ""}
+                          aria-pressed={channel === value}
+                          onClick={() => {
+                            setChannel(value);
+                            setDestination("");
+                            setError(null);
+                          }}
+                        >
+                          <Icon name={value === "mobile" ? "key" : "mail"} />
+                          {channelLabels[value]}
+                        </button>
+                      ))}
+                    </div>
+                  </fieldset>
+                  <label className="organization-auth-field">
+                    <span>{channelLabels[channel]}</span>
+                    <input
+                      dir="ltr"
+                      required
+                      inputMode={channel === "mobile" ? "tel" : "email"}
+                      autoComplete={channel === "mobile" ? "tel" : "email"}
+                      value={destination}
+                      onChange={(event) => {
+                        setDestination(event.target.value);
+                        setError(null);
+                      }}
+                      placeholder={channel === "mobile" ? "۰۹۱۲۳۴۵۶۷۸۹" : "name@example.com"}
+                    />
+                    <small>
+                      {channel === "mobile"
+                        ? "شماره همراه را با پیش‌شماره ۰۹ وارد کنید."
+                        : "رایانامه‌ای را وارد کنید که همیشه به آن دسترسی دارید."}
+                    </small>
+                  </label>
+                  <button
+                    className="organization-auth-submit"
+                    type="submit"
+                    disabled={pending || !destination.trim()}
+                  >
+                    {pending ? "در حال ارسال کد…" : "دریافت کد و ادامه"}
+                    {!pending && <Icon name="arrow" />}
+                  </button>
+                </form>
+              )}
+
+              {stage.kind === "code" && (
+                <form onSubmit={submitCode} noValidate>
+                  <div className="solver-auth-destination">
+                    <span>
+                      <Icon name={channel === "mobile" ? "key" : "mail"} />
+                    </span>
+                    <div>
+                      <small>کد پنج‌رقمی ارسال شد به</small>
+                      <strong>
+                        <bdi dir="ltr">{stage.masked}</bdi>
+                      </strong>
+                    </div>
+                  </div>
+                  <label className="organization-auth-field solver-auth-code-field">
+                    <span>کد تأیید</span>
+                    <input
+                      dir="ltr"
+                      required
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      maxLength={5}
+                      value={code}
+                      onChange={(event) => {
+                        setCode(event.target.value);
+                        setError(null);
+                      }}
+                      placeholder="۱۲۳۴۵"
+                    />
+                  </label>
+                  <div className="solver-auth-code-meta">
+                    <small>{stage.attemptsRemaining.toLocaleString("fa-IR")} تلاش باقی مانده</small>
                     <button
                       type="button"
-                      key={value}
-                      className={channel === value ? "is-active" : ""}
-                      aria-pressed={channel === value}
-                      onClick={() => setChannel(value)}
+                      onClick={() => void resend()}
+                      disabled={pending || resendSeconds > 0}
                     >
-                      {channelLabels[value]}
+                      {resendSeconds > 0
+                        ? `ارسال دوباره تا ${resendSeconds.toLocaleString("fa-IR")} ثانیه دیگر`
+                        : "ارسال دوباره کد"}
                     </button>
-                  ))}
-                </div>
-                <label className="organization-auth-field">
-                  <span>{channelLabels[channel]}</span>
-                  <input
-                    dir="ltr"
-                    required
-                    inputMode={channel === "mobile" ? "tel" : "email"}
-                    autoComplete={channel === "mobile" ? "tel" : "email"}
-                    value={destination}
-                    onChange={(event) => setDestination(event.target.value)}
-                    placeholder={channel === "mobile" ? "۰۹۱۲۳۴۵۶۷۸۹" : "name@example.com"}
-                  />
-                </label>
-                <button
-                  className="organization-auth-submit"
-                  type="submit"
-                  disabled={pending || !destination.trim()}
-                >
-                  {pending ? "در حال ارسال کد…" : "ارسال کد تأیید"}
-                </button>
-              </form>
-            )}
-
-            {stage.kind === "code" && (
-              <form onSubmit={submitCode} noValidate>
-                <p>
-                  کد پنج‌رقمی فرستاده‌شده به <bdi dir="ltr">{stage.masked}</bdi> را وارد کنید.
-                </p>
-                <label className="organization-auth-field">
-                  <span>کد تأیید</span>
-                  <input
-                    dir="ltr"
-                    required
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    value={code}
-                    onChange={(event) => setCode(event.target.value)}
-                  />
-                </label>
-                <small className="organization-auth-code-note">
-                  {stage.attemptsRemaining.toLocaleString("fa-IR")} تلاش باقی مانده است.
-                </small>
-                <button
-                  className="organization-auth-submit"
-                  type="submit"
-                  disabled={pending || !code.trim()}
-                >
-                  {pending ? "در حال بررسی…" : "تأیید و ادامه"}
-                </button>
-                <div className="organization-auth-divider">
-                  <span>یا</span>
-                </div>
-                <button
-                  className="organization-auth-secondary"
-                  type="button"
-                  onClick={() => void resend()}
-                  disabled={pending || resendSeconds > 0}
-                >
-                  {resendSeconds > 0
-                    ? `ارسال دوباره تا ${resendSeconds.toLocaleString("fa-IR")} ثانیه دیگر`
-                    : "ارسال دوباره کد"}
-                </button>
-                <button
-                  className="organization-auth-back"
-                  type="button"
-                  onClick={() => {
-                    setStage({ kind: "contact" });
-                    setCode("");
-                    setNotice(null);
-                  }}
-                  disabled={pending}
-                >
-                  تغییر راه ارتباطی
-                </button>
-              </form>
-            )}
-
-            {stage.kind === "activate" && (
-              <form onSubmit={activate} noValidate>
-                <p>
-                  این راه ارتباطی تأیید شد و هنوز حسابی به آن متصل نیست. برای ساخت هویت خود ادامه
-                  دهید.
-                </p>
-                <label className="organization-auth-field">
-                  <span>نام نمایشی</span>
-                  <input
-                    required
-                    value={displayName}
-                    onChange={(event) => setDisplayName(event.target.value)}
-                  />
-                </label>
-                <div className="solver-login-tabs" role="radiogroup" aria-label="شروع کار">
+                  </div>
                   <button
-                    type="button"
-                    className={startIntent === "individual" ? "is-active" : ""}
-                    aria-pressed={startIntent === "individual"}
-                    onClick={() => setStartIntent("individual")}
+                    className="organization-auth-submit"
+                    type="submit"
+                    disabled={pending || !code.trim()}
                   >
-                    ادامه شخصی
+                    {pending ? "در حال بررسی…" : "تأیید و ورود"}
+                    {!pending && <Icon name="arrow" />}
                   </button>
                   <button
+                    className="organization-auth-back"
                     type="button"
-                    className={startIntent === "team" ? "is-active" : ""}
-                    aria-pressed={startIntent === "team"}
-                    onClick={() => setStartIntent("team")}
+                    onClick={() => {
+                      setStage({ kind: "contact" });
+                      setCode("");
+                      setNotice(null);
+                      setError(null);
+                    }}
+                    disabled={pending}
                   >
-                    ساخت تیم پس از آن
+                    <Icon name="chevron" />
+                    تغییر راه ارتباطی
                   </button>
-                </div>
-                <small className="organization-auth-code-note">
-                  در هر دو حالت یک هویت انسانی و یک فضای کاری شخصی دائمی ساخته می‌شود. تیم حساب
-                  جداگانه ندارد و پس از ورود ساخته می‌شود.
-                </small>
-                <button
-                  className="organization-auth-submit"
-                  type="submit"
-                  disabled={pending || !displayName.trim()}
-                >
-                  {pending ? "در حال ساخت…" : "ساخت هویت و ورود"}
-                </button>
-              </form>
-            )}
+                </form>
+              )}
+
+              {stage.kind === "activate" && (
+                <form onSubmit={activate} noValidate>
+                  <div className="solver-auth-verified-note">
+                    <Icon name="check" />
+                    <span>راه ارتباطی شما تأیید شد</span>
+                  </div>
+                  <label className="organization-auth-field">
+                    <span>نام و نام خانوادگی</span>
+                    <input
+                      required
+                      autoComplete="name"
+                      maxLength={120}
+                      value={displayName}
+                      onChange={(event) => {
+                        setDisplayName(event.target.value);
+                        setError(null);
+                      }}
+                      placeholder="مثلاً سارا احمدی"
+                    />
+                    <small>
+                      این نام در پروفایل حرفه‌ای و کنار پیشنهادهای شما نمایش داده می‌شود.
+                    </small>
+                  </label>
+                  <fieldset className="solver-auth-intent-fieldset">
+                    <legend>می‌خواهید از کجا شروع کنید؟</legend>
+                    <div className="solver-auth-intent-grid">
+                      <button
+                        type="button"
+                        className={startIntent === "individual" ? "is-active" : ""}
+                        aria-pressed={startIntent === "individual"}
+                        onClick={() => setStartIntent("individual")}
+                      >
+                        <span className="solver-auth-intent-icon">
+                          <Icon name="user" />
+                        </span>
+                        <span>
+                          <strong>به‌صورت شخصی</strong>
+                          <small>پروفایل خود را کامل کنید و مستقل پیشنهاد بدهید.</small>
+                        </span>
+                        <i aria-hidden="true">
+                          <Icon name="check" />
+                        </i>
+                      </button>
+                      <button
+                        type="button"
+                        className={startIntent === "team" ? "is-active" : ""}
+                        aria-pressed={startIntent === "team"}
+                        onClick={() => setStartIntent("team")}
+                      >
+                        <span className="solver-auth-intent-icon">
+                          <Icon name="people" />
+                        </span>
+                        <span>
+                          <strong>با ساخت یک تیم</strong>
+                          <small>پس از فعال‌سازی، فضای تیمی خود را بسازید.</small>
+                        </span>
+                        <i aria-hidden="true">
+                          <Icon name="check" />
+                        </i>
+                      </button>
+                    </div>
+                  </fieldset>
+                  <div className="solver-auth-team-clarity">
+                    <Icon name="shield" />
+                    <p>
+                      در هر دو مسیر، فضای شخصی شما همیشه حفظ می‌شود. تیم یک فضای کاری جداست و حساب
+                      یا رمز عبور مشترک ندارد.
+                    </p>
+                  </div>
+                  <button
+                    className="organization-auth-submit"
+                    type="submit"
+                    disabled={pending || !displayName.trim()}
+                  >
+                    {pending
+                      ? "در حال فعال‌سازی…"
+                      : startIntent === "team"
+                        ? "فعال‌سازی و ساخت تیم"
+                        : "فعال‌سازی و ورود"}
+                    {!pending && <Icon name="arrow" />}
+                  </button>
+                </form>
+              )}
+            </div>
+
+            <div className="solver-auth-assurance">
+              <Icon name="lock" />
+              <p>
+                <strong>یک ورود برای همه فضاهای کاری</strong>
+                <span>پس از ورود می‌توانید بین فضای شخصی و تیم‌های خود جابه‌جا شوید.</span>
+              </p>
+            </div>
           </div>
         </section>
         <aside
@@ -373,12 +515,27 @@ export function ConnectedSolverAuth({
           aria-label="تیم متخصصان در آزمایشگاه صنعتی در حال توسعه یک راه‌حل"
         >
           <div>
+            <span className="solver-login-visual__eyebrow">از مسئله تا اثر</span>
             <h2>تخصص شما، راه‌حل یک مسئله واقعی</h2>
             <p>
               به چالش‌های واقعی سازمان‌ها متصل شوید و ایده‌های خود را به راه‌حل‌های اثرگذار تبدیل
               کنید.
             </p>
           </div>
+          <ul className="solver-login-visual__facts" aria-label="مزیت‌های همکاری در راه‌حل">
+            <li>
+              <Icon name="brief" />
+              <span>چالش‌های واقعی و شفاف</span>
+            </li>
+            <li>
+              <Icon name="people" />
+              <span>همکاری شخصی یا تیمی</span>
+            </li>
+            <li>
+              <Icon name="impact" />
+              <span>مسیر روشن تا اجرای راه‌حل</span>
+            </li>
+          </ul>
         </aside>
       </main>
     </div>
