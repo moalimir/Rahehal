@@ -80,6 +80,7 @@
     "analyze:build": "node scripts/analyze-build-assets.mjs",
     "analyze:bundle": "node scripts/run-bundle-analysis.mjs",
     "check:budgets": "node scripts/check-performance-budgets.mjs --runtime=demo",
+    "css:prune": "node scripts/prune-dead-css.mjs",
     "check:budgets:network": "node scripts/check-performance-budgets.mjs --runtime=network",
     "css:prune-legacy": "node scripts/prune-legacy-shell-css.mjs",
     "test:browser:connected": "PLAYWRIGHT_SKIP_WEBSERVER=1 playwright test playwright/connected.pw.ts --project=desktop-1280x800",

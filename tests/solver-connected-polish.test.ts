@@ -10,6 +10,8 @@ describe("connected solver workspace polish", () => {
   const notifications = readFileSync("components/solver/connected-notifications.tsx", "utf8");
   const offers = readFileSync("components/solver/connected-opportunities.tsx", "utf8");
   const unreadBadge = readFileSync("lib/workspace/unread-badge.ts", "utf8");
+  const proposalList = readFileSync("components/solver/connected-proposal-list.tsx", "utf8");
+  const teams = readFileSync("components/solver/connected-teams.tsx", "utf8");
 
   it("keeps the verification action in a dedicated responsive card", () => {
     expect(profile).toContain("rh-connected-settings-verification");
@@ -65,5 +67,64 @@ describe("connected solver workspace polish", () => {
     expect(offers).toContain("دعوت‌های فضای شخصی و تیمی با هم ترکیب نمی‌شوند");
     expect(notifications).toContain("received-proposals/?offer=");
     expect(css).toContain(".rh-connected-offer-grid");
+  });
+
+  it("groups the solver's own proposals by the call they answer", () => {
+    // Both sides of a conversation are organised the same way: the solver
+    // reads their proposals grouped by call, as the organization reads its
+    // inbox. Revisions of one call had been scattered through a flat list.
+    expect(proposalList).toContain("rh-connected-proposal-group");
+    expect(proposalList).toMatch(/byChallenge/);
+    expect(proposalList).toMatch(/right\.waiting - left\.waiting \|\| right\.latest/);
+    expect(proposalList).toContain("نیازمند اقدام شما");
+  });
+
+  it("counts each status on the filter rather than only offering it", () => {
+    expect(proposalList).toContain("statusCounts");
+    expect(proposalList).toContain('role="tablist"');
+  });
+
+  it("says how many proposals there are in plain Persian", () => {
+    // "پیشنهاد سروری" was developer shorthand for "read from the server" and
+    // told the person reading it nothing.
+    // Matched as rendered output, not as a bare substring: the comment
+    // recording why the phrase went away legitimately still names it.
+    expect(proposalList).not.toMatch(/\}\s*پیشنهاد سروری/);
+    expect(proposalList).toContain("هنوز پیشنهادی در این فضای کاری ندارید");
+  });
+
+  it("shows a saved profile as a profile, not as the form again", () => {
+    // The page only ever rendered the editor, so a solver who had already
+    // written their profile came back to the same four empty-looking inputs
+    // with no sense that anything had been saved.
+    expect(profile).toContain("rh-connected-profile-summary");
+    expect(profile).toContain("ویرایش پروفایل");
+    expect(profile).toMatch(/const hasProfile = /);
+    // Saving returns to the read view; an unsaved draft and a committed save
+    // must not look the same.
+    expect(profile).toMatch(/setEditing\(false\);\s*\n\s*refresh\(\)/);
+    // Cancelling restores what the server still holds rather than keeping
+    // edits that were never committed.
+    expect(profile).toContain("setHeadline(profile.headline)");
+  });
+
+  it("lists the teams a human belongs to on the teams page", () => {
+    // The page was titled "تیم‌ها و همکاری" and listed no teams: from an
+    // individual workspace it showed only invitations, so someone who owned
+    // two teams could not see them.
+    expect(teams).toContain("تیم‌های من");
+    expect(teams).toMatch(
+      /workspaces \?\? \[\]\)\s*\n?\s*\.filter\(\(workspace\) => workspace\.kind === "team"\)/,
+    );
+    expect(teams).toContain("switchWorkspace");
+  });
+
+  it("separates invitations still waiting from ones already answered", () => {
+    // An accepted invitation sat at the top of "دعوت‌های دریافتی" with no
+    // action, looking like something still owed a response.
+    expect(teams).toContain("openInvitations");
+    expect(teams).toContain("settledInvitations");
+    expect(teams).toContain("دعوت‌های در انتظار پاسخ");
+    expect(teams).toContain("دعوت‌های پاسخ‌داده‌شده");
   });
 });

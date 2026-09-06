@@ -125,6 +125,18 @@ function ConnectedSolverProfileForm({
   const [pending, setPending] = useState(false);
   const readinessIssues = profile.readiness.issues;
 
+  /**
+   * A completed profile is something to read, not a form to fill in again.
+   *
+   * The page only ever rendered the editor, so a solver who had already
+   * written their profile came back to four inputs and no sense that anything
+   * had been saved -- the same screen they saw before filling it in. An empty
+   * profile still opens straight into the form, because there is nothing to
+   * show yet and asking for an extra click would be pointless.
+   */
+  const hasProfile = Boolean(profile.headline.trim() || profile.overview.trim());
+  const [editing, setEditing] = useState(!hasProfile);
+
   const runVerification = async () => {
     if (!verification) return;
     setPending(true);
@@ -176,7 +188,65 @@ function ConnectedSolverProfileForm({
         </ConnectedFamilyError>
       ))}
 
-      {!verificationOnly && (
+      {!verificationOnly && hasProfile && !editing && (
+        <section className="rh-card rh-connected-profile-summary" aria-label="پروفایل ثبت‌شده">
+          <header className="rh-connected-card-head">
+            <span className="rh-connected-card-head__icon">
+              <Icon name={profile.workspace_kind === "team" ? "people" : "user"} />
+            </span>
+            <div>
+              <h2>{profile.headline || "بدون عنوان حرفه‌ای"}</h2>
+              <p>{profile.workspace_kind === "team" ? "پروفایل تیم" : "پروفایل فردی"}</p>
+            </div>
+            <button type="button" onClick={() => setEditing(true)}>
+              <Icon name="brief" /> ویرایش پروفایل
+            </button>
+          </header>
+          <dl className="rh-connected-profile-summary__facts">
+            <div>
+              <dt>معرفی حرفه‌ای</dt>
+              <dd>{profile.overview || "ثبت نشده"}</dd>
+            </div>
+            <div>
+              <dt>تخصص‌ها</dt>
+              <dd>
+                {profile.expertise.length ? (
+                  <ul className="rh-connected-profile-summary__tags">
+                    {profile.expertise.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  "ثبت نشده"
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt>محدوده جغرافیایی</dt>
+              <dd>
+                {profile.geography.length ? (
+                  <ul className="rh-connected-profile-summary__tags">
+                    {profile.geography.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  "ثبت نشده"
+                )}
+              </dd>
+            </div>
+          </dl>
+          {readinessIssues.length > 0 && (
+            <ul className="rh-connected-profile-summary__issues">
+              {readinessIssues.map((issue) => (
+                <li key={issue.path}>{issue.message}</li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
+      {!verificationOnly && (!hasProfile || editing) && (
         <form
           className="rh-card rh-connected-profile-form"
           onSubmit={(event) => {
@@ -200,7 +270,13 @@ function ConnectedSolverProfileForm({
                     ? `پروفایل ذخیره شد · شناسه همبستگی ${result.meta.correlation_id}`
                     : result.error.message,
                 );
-                if (result.ok) refresh();
+                if (result.ok) {
+                  // Back to the read view: the save is what the human came to
+                  // do, and leaving them in the editor makes a completed save
+                  // look indistinguishable from an unsaved draft.
+                  setEditing(false);
+                  refresh();
+                }
               });
           }}
         >
@@ -260,6 +336,23 @@ function ConnectedSolverProfileForm({
           </div>
           <footer className="rh-connected-form-actions">
             <p>پس از ذخیره، آمادگی پروفایل دوباره روی سرور محاسبه می‌شود.</p>
+            {hasProfile && (
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => {
+                  // Discard the edits and show what the server still holds.
+                  setHeadline(profile.headline);
+                  setOverview(profile.overview);
+                  setExpertise(profile.expertise.join("، "));
+                  setGeography(profile.geography.join("، "));
+                  setNotice("");
+                  setEditing(false);
+                }}
+              >
+                انصراف
+              </button>
+            )}
             <button className="rh-profile-primary" type="submit" disabled={pending}>
               <Icon name="check" /> {pending ? "در حال ذخیره…" : "ذخیره پروفایل"}
             </button>

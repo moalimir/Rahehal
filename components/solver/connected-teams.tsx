@@ -94,6 +94,39 @@ export function ConnectedTeamsExperience() {
 
   const team = view.team;
   const membership = team?.members.find((member) => member.user_id === currentUserId) ?? null;
+
+  /**
+   * Every team workspace this human belongs to.
+   *
+   * The page is called "تیم‌ها و همکاری" but listed no teams: it showed the
+   * active one's members, or -- from an individual workspace -- nothing at
+   * all, so someone who owned two teams saw only invitations. The set is
+   * already in `/me`; no second authorization question needs asking.
+   */
+  /**
+   * An invitation that has been accepted, declined or expired is history, not
+   * an inbox item. Listing all of them together under "دعوت‌های دریافتی" left
+   * a settled invitation sitting at the top with no action, looking like
+   * something still waiting on the human.
+   */
+  const openInvitations = view.incomingInvitations.filter((invitation) =>
+    ["sent", "viewed"].includes(invitation.state),
+  );
+  const settledInvitations = view.incomingInvitations.filter(
+    (invitation) => !["sent", "viewed"].includes(invitation.state),
+  );
+
+  const activeWorkspaceId = runtime.me?.active_context?.workspace_id ?? null;
+  const myTeams = (runtime.me?.workspaces ?? [])
+    .filter((workspace) => workspace.kind === "team")
+    .map((workspace) => ({
+      id: workspace.id,
+      name: workspace.name,
+      role: runtime.me?.memberships.find(
+        (item) => item.workspace_id === workspace.id && item.state === "active",
+      )?.role,
+      active: workspace.id === activeWorkspaceId,
+    }));
   const permission = (action: Parameters<typeof decideTeamPermission>[0]) =>
     team && membership
       ? decideTeamPermission(action, { role: membership.role, policy: team.policy }).allowed
@@ -434,14 +467,54 @@ export function ConnectedTeamsExperience() {
         </>
       )}
 
+      {myTeams.length > 0 && (
+        <section className="rh-card rh-membership-list" aria-label="تیم‌های من">
+          <header>
+            <div>
+              <h2>تیم‌های من</h2>
+              <p>{myTeams.length.toLocaleString("fa-IR")} فضای تیمی</p>
+            </div>
+          </header>
+          {myTeams.map((entry) => (
+            <article key={entry.id}>
+              <div>
+                <h3>{entry.name}</h3>
+                <p>
+                  {(entry.role && entry.role in TEAM_ROLE_LABELS
+                    ? TEAM_ROLE_LABELS[entry.role as keyof typeof TEAM_ROLE_LABELS]
+                    : "عضو تیم") ?? "عضو تیم"}
+                  {entry.active ? " · فضای کاری فعال" : ""}
+                </p>
+              </div>
+              {entry.active ? (
+                <span className="rh-status rh-status--info">در حال مدیریت</span>
+              ) : (
+                <div className="rh-profile-actions">
+                  <button
+                    type="button"
+                    disabled={pending}
+                    // Switching is a server command, so the whole page -- members,
+                    // invitations, requests -- re-reads for the new workspace
+                    // rather than this list changing under a stale body.
+                    onClick={() => void runtime.switchWorkspace(entry.id)}
+                  >
+                    مدیریت این تیم
+                  </button>
+                </div>
+              )}
+            </article>
+          ))}
+        </section>
+      )}
+
       <section className="rh-card rh-membership-list" aria-label="دعوت‌های دریافتی من">
         <header>
           <div>
-            <h2>دعوت‌های دریافتی</h2>
-            <p>{view.incomingInvitations.length.toLocaleString("fa-IR")} مورد</p>
+            <h2>دعوت‌های در انتظار پاسخ</h2>
+            <p>{openInvitations.length.toLocaleString("fa-IR")} مورد</p>
           </div>
         </header>
-        {view.incomingInvitations.map((invitation) => (
+        {openInvitations.map((invitation) => (
           <article key={invitation.id}>
             <div>
               <h3>{invitation.team_name}</h3>
@@ -490,8 +563,30 @@ export function ConnectedTeamsExperience() {
             )}
           </article>
         ))}
-        {!view.incomingInvitations.length && <p>دعوتی دریافت نکرده‌اید.</p>}
+        {!openInvitations.length && <p>دعوت بی‌پاسخی ندارید.</p>}
       </section>
+
+      {settledInvitations.length > 0 && (
+        <section className="rh-card rh-membership-list" aria-label="دعوت‌های بسته‌شده">
+          <header>
+            <div>
+              <h2>دعوت‌های پاسخ‌داده‌شده</h2>
+              <p>{settledInvitations.length.toLocaleString("fa-IR")} مورد</p>
+            </div>
+          </header>
+          {settledInvitations.map((invitation) => (
+            <article key={invitation.id}>
+              <div>
+                <h3>{invitation.team_name}</h3>
+                <p>
+                  {TEAM_ROLE_LABELS[invitation.proposed_role]} ·{" "}
+                  {teamInvitationStateLabels[invitation.state]}
+                </p>
+              </div>
+            </article>
+          ))}
+        </section>
+      )}
 
       <section className="rh-card rh-membership-list" aria-label="درخواست‌های من">
         <header>

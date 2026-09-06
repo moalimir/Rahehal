@@ -7613,6 +7613,57 @@
   }
 }
 
+/* Membership rows with an action ------------------------------------------
+   `.rh-membership-list > article` was a plain bordered box with no internal
+   layout, so a row's action stacked underneath its text as unstyled words
+   rather than sitting beside it as a control. Scoped with `:has()` so rows
+   that carry no action keep the block flow they already had. */
+.rh-membership-list > article:has(> .rh-profile-actions) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+}
+
+.rh-membership-list > article:has(> .rh-profile-actions) > div {
+  min-inline-size: 0;
+}
+
+.rh-membership-list > article > .rh-profile-actions button,
+.rh-membership-list > article > .rh-profile-actions select {
+  min-block-size: 38px;
+  padding-inline: 14px;
+  border: 1px solid #cfdcea;
+  border-radius: 9px;
+  background: #fff;
+  color: #24506b;
+  font: inherit;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.rh-membership-list > article > .rh-profile-actions button:hover:enabled {
+  border-color: #a9c1d6;
+  background: #f4f9fd;
+}
+
+.rh-membership-list > article > .rh-profile-actions button:disabled {
+  color: #93a3b4;
+  cursor: not-allowed;
+}
+
+@media (max-width: 620px) {
+  .rh-membership-list > article:has(> .rh-profile-actions) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rh-membership-list > article > .rh-profile-actions {
+    flex-wrap: wrap;
+  }
+}
+
 /* Connected solver workspace polish: dashboard, profile, settings and proposal editor. */
 .rh-connected-dashboard,
 .rh-connected-profile-page,
@@ -8242,7 +8293,8 @@
   margin: 12px 22px 0;
 }
 
-.rh-connected-profile-card__skills span {
+.rh-connected-profile-card__skills span,
+.rh-connected-profile-summary__tags li {
   padding: 5px 9px;
   border-radius: 999px;
   color: #31707a;
@@ -9514,5 +9566,136 @@
 @media (prefers-reduced-motion: reduce) {
   .rh-record-id {
     transition: none;
+  }
+}
+
+/* Proposals grouped by call -----------------------------------------------
+   The solver reads their own proposals the same way the organization reads
+   its inbox: one call per group, with the count of what is waiting on them. */
+.rh-connected-proposal-group {
+  margin-top: 18px;
+}
+
+.rh-connected-proposal-group__head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+  padding-inline: 4px;
+}
+
+.rh-connected-proposal-group__head h2 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 17px;
+  line-height: 1.6;
+}
+
+.rh-connected-proposal-group__head p {
+  margin: 3px 0 0;
+  color: #7b899a;
+  font-size: 12px;
+}
+
+/* The only colour in the group header marks work waiting on this person. */
+.rh-connected-proposal-group__waiting {
+  padding: 5px 11px;
+  border-radius: 999px;
+  background: #fdf1de;
+  color: #8a5a12;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* The saved profile's head carries an edit action, so it needs a third track.
+   Without one the button wrapped underneath the icon in the first column. */
+.rh-connected-profile-summary .rh-connected-card-head {
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+}
+
+.rh-connected-profile-summary .rh-connected-card-head > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 14px;
+  border: 1px solid #cfdcea;
+  border-radius: 10px;
+  background: #fff;
+  color: #24506b;
+  font-family: inherit;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.rh-connected-profile-summary .rh-connected-card-head > button svg {
+  inline-size: 15px;
+}
+
+.rh-connected-profile-summary .rh-connected-card-head > button:hover {
+  border-color: #a9c1d6;
+  background: #f4f9fd;
+}
+
+@media (max-width: 620px) {
+  .rh-connected-profile-summary .rh-connected-card-head {
+    grid-template-columns: 44px minmax(0, 1fr);
+  }
+
+  .rh-connected-profile-summary .rh-connected-card-head > button {
+    grid-column: 1 / -1;
+    justify-content: center;
+  }
+}
+
+/* Saved profile -----------------------------------------------------------
+   A completed profile is something to read. The page used to render only the
+   editor, so returning to it looked identical to never having filled it in. */
+.rh-connected-profile-summary__facts {
+  display: grid;
+  gap: 14px;
+  margin: 16px 0 0;
+}
+
+.rh-connected-profile-summary__facts > div {
+  display: grid;
+  gap: 5px;
+}
+
+.rh-connected-profile-summary__facts dt {
+  color: #7b899a;
+  font-size: 12px;
+}
+
+.rh-connected-profile-summary__facts dd {
+  margin: 0;
+  color: #21384d;
+  line-height: 1.9;
+  overflow-wrap: anywhere;
+}
+
+.rh-connected-profile-summary__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rh-connected-profile-summary__issues {
+  margin: 16px 0 0;
+  padding: 12px 16px 12px 12px;
+  border-radius: 10px;
+  background: #fdf1de;
+  color: #8a5a12;
+  font-size: 12px;
+  line-height: 1.9;
+}
+
+@media (max-width: 760px) {
+  .rh-connected-proposal-group__head {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
