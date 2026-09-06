@@ -194,6 +194,14 @@ describe("connected solver workspace polish", () => {
     );
   });
 
+  it("omits team-management sections the active member cannot read", () => {
+    expect(teams).toContain("view.failures.filter(teamFailureNeedsAttention)");
+    expect(teams).toContain('teamFamilyAvailable(view, "sentInvitations")');
+    expect(teams).toContain('teamFamilyAvailable(view, "requests")');
+    expect(teams).toContain("sentInvitationsAvailable &&");
+    expect(teams).toContain("incomingRequestsAvailable &&");
+  });
+
   it("keeps workspace ids available as labelled copy controls", () => {
     expect(teams).toContain('<RecordId value={team.workspace_id} label="شناسه فضای کاری تیم" />');
     expect(teams).not.toMatch(/<bdi dir="ltr">\{team\.workspace_id\}<\/bdi>/);

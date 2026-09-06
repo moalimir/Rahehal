@@ -11214,7 +11214,7 @@
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
   align-self: stretch;
   margin: 0;
   overflow: hidden;
@@ -11310,7 +11310,7 @@
 
 .rh-team-directory-hero__side dl {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
   margin: 0;
   overflow: hidden;
   border: 1px solid #d6e7ea;
@@ -11916,7 +11916,7 @@
   }
 
   .rh-team-management-hero__stats {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(82px, 1fr));
   }
 
   .rh-team-management-hero__stats > div {
