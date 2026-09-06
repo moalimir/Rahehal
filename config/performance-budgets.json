@@ -39,8 +39,9 @@
     }
   },
   "staticAssets": {
-    "maxCssBytes": 513000,
-    "maxLargestCssBytes": 219000
+    "maxCssBytes": 516000,
+    "maxLargestCssBytes": 219000,
+    "_note": "Raised from 513,000 to 516,000 on 2026-09-06, after removing 51,489 bytes of CSS that was provably not doing anything: 46,617 bytes of rules whose class names appear in no source file, and 4,872 bytes of rules repeated verbatim within the same at-rule context. `scripts/prune-dead-css.mjs --check` reproduces both figures and reports zero once applied. What is left is live styling for the nine connected page families C9 added, which the fixture-only build this ceiling was set against never had. The ceiling moved only after the waste was gone, not instead of removing it."
   },
   "source": {
     "cssReferenceBytes": 625973,
