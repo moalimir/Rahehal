@@ -137,29 +137,32 @@ Minimum final commands are the full frontend release bundle from AGENTS.md plus 
 
 ## 10. Status
 
-**2026-09-05 — C9 stage 1 landed (gateway foundation).** The slice is staged because it is roughly three times C6-C8 combined and a partial page conversion is worse than none. Stage 1 built the foundation and the audit baseline without converting any page family.
+**2026-09-07 — C9 complete through stage 5; C10 walked by the owner.** This section is the audit's own ledger and is kept current; the narrative of each stage lives in [80](80_DELIVERY_ROADMAP.md).
 
-Closed in stage 1:
+Closed since the 2026-09-05 baseline:
 
-- `/app` is now a registered route, not a fallback string other surfaces link to hopefully. It resolves one reachable workspace by entering it, several by an explicit chooser, none by a useful next action, and honors `returnTo` only when it belongs to the persona that resolved.
-- Session-aware public chrome now covers the mobile drawer and the footer as well as the desktop header, through the same demo-safe boundary, so the partial change section 2 recorded is complete for those surfaces.
-- Connected gateways exist for the C1-C8 families and are wired into `RuntimeProvider`, null in demo mode so a demo page shows its preview boundary rather than a gateway that silently answers with fixtures.
-- Every registered route is classified: **339 paths — 12 live, 212 preview, 45 unavailable, 70 redirect**, locked by a behavior that fails if a connected MVP route is downgraded or a later-phase surface is marked live.
+- **Every MVP-core page family is converted.** The route classification the baseline locked at 12 live paths now holds **25**: the solver dashboard, opportunities and record, proposal list, record, preview and versions, saved, received offers, teams, profile, verification, settings and notifications; the organization dashboard, challenges, experts, invitations, proposal inbox and record, notifications, profile, settings and access. Later-phase families (`/app/reviewer`, `/app/ops`, organization contracts/pilots/reports/decisions/cases, solver contracts/payments) remain deliberately unavailable, locked by the same behavior.
+- **No page family reads fixtures.** The 33 files the baseline counted are down to 18, and none of them is a page family: they are the demo runtime itself, the session-cookie layer, and per-viewer UI preferences.
+- **`/app` resolves and the chrome is live.** Connected sign-in through the development OTP provider, real identity in the shell for every persona, workspace switching, and sign-out for every signed-in role.
+- **Both parties read the same submission.** The organization record renders the whole proposal content in the same groups the solver wrote it in, including the declarations the eligibility rule required.
 
-Still open, and the measure of the remaining stages:
+Still open, and honest about why:
 
-- 33 files still read `localStorage`, `sessionStorage`, or the demo solver repository; no page family has been converted yet.
-- The 212 preview routes include the MVP-core solver and organization families that stages 2+ must make live.
-- RTL, accessibility and responsive behavior require owner visual review. AGENTS.md forbids self-certifying visual snapshots, so this gate stays open independently of implementation progress.
+- **RTL, accessibility and responsive behavior need owner visual review.** AGENTS.md forbids self-certifying visual snapshots, so this gate stays open independently of implementation progress. It is the only C9 acceptance criterion no amount of testing can close from here.
+- **The six-step proposal builder still writes through the browser repository** in demo mode. The connected editor beside it is authoritative and state-aware; the wizard is the demo path and is not claimed as live.
+- **Three findings are recorded rather than fixed**, because each is the owner's call: the organization's challenge list labels every published call `منتشرشده` whether it is open, paused or closed; the OTP session exchange answers `select_workspace` where the OIDC path answers `continue`; and the solver dashboard shows two counts under near-identical Persian wording for two deliberately different sets.
+- **C10 is walked but not certified.** The owner reports the journey works; the recorded scenarios in section 8 have not each been executed and attested, and the Phase-4 reviewer leg of the MVP E2E cannot run at all until a `platform:reviewer` actor exists — none is seeded anywhere today.
 
-| Item                            | Status         |
-| ------------------------------- | -------------- |
-| Audit baseline and route matrix | `ready`        |
-| C1 solver facts/eligibility     | `verification` |
-| C2 team backend                 | `verification` |
-| C3 proposal draft backend       | `verification` |
-| C4–C6 proposal/offers backend   | `verification` |
-| C7 activation/OTP scheme        | `verification` |
-| C8 summaries/notifications      | `not-started`  |
-| C9 frontend synchronization     | `not-started`  |
-| C10 browser certification       | `not-started`  |
+| Item                            | Status                                            |
+| ------------------------------- | ------------------------------------------------- |
+| Audit baseline and route matrix | `done`                                            |
+| C1 solver facts/eligibility     | `verification`                                    |
+| C2 team backend                 | `verification`                                    |
+| C3 proposal draft backend       | `verification`                                    |
+| C4–C6 proposal/offers backend   | `verification`                                    |
+| C7 activation/OTP scheme        | `verification`                                    |
+| C8 summaries/notifications      | `verification`                                    |
+| C9 frontend synchronization     | `verification` — five stages landed               |
+| C10 browser certification       | `in-progress` — walked by the owner, not attested |
+
+Every C-milestone sits at `verification`, which this roadmap defines as _built; evidence/review pending_. Moving any of them to `done` is an owner acceptance, not something this document can assert.
