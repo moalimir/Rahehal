@@ -67,12 +67,33 @@ describe("connected solver workspace polish", () => {
     );
   });
 
+  it("returns to the personal workspace after leaving or archiving a team", () => {
+    // Leaving ends the context you were working in and the server drops it, so
+    // the page fell through to `/app`'s resolver and asked which workspace to
+    // enter -- a question with one obvious answer, since the personal workspace
+    // is the one a solver always holds and never leaves. The chooser is right
+    // after signing in, where the choice is real, and wrong here.
+    const teams = readFileSync("components/solver/connected-teams.tsx", "utf8");
+    expect(teams).toContain('workspace.kind === "individual"');
+    expect(teams).toMatch(/leavesActiveWorkspace && personalWorkspaceId/);
+    expect(teams).toMatch(/runtime\.switchWorkspace\(personalWorkspaceId\)/);
+    // Both exits opt in; nothing else on the page does.
+    expect(teams.match(/\{ leavesActiveWorkspace: true \}/g)).toHaveLength(2);
+  });
+
   it("refreshes the workspace list after a team command changes it", () => {
     // Accepting an invitation said "دعوت پذیرفته شد" and left the team out of
     // "تیم‌های من" and the workspace switcher until a full reload: both read
     // `/me`, and only the family read was refreshed.
     const teams = readFileSync("components/solver/connected-teams.tsx", "utf8");
-    expect(teams).toMatch(/await runtime\.refreshMe\(\);\s*\n\s*connected\.refresh\(\);/);
+    // Identity is re-read before the family, on every success path: the list
+    // and the switcher are built from `/me`, so refreshing only the family left
+    // the page contradicting its own success message until a full reload.
+    const success = teams.slice(teams.indexOf("const run = async"), teams.indexOf("const team ="));
+    expect(success.indexOf("await runtime.refreshMe()")).toBeGreaterThan(-1);
+    expect(success.indexOf("await runtime.refreshMe()")).toBeLessThan(
+      success.indexOf("connected.refresh()"),
+    );
   });
 
   it("names the action a proposal's state actually offers", () => {

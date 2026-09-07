@@ -617,6 +617,16 @@ This is the third documentation-drift defect found by hand in two sessions (the 
 
 **Still open:** owner and independent review. External email, SMS, and push delivery remain later work, and G4 still owns poison-isolation, WORM audit export, and correlation search. The compose worker now runs `RAHHAL_WORKER_MODE=postgres`; the in-memory mode remains for the demo runtime.
 
+### 2026-09-07 — Leaving a workspace goes home, it does not ask where to
+
+**Scope:** the owner reported that ending a team workspace dropped them on the workspace chooser.
+
+**Why it asked.** Leaving or archiving the active team ends the context you were working in, and the server drops it — correctly, since it is no longer yours to be in. The page then fell through to `/app`'s resolver, which asks which workspace to enter. That question is right after signing in, where the choice is real. It is wrong here: you asked to leave, not to go somewhere, and a solver's personal workspace is the one they always hold and never leave, so there is exactly one answer.
+
+**The change.** Both exits now enter the personal workspace themselves, reusing the pattern team creation already had — refresh identity, switch, let the page re-render. No navigation follows: `/app/solver/teams` is valid in either context, so the outcome stays visible on the page that produced it rather than flashing past on the way to a dashboard. The workspace id is read before the command runs, because it cannot be the one the command removed and `refreshMe` does not hand the new identity back synchronously.
+
+**Evidence:** native 582/582; API 103/103; typecheck, lint, format; build, 519 routes, 520 link-checked files, smoke, offline, standalone-interactive; both budget sets. Verified live for both paths: archiving an owned team left the switcher holding only the personal workspace, and leaving someone else's team took it from three to two — each landing in the personal workspace with no chooser and no navigation.
+
 ### 2026-09-07 — `/me` lists the workspaces a human can enter, not every one they ever joined
 
 **Scope:** the owner reported that leaving a team left it in the workspace switcher and in «تیم‌های من».

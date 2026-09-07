@@ -121,7 +121,20 @@ export function ConnectedTeamsExperience() {
    * page shows after a command is the server's answer and not an optimistic
    * guess that a later read would contradict.
    */
-  const run = async (command: () => Promise<GatewayResult<unknown>>, success: string) => {
+  /**
+   * The one workspace a solver always has and never leaves.
+   *
+   * Read before the command runs, because it cannot be what the command
+   * removed and `refreshMe` does not hand the new identity back synchronously.
+   */
+  const personalWorkspaceId =
+    runtime.me?.workspaces.find((workspace) => workspace.kind === "individual")?.id ?? null;
+
+  const run = async (
+    command: () => Promise<GatewayResult<unknown>>,
+    success: string,
+    options?: { readonly leavesActiveWorkspace?: boolean },
+  ) => {
     setPending(true);
     const result = await command();
     if (result.ok) {
@@ -131,6 +144,21 @@ export function ConnectedTeamsExperience() {
       // left the page saying "دعوت پذیرفته شد" above a list that did not
       // contain the team, until a full reload.
       await runtime.refreshMe();
+      // Leaving or archiving the active team ends the context you were working
+      // in, and the server drops it. Falling through to `/app`'s resolver then
+      // asked which workspace to enter -- a question with an obvious answer,
+      // since a solver's personal workspace is the one they always hold and
+      // never leave. The chooser is right after signing in, where the choice is
+      // real; it is not right here, where you asked to leave rather than to go
+      // somewhere.
+      if (options?.leavesActiveWorkspace && personalWorkspaceId) {
+        const error = await runtime.switchWorkspace(personalWorkspaceId);
+        if (error) {
+          setPending(false);
+          setNotice({ tone: "error", message: `${success}؛ بازگشت به فضای شخصی انجام نشد.` });
+          return;
+        }
+      }
       connected.refresh();
       setPending(false);
       setNotice({ tone: "success", message: success });
@@ -569,6 +597,7 @@ export function ConnectedTeamsExperience() {
                         reason: "خروج از تیم",
                       }),
                     "از تیم خارج شدید",
+                    { leavesActiveWorkspace: true },
                   )
                 }
               >
@@ -587,6 +616,7 @@ export function ConnectedTeamsExperience() {
                           reason: "بایگانی تیم",
                         }),
                       "تیم بایگانی شد",
+                      { leavesActiveWorkspace: true },
                     )
                   }
                 >
