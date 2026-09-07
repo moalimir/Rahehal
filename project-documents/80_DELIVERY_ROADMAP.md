@@ -595,6 +595,22 @@ This is the third documentation-drift defect found by hand in two sessions (the 
 
 **Still open:** owner and independent review. External email, SMS, and push delivery remain later work, and G4 still owns poison-isolation, WORM audit export, and correlation search. The compose worker now runs `RAHHAL_WORKER_MODE=postgres`; the in-memory mode remains for the demo runtime.
 
+### 2026-09-07 — The CSS budget stops being a change detector
+
+**Scope:** the owner asked for the demo CSS budget to be resolved so frontend work stops tripping it. Three gates were failing; all three failed for the same reason, and raising them again would have guaranteed a fourth failure.
+
+**Why it kept failing.** `staticAssets.maxCssBytes` had moved 503,436 → 513,000 → 516,000 → 520,000 inside a fortnight. `maxLargestCssBytes` stood 636 bytes under a build it then failed. `standalone.maxBytes` had 3,353 bytes of headroom and `maxJavaScriptCharacters` 1,882. A ceiling drawn within 0.1% of the last build is not a budget; it is a detector for whether the number changed, and the only remedy it offers an author is to edit the ceiling.
+
+**And why it drained so fast.** The ceilings counted uncompressed bytes. Stylesheets are served compressed and this build's CSS gzips to 17.6% of source, so every rule was charged about six times what it costs a reader. `standalone.maxCssCharacters` measured something else again: the offline inliner rewrites every `url()` as a data URL, so roughly four fifths of that 2.5M count is base64 fonts and images — a font swap and a styling regression were indistinguishable in it.
+
+**The change.** CSS is now enforced on gzipped transfer size (99,827 / 125,000 total, 39,429 / 50,000 largest), and every enforced ceiling in the demo and standalone sets keeps at least a fifth of itself in headroom against the build that sets it. The three uncompressed totals stay printed as trends against a reference, exactly as DEC-2026-014 treats total emitted JavaScript. The JavaScript route budgets DEC-2026-014 owns are untouched, and the network set was rebuilt and re-checked to confirm it.
+
+**What the new ceiling actually allows.** Measured against the build that sets it, roughly 150 KB of further authored CSS fits — more than twice what six days of C9 stage 5 and solver-workspace styling added — while an accidentally duplicated `globals.css` (257 KB, 42,886 bytes on the wire) still fails it. That is the test: ordinary work fits, an accident does not.
+
+**Evidence:** native 569/569; typecheck, lint, format; build, 519 routes, 520 link-checked files, offline, standalone-interactive; both demo and network budget sets pass. Headroom is asserted in `tests/performance-budget-checker.test.mjs` rather than left to the next person's judgement, and the retired keys are asserted absent so they cannot quietly return.
+
+**Not done:** `83_UI_UX_AUDIT_PLAN` Phase A token consolidation is untouched — two competing custom-property systems still load on every page, and that work should reduce both the trend and the ceilings rather than spend this headroom. Payload reduction stays the G5 hardening item, and the DEC-2026-009 p75 targets still need real browser/RUM evidence.
+
 ### 2026-09-06 — C8 notification audit and the solver personal-workspace backend review
 
 **Scope:** the owner reported that notifications "do not work as expected" without naming the symptom, and asked for a backend review of the solver's personal workspace alongside it. The symptom had to be found rather than guessed, so both were driven against the running stack.
