@@ -1,6 +1,6 @@
 # Phase 3 Connected MVP — Frontend Audit & Synchronization Plan
 
-**Added 2026-09-01.** This plan is the route-level companion to [80_DELIVERY_ROADMAP](80_DELIVERY_ROADMAP.md) Phase 3 C7–C10. It owns frontend/backend synchronization, session-aware public chrome, live workspace data, truthful navigation, and real-browser certification. [83_UI_UX_AUDIT_PLAN](83_UI_UX_AUDIT_PLAN.md) supplies the visual/accessibility rubric; it does not replace the authority audit here.
+**Added 2026-09-01.** This plan is the route-level companion to [80_DELIVERY_ROADMAP](80_DELIVERY_ROADMAP.md) Phase 3 C7–C10. It owns frontend/backend synchronization, session-aware public chrome, live workspace data, truthful navigation, and real-browser certification. AGENTS.md's Persian/RTL and accessibility code-review rules supply the visual/accessibility criteria; they do not replace the authority audit here.
 
 ## 1. Exit outcome
 
@@ -114,7 +114,7 @@ Minimum UI/API behavior: bounded list, unread count, mark one/all read, restart 
 - Switching personal/team/organization workspace refreshes all counts, permissions, URLs, notifications, and queries. Entity-scoped routes return to a safe dashboard if the selected workspace cannot reach the current entity.
 - Every mutation shows pending, success receipt, validation, stale conflict/reload, storage retry with the same idempotency key, and revoked/expired-session recovery. Optimistic UI never becomes authority.
 - Empty states are derived from empty server results. Unknown IDs never fall back to known fixtures. Service failure never says data was saved locally in network mode.
-- Persian/RTL, bidi isolation for opaque IDs, keyboard/focus/dialog behavior, responsive desktop/mobile chrome, reduced motion, error association, and 44×44 targets follow the [83](83_UI_UX_AUDIT_PLAN.md) rubric.
+- Persian/RTL, bidi isolation for opaque IDs, keyboard/focus/dialog behavior, responsive desktop/mobile chrome, reduced motion, error association, and 44×44 targets follow AGENTS.md's code-review rules and `NFR-A11Y-001`/`NFR-I18N-001` in [15_PRODUCT_REQUIREMENTS](15_PRODUCT_REQUIREMENTS.md).
 - Core connected routes contain no preview banner because they are live. Any remaining prototype route is visibly and persistently labeled sample/unavailable and cannot perform a real-looking action.
 
 ## 8. C10 browser certification scenarios
@@ -150,7 +150,7 @@ Still open, and the measure of the remaining stages:
 
 - 33 files still read `localStorage`, `sessionStorage`, or the demo solver repository; no page family has been converted yet.
 - The 212 preview routes include the MVP-core solver and organization families that stages 2+ must make live.
-- The [83](83_UI_UX_AUDIT_PLAN.md) RTL/a11y/responsive rubric requires owner visual review. AGENTS.md forbids self-certifying visual snapshots, so this gate stays open independently of implementation progress.
+- RTL, accessibility and responsive behavior require owner visual review. AGENTS.md forbids self-certifying visual snapshots, so this gate stays open independently of implementation progress.
 
 | Item                            | Status         |
 | ------------------------------- | -------------- |
