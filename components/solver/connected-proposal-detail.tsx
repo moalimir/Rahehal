@@ -35,6 +35,16 @@ type ProposalRecordContent = NonNullable<ProposalRecordView["proposal"]>["conten
  * whether it is foreign or absent, matching the API, which deliberately does
  * not distinguish them either.
  */
+/** A typed number rendered in the digits the rest of the page uses. */
+function persianDigits(value: string): string {
+  const normalized = value.replace(/[\u06F0-\u06F9]/g, (digit) =>
+    String("\u06F0\u06F1\u06F2\u06F3\u06F4\u06F5\u06F6\u06F7\u06F8\u06F9".indexOf(digit)),
+  );
+  return /^\d+$/.test(normalized.trim())
+    ? Number(normalized).toLocaleString("fa-IR", { useGrouping: false })
+    : value;
+}
+
 export function ConnectedProposalDetail({ view }: { view: ProposalRecordView }) {
   const workspaceName = useActiveWorkspaceName();
   const proposal = view.proposal;
@@ -49,9 +59,16 @@ export function ConnectedProposalDetail({ view }: { view: ProposalRecordView }) 
     );
   const content = proposal.content;
   const versions = [...proposal.versions].sort((a, b) => a.version_number - b.version_number);
-  const actionable = ["clarification_requested", "revision_requested", "revision_draft"].includes(
-    proposal.state,
-  );
+  // The label names the action the state actually offers. One fixed "اعمال
+  // اصلاحات" sent a person answering a question and a person revising a version
+  // to the same button under the same wrong name; the editor behind it has
+  // always been state-aware, so only the invitation to it was misleading.
+  const actionLabels: Partial<Record<typeof proposal.state, string>> = {
+    clarification_requested: "پاسخ به شفاف‌سازی",
+    revision_requested: "شروع نسخه اصلاح‌شده",
+    revision_draft: "ادامه نسخه اصلاح‌شده",
+  };
+  const actionLabel = actionLabels[proposal.state];
   const openClarifications = proposal.clarifications.filter((item) => item.state === "requested");
   return (
     <>
@@ -80,12 +97,12 @@ export function ConnectedProposalDetail({ view }: { view: ProposalRecordView }) 
           </p>
         </div>
         <div className="rh-profile-actions">
-          {actionable && (
+          {actionLabel && (
             <Link
               className="rh-profile-primary"
               href={proposalHref(`/app/solver/proposals/${proposal.id}/edit`)}
             >
-              اعمال اصلاحات
+              {actionLabel}
             </Link>
           )}
         </div>
@@ -152,7 +169,15 @@ export function ConnectedProposalDetail({ view }: { view: ProposalRecordView }) 
           </div>
           <div>
             <dt>زمان اجرا</dt>
-            <dd>{content.duration_weeks ? `${content.duration_weeks} هفته` : "ثبت نشده"}</dd>
+            <dd>
+              {content.duration_weeks
+                ? // The stored value is the string a person typed, so it reaches
+                  // this page in whatever digits they used. Every other number
+                  // on the page is Persian; a Latin `16` beside `نسخه ۵` reads
+                  // as a different alphabet in the same sentence.
+                  `${persianDigits(content.duration_weeks)} هفته`
+                : "ثبت نشده"}
+            </dd>
           </div>
           <div>
             <dt>فایل‌ها</dt>

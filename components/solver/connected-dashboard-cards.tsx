@@ -143,8 +143,17 @@ export function ConnectedActionCard({
                 <Link href={proposalHref(`/app/solver/proposals/${row.id}/edit`)}>
                   <strong>{title ? `ادامه «${title}»` : "ادامه پرونده"}</strong>
                   <small>
-                    {proposalStateLabels[row.state]} ·{" "}
-                    <bdi dir="ltr">{row.tracking_code ?? row.id}</bdi>
+                    {proposalStateLabels[row.state]}
+                    {/* A draft has no tracking code yet. Falling back to the
+                        routing key printed 32 hex characters where a human
+                        reference belongs, which is the pattern `RecordReference`
+                        exists to prevent. */}
+                    {row.tracking_code ? (
+                      <>
+                        {" · "}
+                        <bdi dir="ltr">{row.tracking_code}</bdi>
+                      </>
+                    ) : null}
                   </small>
                 </Link>
               </li>

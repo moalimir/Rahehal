@@ -124,12 +124,19 @@ export function ConnectedTeamsExperience() {
   const run = async (command: () => Promise<GatewayResult<unknown>>, success: string) => {
     setPending(true);
     const result = await command();
-    setPending(false);
     if (result.ok) {
-      setNotice({ tone: "success", message: success });
+      // Every command on this page can change which workspaces this human
+      // holds -- accepting an invitation, leaving, archiving. The team list and
+      // the workspace switcher both read `/me`, so refreshing only the family
+      // left the page saying "دعوت پذیرفته شد" above a list that did not
+      // contain the team, until a full reload.
+      await runtime.refreshMe();
       connected.refresh();
+      setPending(false);
+      setNotice({ tone: "success", message: success });
       return;
     }
+    setPending(false);
     setNotice({ tone: "error", message: result.error.message });
   };
 

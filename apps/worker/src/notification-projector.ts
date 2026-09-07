@@ -205,15 +205,22 @@ export class NotificationProjector implements OutboxHandler<PoolClient> {
         ),
       );
     }
+    // A decision on a membership request is addressed to the person who asked,
+    // and it reaches them in their own workspace. Resolving it through a
+    // membership in the *team* worked only for an acceptance: a rejected
+    // requester never joins, so the join matched nothing and the one person
+    // waiting on the answer was the one person never told.
     return rows(
       await client.query<Recipient>(
         `SELECT membership.tenant_id AS "tenantId",
                 membership.workspace_id AS "workspaceId",
-                membership.user_id AS "userId"
+                membership.user_id AS "userId",
+                team_membership_request.workspace_id AS "subjectWorkspaceId"
          FROM team_membership_request
          JOIN membership ON membership.user_id = team_membership_request.requester_user_id
-          AND membership.workspace_id = team_membership_request.workspace_id
           AND membership.state = 'active'
+         JOIN workspace ON workspace.id = membership.workspace_id
+          AND workspace.kind = 'individual'
          WHERE team_membership_request.id = $1`,
         [subjectId],
       ),

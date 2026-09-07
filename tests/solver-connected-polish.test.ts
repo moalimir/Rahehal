@@ -67,6 +67,34 @@ describe("connected solver workspace polish", () => {
     );
   });
 
+  it("refreshes the workspace list after a team command changes it", () => {
+    // Accepting an invitation said "دعوت پذیرفته شد" and left the team out of
+    // "تیم‌های من" and the workspace switcher until a full reload: both read
+    // `/me`, and only the family read was refreshed.
+    const teams = readFileSync("components/solver/connected-teams.tsx", "utf8");
+    expect(teams).toMatch(/await runtime\.refreshMe\(\);\s*\n\s*connected\.refresh\(\);/);
+  });
+
+  it("names the action a proposal's state actually offers", () => {
+    // One fixed "اعمال اصلاحات" sat above every actionable state, so a person
+    // answering a clarification and a person revising a locked version were
+    // invited to the same button under the same wrong name. The editor behind
+    // it was already state-aware; only the invitation was not.
+    const detail = readFileSync("components/solver/connected-proposal-detail.tsx", "utf8");
+    expect(detail).toContain('clarification_requested: "پاسخ به شفاف‌سازی"');
+    expect(detail).toContain('revision_requested: "شروع نسخه اصلاح‌شده"');
+    expect(detail).not.toMatch(/>\s*اعمال اصلاحات\s*</);
+  });
+
+  it("shows a typed week count in the digits the rest of the page uses", () => {
+    // `duration_weeks` is stored as the string a person typed, so it arrives
+    // here in whatever digits they used. Rendering it raw put a Latin `16`
+    // beside `نسخه ۵` and `۱٬۵۰۰٬۰۰۰ ریال` on the same record.
+    const detail = readFileSync("components/solver/connected-proposal-detail.tsx", "utf8");
+    expect(detail).toContain("persianDigits(content.duration_weeks)");
+    expect(detail).not.toMatch(/\$\{content\.duration_weeks\} هفته/);
+  });
+
   it("names what a notification's identifier belongs to", () => {
     // Every row printed a bare `wsp_…`/`prp_…` under its headline, which reads
     // as noise and, in Persian, reorders around the punctuation beside it.

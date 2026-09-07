@@ -96,6 +96,9 @@ describe("connected surfaces lead with the human reference", () => {
     "organization offers": "components/organization/connected-direct-offers.tsx",
     "organization dashboard": "components/organization/connected-dashboard.tsx",
     "solver dashboard": "components/solver/connected-dashboard.tsx",
+    // The action queue lives in a second file, which is how a `?? row.id` on a
+    // draft's caption survived: it was never in this list.
+    "solver dashboard cards": "components/solver/connected-dashboard-cards.tsx",
   } as const;
 
   it.each(Object.entries(sources))(
