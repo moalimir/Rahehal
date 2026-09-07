@@ -699,11 +699,18 @@ export class InMemoryIdentityAdapter
       if (!storedSession) throw forbidden();
       if (!userSeed) return null;
       const seeds = this.seeds.filter((seed) => seed.user.id === session.userId);
+      /**
+       * The workspaces this human can actually enter, which is the same rule
+       * the active context is resolved by, one line below. `/me`'s workspace
+       * list feeds the switcher and «تیم‌های من», so a workspace left, removed
+       * from, suspended in, or belonging to an archived team was still offered
+       * as a door the authority check then refused.
+       */
+      const reachable = (seed: (typeof seeds)[number]) =>
+        this.state.membershipStates.get(seed.membership.id) === "active" &&
+        !this.state.archivedTeamWorkspaces.has(seed.workspace.id);
       const activeSeed = seeds.find(
-        (seed) =>
-          seed.workspace.id === storedSession.activeWorkspaceId &&
-          this.state.membershipStates.get(seed.membership.id) === "active" &&
-          !this.state.archivedTeamWorkspaces.has(seed.workspace.id),
+        (seed) => seed.workspace.id === storedSession.activeWorkspaceId && reachable(seed),
       );
       return {
         user: {
@@ -720,7 +727,7 @@ export class InMemoryIdentityAdapter
             this.state.membershipStates.get(seed.membership.id) ?? "removed",
           ),
         ),
-        workspaces: seeds.map(workspaceResource),
+        workspaces: seeds.filter(reachable).map(workspaceResource),
         active_context: activeSeed
           ? {
               tenant_id: activeSeed.workspace.tenantId,

@@ -1033,7 +1033,7 @@ export class PostgresIdentityWorkspaceAdapter
       const user = userResult.rows[0];
       if (!user) return null;
 
-      const accessResult = await client.query<AccessRow>(
+      const accessResult = await client.query<AccessRow & { reachable: boolean }>(
         `
           SELECT
             m.id AS membership_id,
@@ -1047,7 +1047,20 @@ export class PostgresIdentityWorkspaceAdapter
             m.updated_at AS membership_updated_at,
             w.name AS workspace_name,
             w.owner_user_id,
-            w.team_kind
+            w.team_kind,
+            (
+              m.state = 'active'
+              AND (
+                w.kind <> 'team'
+                OR EXISTS (
+                  SELECT 1
+                  FROM team_workspace AS team
+                  WHERE team.tenant_id = w.tenant_id
+                    AND team.workspace_id = w.id
+                    AND team.status = 'active'
+                )
+              )
+            ) AS reachable
           FROM membership AS m
           JOIN workspace AS w
             ON w.id = m.workspace_id
@@ -1059,7 +1072,10 @@ export class PostgresIdentityWorkspaceAdapter
         `,
         [current.user_id],
       );
-      const accesses = accessResult.rows.map(accessFromRow);
+      const accesses = accessResult.rows.map((row) => ({
+        access: accessFromRow(row),
+        reachable: row.reachable,
+      }));
       const active = current.active_workspace_id
         ? await this.activeAccess(client, parseUserId(current.user_id), current.active_workspace_id)
         : null;
@@ -1072,8 +1088,18 @@ export class PostgresIdentityWorkspaceAdapter
           primary_phone: user.primary_phone,
           phone_verified: user.phone_verified,
         },
-        memberships: accesses.map((access) => membershipResource(access.membership)),
-        workspaces: accesses.map((access) => workspaceResource(access.workspace)),
+        // A membership stays listed whatever its state -- a removed one is a
+        // true fact about this person, and its `state` is what says so. A
+        // workspace does not: this list is the set a human can actually enter,
+        // and the application chrome builds the switcher and «تیم‌های من» from
+        // it. Listing a workspace they have left, been removed from, been
+        // suspended in, or whose team is archived offered a door that the
+        // authority check then refuses -- the same reachability rule
+        // `activeAccess` enforces, so the two now answer alike.
+        memberships: accesses.map(({ access }) => membershipResource(access.membership)),
+        workspaces: accesses
+          .filter(({ reachable }) => reachable)
+          .map(({ access }) => workspaceResource(access.workspace)),
         active_context: active
           ? {
               tenant_id: active.tenantId,

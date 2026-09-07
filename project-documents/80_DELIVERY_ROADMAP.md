@@ -595,6 +595,18 @@ This is the third documentation-drift defect found by hand in two sessions (the 
 
 **Still open:** owner and independent review. External email, SMS, and push delivery remain later work, and G4 still owns poison-isolation, WORM audit export, and correlation search. The compose worker now runs `RAHHAL_WORKER_MODE=postgres`; the in-memory mode remains for the demo runtime.
 
+### 2026-09-07 — `/me` lists the workspaces a human can enter, not every one they ever joined
+
+**Scope:** the owner reported that leaving a team left it in the workspace switcher and in «تیم‌های من».
+
+**It was the server, not the chrome.** `/me` built its `workspaces` list from every membership row regardless of state, and both the switcher and the team list are built from that list — so no amount of client refreshing could remove the team. The response was internally contradictory: it reported the membership as `removed` and the workspace as available in the same payload. Authority was never affected — entering the team answered `NOT_FOUND` — which is exactly the "looks live but isn't" failure C9 exists to remove: a door offered and then refused.
+
+**The rule already existed.** `activeAccess`, the authorization path, resolves a workspace only when the membership is active and, for a team, the team workspace is not archived. `/me` now computes that same predicate and filters `workspaces` by it, so the two answer alike. `memberships` stays complete, because a removed membership is a true fact about that person and its `state` is what says so — which is also what keeps the team in «دعوت‌های پاسخ‌داده‌شده» after leaving. Both adapters were wrong in the same way and both are fixed, so the demo and connected runtimes still agree.
+
+**Three states, one cause.** Leaving, being removed or suspended, and belonging to an archived team all left a workspace in the list; an archived team keeps its memberships active by design, so its former members were still offered it. The regression test walks all four transitions against PostgreSQL and fails against the unfiltered list.
+
+**Evidence:** native 581/581; API 103/103; PostgreSQL 130/130; typecheck, lint, format, boundaries; build, 519 routes, 520 link-checked files, smoke, offline, standalone-interactive; both budget sets. Verified live: a contributor left a team, the resolver offered only the two workspaces still theirs, and the switcher and «تیم‌های من» agreed without a reload.
+
 ### 2026-09-07 — Both parties to a proposal read the same submission
 
 **Scope:** D-07 from the end-to-end review, settled before Phase 4 opens, because D3 rubric scoring is defined against the content the organization can see.
