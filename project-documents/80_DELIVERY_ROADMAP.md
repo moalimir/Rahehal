@@ -595,6 +595,18 @@ This is the third documentation-drift defect found by hand in two sessions (the 
 
 **Still open:** owner and independent review. External email, SMS, and push delivery remain later work, and G4 still owns poison-isolation, WORM audit export, and correlation search. The compose worker now runs `RAHHAL_WORKER_MODE=postgres`; the in-memory mode remains for the demo runtime.
 
+### 2026-09-07 — Both parties to a proposal read the same submission
+
+**Scope:** D-07 from the end-to-end review, settled before Phase 4 opens, because D3 rubric scoring is defined against the content the organization can see.
+
+**What was wrong.** The organization's record rendered eight of the thirty fields a solver submits, and none of the four declarations. The party that must decide on a proposal saw less of it than the party that wrote it: no mitigation plan, no relevant experience, no budget rationale, no technologies, no duration, and no way to confirm that the NDA, conflict, IP and accuracy declarations C4 had required before accepting the submission were actually made. Nothing was being withheld on purpose — the server returns the whole content to a granted organization — the two record pages had simply hand-listed their fields at different times and drifted.
+
+**The fix is one definition, not two longer lists.** `lib/workspace/proposal-content-fields.ts` owns how a submitted proposal reads: eight groups (مسئله و ارزش، راهکار فنی، اجرا و زمان‌بندی، سنجش و ریسک، تیم، بودجه، مالکیت فکری و تعهدها، فایل‌ها), with the week counts and the money formatted in one place rather than two. Both records render from it, so they cannot come apart again, and `keyof ProposalContentResource` makes a new content field fail the build rather than appear on one page and not the other. A declaration reads as تأیید شده / تأیید نشده, because it is evidence about a term the challenge set, not a checkbox to interpret.
+
+**Why every field.** There is no field a solver submits to an organization that the organization should not read — submission _is_ the disclosure. The one thing still withheld is the file behind an attachment id, which is G3 scope; the record says so rather than implying a file it cannot open.
+
+**Evidence:** native 581/581 (a new `tests/proposal-content-fields.test.ts` asserts full contract coverage, the declarations specifically, and that both pages render from the shared definition — proven to fail both when a group is removed and when a page stops using it); API 103/103; PostgreSQL 129/129; typecheck, lint, format, boundaries; build, 519 routes, 520 link-checked files, smoke, offline, standalone-interactive; both budget sets, with the grouping styles costing 130 gzipped bytes against 25,043 of headroom. Verified live on both records, and checked for horizontal overflow at 1280 and at 375.
+
 ### 2026-09-07 — Phase-3 end-to-end review: every flow walked, five defects fixed
 
 **Scope:** the owner had walked C10 and reported it "generally working", with edge cases and the less-travelled flows untested. This entry covers a systematic walk of every Phase-3 family against the running stack — identity and OTP edges, eligibility gates, draft concurrency, submission and immutability, the bilateral clarification/revision chain, the full team lifecycle, saved opportunities and direct offers, notification projection coverage, public-audience rules, live-call controls against submission, and cross-tenant isolation on every family — followed by a browser walk of both workspaces.

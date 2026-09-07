@@ -90,9 +90,14 @@ describe("connected solver workspace polish", () => {
     // `duration_weeks` is stored as the string a person typed, so it arrives
     // here in whatever digits they used. Rendering it raw put a Latin `16`
     // beside `نسخه ۵` and `۱٬۵۰۰٬۰۰۰ ریال` on the same record.
-    const detail = readFileSync("components/solver/connected-proposal-detail.tsx", "utf8");
-    expect(detail).toContain("persianDigits(content.duration_weeks)");
-    expect(detail).not.toMatch(/\$\{content\.duration_weeks\} هفته/);
+    const fields = readFileSync("lib/workspace/proposal-content-fields.ts", "utf8");
+    expect(fields).toContain("persianDigits(content[field])");
+    for (const path of [
+      "components/solver/connected-proposal-detail.tsx",
+      "components/solver/connected-organization-proposals.tsx",
+    ]) {
+      expect(readFileSync(path, "utf8")).not.toMatch(/\$\{content\.duration_weeks\}/);
+    }
   });
 
   it("names what a notification's identifier belongs to", () => {

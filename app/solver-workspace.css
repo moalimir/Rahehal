@@ -7664,6 +7664,20 @@
   }
 }
 
+/* One submitted proposal reads in groups on both records, so a person scanning
+   thirty fields has somewhere to rest between them. */
+.rh-proposal-content-group + .rh-proposal-content-group {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid #e6edf5;
+}
+.rh-proposal-content-group h3 {
+  margin: 0 0 10px;
+  color: #0b2748;
+  font-size: 13px;
+  font-weight: 800;
+}
+
 /* Connected solver workspace polish: dashboard, profile, settings and proposal editor. */
 .rh-connected-dashboard,
 .rh-connected-profile-page,

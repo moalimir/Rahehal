@@ -116,14 +116,16 @@ describe("connected surfaces lead with the human reference", () => {
 
   it("shows money with a Persian currency name, never a Latin code", () => {
     // `۱۵٬۰۰۰٬۰۰۰ IRR` mixed a Persian numeral group with a Latin ISO code in
-    // the same phrase; every other surface already said ریال.
+    // the same phrase; every other surface already said ریال. Both record pages
+    // now format money in one place, so the pairing cannot come apart again.
+    const fields = readFileSync("lib/workspace/proposal-content-fields.ts", "utf8");
+    expect(fields).toContain("currencyLabels[content.budget_currency]");
+    expect(fields).not.toMatch(/\}\s*\$\{content\.budget_currency\}/);
     for (const path of [
       "components/solver/connected-proposal-detail.tsx",
       "components/solver/connected-organization-proposals.tsx",
     ]) {
-      const source = readFileSync(path, "utf8");
-      expect(source).toContain("currencyLabels[content.budget_currency]");
-      expect(source).not.toMatch(/\}\s*\$\{content\.budget_currency\}/);
+      expect(readFileSync(path, "utf8")).not.toContain("content.budget_currency");
     }
   });
 });

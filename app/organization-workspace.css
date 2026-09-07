@@ -2094,3 +2094,29 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* The organization reads the same grouped submission the solver wrote. */
+.org-proposal-content-group + .org-proposal-content-group {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--org-line, #d8e2ef);
+}
+.org-proposal-content-group h3 {
+  margin: 0 0 10px;
+  color: var(--org-navy, #071d46);
+  font-size: 13px;
+  font-weight: 800;
+}
+.org-proposal-content-group dl {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+.org-proposal-content-group dt {
+  color: #5d7086;
+  font-size: 12px;
+}
+.org-proposal-content-group dd {
+  margin: 2px 0 0;
+  line-height: 1.9;
+}

@@ -6,26 +6,12 @@ import { Icon } from "@/components/icons";
 import { useActiveWorkspaceName } from "@/components/solver/use-connected";
 import { RecordId } from "@/components/solver/record-identity";
 import { proposalHref } from "@/lib/workspace/proposal-navigation";
-import { currencyLabels } from "@/domain/challenge";
-import { formatMinorAmount } from "@/lib/challenges/model";
+import {
+  proposalAttachmentSummary,
+  proposalContentGroups,
+} from "@/lib/workspace/proposal-content-fields";
 import { proposalStateLabels as labels } from "@/lib/workspace/proposal-labels";
 import type { ProposalRecordView } from "@/lib/workspace/proposal-record";
-
-const contentFields: readonly (readonly [string, keyof ProposalRecordContent])[] = [
-  ["بیان مسئله", "problem_statement"],
-  ["ارزش پیشنهادی", "value_proposition"],
-  ["رویکرد فنی", "technical_approach"],
-  ["معماری راهکار", "architecture"],
-  ["معیارهای موفقیت", "success_metrics"],
-  ["نقشه راه", "roadmap"],
-  ["ریسک‌ها", "risks"],
-  ["برنامه کاهش ریسک", "mitigation"],
-  ["تیم اجرا", "team_summary"],
-  ["تجربه مرتبط", "relevant_experience"],
-  ["مبنای بودجه", "budget_rationale"],
-];
-
-type ProposalRecordContent = NonNullable<ProposalRecordView["proposal"]>["content"];
 
 /**
  * The authoritative record for one proposal.
@@ -35,15 +21,6 @@ type ProposalRecordContent = NonNullable<ProposalRecordView["proposal"]>["conten
  * whether it is foreign or absent, matching the API, which deliberately does
  * not distinguish them either.
  */
-/** A typed number rendered in the digits the rest of the page uses. */
-function persianDigits(value: string): string {
-  const normalized = value.replace(/[\u06F0-\u06F9]/g, (digit) =>
-    String("\u06F0\u06F1\u06F2\u06F3\u06F4\u06F5\u06F6\u06F7\u06F8\u06F9".indexOf(digit)),
-  );
-  return /^\d+$/.test(normalized.trim())
-    ? Number(normalized).toLocaleString("fa-IR", { useGrouping: false })
-    : value;
-}
 
 export function ConnectedProposalDetail({ view }: { view: ProposalRecordView }) {
   const workspaceName = useActiveWorkspaceName();
@@ -58,6 +35,7 @@ export function ConnectedProposalDetail({ view }: { view: ProposalRecordView }) 
       </section>
     );
   const content = proposal.content;
+  const attachments = proposalAttachmentSummary(content);
   const versions = [...proposal.versions].sort((a, b) => a.version_number - b.version_number);
   // The label names the action the state actually offers. One fixed "اعمال
   // اصلاحات" sent a person answering a question and a person revising a version
@@ -148,50 +126,36 @@ export function ConnectedProposalDetail({ view }: { view: ProposalRecordView }) 
           این صفحه مستقیماً از نسخه {proposal.version.toLocaleString("fa-IR")} روی سرور خوانده شده
           است.
         </p>
-        <dl>
-          {contentFields.map(([label, field]) => (
-            <div key={label}>
-              <dt>{label}</dt>
-              <dd>{String(content[field] ?? "") || "ثبت نشده"}</dd>
+        {proposalContentGroups.map((group) => (
+          <div className="rh-proposal-content-group" key={group.title}>
+            <h3>{group.title}</h3>
+            <dl>
+              {group.rows.map((row) => (
+                <div key={row.field}>
+                  <dt>{row.label}</dt>
+                  <dd>{row.value(content)}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        ))}
+        <div className="rh-proposal-content-group">
+          <h3>فایل‌ها</h3>
+          <dl>
+            <div>
+              <dt>پیوست‌ها</dt>
+              <dd>
+                {attachments.length
+                  ? attachments.map((id) => (
+                      <bdi dir="ltr" key={id}>
+                        {id}{" "}
+                      </bdi>
+                    ))
+                  : "فایلی ثبت نشده است"}
+              </dd>
             </div>
-          ))}
-          <div>
-            <dt>فناوری‌ها</dt>
-            <dd>{content.technologies.join("، ") || "ثبت نشده"}</dd>
-          </div>
-          <div>
-            <dt>بودجه درخواستی</dt>
-            <dd>
-              {content.budget_amount_minor === null
-                ? "ثبت نشده"
-                : `${formatMinorAmount(content.budget_amount_minor)} ${currencyLabels[content.budget_currency]}`}
-            </dd>
-          </div>
-          <div>
-            <dt>زمان اجرا</dt>
-            <dd>
-              {content.duration_weeks
-                ? // The stored value is the string a person typed, so it reaches
-                  // this page in whatever digits they used. Every other number
-                  // on the page is Persian; a Latin `16` beside `نسخه ۵` reads
-                  // as a different alphabet in the same sentence.
-                  `${persianDigits(content.duration_weeks)} هفته`
-                : "ثبت نشده"}
-            </dd>
-          </div>
-          <div>
-            <dt>فایل‌ها</dt>
-            <dd>
-              {content.attachment_ids.length
-                ? content.attachment_ids.map((id) => (
-                    <bdi dir="ltr" key={id}>
-                      {id}{" "}
-                    </bdi>
-                  ))
-                : "فایلی ثبت نشده است"}
-            </dd>
-          </div>
-        </dl>
+          </dl>
+        </div>
       </section>
       <section className="rh-card rh-membership-list">
         <header>

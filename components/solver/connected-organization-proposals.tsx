@@ -13,8 +13,10 @@ import { useConnectedFamily } from "@/components/solver/use-connected";
 import type { GatewayResult } from "@/lib/api/result";
 import { RecordId } from "@/components/solver/record-identity";
 import { proposalHref, readProposalRecordId } from "@/lib/workspace/proposal-navigation";
-import { currencyLabels } from "@/domain/challenge";
-import { formatMinorAmount } from "@/lib/challenges/model";
+import {
+  proposalAttachmentSummary,
+  proposalContentGroups,
+} from "@/lib/workspace/proposal-content-fields";
 import { proposalStateLabels } from "@/lib/workspace/proposal-labels";
 import {
   organizationInboxScopeLost,
@@ -437,33 +439,43 @@ export function ConnectedOrganizationProposalDetail({ proposalId }: { proposalId
 
       <section className="org-card" aria-label="محتوای نسخه ارسالی">
         <h2>محتوای نسخه ارسالی</h2>
-        <dl>
-          {(
-            [
-              ["بیان مسئله", content.problem_statement],
-              ["ارزش پیشنهادی", content.value_proposition],
-              ["رویکرد فنی", content.technical_approach],
-              ["معماری راهکار", content.architecture],
-              ["معیارهای موفقیت", content.success_metrics],
-              ["نقشه راه", content.roadmap],
-              ["ریسک‌ها", content.risks],
-              ["تیم اجرا", content.team_summary],
-            ] as const
-          ).map(([label, value]) => (
-            <div key={label}>
-              <dt>{label}</dt>
-              <dd>{value || "ثبت نشده"}</dd>
-            </div>
-          ))}
-          <div>
-            <dt>بودجه درخواستی</dt>
-            <dd>
-              {content.budget_amount_minor === null
-                ? "ثبت نشده"
-                : `${formatMinorAmount(content.budget_amount_minor)} ${currencyLabels[content.budget_currency]}`}
-            </dd>
+        {/* The whole submission, in the same groups the solver reads it in.
+            This card used to render eight of thirty fields and none of the four
+            declarations, so the party deciding on a proposal saw less of it
+            than the party that wrote it -- and could not confirm that the terms
+            the challenge required had been accepted. */}
+        {proposalContentGroups.map((group) => (
+          <div className="org-proposal-content-group" key={group.title}>
+            <h3>{group.title}</h3>
+            <dl>
+              {group.rows.map((row) => (
+                <div key={row.field}>
+                  <dt>{row.label}</dt>
+                  <dd>{row.value(content)}</dd>
+                </div>
+              ))}
+            </dl>
           </div>
-        </dl>
+        ))}
+        <div className="org-proposal-content-group">
+          <h3>فایل‌ها</h3>
+          <dl>
+            <div>
+              <dt>پیوست‌ها</dt>
+              <dd>
+                {proposalAttachmentSummary(content).length ? (
+                  proposalAttachmentSummary(content).map((id) => (
+                    <bdi dir="ltr" key={id}>
+                      {id}{" "}
+                    </bdi>
+                  ))
+                ) : (
+                  <>فایلی ثبت نشده است</>
+                )}
+              </dd>
+            </div>
+          </dl>
+        </div>
       </section>
 
       <section className="org-card" aria-label="شفاف‌سازی‌ها">
