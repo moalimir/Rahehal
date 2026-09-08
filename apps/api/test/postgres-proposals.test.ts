@@ -746,7 +746,7 @@ describe("C4 PostgreSQL proposal submission", () => {
     ).rejects.toMatchObject({ code: "CONFLICT", options: { recovery: "refresh_challenge_terms" } });
 
     await database.query(
-      "TRUNCATE proposal_clarification, proposal_revision_request, access_grant, proposal_version, proposal",
+      "TRUNCATE evaluation_proposal, challenge_evaluation, coi_declaration, review_assignment, proposal_clarification, proposal_revision_request, access_grant, proposal_version, proposal",
     );
     const teamDraft = await createReady(teamOwner("c4-pg-create-team-0001"));
     await expect(
@@ -783,7 +783,7 @@ describe("C4 PostgreSQL proposal submission", () => {
     expect(counts.rows[0]).toEqual({ locked_versions: "1", grants: "1" });
 
     await database.query(
-      "TRUNCATE proposal_clarification, proposal_revision_request, access_grant, proposal_version, proposal",
+      "TRUNCATE evaluation_proposal, challenge_evaluation, coi_declaration, review_assignment, proposal_clarification, proposal_revision_request, access_grant, proposal_version, proposal",
     );
     const closeRace = await createReady(individual("c4-pg-create-close-race-0001"));
     const closeResults = await Promise.allSettled([
@@ -917,6 +917,9 @@ describe("C4 PostgreSQL proposal submission", () => {
     );
     if (!before?.tracking_code) throw new Error("Expected the first submitted tracking code.");
 
+    expect((await runMigrations(database, "down")).applied).toEqual(["0024_d3_open_evaluation"]);
+    expect((await runMigrations(database, "down")).applied).toEqual(["0023_d2_rubric_authoring"]);
+    expect((await runMigrations(database, "down")).applied).toEqual(["0022_d1_review_foundation"]);
     expect((await runMigrations(database, "down")).applied).toEqual([
       "0021_c6_offer_deadline_single_clock",
     ]);
@@ -938,6 +941,9 @@ describe("C4 PostgreSQL proposal submission", () => {
       "0019_c7_solver_activation",
       "0020_c8_notifications",
       "0021_c6_offer_deadline_single_clock",
+      "0022_d1_review_foundation",
+      "0023_d2_rubric_authoring",
+      "0024_d3_open_evaluation",
     ]);
 
     const restored = await database.query(
@@ -1028,7 +1034,7 @@ describe("C5 PostgreSQL proposal clarification and revision", () => {
     // evidence. Clear this describe's synthetic aggregates so the global
     // migration-based reset can still exercise every down migration.
     await database.query(
-      "TRUNCATE proposal_clarification, proposal_revision_request, access_grant, proposal_version, proposal",
+      "TRUNCATE evaluation_proposal, challenge_evaluation, coi_declaration, review_assignment, proposal_clarification, proposal_revision_request, access_grant, proposal_version, proposal",
     );
   });
 

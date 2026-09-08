@@ -9,6 +9,7 @@ import {
   type ApiError,
   type ApiErrorCode,
   type CreateChallengeBody,
+  type CreateRubricVersionBody,
   type ErrorEnvelope,
   type PatchChallengeBody,
   type OutboxEvent,
@@ -73,6 +74,7 @@ describe("authoritative API contracts", () => {
     expect(apiSchemas.DeclineDirectOfferBody.required).toContain("expected_version");
     expect(apiSchemas.CancelDirectOfferBody.required).toContain("expected_version");
     expect(apiSchemas.StartDirectOfferNegotiationBody.required).toContain("expected_version");
+    expect(apiSchemas.CreateRubricVersionBody.required).toContain("expected_version");
 
     expectTypeOf<CreateChallengeBody["expected_version"]>().toEqualTypeOf<0>();
     expectTypeOf<PatchChallengeBody["expected_version"]>().toEqualTypeOf<number>();
@@ -82,6 +84,7 @@ describe("authoritative API contracts", () => {
     expectTypeOf<PatchProposalBody["expected_version"]>().toEqualTypeOf<number>();
     expectTypeOf<SubmitProposalBody["expected_version"]>().toEqualTypeOf<number>();
     expectTypeOf<ResubmitProposalBody["expected_version"]>().toEqualTypeOf<number>();
+    expectTypeOf<CreateRubricVersionBody["expected_version"]>().toEqualTypeOf<number>();
   });
 
   it("defines the complete canonical mutation receipt", () => {
@@ -403,5 +406,97 @@ describe("authoritative API contracts", () => {
     const candidate: unknown = valid;
     if (!isOutboxEvent(candidate)) throw new Error("valid event did not narrow");
     expectTypeOf(candidate).toEqualTypeOf<OutboxEvent>();
+  });
+});
+
+describe("D1 review read contracts", () => {
+  it("publishes only bookkeeping on both scoped reads", () => {
+    expect(Object.keys(apiSchemas.ReviewAssignment.properties).sort()).toEqual([
+      "coi_status",
+      "due_at",
+      "id",
+      "state",
+      "version",
+    ]);
+    expect(apiSchemas.ReviewAssignment.additionalProperties).toBe(false);
+    for (const path of [apiRoutes.reviewAssignments, apiRoutes.reviewAssignmentById]) {
+      const operation = openApiDocument.paths[path].get;
+      expect(operation.security).toEqual([{ bearerAuth: [] }]);
+      expect(operation.parameters).toContainEqual(
+        expect.objectContaining({ in: "header", name: "X-Workspace-Id", required: true }),
+      );
+      expect(operation.responses).toHaveProperty("404");
+    }
+    expect(apiSchemas.ReviewAssignmentListQuery.additionalProperties).toBe(false);
+    expect(apiSchemas.ReviewAssignmentListQuery.properties.limit.maximum).toBe(100);
+  });
+});
+
+describe("D2 rubric contracts", () => {
+  it("publishes a scoped read and idempotent version append", () => {
+    expect(openApiDocument.tags).toContainEqual({ name: "Review" });
+    expect(openApiDocument.paths[apiRoutes.challengeRubric].get.operationId).toBe(
+      "getChallengeRubric",
+    );
+    const create = openApiDocument.paths[apiRoutes.createRubricVersion].post;
+    expect(create.operationId).toBe("createRubricVersion");
+    expect(create.parameters.map((parameter) => parameter.name)).toEqual([
+      "X-Workspace-Id",
+      "Idempotency-Key",
+      "challengeId",
+    ]);
+    expect(create.responses).toHaveProperty("404");
+  });
+
+  it("keeps the MVP scale and exact criterion shape explicit", () => {
+    const schema = apiSchemas.CreateRubricVersionBody;
+    expect(schema.additionalProperties).toBe(false);
+    expect(schema.required).toEqual(["expected_version", "challenge_version_id", "criteria"]);
+    expect(schema.properties.expected_version.minimum).toBe(0);
+    expect(schema.properties.criteria).toMatchObject({ minItems: 1, maxItems: 20 });
+    expect(schema.properties.criteria.items).toMatchObject({
+      additionalProperties: false,
+      required: ["id", "label", "weight", "min", "max"],
+      properties: {
+        weight: { type: "integer", minimum: 1, maximum: 100 },
+        min: { type: "integer", const: 0 },
+        max: { type: "integer", const: 5 },
+      },
+    });
+  });
+});
+
+describe("D3 evaluation-opening contracts", () => {
+  it("publishes a scoped readiness read and idempotent roster-freeze command", () => {
+    const read = openApiDocument.paths[apiRoutes.challengeEvaluation].get;
+    expect(read.operationId).toBe("getChallengeEvaluation");
+    expect(read.parameters.map((parameter) => parameter.name)).toEqual([
+      "X-Workspace-Id",
+      "challengeId",
+    ]);
+    const open = openApiDocument.paths[apiRoutes.openChallengeEvaluation].post;
+    expect(open.operationId).toBe("openChallengeEvaluation");
+    expect(open.parameters.map((parameter) => parameter.name)).toEqual([
+      "X-Workspace-Id",
+      "Idempotency-Key",
+      "challengeId",
+    ]);
+    expect(open.responses).toHaveProperty("404");
+  });
+
+  it("keeps readiness non-confidential and pins the accepted two-review policy", () => {
+    expect(Object.keys(apiSchemas.EvaluationRosterProposal.properties).sort()).toEqual([
+      "proposal_id",
+      "proposal_version_id",
+      "source_state",
+      "tracking_code",
+    ]);
+    expect(apiSchemas.ChallengeEvaluation.properties.required_reviews.const).toBe(2);
+    expect(apiSchemas.ChallengeEvaluation.properties.blockers.uniqueItems).toBe(true);
+    expect(apiSchemas.OpenChallengeEvaluationBody).toMatchObject({
+      additionalProperties: false,
+      required: ["expected_version"],
+      properties: { expected_version: { type: "integer", minimum: 1 } },
+    });
   });
 });

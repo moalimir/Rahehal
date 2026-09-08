@@ -1,4 +1,4 @@
-import { challengeManagedStages } from "@rahhal/domain";
+import { challengeManagedStages, reviewStates } from "@rahhal/domain";
 
 import { apiRoutes } from "./routes.js";
 import { apiSchemas, type ApiSchemaName } from "./schemas.js";
@@ -199,8 +199,125 @@ export const openApiDocument = {
     { name: "Team" },
     { name: "Proposal" },
     { name: "Opportunity" },
+    { name: "Review" },
   ],
   paths: {
+    [apiRoutes.challengeEvaluation]: {
+      get: {
+        operationId: "getChallengeEvaluation",
+        tags: ["Review"],
+        summary: "Read evaluation readiness or the frozen exact-version proposal roster",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, challengeIdParameter],
+        responses: {
+          "200": {
+            description: "Evaluation readiness and the exact roster visible to the organization.",
+            content: jsonContent("ChallengeEvaluationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.openChallengeEvaluation]: {
+      post: {
+        operationId: "openChallengeEvaluation",
+        tags: ["Review"],
+        summary: "Atomically close intake, freeze the exact proposal roster and enter evaluation",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, challengeIdParameter],
+        requestBody: { required: true, content: jsonContent("OpenChallengeEvaluationBody") },
+        responses: {
+          "200": {
+            description: "The atomic challenge version, audit and outbox receipt.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.challengeRubric]: {
+      get: {
+        operationId: "getChallengeRubric",
+        tags: ["Review"],
+        summary: "Read the latest rubric for the organization's published challenge version",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, challengeIdParameter],
+        responses: {
+          "200": {
+            description: "The latest immutable rubric version, or null before authoring.",
+            content: jsonContent("RubricSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.createRubricVersion]: {
+      post: {
+        operationId: "createRubricVersion",
+        tags: ["Review"],
+        summary:
+          "Append a rubric version before evaluation; weights total 100 and scores range from 0 to 5",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, challengeIdParameter],
+        requestBody: { required: true, content: jsonContent("CreateRubricVersionBody") },
+        responses: {
+          "200": {
+            description: "The atomic version, audit and outbox receipt.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.reviewAssignments]: {
+      get: {
+        operationId: "listReviewAssignments",
+        tags: ["Review"],
+        summary: "List only the active reviewer's assignment bookkeeping",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          workspaceHeader,
+          { in: "query", name: "limit", schema: { type: "integer", minimum: 1, maximum: 100 } },
+          {
+            in: "query",
+            name: "cursor",
+            schema: { type: "string", pattern: "^rva_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$" },
+          },
+          { in: "query", name: "state", schema: { type: "string", enum: reviewStates } },
+        ],
+        responses: {
+          "200": {
+            description: "A bounded own-assignment page with no protected materials.",
+            content: jsonContent("ReviewAssignmentListSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.reviewAssignmentById]: {
+      get: {
+        operationId: "getReviewAssignment",
+        tags: ["Review"],
+        summary: "Read one own assignment's bookkeeping without material access",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          workspaceHeader,
+          {
+            in: "path",
+            name: "assignmentId",
+            required: true,
+            schema: { type: "string", pattern: "^rva_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$" },
+          },
+        ],
+        responses: {
+          "200": {
+            description: "Own-assignment bookkeeping only.",
+            content: jsonContent("ReviewAssignmentSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
     [apiRoutes.openApi]: {
       get: {
         operationId: "getOpenApiDocument",

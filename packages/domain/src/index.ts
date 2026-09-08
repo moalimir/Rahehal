@@ -8,3 +8,6 @@ export * from "./solver-profile.js";
 export * from "./team.js";
 export * from "./taxonomy.js";
 export * from "./workspace.js";
+export * from "./review.js";
+export * from "./rubric.js";
+export * from "./evaluation.js";

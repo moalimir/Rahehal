@@ -1,4 +1,10 @@
 export const apiRoutes = {
+  challengeRubric: "/api/v1/challenges/{challengeId}/rubric",
+  createRubricVersion: "/api/v1/challenges/{challengeId}/rubric-versions",
+  challengeEvaluation: "/api/v1/challenges/{challengeId}/evaluation",
+  openChallengeEvaluation: "/api/v1/challenges/{challengeId}:open-evaluation",
+  reviewAssignments: "/api/v1/assignments",
+  reviewAssignmentById: "/api/v1/assignments/{assignmentId}",
   openApi: "/api/v1/openapi.json",
   oidcAuthorizationStart: "/api/v1/auth/oidc:start",
   contactVerificationStart: "/api/v1/auth/contact-verification:start",

@@ -1,8 +1,11 @@
 import {
+  reviewStates,
+  reviewCoiStates,
   applicantScopes,
   applicantTypes,
   approvalDecisions,
   challengeManagedStages,
+  challengeStages,
   challengePublicationStates,
   challengeBudgetStatuses,
   challengeDraftAuthoringStatuses,
@@ -34,6 +37,8 @@ import {
   verificationStates,
   contactVerificationChannels,
   solverStartIntents,
+  evaluationReadinessBlockers,
+  evaluationRosterProposalStates,
 } from "@rahhal/domain";
 
 import { apiErrorCodes } from "./envelopes.js";
@@ -799,6 +804,28 @@ const organizationProposalResourceSchema = {
     content: proposalContentSchema,
     clarifications: { type: "array", items: proposalClarificationSchema },
     revision_requests: { type: "array", items: proposalRevisionRequestSchema },
+  },
+} as const;
+
+const reviewAssignmentSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["id", "state", "coi_status", "due_at", "version"],
+  properties: {
+    id: idSchema("rva"),
+    state: { type: "string", enum: reviewStates },
+    coi_status: { type: "string", enum: reviewCoiStates },
+    due_at: dateTimeSchema,
+    version: { type: "integer", minimum: 1 },
+  },
+} as const;
+const reviewAssignmentListSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["items"],
+  properties: {
+    items: { type: "array", maxItems: 100, items: reviewAssignmentSchema },
+    next_cursor: idSchema("rva"),
   },
 } as const;
 
@@ -1773,7 +1800,128 @@ const versionedCommandProperties = {
   step_up_token: { type: "string", minLength: 1, maxLength: 4_096 },
 } as const;
 
+const rubricCriteriaSchema = {
+  type: "array",
+  minItems: 1,
+  maxItems: 20,
+  items: {
+    type: "object",
+    additionalProperties: false,
+    required: ["id", "label", "weight", "min", "max"],
+    properties: {
+      id: { type: "string", pattern: "^[a-z][a-z0-9_-]{0,39}$" },
+      label: { type: "string", minLength: 1, maxLength: 160 },
+      weight: { type: "integer", minimum: 1, maximum: 100 },
+      min: { type: "integer", const: 0 },
+      max: { type: "integer", const: 5 },
+    },
+  },
+} as const;
+const rubricResourceSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "version_id",
+    "version",
+    "challenge_id",
+    "challenge_version_id",
+    "criteria",
+    "created_at",
+  ],
+  properties: {
+    id: idSchema("rub"),
+    version_id: idSchema("rbv"),
+    version: { type: "integer", minimum: 1 },
+    challenge_id: idSchema("chl"),
+    challenge_version_id: idSchema("chv"),
+    criteria: rubricCriteriaSchema,
+    created_at: dateTimeSchema,
+  },
+} as const;
+
+const evaluationRosterProposalSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["proposal_id", "proposal_version_id", "tracking_code", "source_state"],
+  properties: {
+    proposal_id: idSchema("prp"),
+    proposal_version_id: idSchema("prv"),
+    tracking_code: { type: "string", pattern: "^PRP-[0-9]{4}-[0-9]{3,6}$" },
+    source_state: { type: "string", enum: evaluationRosterProposalStates },
+  },
+} as const;
+
+const challengeEvaluationResourceSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "challenge_id",
+    "challenge_version_id",
+    "stage",
+    "publication_state",
+    "proposal_deadline_at",
+    "window_closed",
+    "rubric_version_id",
+    "required_reviews",
+    "qualifying_proposal_count",
+    "unresolved_proposal_count",
+    "ready",
+    "blockers",
+    "roster",
+    "opened_at",
+    "version",
+  ],
+  properties: {
+    challenge_id: idSchema("chl"),
+    challenge_version_id: { oneOf: [idSchema("chv"), { type: "null" }] },
+    stage: { type: "string", enum: challengeStages },
+    publication_state: {
+      oneOf: [
+        { type: "string", enum: ["open", "paused", "closed", "cancelled"] },
+        { type: "null" },
+      ],
+    },
+    proposal_deadline_at: nullableDateTimeSchema,
+    window_closed: { type: "boolean" },
+    rubric_version_id: { oneOf: [idSchema("rbv"), { type: "null" }] },
+    required_reviews: { const: 2 },
+    qualifying_proposal_count: { type: "integer", minimum: 0 },
+    unresolved_proposal_count: { type: "integer", minimum: 0 },
+    ready: { type: "boolean" },
+    blockers: {
+      type: "array",
+      uniqueItems: true,
+      items: { type: "string", enum: evaluationReadinessBlockers },
+    },
+    roster: { type: "array", items: evaluationRosterProposalSchema },
+    opened_at: nullableDateTimeSchema,
+    version: { type: "integer", minimum: 1 },
+  },
+} as const;
+
 export const apiSchemas = {
+  EvaluationRosterProposal: evaluationRosterProposalSchema,
+  ChallengeEvaluation: challengeEvaluationResourceSchema,
+  ChallengeEvaluationSuccessEnvelope: successEnvelopeFor(challengeEvaluationResourceSchema, true),
+  OpenChallengeEvaluationBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version"],
+    properties: { expected_version: { type: "integer", minimum: 1 } },
+  },
+  RubricResource: rubricResourceSchema,
+  RubricSuccessEnvelope: successEnvelopeFor({ anyOf: [rubricResourceSchema, { type: "null" }] }),
+  CreateRubricVersionBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "challenge_version_id", "criteria"],
+    properties: {
+      expected_version: { type: "integer", minimum: 0 },
+      challenge_version_id: idSchema("chv"),
+      criteria: rubricCriteriaSchema,
+    },
+  },
   ApiMeta: apiMetaSchema,
   VersionedApiMeta: versionedApiMetaSchema,
   ApiError: apiErrorSchema,
@@ -2382,6 +2530,24 @@ export const apiSchemas = {
   OrganizationProposalInbox: organizationProposalInboxSchema,
   OrganizationProposalSuccessEnvelope: successEnvelopeFor(organizationProposalResourceSchema, true),
   OrganizationProposalInboxSuccessEnvelope: successEnvelopeFor(organizationProposalInboxSchema),
+  ReviewAssignment: reviewAssignmentSchema,
+  ReviewAssignmentSuccessEnvelope: successEnvelopeFor(reviewAssignmentSchema),
+  ReviewAssignmentListSuccessEnvelope: successEnvelopeFor(reviewAssignmentListSchema),
+  ReviewAssignmentParams: {
+    type: "object",
+    additionalProperties: false,
+    required: ["assignmentId"],
+    properties: { assignmentId: idSchema("rva") },
+  },
+  ReviewAssignmentListQuery: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      limit: { type: "integer", minimum: 1, maximum: 100 },
+      cursor: idSchema("rva"),
+      state: { type: "string", enum: reviewStates },
+    },
+  },
   Notification: notificationSchema,
   NotificationList: notificationListSchema,
   NotificationSummary: notificationSummarySchema,

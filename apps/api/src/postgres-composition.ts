@@ -1,3 +1,6 @@
+import { PostgresRubricAdapter } from "./postgres/rubrics.js";
+import { PostgresEvaluationAdapter } from "./postgres/evaluations.js";
+import { PostgresReviewAdapter } from "./postgres/reviews.js";
 import { Pool } from "pg";
 
 import { RandomIdFactory, systemClock } from "./primitives.js";
@@ -31,8 +34,8 @@ import { PostgresNotificationAdapter } from "./postgres/notifications.js";
 import { PostgresUnitOfWork } from "./postgres/unit-of-work.js";
 import { HmacSessionCredentialIssuer } from "./session-credentials.js";
 
-// C7 composition depends on the complete identity/solver activation schema.
-const requiredMigration = "0019_c7_solver_activation";
+// D1 review reads require the complete review foundation schema.
+const requiredMigration = "0024_d3_open_evaluation";
 
 type OidcAdapter = OidcExchangePort & OidcAuthorizationPort;
 
@@ -131,6 +134,9 @@ export async function createPostgresApiComposition(
     pool,
     unitOfWork,
     ports: {
+      evaluations: new PostgresEvaluationAdapter(unitOfWork, ids),
+      reviews: new PostgresReviewAdapter(unitOfWork),
+      rubrics: new PostgresRubricAdapter(unitOfWork, ids),
       oidcAuthorization: oidc,
       contactVerification,
       sessions: identity,

@@ -189,7 +189,7 @@ export const proposalTransitions = [
   {
     from: "reviewing",
     to: "selected",
-    roles: ["org:member"],
+    roles: ["org:owner", "org:member"],
     preconditions: ["reviews-complete", "decision-approved"],
     sideEffects: ["lock-outcome"],
     notification: "مالک پیشنهاد",
@@ -199,7 +199,7 @@ export const proposalTransitions = [
   {
     from: "reviewing",
     to: "rejected",
-    roles: ["org:member"],
+    roles: ["org:owner", "org:member"],
     preconditions: ["reviews-complete", "decision-rationale"],
     sideEffects: ["lock-outcome"],
     notification: "مالک پیشنهاد",

@@ -1,3 +1,6 @@
+import { UnavailableRubricAdapter } from "./rubric-port.js";
+import { InMemoryReviewAdapter } from "./in-memory-reviews.js";
+import { UnavailableEvaluationAdapter } from "./evaluation-port.js";
 import type { ChallengePublicProjectionResource, ChallengeResource } from "@rahhal/contracts";
 import {
   parseChallengeId,
@@ -28,6 +31,18 @@ import { HmacSessionCredentialIssuer } from "./session-credentials.js";
 import type { ApiPorts, Clock, DemoIdentitySeed, IdFactory } from "./ports.js";
 
 export const demoApiCredentials = {
+  reviewer: {
+    accessToken: "demo-access-reviewer-alpha-001",
+    refreshToken: "demo-refresh-reviewer-alpha-001",
+    workspaceId: parseWorkspaceId("wsp_platform_main"),
+    sessionId: parseSessionId("ses_reviewer_alpha"),
+  },
+  otherReviewer: {
+    accessToken: "demo-access-reviewer-beta-0001",
+    refreshToken: "demo-refresh-reviewer-beta-0001",
+    workspaceId: parseWorkspaceId("wsp_platform_main"),
+    sessionId: parseSessionId("ses_reviewer_beta"),
+  },
   owner: {
     accessToken: "demo-access-owner-alpha-0001",
     refreshToken: "demo-refresh-owner-alpha-0001",
@@ -326,7 +341,37 @@ function membership(
 }
 
 function demoSeeds(now: string): readonly DemoIdentitySeed[] {
+  const reviewerSeeds: DemoIdentitySeed[] = (["reviewer", "otherReviewer"] as const).map(
+    (key, index) => {
+      const suffix = index === 0 ? "alpha" : "beta";
+      const user: User = {
+        id: parseUserId(`usr_reviewer_${suffix}`),
+        displayName: `Synthetic Reviewer ${suffix}`,
+        primaryEmail: `reviewer-${suffix}@synthetic.invalid`,
+        emailVerified: true,
+      };
+      return {
+        user,
+        workspace: platformWorkspace,
+        membership: membership(
+          `mem_reviewer_${suffix}`,
+          user,
+          platformWorkspace,
+          "platform:reviewer",
+          now,
+        ),
+        authorizationCode: `demo-oidc-code-reviewer-${suffix}`,
+        codeVerifier: `demo-code-verifier-reviewer-${suffix}-0000000000000000`,
+        redirectUri: demoApiCredentials.exchange.redirectUri,
+        oidcState: `demo-state-reviewer-${suffix}`,
+        sessionId: demoApiCredentials[key].sessionId,
+        accessToken: demoApiCredentials[key].accessToken,
+        refreshToken: demoApiCredentials[key].refreshToken,
+      };
+    },
+  );
   return [
+    ...reviewerSeeds,
     {
       user: ownerUser,
       workspace: alphaWorkspace,
@@ -655,6 +700,9 @@ export function createDemoApiComposition(options: {
     opportunities,
     solverActivation,
     ports: {
+      evaluations: new UnavailableEvaluationAdapter(),
+      reviews: new InMemoryReviewAdapter(),
+      rubrics: new UnavailableRubricAdapter(),
       oidcAuthorization: {
         async start() {
           throw new Error("The demo API does not publish a real OIDC authorization flow");

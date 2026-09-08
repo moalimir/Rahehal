@@ -177,6 +177,14 @@ Offer mutations require `expected_version` and tenant-scoped idempotency and com
 
 ## 6. Rubric, review assignment, COI, review, decision
 
+**D1 executable schema:** `apps/api/migrations/0022_d1_review_foundation.up.sql` owns the delivered foundation. It adds `rubric`, append-only `rubric_version`, `review_assignment` and `coi_declaration`. Composite foreign keys and an insertion guard require matching organization/challenge-version terms, a locked proposal version and an active exact reviewer membership/user. Assignment insertion creates pending COI in the same transaction. All four tables reject update/delete in this initial slice; only `coi-gate`/`pending` are currently admitted. Later command migrations deliberately extend these constraints. Reviewer-membership, rubric, tenant and challenge indexes support scoped reads and foreign keys. Rollback refuses once rubric or assignment evidence exists.
+
+**D2 executable policy:** migration `0023_d2_rubric_authoring` makes one rubric canonical for each exact challenge version and validates every stored criterion array in PostgreSQL: 1-20 exact-shape criteria, stable unique identifiers, nonblank labels, whole percentage weights totalling 100, and the fixed 0-5 range. Organization owner/member commands append immutable `rubric_version` rows under a challenge-row lock; optimistic version, tenant-scoped idempotency, audit, outbox and receipt commit together. Any existing review assignment freezes further versions. The connected page reads the exact published challenge version and latest rubric independently and never falls back to browser storage. Rollback removes only the D2 validation/index layer; D1 still refuses evidence-destroying rollback.
+
+**D3 executable snapshot:** migration `0024_d3_open_evaluation` adds one append-only `challenge_evaluation` per challenge and an append-only `evaluation_proposal` roster keyed by challenge/proposal. The snapshot stores the exact published challenge version, latest rubric version, accepted two-review requirement, resulting challenge lock version, actor, and server timestamp. Each roster row must be the proposal's current locked version in `eligible`, `reviewing`, or `resubmitted`, accepted against the same challenge version and reachable through the active exact submission grant at snapshot time. A database stage guard requires a closed intake, no unresolved submitted workflow, and every qualifying proposal exactly once before `published -> evaluating` can commit. Deferred commit validation prevents a stranded snapshot; post-open triggers prevent new proposal or rubric versions and protect the frozen identity/version binding. Empty rosters are valid. Rollback refuses once evaluation evidence exists.
+
+The SQL below is a consolidated target sketch, not the executable shape of the delivered D1-D3 tables or a claim that scoring/decision writes exist. D4-D9 supply assignment/COI/review/decision commands. Conflicts cannot be overridden into material access.
+
 ```sql
 CREATE TABLE rubric (
   id text PRIMARY KEY, tenant_id text NOT NULL REFERENCES tenant(id),
@@ -195,7 +203,7 @@ CREATE TABLE review_assignment (
   proposal_version_id text NOT NULL REFERENCES proposal_version(id),
   rubric_version_id text NOT NULL REFERENCES rubric_version(id),
   reviewer_user_id text NOT NULL REFERENCES app_user(id),
-  state         text NOT NULL CHECK (state IN          -- ReviewState (state-machines.ts:625)
+  state         text NOT NULL CHECK (state IN          -- ReviewState (packages/domain/src/review.ts)
                   ('coi-gate','accepted','draft','submitted','locked','invalidated')),
   due_at        timestamptz,
   created_at    timestamptz NOT NULL DEFAULT now(),
@@ -212,7 +220,6 @@ CREATE TABLE coi_declaration (
   lookback_note text,
   declared_at   timestamptz,
   escalated_to_ops boolean NOT NULL DEFAULT false,
-  ops_override  text CHECK (ops_override IN ('none','overridden_clear','confirmed_conflict')) DEFAULT 'none',
   updated_at    timestamptz NOT NULL DEFAULT now()
 );
 

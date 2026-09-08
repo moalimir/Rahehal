@@ -63,9 +63,16 @@ beforeAll(async () => {
     "0019_c7_solver_activation",
     "0020_c8_notifications",
     "0021_c6_offer_deadline_single_clock",
+    "0022_d1_review_foundation",
+    "0023_d2_rubric_authoring",
+    "0024_d3_open_evaluation",
   ]);
 
   // Newest first.
+  expect((await runMigrations(database, "down")).applied).toEqual(["0024_d3_open_evaluation"]);
+  expect((await runMigrations(database, "down")).applied).toEqual(["0023_d2_rubric_authoring"]);
+  const reviewFoundationDown = await runMigrations(database, "down");
+  expect(reviewFoundationDown.applied).toEqual(["0022_d1_review_foundation"]);
   const offerClockDown = await runMigrations(database, "down");
   expect(offerClockDown.applied).toEqual(["0021_c6_offer_deadline_single_clock"]);
   const c8Down = await runMigrations(database, "down");
@@ -140,6 +147,9 @@ beforeAll(async () => {
     "0019_c7_solver_activation",
     "0020_c8_notifications",
     "0021_c6_offer_deadline_single_clock",
+    "0022_d1_review_foundation",
+    "0023_d2_rubric_authoring",
+    "0024_d3_open_evaluation",
   ]);
   const noOpUp = await runMigrations(database, "up");
   expect(noOpUp.applied).toEqual([]);
@@ -170,12 +180,15 @@ describe("A1a PostgreSQL foundation", () => {
       "audit_event",
       "challenge",
       "challenge_approval",
+      "challenge_evaluation",
       "challenge_public_projection",
       "challenge_version",
+      "coi_declaration",
       "contact_verification_consumption",
       "direct_offer",
       "eligibility_gate_acceptance",
       "eligibility_rule",
+      "evaluation_proposal",
       "idempotency_key",
       "identity_link",
       "membership",
@@ -189,6 +202,9 @@ describe("A1a PostgreSQL foundation", () => {
       "proposal_clarification",
       "proposal_revision_request",
       "proposal_version",
+      "review_assignment",
+      "rubric",
+      "rubric_version",
       "saved_opportunity",
       "schema_migration",
       "solver_activation",
@@ -289,6 +305,9 @@ describe("A1a PostgreSQL foundation", () => {
         id: "0021_c6_offer_deadline_single_clock",
         checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
       },
+      { id: "0022_d1_review_foundation", checksum: expect.stringMatching(/^[0-9a-f]{64}$/) },
+      { id: "0023_d2_rubric_authoring", checksum: expect.stringMatching(/^[0-9a-f]{64}$/) },
+      { id: "0024_d3_open_evaluation", checksum: expect.stringMatching(/^[0-9a-f]{64}$/) },
     ]);
   });
 
@@ -321,7 +340,8 @@ describe("A1a PostgreSQL foundation", () => {
       // publisher, platform finance/legal) the Phase-2 exit gate requires.
       // C2 adds five durable team-role/candidate identities for lifecycle and
       // exhaustive server-policy fixtures.
-      users: "12",
+      // D1 adds two independently scoped local reviewers.
+      users: "14",
       workspaces: "5",
       challenges: "1",
       challenge_versions: "1",
@@ -568,6 +588,9 @@ describe("A1a PostgreSQL foundation", () => {
   });
 
   it("fails the A1b migration atomically for an orphaned existing session", async () => {
+    expect((await runMigrations(database, "down")).applied).toEqual(["0024_d3_open_evaluation"]);
+    expect((await runMigrations(database, "down")).applied).toEqual(["0023_d2_rubric_authoring"]);
+    expect((await runMigrations(database, "down")).applied).toEqual(["0022_d1_review_foundation"]);
     const offerClockDown = await runMigrations(database, "down");
     expect(offerClockDown.applied).toEqual(["0021_c6_offer_deadline_single_clock"]);
     const c8Down = await runMigrations(database, "down");
@@ -670,6 +693,9 @@ describe("A1a PostgreSQL foundation", () => {
       "0019_c7_solver_activation",
       "0020_c8_notifications",
       "0021_c6_offer_deadline_single_clock",
+      "0022_d1_review_foundation",
+      "0023_d2_rubric_authoring",
+      "0024_d3_open_evaluation",
     ]);
   });
 });

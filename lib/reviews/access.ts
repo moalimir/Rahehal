@@ -1,4 +1,5 @@
-export type ReviewCoiState = "pending" | "clear" | "conflict";
+import type { ReviewCoiState } from "@rahhal/domain";
+export type { ReviewCoiState } from "@rahhal/domain";
 
 function key(assignmentId: string) {
   return `rahhal:review-assignment:${assignmentId}:coi:v1`;

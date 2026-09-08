@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import path from "node:path";
 import zlib from "node:zlib";
 import { describe, expect, it } from "vitest";
 import {
@@ -25,10 +26,10 @@ describe("performance budget checker", () => {
 
   it("resolves exported and connected route outputs explicitly", () => {
     expect(routeHtmlPath("/repo", "demo", "/app/org/challenges/")).toBe(
-      "/repo/out/app/org/challenges/index.html",
+      path.join("/repo", "out", "app", "org", "challenges", "index.html"),
     );
     expect(routeHtmlPath("/repo", "network", "/app/org/challenges/")).toBe(
-      "/repo/.next/server/app/app/org/challenges.html",
+      path.join("/repo", ".next", "server", "app", "app", "org", "challenges.html"),
     );
   });
 

@@ -1,3 +1,6 @@
+import { PostgresRubricAdapter } from "../src/postgres/rubrics.js";
+import { PostgresReviewAdapter } from "../src/postgres/reviews.js";
+import { PostgresEvaluationAdapter } from "../src/postgres/evaluations.js";
 import { Client, Pool } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
@@ -145,6 +148,9 @@ beforeAll(async () => {
   const teams = new PostgresTeamAdapter(unitOfWork, clock, ids);
   app = buildApi(
     {
+      evaluations: new PostgresEvaluationAdapter(unitOfWork, ids),
+      reviews: new PostgresReviewAdapter(unitOfWork),
+      rubrics: new PostgresRubricAdapter(unitOfWork, ids),
       oidcAuthorization: oidc,
       contactVerification,
       sessions: identity,

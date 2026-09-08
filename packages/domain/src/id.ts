@@ -243,3 +243,5 @@ export const parseContactVerificationAttemptId = createIdentifierParser(
 export const parseReceiptId = createIdentifierParser(idPrefixes.receipt);
 export const parseAuditEventId = createIdentifierParser(idPrefixes.auditEvent);
 export const parseCorrelationId = createIdentifierParser(idPrefixes.correlation);
+
+export const parseReviewAssignmentId = createIdentifierParser(idPrefixes.reviewAssignment);

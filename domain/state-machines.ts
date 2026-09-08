@@ -23,7 +23,6 @@ export type { DirectOfferState } from "@rahhal/domain";
 const individualActors = ["individual"] as const;
 const organizationMembers = ["org:member"] as const;
 const platformOperations = ["platform:ops"] as const;
-const platformReviewers = ["platform:reviewer"] as const;
 const technicalApprovers = ["org:approver_technical"] as const;
 const financeActors = ["platform:finance"] as const;
 const financeOrOperations = ["platform:finance", "platform:ops"] as const;
@@ -301,65 +300,8 @@ export const membershipTransitions: readonly Transition<MembershipState>[] = [
   },
 ];
 
-export type ReviewState =
-  | "coi-gate"
-  | "accepted"
-  | "draft"
-  | "submitted"
-  | "locked"
-  | "invalidated";
-export const reviewTransitions: readonly Transition<ReviewState>[] = [
-  {
-    from: "coi-gate",
-    to: "accepted",
-    roles: platformReviewers,
-    preconditions: ["coi-clear"],
-    sideEffects: ["grant-material-access"],
-    notification: "سازمان",
-    audit: "review.assignment.accepted",
-    retry: "idempotent",
-  },
-  {
-    from: "accepted",
-    to: "draft",
-    roles: platformReviewers,
-    preconditions: ["materials-authorized"],
-    sideEffects: ["create-score-draft"],
-    notification: "",
-    audit: "review.draft.created",
-    retry: "idempotent",
-  },
-  {
-    from: "draft",
-    to: "submitted",
-    roles: platformReviewers,
-    preconditions: ["scores-valid", "rationale-valid"],
-    sideEffects: ["freeze-score", "create-receipt"],
-    notification: "سازمان",
-    audit: "review.submitted",
-    retry: "idempotent",
-  },
-  {
-    from: "submitted",
-    to: "locked",
-    roles: platformOperations,
-    preconditions: ["receipt-valid"],
-    sideEffects: ["lock-score"],
-    notification: "داور",
-    audit: "review.locked",
-    retry: "idempotent",
-  },
-  {
-    from: "locked",
-    to: "invalidated",
-    roles: platformOperations,
-    preconditions: reasonRecorded,
-    sideEffects: ["exclude-score", "reopen-assignment"],
-    notification: "داور و سازمان",
-    audit: "review.invalidated",
-    retry: "manual-review",
-  },
-];
+export { reviewTransitions } from "@rahhal/domain";
+export type { ReviewState } from "@rahhal/domain";
 
 export type ContractState =
   | "draft"

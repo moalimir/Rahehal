@@ -1,4 +1,5 @@
 import type { ApplicantScope, ApplicantType } from "@/domain/taxonomy";
+import type { ChallengeStage } from "@rahhal/domain";
 
 export type ChallengeStatus =
   | "draft"
@@ -50,6 +51,8 @@ export type IpTerms = "solver_license" | "contract_transfer" | "joint_contract" 
 
 export type ChallengeRecord = {
   id: string;
+  /** Connected records retain the canonical server stage for onward governed flows. */
+  lifecycleStage?: ChallengeStage;
   status: ChallengeStatus;
   title: string;
   summary: string;

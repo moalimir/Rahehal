@@ -1,4 +1,9 @@
 import type {
+  ReviewAssignmentResource,
+  ReviewAssignmentListResource,
+  ReviewAssignmentListQuery,
+} from "@rahhal/contracts";
+import type {
   ChallengeApprovalBriefResource,
   ChallengeListQuery,
   ChallengePage,
@@ -136,6 +141,8 @@ export type IdFactory = {
       | "chl"
       | "chv"
       | "cap"
+      | "rub"
+      | "rbv"
       | "ver"
       | "ega"
       | "tiv"
@@ -718,7 +725,19 @@ export interface AccessDecisionAuditPort {
   record(decision: AccessDecisionRecord): Promise<void>;
 }
 
+export type ReviewerScope = WorkspaceScope & { readonly membershipId: MembershipId };
+export interface ReviewPort {
+  list(
+    scope: ReviewerScope,
+    query: ReviewAssignmentListQuery,
+  ): Promise<ReviewAssignmentListResource>;
+  get(scope: ReviewerScope, id: string): Promise<ReviewAssignmentResource | null>;
+}
+
 export type ApiPorts = {
+  readonly evaluations: import("./evaluation-port.js").EvaluationPort;
+  readonly rubrics: import("./rubric-port.js").RubricPort;
+  readonly reviews: ReviewPort;
   readonly oidcAuthorization: OidcAuthorizationPort;
   readonly contactVerification: ContactVerificationProviderPort;
   readonly sessions: SessionPort;

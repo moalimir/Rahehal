@@ -321,6 +321,46 @@ test.describe("B7 governed challenge journey", () => {
     await context.close();
   });
 
+  test("the organization authors the rubric and opens a frozen empty evaluation roster", async ({
+    page,
+  }) => {
+    expect(challengeId).not.toBe("");
+
+    // The publisher closes intake first. Server authority, not the evaluation
+    // page, decides whether the window is closed.
+    await signIn(page, identities.publisher);
+    await activateWorkspace(page);
+    await page.goto(`/app/org/challenges/record/governance/?id=${challengeId}`);
+    await page.getByLabel("دلیل اقدام").fill("مهلت دریافت پیشنهاد برای شروع ارزیابی بسته شد.");
+    await page.getByRole("button", { name: "بستن فراخوان" }).click();
+    await page.getByRole("button", { name: "تأیید بستن" }).click();
+    await expect(page.getByRole("region", { name: "مدیریت فراخوان منتشرشده" })).toHaveAttribute(
+      "data-publication-state",
+      "closed",
+    );
+
+    // An organization owner/member owns rubric authoring and evaluation open.
+    await signOut(page);
+    await signIn(page, identities.owner);
+    await activateWorkspace(page);
+    await page.goto(`/app/org/challenges/record/rubric/?id=${challengeId}`);
+    await page.getByLabel("عنوان معیار").fill("تناسب فنی راهکار");
+    await page.getByRole("button", { name: "ثبت نخستین نسخه" }).click();
+    await expect(page.getByRole("status")).toContainText("نسخه ۱ معیارها ثبت شد.");
+
+    await page.goto(`/app/org/challenges/record/evaluation/?id=${challengeId}`);
+    await expect(page.getByText("پیشنهاد واجد شرایطی برای این فهرست وجود ندارد.")).toBeVisible();
+    const openEvaluation = page.getByRole("button", {
+      name: "قفل فهرست و شروع ارزیابی",
+    });
+    await expect(openEvaluation).toBeEnabled();
+    await openEvaluation.click();
+    await expect(page.getByRole("heading", { name: "فهرست ارزیابی قفل شده است" })).toBeVisible();
+    await expect(page.getByRole("status")).toContainText(
+      "فهرست دقیق پیشنهادها قفل شد و ارزیابی آغاز شد.",
+    );
+  });
+
   test("unknown records stay non-enumerating and connected mode never falls back to fixtures", async ({
     browser,
   }) => {

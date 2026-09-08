@@ -53,3 +53,11 @@ staticPasswords:
     hash: $2y$12$8Slc7htGDKSPQU9UTXDEVOCw8KIAXk0lO7ZRufTPnRNKW6frPWP7q
     username: local-solver-alpha
     userID: solver-alpha
+  - email: reviewer-alpha@synthetic.invalid
+    hash: $2y$12$8Slc7htGDKSPQU9UTXDEVOCw8KIAXk0lO7ZRufTPnRNKW6frPWP7q
+    username: local-reviewer-alpha
+    userID: reviewer-alpha
+  - email: reviewer-beta@synthetic.invalid
+    hash: $2y$12$8Slc7htGDKSPQU9UTXDEVOCw8KIAXk0lO7ZRufTPnRNKW6frPWP7q
+    username: local-reviewer-beta
+    userID: reviewer-beta

@@ -1,0 +1,258 @@
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  apiRoutes,
+  type ErrorEnvelope,
+  type ReviewAssignmentListSuccessEnvelope,
+  type ReviewAssignmentSuccessEnvelope,
+} from "@rahhal/contracts";
+import {
+  parseMembershipId,
+  parseReviewAssignmentId,
+  parseTenantId,
+  parseUserId,
+  parseWorkspaceId,
+} from "@rahhal/domain";
+import { buildApi } from "../src/app.js";
+import { createDemoApiComposition, demoApiCredentials } from "../src/demo-composition.js";
+import { InMemoryReviewAdapter, type DemoReviewAssignment } from "../src/in-memory-reviews.js";
+import type { ReviewerScope } from "../src/ports.js";
+
+const scope = (suffix: string): ReviewerScope => ({
+  tenantId: parseTenantId("ten_platform"),
+  workspaceId: parseWorkspaceId("wsp_platform_main"),
+  actorUserId: parseUserId(`usr_reviewer_${suffix}`),
+  membershipId: parseMembershipId(`mem_reviewer_${suffix}`),
+  role: "platform:reviewer",
+});
+const assignment = (id: string, reviewer: string): DemoReviewAssignment => ({
+  id: parseReviewAssignmentId(id),
+  scope: scope(reviewer),
+  state: "coi-gate",
+  coi_status: "pending",
+  due_at: "2027-01-01T00:00:00.000Z",
+  version: 1,
+});
+const headers = (
+  key: "reviewer" | "otherReviewer" | "owner" | "solver" | "platformOps" = "reviewer",
+) => ({
+  authorization: `Bearer ${demoApiCredentials[key].accessToken}`,
+  "x-workspace-id": demoApiCredentials[key].workspaceId,
+});
+let composition: ReturnType<typeof createDemoApiComposition>;
+let app: ReturnType<typeof buildApi>;
+beforeEach(() => {
+  composition = createDemoApiComposition({ mode: "demo", nodeEnv: "test" });
+  app = buildApi({
+    ...composition.ports,
+    reviews: new InMemoryReviewAdapter([
+      assignment("rva_alpha_001", "alpha"),
+      assignment("rva_alpha_002", "alpha"),
+      assignment("rva_beta_001", "beta"),
+    ]),
+  });
+});
+afterEach(async () => {
+  await app?.close();
+});
+
+describe("D1 reviewer boundary", () => {
+  it("returns a real empty queue for a newly provisioned reviewer", async () => {
+    const emptyApp = buildApi(composition.ports);
+    try {
+      const response = await emptyApp.inject({
+        url: apiRoutes.reviewAssignments,
+        headers: headers(),
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json<ReviewAssignmentListSuccessEnvelope>().data).toEqual({ items: [] });
+      expect(response.headers["cache-control"]).toBe("no-store");
+    } finally {
+      await emptyApp.close();
+    }
+  });
+  it("scopes pages to the exact human membership inside a shared platform workspace", async () => {
+    const first = await app.inject({
+      url: `${apiRoutes.reviewAssignments}?limit=1`,
+      headers: headers(),
+    });
+    const page = first.json<ReviewAssignmentListSuccessEnvelope>().data;
+    expect(first.statusCode).toBe(200);
+    expect(page.items.map((row) => row.id)).toEqual(["rva_alpha_001"]);
+    expect(page.next_cursor).toBe("rva_alpha_001");
+    expect(Object.keys(page.items[0]!).sort()).toEqual([
+      "coi_status",
+      "due_at",
+      "id",
+      "state",
+      "version",
+    ]);
+    const next = await app.inject({
+      url: `${apiRoutes.reviewAssignments}?limit=1&cursor=${page.next_cursor}`,
+      headers: headers(),
+    });
+    expect(next.json<ReviewAssignmentListSuccessEnvelope>().data).toMatchObject({
+      items: [{ id: "rva_alpha_002" }],
+    });
+    expect(next.json<ReviewAssignmentListSuccessEnvelope>().data.next_cursor).toBeUndefined();
+    const beta = await app.inject({
+      url: apiRoutes.reviewAssignments,
+      headers: headers("otherReviewer"),
+    });
+    expect(
+      beta.json<ReviewAssignmentListSuccessEnvelope>().data.items.map((row) => row.id),
+    ).toEqual(["rva_beta_001"]);
+  });
+  it("returns the same denial for a foreign and missing assignment, including no cache", async () => {
+    const results = await Promise.all(
+      ["rva_beta_001", "rva_missing_001"].map((id) =>
+        app.inject({ url: `${apiRoutes.reviewAssignments}/${id}`, headers: headers() }),
+      ),
+    );
+    for (const response of results) {
+      expect(response.statusCode).toBe(404);
+      expect(response.json<ErrorEnvelope>().error.code).toBe("NOT_FOUND");
+      expect(response.headers["cache-control"]).toBe("no-store");
+    }
+    expect(results[0]!.json<ErrorEnvelope>().error).toEqual(
+      results[1]!.json<ErrorEnvelope>().error,
+    );
+    expect(
+      composition.decisionAudit
+        .snapshot()
+        .filter((event) => event.action === "review-assignment:read")
+        .map((event) => event.outcome),
+    ).toEqual(["denied", "denied"]);
+  });
+  it("reads only bookkeeping before COI and exposes no material or scoring endpoint", async () => {
+    const response = await app.inject({
+      url: `${apiRoutes.reviewAssignments}/rva_alpha_001`,
+      headers: headers(),
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json<ReviewAssignmentSuccessEnvelope>().data).toEqual({
+      id: "rva_alpha_001",
+      state: "coi-gate",
+      coi_status: "pending",
+      due_at: "2027-01-01T00:00:00.000Z",
+      version: 1,
+    });
+    for (const suffix of ["/materials", "/review:save-draft", "/coi:declare"]) {
+      const denied = await app.inject({
+        method: suffix === "/materials" ? "GET" : "POST",
+        url: `${apiRoutes.reviewAssignments}/rva_alpha_001${suffix}`,
+        headers: headers(),
+      });
+      expect(denied.statusCode).toBe(404);
+    }
+  });
+  it.each(["owner", "solver", "platformOps"] as const)(
+    "denies %s rather than treating a platform role as a reviewer grant",
+    async (key) => {
+      const response = await app.inject({
+        url: apiRoutes.reviewAssignments,
+        headers: headers(key),
+      });
+      expect(response.statusCode).toBe(403);
+      expect(response.json<ErrorEnvelope>().error.code).toBe("NO_ACCESS");
+    },
+  );
+  it("rejects anonymous, foreign workspace and removed membership access", async () => {
+    expect((await app.inject({ url: apiRoutes.reviewAssignments })).statusCode).toBe(403);
+    expect(
+      (
+        await app.inject({
+          url: apiRoutes.reviewAssignments,
+          headers: { ...headers(), "x-workspace-id": demoApiCredentials.owner.workspaceId },
+        })
+      ).statusCode,
+    ).toBe(404);
+    await composition.identity.setMembershipStateForTest(
+      scope("alpha").actorUserId,
+      scope("alpha").workspaceId,
+      "removed",
+    );
+    expect(
+      (await app.inject({ url: apiRoutes.reviewAssignments, headers: headers() })).statusCode,
+    ).toBe(404);
+    expect(
+      (
+        await app.inject({
+          url: `${apiRoutes.reviewAssignments}/rva_alpha_001`,
+          headers: headers(),
+        })
+      ).statusCode,
+    ).toBe(404);
+  });
+  it("denies immediately after revoking the session", async () => {
+    const revoked = await app.inject({
+      method: "POST",
+      url: apiRoutes.sessionRevoke,
+      headers: { ...headers(), "idempotency-key": "d1-revoke-reviewer-session" },
+      payload: { expected_version: 1, session_id: demoApiCredentials.reviewer.sessionId },
+    });
+    expect(revoked.statusCode).toBe(200);
+    expect(
+      (await app.inject({ url: apiRoutes.reviewAssignments, headers: headers() })).statusCode,
+    ).toBe(403);
+  });
+  it("validates paging/filter inputs and never falls back after a store failure", async () => {
+    for (const query of [
+      "limit=0",
+      "limit=101",
+      "cursor=invalid",
+      "state=unknown",
+      "reviewer_user_id=usr_reviewer_beta",
+    ]) {
+      expect(
+        (await app.inject({ url: `${apiRoutes.reviewAssignments}?${query}`, headers: headers() }))
+          .statusCode,
+      ).toBe(422);
+    }
+    const unavailable = buildApi({
+      ...composition.ports,
+      reviews: {
+        async list() {
+          throw new Error("store unavailable");
+        },
+        async get() {
+          throw new Error("store unavailable");
+        },
+      },
+    });
+    try {
+      const response = await unavailable.inject({
+        url: apiRoutes.reviewAssignments,
+        headers: headers(),
+      });
+      expect(response.statusCode).toBe(503);
+      expect(response.json<ErrorEnvelope>().error.code).toBe("STORAGE");
+    } finally {
+      await unavailable.close();
+    }
+  });
+  it("exchanges a reviewer identity through the existing OIDC boundary", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: apiRoutes.sessionExchange,
+      headers: { "idempotency-key": "d1-reviewer-oidc-sign-in" },
+      payload: {
+        expected_version: 0,
+        authorization_code: "demo-oidc-code-reviewer-alpha",
+        code_verifier: "demo-code-verifier-reviewer-alpha-0000000000000000",
+        redirect_uri: demoApiCredentials.exchange.redirectUri,
+        state: "demo-state-reviewer-alpha",
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    const token = response.json<{ data: { tokens: { access_token: string } } }>().data.tokens
+      .access_token;
+    expect(
+      (
+        await app.inject({
+          url: apiRoutes.reviewAssignments,
+          headers: { ...headers(), authorization: `Bearer ${token}` },
+        })
+      ).statusCode,
+    ).toBe(200);
+  });
+});

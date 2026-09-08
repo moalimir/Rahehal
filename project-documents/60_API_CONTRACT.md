@@ -260,8 +260,16 @@ C6 saved-opportunity commands are scoped to the active individual/team workspace
 
 ### 5.6 Review, COI & decision
 
+**D1 implemented:** `GET /api/v1/assignments` and `GET /api/v1/assignments/{assignmentId}` require an authenticated active `platform:reviewer` membership and `X-Workspace-Id`. Queries scope to that exact membership/user inside the platform workspace. The closed pre-COI response contains only `id`, `state`, `coi_status`, `due_at`, and aggregate `version`; no proposal/rubric IDs, identities or protected content. List supports `limit` (1-100, default 50), assignment-ID keyset `cursor`, and canonical `state`, returning `items` and optional `next_cursor`. Foreign and missing assignments return identical `NOT_FOUND` responses with denied-access audit; reads are `no-store` and store failures never fall back to demo fixtures. Schemas and OpenAPI are generated from `packages/contracts`.
+
+**D2 implemented:** `GET /api/v1/challenges/{challengeId}/rubric` and `POST /api/v1/challenges/{challengeId}/rubric-versions` require an active organization owner/member in the challenge-owning workspace. The read returns the latest immutable version or `null`; the command requires `Idempotency-Key`, `expected_version`, the exact `challenge_version_id`, and 1-20 exact-shape criteria. Each criterion has a stable ID, label, whole weight, and fixed `min=0`/`max=5`; domain and PostgreSQL validation require weights to total 100. A successful append returns the standard atomic mutation receipt. A stale challenge/rubric version, foreign challenge, invalid policy, started assignment, removed membership, or conflicting key fails with a typed error and no partial evidence.
+
+**D3 implemented:** `GET /api/v1/challenges/{challengeId}/evaluation` returns organization-scoped readiness or the frozen roster. The response contains challenge/rubric/proposal version IDs, proposal tracking codes, source states, counts, blockers, the fixed two-review requirement, and open timestamp; it contains no proposal content or solver identity. `POST /api/v1/challenges/{challengeId}:open-evaluation` requires active owner/member authority, `Idempotency-Key`, and the challenge `expected_version`. Server time and row locks require a closed or expired non-cancelled window, latest exact rubric, no unresolved submitted workflow, active exact-version organization access, and every qualifying locked proposal. Success closes the public call, enters `evaluating`, writes the immutable roster, audit, outbox, receipt, and replay result atomically. Zero qualifying proposals succeeds with `record_no_award`; otherwise the next action is `assign_reviewers`.
+
+The following routes remain planned for D4-D9:
+
 ```
-GET  /assignments?state=&cursor=               # reviewer's assignments (scoped)
+POST /challenges/{id}/assignments               # Operations: exact proposal/rubric reviewer assignment
 POST /assignments/{id}/coi:declare             # {coi_status: clear|conflict, relationships} → coi_declaration
 POST /assignments/{id}:accept                  # coi-gate → accepted (pre: coi_status == clear)
 GET  /assignments/{id}/materials               # 403 unless coi clear + assignment active (server/object/export gate)

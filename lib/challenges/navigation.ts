@@ -22,7 +22,7 @@ export const CONNECTED_RECORD_PATH = "/app/org/challenges/record";
 export const PUBLIC_CHALLENGE_RECORD_PATH = "/challenges/record";
 
 const recordPathPattern =
-  /^\/app\/org\/challenges\/(chl_[A-Za-z0-9][A-Za-z0-9_-]{2,63})(?:\/(overview|edit|studio|preview|submitted|governance))?$/;
+  /^\/app\/org\/challenges\/(chl_[A-Za-z0-9][A-Za-z0-9_-]{2,63})(?:\/(overview|edit|studio|preview|submitted|governance|rubric|evaluation))?$/;
 
 /**
  * Rewrites a canonical `/app/org/challenges/<id>/<view>` link to the connected

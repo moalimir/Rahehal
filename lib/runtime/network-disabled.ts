@@ -38,9 +38,19 @@ export function workspacesForPersona(): readonly never[] {
   return [];
 }
 
+/** Stands in for `@/lib/auth/network-session`. */
+export function personaForWorkspace(): never {
+  return unreachable("personaForWorkspace");
+}
+
 /** Stands in for `@/lib/auth/network-organization-shell`. */
 export function networkOrganizationRoleLabel(): string {
   return "عضو سازمان";
+}
+
+/** Stands in for `@/lib/auth/network-organization-shell`. */
+export function networkWorkspaceRoleLabel(): never {
+  return unreachable("networkWorkspaceRoleLabel");
 }
 
 /** Stands in for `@/lib/auth/network-organization-shell`. */
@@ -96,6 +106,16 @@ export function PreviewDataNotice(): never {
 /** Stands in for `@/components/challenge-flow/connected-record-links`. */
 export function ConnectedRecordLinks(): never {
   return unreachable("ConnectedRecordLinks");
+}
+
+/** Stands in for `@/components/challenge-flow/rubric-page`. */
+export function ChallengeRubricPage(): never {
+  return unreachable("ChallengeRubricPage");
+}
+
+/** Stands in for `@/components/challenge-flow/evaluation-page`. */
+export function ChallengeEvaluationPage(): never {
+  return unreachable("ChallengeEvaluationPage");
 }
 
 /** Stands in for `@/components/internal/network-internal-boundary`. */

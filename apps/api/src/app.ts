@@ -1,3 +1,11 @@
+import type {
+  CreateRubricVersionBody,
+  ChallengeEvaluationSuccessEnvelope,
+  OpenChallengeEvaluationBody,
+  ReviewAssignmentListQuery,
+  ReviewAssignmentListSuccessEnvelope,
+  ReviewAssignmentSuccessEnvelope,
+} from "@rahhal/contracts";
 import Fastify, {
   type FastifyInstance,
   type FastifyRequest,
@@ -3708,6 +3716,270 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
             ...command,
           }),
       ),
+  );
+
+  app.get<{ Params: { challengeId: string } }>(
+    apiRoutes.challengeEvaluation.replace("{challengeId}", ":challengeId"),
+    {
+      schema: {
+        params: challengeIdParamsSchema,
+        response: {
+          200: apiSchemas.ChallengeEvaluationSuccessEnvelope,
+          ...apiErrorResponses,
+        },
+      },
+    },
+    async (request): Promise<ChallengeEvaluationSuccessEnvelope> => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "challenge:evaluation:read",
+          entityType: "challenge",
+          entityId: request.params.challengeId,
+          allows: canEditChallenge,
+          deferSuccess: true,
+        },
+        async (access) => {
+          const evaluation = await ports.evaluations.get(
+            challengeScope(session, access),
+            request.params.challengeId,
+          );
+          if (!evaluation) throw notFound();
+          await recordWorkspaceAccessSuccess(request, ports, session, access, {
+            action: "challenge:evaluation:read",
+            entityType: "challenge",
+            entityId: request.params.challengeId,
+          });
+          return versionedSuccess(evaluation, request, ports, evaluation.version);
+        },
+      );
+    },
+  );
+  app.post<{ Params: { challengeId: string }; Body: OpenChallengeEvaluationBody }>(
+    fastifyChallengeCommandPath(apiRoutes.openChallengeEvaluation),
+    {
+      schema: {
+        params: challengeIdParamsSchema,
+        body: apiSchemas.OpenChallengeEvaluationBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "challenge:evaluation:open",
+          entityType: "challenge",
+          entityId: request.params.challengeId,
+          allows: canEditChallenge,
+          deferSuccess: true,
+        },
+        async (access) =>
+          mutationSuccess(
+            await ports.evaluations.open(request.params.challengeId, request.body, {
+              ...challengeScope(session, access),
+              ...command,
+            }),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.get<{ Params: { challengeId: string } }>(
+    apiRoutes.challengeRubric.replace("{challengeId}", ":challengeId"),
+    {
+      schema: {
+        params: challengeIdParamsSchema,
+        response: { 200: apiSchemas.RubricSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "rubric:read",
+          entityType: "challenge",
+          entityId: request.params.challengeId,
+          allows: canEditChallenge,
+          deferSuccess: true,
+        },
+        async (access) => {
+          const rubric = await ports.rubrics.get(
+            challengeScope(session, access),
+            request.params.challengeId,
+          );
+          await recordWorkspaceAccessSuccess(request, ports, session, access, {
+            action: "rubric:read",
+            entityType: "challenge",
+            entityId: request.params.challengeId,
+          });
+          return success(rubric, request, ports);
+        },
+      );
+    },
+  );
+  app.post<{ Params: { challengeId: string }; Body: CreateRubricVersionBody }>(
+    apiRoutes.createRubricVersion.replace("{challengeId}", ":challengeId"),
+    {
+      schema: {
+        params: challengeIdParamsSchema,
+        body: apiSchemas.CreateRubricVersionBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "rubric:author",
+          entityType: "challenge",
+          entityId: request.params.challengeId,
+          allows: canEditChallenge,
+          deferSuccess: true,
+        },
+        async (access) =>
+          mutationSuccess(
+            await ports.rubrics.createVersion(request.params.challengeId, request.body, {
+              ...challengeScope(session, access),
+              ...command,
+            }),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.get<{ Querystring: ReviewAssignmentListQuery }>(
+    apiRoutes.reviewAssignments,
+    {
+      schema: {
+        querystring: apiSchemas.ReviewAssignmentListQuery,
+        response: { 200: apiSchemas.ReviewAssignmentListSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request): Promise<ReviewAssignmentListSuccessEnvelope> => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "review-assignment:list",
+          entityType: "review_assignment",
+          allows: (access) =>
+            access.workspace.kind === "platform" && access.role === "platform:reviewer",
+        },
+        async (access) =>
+          success(
+            await ports.reviews.list(proposalScope(session, access), request.query),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+  app.get<{ Params: { assignmentId: string } }>(
+    apiRoutes.reviewAssignmentById.replace("{assignmentId}", ":assignmentId"),
+    {
+      schema: {
+        params: apiSchemas.ReviewAssignmentParams,
+        response: { 200: apiSchemas.ReviewAssignmentSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request): Promise<ReviewAssignmentSuccessEnvelope> => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const item = await runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "review-assignment:read",
+          entityType: "review_assignment",
+          entityId: request.params.assignmentId,
+          deferSuccess: true,
+          allows: (access) =>
+            access.workspace.kind === "platform" && access.role === "platform:reviewer",
+        },
+        async (access) => {
+          const item = await ports.reviews.get(
+            proposalScope(session, access),
+            request.params.assignmentId,
+          );
+          if (item) {
+            await recordWorkspaceAccessSuccess(request, ports, session, access, {
+              action: "review-assignment:read",
+              entityType: "review_assignment",
+              entityId: item.id,
+            });
+          } else {
+            // Return the absence so this read-only transaction commits its denial
+            // evidence in both runtimes before the HTTP NOT_FOUND is raised.
+            await ports.decisionAudit.record({
+              outcome: "denied",
+              actorUserId: session.userId,
+              tenantId: access.tenantId,
+              workspaceId: access.workspaceId,
+              action: "review-assignment:read",
+              entityType: "review_assignment",
+              entityId: request.params.assignmentId,
+              reason: "record_unreachable",
+              correlationId: correlationId(request),
+              occurredAt: ports.clock.now().toISOString(),
+            });
+          }
+          return item;
+        },
+      );
+      if (!item) throw notFound();
+      return success(item, request, ports);
+    },
   );
 
   // `fastifyLiteralPath` escapes the action suffix's colon; without it the

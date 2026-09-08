@@ -357,9 +357,17 @@ describe("Routeهای کانونی و Redirectها", () => {
       `${CONNECTED_RECORD_PATH}/edit`,
       `${CONNECTED_RECORD_PATH}/preview`,
       `${CONNECTED_RECORD_PATH}/submitted`,
+      `${CONNECTED_RECORD_PATH}/rubric`,
+      `${CONNECTED_RECORD_PATH}/evaluation`,
     ]) {
       expect(challengeFlowStaticPaths).toContain(path);
     }
+    expect(
+      getChallengeFlowRoute(`${CONNECTED_RECORD_PATH}/rubric`, "?id=chl_a3_route_record"),
+    ).toMatchObject({ kind: "rubric", id: "chl_a3_route_record" });
+    expect(
+      getChallengeFlowRoute(`${CONNECTED_RECORD_PATH}/evaluation`, "?id=chl_a3_route_record"),
+    ).toMatchObject({ kind: "evaluation", id: "chl_a3_route_record" });
   });
 
   it("بدون شناسه معتبر به وضعیت صریح می‌رسد و هرگز به پرونده نمونه برنمی‌گردد", () => {
