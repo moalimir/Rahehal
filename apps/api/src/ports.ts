@@ -2,6 +2,12 @@ import type {
   ReviewAssignmentResource,
   ReviewAssignmentListResource,
   ReviewAssignmentListQuery,
+  OperationsReviewAssignmentListQuery,
+  OperationsReviewAssignmentListResource,
+  CreateReviewAssignmentBody,
+  CancelReviewAssignmentBody,
+  ReplaceReviewAssignmentBody,
+  ReviewAssignmentNextAction,
 } from "@rahhal/contracts";
 import type {
   ChallengeApprovalBriefResource,
@@ -164,7 +170,8 @@ export type IdFactory = {
       | "ntf"
       | "oat"
       | "act"
-      | "otp",
+      | "otp"
+      | "rva",
   ): string;
 };
 
@@ -732,6 +739,30 @@ export interface ReviewPort {
     query: ReviewAssignmentListQuery,
   ): Promise<ReviewAssignmentListResource>;
   get(scope: ReviewerScope, id: string): Promise<ReviewAssignmentResource | null>;
+  listOperations(
+    scope: WorkspaceScope,
+    query: OperationsReviewAssignmentListQuery,
+  ): Promise<OperationsReviewAssignmentListResource>;
+  create(
+    body: CreateReviewAssignmentBody,
+    context: WorkspaceCommandContext,
+  ): Promise<
+    MutationOutcome<import("@rahhal/domain").ReviewAssignmentId, ReviewAssignmentNextAction>
+  >;
+  cancel(
+    id: string,
+    body: CancelReviewAssignmentBody,
+    context: WorkspaceCommandContext,
+  ): Promise<
+    MutationOutcome<import("@rahhal/domain").ReviewAssignmentId, ReviewAssignmentNextAction>
+  >;
+  replace(
+    id: string,
+    body: ReplaceReviewAssignmentBody,
+    context: WorkspaceCommandContext,
+  ): Promise<
+    MutationOutcome<import("@rahhal/domain").ReviewAssignmentId, ReviewAssignmentNextAction>
+  >;
 }
 
 export type ApiPorts = {

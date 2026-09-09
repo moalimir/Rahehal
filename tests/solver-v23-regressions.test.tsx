@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { readFileSync } from "node:fs";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChallengeDiscoveryApp } from "@/components/challenge-discovery";
 import { InternalApp } from "@/components/internal/internal-app";
 import { SolverProposalWizard } from "@/components/solver-proposal-wizard";
@@ -13,7 +13,10 @@ beforeEach(() => {
   window.history.replaceState({}, "", "/app/solver/opportunities/smart-water-recovery");
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 describe("رگرسیون‌های رابط کاربری نسخه ۲۳", () => {
   it("فایل‌های نمونه جزئیات چالش هیچ لینک یا تغییر مسیری ندارند", async () => {
@@ -57,6 +60,7 @@ describe("رگرسیون‌های رابط کاربری نسخه ۲۳", () => {
   });
 
   it("ارسال نهایی اقدام سبز خوانا و مسیر بازگشت روشن دارد", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(new Date("2026-09-01T00:00:00.000Z").getTime());
     const repeated =
       "این متن نمونه برای تکمیل معتبر بخش و توضیح روشن مسئله و راهکار و نتیجه مورد انتظار نوشته شده است. ";
     localStorage.setItem(

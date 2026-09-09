@@ -52,6 +52,13 @@ const challengeIdParameter = {
   schema: { type: "string", pattern: "^chl_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$" },
 } as const;
 
+const reviewAssignmentIdParameter = {
+  in: "path",
+  name: "assignmentId",
+  required: true,
+  schema: { type: "string", pattern: "^rva_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$" },
+} as const;
+
 const contactVerificationAttemptIdParameter = {
   in: "path",
   name: "attemptId",
@@ -313,6 +320,78 @@ export const openApiDocument = {
           "200": {
             description: "Own-assignment bookkeeping only.",
             content: jsonContent("ReviewAssignmentSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.operationsReviewAssignments]: {
+      get: {
+        operationId: "listOperationsReviewAssignments",
+        tags: ["Review"],
+        summary: "List assignment bookkeeping and eligible reviewer workload for Operations",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          workspaceHeader,
+          {
+            in: "query",
+            name: "challenge_id",
+            schema: { type: "string", pattern: "^chl_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$" },
+          },
+        ],
+        responses: {
+          "200": {
+            description: "Operations assignment state without proposal content or solver identity.",
+            content: jsonContent("OperationsReviewAssignmentListSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+      post: {
+        operationId: "createReviewAssignment",
+        tags: ["Review"],
+        summary: "Assign an active platform reviewer to one frozen proposal and rubric version",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader],
+        requestBody: { required: true, content: jsonContent("CreateReviewAssignmentBody") },
+        responses: {
+          "200": {
+            description: "The atomic assignment, audit, outbox, and idempotency receipt.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.cancelReviewAssignment]: {
+      post: {
+        operationId: "cancelReviewAssignment",
+        tags: ["Review"],
+        summary: "Cancel a pending assignment while preserving its evidence",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, reviewAssignmentIdParameter],
+        requestBody: { required: true, content: jsonContent("CancelReviewAssignmentBody") },
+        responses: {
+          "200": {
+            description: "The immutable cancellation receipt.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.replaceReviewAssignment]: {
+      post: {
+        operationId: "replaceReviewAssignment",
+        tags: ["Review"],
+        summary: "Cancel a pending assignment and append its replacement atomically",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, reviewAssignmentIdParameter],
+        requestBody: { required: true, content: jsonContent("ReplaceReviewAssignmentBody") },
+        responses: {
+          "200": {
+            description: "The replacement assignment receipt preserving the original evidence.",
+            content: jsonContent("MutationSuccessEnvelope"),
           },
           ...protectedCommandErrors,
         },

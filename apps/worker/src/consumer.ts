@@ -3,6 +3,7 @@ import {
   challengeOutboxEventTypes,
   opportunityOutboxEventTypes,
   proposalOutboxEventTypes,
+  reviewOutboxEventTypes,
   solverOutboxEventTypes,
   solverActivationOutboxEventTypes,
   teamOutboxEventTypes,
@@ -21,6 +22,7 @@ import type {
 export const supportedOutboxEventTypes = [
   ...challengeOutboxEventTypes,
   ...proposalOutboxEventTypes,
+  ...reviewOutboxEventTypes,
   ...opportunityOutboxEventTypes,
   ...solverOutboxEventTypes,
   ...solverActivationOutboxEventTypes,

@@ -134,7 +134,7 @@ Each row carries canonical roles, preconditions, side effects, notification, aud
 | **Team Invitation**    | sent, viewed, accepted, declined, expired, revoked                                                                                                                                                      | `packages/domain/src/team.ts`; migration `0015`                          |
 | **Membership Request** | requested, accepted, rejected, withdrawn, expired                                                                                                                                                       | `packages/domain/src/team.ts`; migration `0015`                          |
 | **Membership**         | invited, requested, active, rejected, expired, suspended, removed                                                                                                                                       | `packages/domain/src/workspace.ts`, `packages/domain/src/team.ts`        |
-| **Review**             | coi-gate, accepted, draft, submitted, locked, invalidated                                                                                                                                               | `packages/domain/src/review.ts`                                          |
+| **Review**             | coi-gate, accepted, draft, submitted, locked, invalidated, cancelled                                                                                                                                    | `packages/domain/src/review.ts`                                          |
 | **Contract**           | draft, negotiation, approval, signature, effective, rejected, superseded                                                                                                                                | `solver.ts:360`, `state-machines.ts:685`                                 |
 | **Verification**       | not_started, draft, submitted, under_review, verified, needs_revision, rejected, expired                                                                                                                | `solver.ts:322`, `state-machines.ts:736`                                 |
 | **Pilot/Deliverable**  | planned, running, deliverable-submitted, accepted, revision, rejected                                                                                                                                   | `state-machines.ts:810`                                                  |
@@ -142,11 +142,11 @@ Each row carries canonical roles, preconditions, side effects, notification, aud
 
 > **D9 note:** `CaseRecord` (`solver.ts:388`) embeds _simplified_ payment (`triggered…failed`, missing `reconciled`/`refunded`) and deliverable (`draft/submitted/revision/accepted/rejected`) states. These are **UI projections**; the authoritative machines above govern server transitions. Align the projections or generate them from the canonical states.
 
-### 4.3 Review + COI (D8)
+### 4.3 Review + COI (D1-D6)
 
 Review has **two** canonical dimensions, owned by `packages/domain/src/review.ts`. The root state-machine module and demo COI adapter re-export these types; browser storage remains demo-only:
 
-- **Assignment lifecycle** (`ReviewState`): `coi-gate → accepted → draft → submitted → locked → invalidated`.
+- **Assignment lifecycle** (`ReviewState`): `coi-gate → accepted → draft → submitted → locked → invalidated`; Operations may move a still-pending `coi-gate` assignment to terminal `cancelled` with a reason and append a distinct replacement.
 - **COI declaration** (`coiStatus ∈ {pending, clear, conflict}`): a first-class server record, one per assignment.
 
 The `coi-gate → accepted` transition's precondition `coi-clear` = `coiStatus == 'clear'`. Protected materials are gated server-side (API, object store signed URLs, exports, and UI) on `coiStatus == 'clear'` **and** an active, non-invalidated assignment. `conflict` routes to operations escalation and never yields material access.
@@ -156,6 +156,8 @@ The `coi-gate → accepted` transition's precondition `coi-clear` = `coiStatus =
 **Rubric scoring (DEC-2026-019):** `packages/domain/src/rubric.ts` validates unique stable criterion IDs, labels, integer percentage weights totaling 100, and a fixed 0–5 integer score range. Every criterion needs a rationale. The calculation sums `weight × score` and divides by five for a result out of 100; its internal result uses integer tenths to avoid rounding a comparison. Invalid or incomplete inputs produce field issues, never a partial final score. Rubric authoring and score submission still require their server command slices.
 
 **D3 delivered boundary:** evaluation opening snapshots the current locked proposal version for every proposal in `eligible`, `reviewing`, or `resubmitted` and binds the latest exact-version rubric. Any proposal still in a submitted eligibility, clarification, or revision workflow blocks the transition. Draft, ineligible, and withdrawn work is excluded; an empty roster is valid and leads to the reasoned no-award path. The organization owner/member command moves the challenge from `published` to `evaluating`, closes intake, and freezes proposal/rubric version growth in one transaction. Later grant expiry does not rewrite the immutable roster.
+
+**D4 delivered boundary (DEC-2026-020):** Operations assigns any active `platform:reviewer` in its active platform workspace to one frozen evaluation proposal/rubric pair. Two active assignments per eligible proposal are allowed and distinct reviewer users are required; assignment history prevents reusing the same human through another membership. There is no MVP workload cap. Operations chooses any future due date; overdue is a server-derived operational signal and does not revoke access. Cancellation is allowed only before COI acceptance, requires a reason, revokes active assignment status immediately, and preserves the row; replacement atomically cancels the old row and appends a new assignment for a different reviewer.
 
 ## 5. Applicant & team taxonomy (D6, D7)
 

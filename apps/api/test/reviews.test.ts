@@ -83,6 +83,7 @@ describe("D1 reviewer boundary", () => {
       "coi_status",
       "due_at",
       "id",
+      "overdue",
       "state",
       "version",
     ]);
@@ -134,6 +135,7 @@ describe("D1 reviewer boundary", () => {
       state: "coi-gate",
       coi_status: "pending",
       due_at: "2027-01-01T00:00:00.000Z",
+      overdue: false,
       version: 1,
     });
     for (const suffix of ["/materials", "/review:save-draft", "/coi:declare"]) {
@@ -217,6 +219,18 @@ describe("D1 reviewer boundary", () => {
         async get() {
           throw new Error("store unavailable");
         },
+        async listOperations() {
+          throw new Error("store unavailable");
+        },
+        async create() {
+          throw new Error("store unavailable");
+        },
+        async cancel() {
+          throw new Error("store unavailable");
+        },
+        async replace() {
+          throw new Error("store unavailable");
+        },
       },
     });
     try {
@@ -254,5 +268,20 @@ describe("D1 reviewer boundary", () => {
         })
       ).statusCode,
     ).toBe(200);
+  });
+
+  it("keeps D4 Operations routes unavailable in the demo adapter and denies other roles", async () => {
+    const denied = await app.inject({
+      url: apiRoutes.operationsReviewAssignments,
+      headers: headers("owner"),
+    });
+    expect(denied.statusCode).toBe(403);
+
+    const unavailable = await app.inject({
+      url: apiRoutes.operationsReviewAssignments,
+      headers: headers("platformOps"),
+    });
+    expect(unavailable.statusCode).toBe(503);
+    expect(unavailable.json<ErrorEnvelope>().error.code).toBe("STORAGE");
   });
 });

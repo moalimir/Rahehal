@@ -810,12 +810,13 @@ const organizationProposalResourceSchema = {
 const reviewAssignmentSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["id", "state", "coi_status", "due_at", "version"],
+  required: ["id", "state", "coi_status", "due_at", "overdue", "version"],
   properties: {
     id: idSchema("rva"),
     state: { type: "string", enum: reviewStates },
     coi_status: { type: "string", enum: reviewCoiStates },
     due_at: dateTimeSchema,
+    overdue: { type: "boolean" },
     version: { type: "integer", minimum: 1 },
   },
 } as const;
@@ -826,6 +827,91 @@ const reviewAssignmentListSchema = {
   properties: {
     items: { type: "array", maxItems: 100, items: reviewAssignmentSchema },
     next_cursor: idSchema("rva"),
+  },
+} as const;
+
+const reviewerCandidateSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["membership_id", "user_id", "display_name", "active_assignment_count"],
+  properties: {
+    membership_id: idSchema("mem"),
+    user_id: idSchema("usr"),
+    display_name: { type: "string", minLength: 1, maxLength: 200 },
+    active_assignment_count: { type: "integer", minimum: 0 },
+  },
+} as const;
+
+const operationsReviewAssignmentSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    ...reviewAssignmentSchema.required,
+    "challenge_id",
+    "proposal_id",
+    "proposal_version_id",
+    "proposal_tracking_code",
+    "rubric_version_id",
+    "reviewer_membership_id",
+    "reviewer_user_id",
+    "reviewer_display_name",
+    "replaces_assignment_id",
+    "cancellation_reason",
+    "cancelled_at",
+  ],
+  properties: {
+    ...reviewAssignmentSchema.properties,
+    challenge_id: idSchema("chl"),
+    proposal_id: idSchema("prp"),
+    proposal_version_id: idSchema("prv"),
+    proposal_tracking_code: { type: "string", pattern: "^PRP-[0-9]{4}-[0-9]{3,6}$" },
+    rubric_version_id: idSchema("rbv"),
+    reviewer_membership_id: idSchema("mem"),
+    reviewer_user_id: idSchema("usr"),
+    reviewer_display_name: { type: "string", minLength: 1, maxLength: 200 },
+    replaces_assignment_id: { oneOf: [idSchema("rva"), { type: "null" }] },
+    cancellation_reason: { type: ["string", "null"], maxLength: 2_000 },
+    cancelled_at: nullableDateTimeSchema,
+  },
+} as const;
+
+const operationsEvaluationProposalSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "challenge_id",
+    "proposal_id",
+    "proposal_version_id",
+    "proposal_tracking_code",
+    "rubric_version_id",
+    "evaluation_version",
+    "required_reviews",
+    "active_assignment_count",
+  ],
+  properties: {
+    challenge_id: idSchema("chl"),
+    proposal_id: idSchema("prp"),
+    proposal_version_id: idSchema("prv"),
+    proposal_tracking_code: { type: "string", pattern: "^PRP-[0-9]{4}-[0-9]{3,6}$" },
+    rubric_version_id: idSchema("rbv"),
+    evaluation_version: { type: "integer", minimum: 1 },
+    required_reviews: { const: 2 },
+    active_assignment_count: { type: "integer", minimum: 0, maximum: 2 },
+  },
+} as const;
+
+const operationsReviewAssignmentListSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["evaluation_proposals", "assignments", "reviewers"],
+  properties: {
+    evaluation_proposals: {
+      type: "array",
+      maxItems: 500,
+      items: operationsEvaluationProposalSchema,
+    },
+    assignments: { type: "array", maxItems: 500, items: operationsReviewAssignmentSchema },
+    reviewers: { type: "array", maxItems: 500, items: reviewerCandidateSchema },
   },
 } as const;
 
@@ -2533,6 +2619,55 @@ export const apiSchemas = {
   ReviewAssignment: reviewAssignmentSchema,
   ReviewAssignmentSuccessEnvelope: successEnvelopeFor(reviewAssignmentSchema),
   ReviewAssignmentListSuccessEnvelope: successEnvelopeFor(reviewAssignmentListSchema),
+  OperationsReviewAssignment: operationsReviewAssignmentSchema,
+  OperationsEvaluationProposal: operationsEvaluationProposalSchema,
+  ReviewerCandidate: reviewerCandidateSchema,
+  OperationsReviewAssignmentListSuccessEnvelope: successEnvelopeFor(
+    operationsReviewAssignmentListSchema,
+  ),
+  OperationsReviewAssignmentListQuery: {
+    type: "object",
+    additionalProperties: false,
+    properties: { challenge_id: idSchema("chl") },
+  },
+  CreateReviewAssignmentBody: {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "expected_version",
+      "challenge_id",
+      "proposal_id",
+      "reviewer_membership_id",
+      "due_at",
+    ],
+    properties: {
+      expected_version: versionedCommandProperties.expected_version,
+      challenge_id: idSchema("chl"),
+      proposal_id: idSchema("prp"),
+      reviewer_membership_id: idSchema("mem"),
+      due_at: dateTimeSchema,
+    },
+  },
+  CancelReviewAssignmentBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "reason"],
+    properties: {
+      expected_version: versionedCommandProperties.expected_version,
+      reason: versionedCommandProperties.reason,
+    },
+  },
+  ReplaceReviewAssignmentBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "reason", "reviewer_membership_id", "due_at"],
+    properties: {
+      expected_version: versionedCommandProperties.expected_version,
+      reason: versionedCommandProperties.reason,
+      reviewer_membership_id: idSchema("mem"),
+      due_at: dateTimeSchema,
+    },
+  },
   ReviewAssignmentParams: {
     type: "object",
     additionalProperties: false,

@@ -2,6 +2,8 @@ import {
   apiRoutes,
   type ReviewAssignmentListSuccessEnvelope,
   type ErrorEnvelope,
+  type OperationsReviewAssignmentListSuccessEnvelope,
+  type MutationSuccessEnvelope,
 } from "@rahhal/contracts";
 import { parseMembershipId, parseTenantId, parseUserId, parseWorkspaceId } from "@rahhal/domain";
 import { Client, Pool } from "pg";
@@ -12,6 +14,7 @@ import { runMigrations } from "../src/postgres/migrations.js";
 import { PostgresReviewAdapter } from "../src/postgres/reviews.js";
 import { seedSyntheticData } from "../src/postgres/seeds.js";
 import { PostgresUnitOfWork } from "../src/postgres/unit-of-work.js";
+import { RandomIdFactory } from "../src/primitives.js";
 import { testDatabaseAdminUrl } from "./support/database.js";
 import {
   LocalTestOidcAuthorizationAdapter,
@@ -50,10 +53,20 @@ const oidcRecord = {
   redirectUri: "http://localhost:3000/auth/callback",
   state: "d1-reviewer-state",
 };
+const operationsOidcRecord = {
+  authorizationAttemptId: "oat_d4_operations",
+  issuer: "https://oidc.synthetic.invalid",
+  subject: "platform-ops",
+  verifiedEmail: "platform-ops@synthetic.invalid",
+  authorizationCode: "d4-operations-authorization",
+  codeVerifier: "d4-operations-code-verifier-000000000000000000000000",
+  redirectUri: "http://localhost:3000/auth/callback",
+  state: "d4-operations-state",
+};
 async function createApp() {
   const composition = await createPostgresApiComposition({
     pool: database,
-    oidc: new LocalTestOidcAuthorizationAdapter([oidcRecord], "test"),
+    oidc: new LocalTestOidcAuthorizationAdapter([oidcRecord, operationsOidcRecord], "test"),
     credentials: new LocalTestSessionCredentialIssuer(
       "d1-reviewer-test-credential-secret-00000001",
       "test",
@@ -156,8 +169,14 @@ async function insertAssignment(
   tenant = "ten_org_alpha",
 ) {
   return database.query(
-    `INSERT INTO review_assignment (id, tenant_id, proposal_version_id, rubric_version_id, reviewer_membership_id, reviewer_user_id, due_at, created_by_user_id)
-    VALUES ($1, $2, $3, 'rbv_d1_alpha_001', $4, $5, transaction_timestamp() + interval '7 days', 'usr_owner_alpha')`,
+    `INSERT INTO review_assignment (
+       id, tenant_id, challenge_id, proposal_id, proposal_version_id, rubric_version_id,
+       reviewer_membership_id, reviewer_user_id, due_at, created_by_user_id
+     ) VALUES (
+       $1, $2, 'chl_synthetic_alpha', 'prp_foundation_alpha', $3,
+       'rbv_d1_alpha_001', $4, $5,
+       transaction_timestamp() + interval '7 days', 'usr_owner_alpha'
+     )`,
     [id, tenant, proposalVersion, `mem_reviewer_${reviewer}`, `usr_reviewer_${reviewer}`],
   );
 }
@@ -171,6 +190,7 @@ beforeAll(async () => {
   created = true;
   database = new Pool({ connectionString: databaseUrl.toString(), max: 1 });
   await runMigrations(database, "up");
+  expect((await runMigrations(database, "down")).applied).toEqual(["0025_d4_review_assignments"]);
   expect((await runMigrations(database, "down")).applied).toEqual(["0024_d3_open_evaluation"]);
   expect((await runMigrations(database, "down")).applied).toEqual(["0023_d2_rubric_authoring"]);
   expect((await runMigrations(database, "down")).applied).toEqual(["0022_d1_review_foundation"]);
@@ -178,9 +198,10 @@ beforeAll(async () => {
     "0022_d1_review_foundation",
     "0023_d2_rubric_authoring",
     "0024_d3_open_evaluation",
+    "0025_d4_review_assignments",
   ]);
   await seedSyntheticData(database);
-  reviews = new PostgresReviewAdapter(new PostgresUnitOfWork(database));
+  reviews = new PostgresReviewAdapter(new PostgresUnitOfWork(database), new RandomIdFactory());
   expect(await reviews.list(scope("alpha"), {})).toEqual({ items: [] });
   // Synthetic publication/submission setup; these are D1 database-boundary tests,
   // not a claim that the browser or publication command was exercised here.
@@ -237,6 +258,43 @@ beforeAll(async () => {
     );
     await database.query(`INSERT INTO rubric (id, tenant_id, challenge_id, challenge_version_id) VALUES ('rub_d1_alpha', 'ten_org_alpha', 'chl_synthetic_alpha', 'chv_synthetic_alpha_v1');
       INSERT INTO rubric_version (id, rubric_id, version_number, criteria, created_by_user_id) VALUES ('rbv_d1_alpha_001', 'rub_d1_alpha', 1, '[{"id":"quality","label":"Quality","weight":100,"min":0,"max":5}]', 'usr_owner_alpha');`);
+    await database.query(`
+      INSERT INTO access_grant (
+        id, grantor_tenant_id, grantor_workspace_id, grantee_tenant_id,
+        grantee_workspace_id, resource_type, resource_id, capability, state,
+        valid_from, expires_at, proposal_version_id, created_by_user_id, created_at
+      ) VALUES (
+        'agr_d1_org_read', 'ten_solver_alpha', 'wsp_team_alpha',
+        'ten_org_alpha', 'wsp_org_alpha', 'proposal', 'prp_foundation_alpha',
+        'read', 'active', transaction_timestamp(),
+        transaction_timestamp() + interval '30 days', 'prv_foundation_alpha_v2',
+        'usr_solver_alpha', transaction_timestamp()
+      );
+      UPDATE proposal
+      SET state = 'eligible', lock_version = 3, updated_at = transaction_timestamp()
+      WHERE id = 'prp_foundation_alpha';
+      UPDATE challenge
+      SET publication_state = 'closed', updated_at = transaction_timestamp()
+      WHERE id = 'chl_synthetic_alpha';
+      INSERT INTO challenge_evaluation (
+        challenge_id, tenant_id, workspace_id, challenge_version_id,
+        rubric_version_id, required_reviews, challenge_lock_version,
+        opened_by_user_id, opened_at
+      ) SELECT id, tenant_id, workspace_id, published_version_id,
+               'rbv_d1_alpha_001', 2, lock_version + 1,
+               'usr_owner_alpha', transaction_timestamp()
+        FROM challenge WHERE id = 'chl_synthetic_alpha';
+      INSERT INTO evaluation_proposal (
+        challenge_id, proposal_id, proposal_version_id, source_state, snapshotted_at
+      ) VALUES (
+        'chl_synthetic_alpha', 'prp_foundation_alpha',
+        'prv_foundation_alpha_v2', 'eligible', transaction_timestamp()
+      );
+      UPDATE challenge
+      SET stage = 'evaluating', lock_version = lock_version + 1,
+          updated_at = transaction_timestamp()
+      WHERE id = 'chl_synthetic_alpha';
+    `);
     await insertAssignment("rva_d1_alpha", "alpha");
     await insertAssignment("rva_d1_beta", "beta");
     await database.query("COMMIT");
@@ -269,6 +327,7 @@ describe("D1 PostgreSQL review foundation", () => {
       "coi_status",
       "due_at",
       "id",
+      "overdue",
       "state",
       "version",
     ]);
@@ -302,12 +361,9 @@ describe("D1 PostgreSQL review foundation", () => {
       "DELETE FROM rubric_version WHERE id = 'rbv_d1_alpha_001'",
     ])
       await expect(database.query(sql)).rejects.toMatchObject({ code: "55000" });
-    expect((await runMigrations(database, "down")).applied).toEqual(["0024_d3_open_evaluation"]);
-    expect((await runMigrations(database, "down")).applied).toEqual(["0023_d2_rubric_authoring"]);
     await expect(runMigrations(database, "down")).rejects.toThrow(
-      "cannot discard review or rubric evidence",
+      "cannot remove D4 while assignment evidence exists",
     );
-    await runMigrations(database, "up");
   });
   it("keeps assignment reads durable across API recreation and audits non-enumerating denial", async () => {
     await app!.close();
@@ -363,5 +419,235 @@ describe("D1 PostgreSQL review foundation", () => {
     await expect(insertAssignment("rva_removed_001", "alpha")).rejects.toMatchObject({
       code: "23514",
     });
+  });
+
+  it("lets Operations cancel, assign, and replace reviewers with atomic evidence", async () => {
+    await database.query(`
+      INSERT INTO app_user (
+        id, display_name, primary_email, email_verified, created_at, updated_at
+      ) VALUES
+        ('usr_reviewer_gamma', 'Synthetic Reviewer gamma',
+         'reviewer-gamma@synthetic.invalid', true, transaction_timestamp(), transaction_timestamp()),
+        ('usr_reviewer_delta', 'Synthetic Reviewer delta',
+         'reviewer-delta@synthetic.invalid', true, transaction_timestamp(), transaction_timestamp());
+      INSERT INTO membership (
+        id, tenant_id, workspace_id, workspace_kind, user_id, role, state, created_at, updated_at
+      ) VALUES
+        ('mem_reviewer_gamma', 'ten_platform', 'wsp_platform_main', 'platform',
+         'usr_reviewer_gamma', 'platform:reviewer', 'active', transaction_timestamp(), transaction_timestamp()),
+        ('mem_reviewer_delta', 'ten_platform', 'wsp_platform_main', 'platform',
+         'usr_reviewer_delta', 'platform:reviewer', 'active', transaction_timestamp(), transaction_timestamp());
+    `);
+    const exchange = await app!.inject({
+      method: "POST",
+      url: apiRoutes.sessionExchange,
+      headers: { "idempotency-key": "d4-operations-sign-in" },
+      payload: {
+        expected_version: 0,
+        authorization_code: operationsOidcRecord.authorizationCode,
+        code_verifier: operationsOidcRecord.codeVerifier,
+        redirect_uri: operationsOidcRecord.redirectUri,
+        state: operationsOidcRecord.state,
+      },
+    });
+    expect(exchange.statusCode).toBe(200);
+    const operationsAccessToken = exchange.json<{
+      data: { tokens: { access_token: string } };
+    }>().data.tokens.access_token;
+    const operationsHeaders = (idempotencyKey?: string) => ({
+      authorization: `Bearer ${operationsAccessToken}`,
+      "x-workspace-id": "wsp_platform_main",
+      ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}),
+    });
+    await expect(reviews.listOperations(scope("beta"), {})).rejects.toMatchObject({
+      statusCode: 403,
+    });
+    expect(
+      (
+        await app!.inject({
+          url: apiRoutes.operationsReviewAssignments,
+          headers: {
+            ...operationsHeaders(),
+            "x-workspace-id": "wsp_org_alpha",
+          },
+        })
+      ).statusCode,
+    ).toBe(404);
+    const list = async () => {
+      const response = await app!.inject({
+        url: apiRoutes.operationsReviewAssignments,
+        headers: operationsHeaders(),
+      });
+      expect(response.statusCode).toBe(200);
+      return response.json<OperationsReviewAssignmentListSuccessEnvelope>().data;
+    };
+    const initial = await list();
+    expect(initial.evaluation_proposals).toEqual([
+      expect.objectContaining({
+        challenge_id: "chl_synthetic_alpha",
+        proposal_id: "prp_foundation_alpha",
+        required_reviews: 2,
+        active_assignment_count: 2,
+      }),
+    ]);
+    expect(initial.reviewers.map((reviewer) => reviewer.membership_id)).toEqual([
+      "mem_reviewer_beta",
+      "mem_reviewer_delta",
+      "mem_reviewer_gamma",
+    ]);
+
+    const cancelled = await app!.inject({
+      method: "POST",
+      url: apiRoutes.cancelReviewAssignment.replace("{assignmentId}", "rva_d1_alpha"),
+      headers: operationsHeaders("d4-cancel-alpha"),
+      payload: { expected_version: 1, reason: "Reviewer membership was removed." },
+    });
+    expect(cancelled.statusCode).toBe(200);
+    expect(cancelled.json<MutationSuccessEnvelope>()).toMatchObject({
+      data: {
+        entity_id: "rva_d1_alpha",
+        idempotent: false,
+        next_actions: ["assign_replacement"],
+      },
+      meta: { entity_version: 2 },
+    });
+    const afterCancel = await list();
+    const slotAfterCancel = afterCancel.evaluation_proposals[0]!;
+    expect(slotAfterCancel.active_assignment_count).toBe(1);
+
+    const createPayload = {
+      expected_version: slotAfterCancel.evaluation_version,
+      challenge_id: "chl_synthetic_alpha",
+      proposal_id: "prp_foundation_alpha",
+      reviewer_membership_id: "mem_reviewer_gamma",
+      due_at: "2099-01-01T00:00:00.000Z",
+    };
+    const createdAssignment = await app!.inject({
+      method: "POST",
+      url: apiRoutes.operationsReviewAssignments,
+      headers: operationsHeaders("d4-assign-gamma"),
+      payload: createPayload,
+    });
+    expect(createdAssignment.statusCode).toBe(200);
+    const createdReceipt = createdAssignment.json<MutationSuccessEnvelope>();
+    expect(createdReceipt).toMatchObject({
+      data: { idempotent: false, next_actions: ["await_coi"] },
+      meta: { entity_version: 1 },
+    });
+    const replay = await app!.inject({
+      method: "POST",
+      url: apiRoutes.operationsReviewAssignments,
+      headers: operationsHeaders("d4-assign-gamma"),
+      payload: createPayload,
+    });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json<MutationSuccessEnvelope>().data).toEqual({
+      ...createdReceipt.data,
+      idempotent: true,
+    });
+    const conflictingReplay = await app!.inject({
+      method: "POST",
+      url: apiRoutes.operationsReviewAssignments,
+      headers: operationsHeaders("d4-assign-gamma"),
+      payload: { ...createPayload, due_at: "2099-02-01T00:00:00.000Z" },
+    });
+    expect(conflictingReplay.statusCode).toBe(409);
+
+    const full = await list();
+    const fullSlot = full.evaluation_proposals[0]!;
+    const overCapacity = await app!.inject({
+      method: "POST",
+      url: apiRoutes.operationsReviewAssignments,
+      headers: operationsHeaders("d4-over-capacity"),
+      payload: {
+        ...createPayload,
+        expected_version: fullSlot.evaluation_version,
+        reviewer_membership_id: "mem_reviewer_delta",
+      },
+    });
+    expect(overCapacity.statusCode).toBe(409);
+
+    const failedReplacement = await app!.inject({
+      method: "POST",
+      url: apiRoutes.replaceReviewAssignment.replace("{assignmentId}", "rva_d1_beta"),
+      headers: operationsHeaders("d4-replace-beta-missing-reviewer"),
+      payload: {
+        expected_version: 1,
+        reason: "This update must roll back when its replacement is invalid.",
+        reviewer_membership_id: "mem_reviewer_missing",
+        due_at: "2099-01-02T00:00:00.000Z",
+      },
+    });
+    expect(failedReplacement.statusCode).toBe(404);
+    expect(
+      (
+        await database.query(
+          `SELECT state, lock_version::text, cancellation_reason
+           FROM review_assignment WHERE id = 'rva_d1_beta'`,
+        )
+      ).rows[0],
+    ).toEqual({ state: "coi-gate", lock_version: "1", cancellation_reason: null });
+
+    const replaced = await app!.inject({
+      method: "POST",
+      url: apiRoutes.replaceReviewAssignment.replace("{assignmentId}", "rva_d1_beta"),
+      headers: operationsHeaders("d4-replace-beta"),
+      payload: {
+        expected_version: 1,
+        reason: "Reviewer is unavailable for the evaluation window.",
+        reviewer_membership_id: "mem_reviewer_delta",
+        due_at: "2099-01-02T00:00:00.000Z",
+      },
+    });
+    expect(replaced.statusCode).toBe(200);
+    const replacementId = replaced.json<MutationSuccessEnvelope>().data.entity_id;
+    const final = await list();
+    expect(final.evaluation_proposals[0]?.active_assignment_count).toBe(2);
+    expect(final.assignments).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "rva_d1_alpha",
+          state: "cancelled",
+          cancellation_reason: "Reviewer membership was removed.",
+        }),
+        expect.objectContaining({
+          id: replacementId,
+          replaces_assignment_id: "rva_d1_beta",
+          reviewer_membership_id: "mem_reviewer_delta",
+          state: "coi-gate",
+        }),
+      ]),
+    );
+    expect(await reviews.get(scope("beta"), "rva_d1_beta")).toBeNull();
+    expect(
+      (
+        await database.query(
+          `SELECT
+             (SELECT count(*) FROM audit_event
+              WHERE action IN ('review.assignment.created', 'review.assignment.cancelled',
+                               'review.assignment.replaced')) AS audits,
+             (SELECT count(*) FROM outbox_event
+              WHERE event_type IN ('review.assignment.created', 'review.assignment.cancelled',
+                                   'review.assignment.replaced')) AS events,
+             (SELECT bool_or(
+                payload ? 'reason' OR payload ? 'due_at' OR payload ? 'reviewer_user_id'
+              ) FROM outbox_event
+              WHERE event_type IN ('review.assignment.created', 'review.assignment.cancelled',
+                                   'review.assignment.replaced')) AS sensitive_event_payload,
+             (SELECT count(*) FROM mutation_receipt
+              WHERE entity_type = 'review_assignment') AS receipts`,
+        )
+      ).rows[0],
+    ).toEqual({
+      audits: "3",
+      events: "3",
+      sensitive_event_payload: false,
+      receipts: "3",
+    });
+    await expect(
+      database.query(
+        "UPDATE review_assignment SET cancellation_reason = 'tampered' WHERE id = 'rva_d1_alpha'",
+      ),
+    ).rejects.toMatchObject({ code: "55000" });
   });
 });

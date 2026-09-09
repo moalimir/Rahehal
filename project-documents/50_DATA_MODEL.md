@@ -183,7 +183,9 @@ Offer mutations require `expected_version` and tenant-scoped idempotency and com
 
 **D3 executable snapshot:** migration `0024_d3_open_evaluation` adds one append-only `challenge_evaluation` per challenge and an append-only `evaluation_proposal` roster keyed by challenge/proposal. The snapshot stores the exact published challenge version, latest rubric version, accepted two-review requirement, resulting challenge lock version, actor, and server timestamp. Each roster row must be the proposal's current locked version in `eligible`, `reviewing`, or `resubmitted`, accepted against the same challenge version and reachable through the active exact submission grant at snapshot time. A database stage guard requires a closed intake, no unresolved submitted workflow, and every qualifying proposal exactly once before `published -> evaluating` can commit. Deferred commit validation prevents a stranded snapshot; post-open triggers prevent new proposal or rubric versions and protect the frozen identity/version binding. Empty rosters are valid. Rollback refuses once evaluation evidence exists.
 
-The SQL below is a consolidated target sketch, not the executable shape of the delivered D1-D3 tables or a claim that scoring/decision writes exist. D4-D9 supply assignment/COI/review/decision commands. Conflicts cannot be overridden into material access.
+**D4 executable assignment:** migration `0025_d4_review_assignments` binds each assignment to the frozen `challenge_evaluation` and `evaluation_proposal` identities, preserves the exact proposal/rubric versions, and caps active rows at the snapshot's two-review requirement with a deferred constraint. An active platform-reviewer membership is required on insert. Cancellation is the only admitted update: `coi-gate -> cancelled`, sequential lock version, nonblank reason, actor, and server time. A replacement has a unique self-reference to the cancelled row, the same frozen evidence, and a different reviewer user. Application commands serialize on the evaluation challenge, require optimistic version/idempotency, and commit audit, outbox, receipt, and replay evidence atomically. Rollback refuses while any assignment evidence exists.
+
+The SQL below is a consolidated target sketch, not the executable shape of the delivered D1-D4 tables or a claim that scoring/decision writes exist. D5-D9 supply COI/review/decision commands. Conflicts cannot be overridden into material access.
 
 ```sql
 CREATE TABLE rubric (
@@ -204,7 +206,7 @@ CREATE TABLE review_assignment (
   rubric_version_id text NOT NULL REFERENCES rubric_version(id),
   reviewer_user_id text NOT NULL REFERENCES app_user(id),
   state         text NOT NULL CHECK (state IN          -- ReviewState (packages/domain/src/review.ts)
-                  ('coi-gate','accepted','draft','submitted','locked','invalidated')),
+                  ('coi-gate','accepted','draft','submitted','locked','invalidated','cancelled')),
   due_at        timestamptz,
   created_at    timestamptz NOT NULL DEFAULT now(),
   updated_at    timestamptz NOT NULL DEFAULT now(),

@@ -245,3 +245,5 @@ export const parseAuditEventId = createIdentifierParser(idPrefixes.auditEvent);
 export const parseCorrelationId = createIdentifierParser(idPrefixes.correlation);
 
 export const parseReviewAssignmentId = createIdentifierParser(idPrefixes.reviewAssignment);
+export const parseRubricId = createIdentifierParser(idPrefixes.rubric);
+export const parseRubricVersionId = createIdentifierParser(idPrefixes.rubricVersion);

@@ -5,6 +5,12 @@ import type {
   ReviewAssignmentListQuery,
   ReviewAssignmentListSuccessEnvelope,
   ReviewAssignmentSuccessEnvelope,
+  OperationsReviewAssignmentListQuery,
+  OperationsReviewAssignmentListSuccessEnvelope,
+  CreateReviewAssignmentBody,
+  CancelReviewAssignmentBody,
+  ReplaceReviewAssignmentBody,
+  ReviewAssignmentNextAction,
 } from "@rahhal/contracts";
 import Fastify, {
   type FastifyInstance,
@@ -108,6 +114,7 @@ import {
   type ChallengeId,
   type CorrelationId,
   type DirectOfferId,
+  type ReviewAssignmentId,
   type WorkspaceRole,
   type EligibilityGateKind,
   type TeamAction,
@@ -134,6 +141,7 @@ import type {
   ProposalScope,
   WorkspaceAccess,
   WorkspaceAuthorization,
+  WorkspaceCommandContext,
 } from "./ports.js";
 import {
   commandFingerprint,
@@ -164,6 +172,7 @@ type TeamMemberParams = { membershipId: string };
 type ProposalParams = { proposalId: string };
 type DirectOfferParams = { directOfferId: string };
 type ContactVerificationParams = { attemptId: string };
+type ReviewAssignmentParams = { assignmentId: string };
 
 type BrowserOidcCallbackQuery = {
   readonly code: string;
@@ -3980,6 +3989,155 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
       if (!item) throw notFound();
       return success(item, request, ports);
     },
+  );
+
+  const fastifyReviewAssignmentPath = (path: string) =>
+    fastifyLiteralPath(path).replace(
+      "{assignmentId}",
+      ":assignmentId(^rva_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$)",
+    );
+
+  app.get<{ Querystring: OperationsReviewAssignmentListQuery }>(
+    apiRoutes.operationsReviewAssignments,
+    {
+      schema: {
+        querystring: apiSchemas.OperationsReviewAssignmentListQuery,
+        response: {
+          200: apiSchemas.OperationsReviewAssignmentListSuccessEnvelope,
+          ...apiErrorResponses,
+        },
+      },
+    },
+    async (request): Promise<OperationsReviewAssignmentListSuccessEnvelope> => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "review-assignment:list-operations",
+          entityType: "review_assignment",
+          allows: (access) =>
+            access.workspace.kind === "platform" && access.role === "platform:ops",
+        },
+        async (access) =>
+          success(
+            await ports.reviews.listOperations(challengeScope(session, access), request.query),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.post<{ Body: CreateReviewAssignmentBody }>(
+    apiRoutes.operationsReviewAssignments,
+    {
+      schema: {
+        body: apiSchemas.CreateReviewAssignmentBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "review-assignment:create",
+          entityType: "review_assignment",
+          allows: (access) =>
+            access.workspace.kind === "platform" && access.role === "platform:ops",
+          deferSuccess: true,
+        },
+        async (access) =>
+          mutationSuccess(
+            await ports.reviews.create(request.body, {
+              ...challengeScope(session, access),
+              ...command,
+            }),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  const registerOperationsAssignmentCommand = <Body extends CancelReviewAssignmentBody>(
+    route: string,
+    action: string,
+    schema: object,
+    command: (
+      id: string,
+      body: Body,
+      context: WorkspaceCommandContext,
+    ) => Promise<MutationOutcome<ReviewAssignmentId, ReviewAssignmentNextAction>>,
+  ) =>
+    app.post<{ Params: ReviewAssignmentParams; Body: Body }>(
+      fastifyReviewAssignmentPath(route),
+      {
+        schema: {
+          params: apiSchemas.ReviewAssignmentParams,
+          body: schema,
+          response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+        },
+      },
+      async (request) => {
+        const session = await requireSession(
+          request,
+          ports.sessions,
+          ports.decisionAudit,
+          ports.clock,
+        );
+        const idempotency = idempotencyCommand(request);
+        return runAuthorizedWorkspace(
+          request,
+          ports,
+          session,
+          {
+            action,
+            entityType: "review_assignment",
+            entityId: request.params.assignmentId,
+            allows: (access) =>
+              access.workspace.kind === "platform" && access.role === "platform:ops",
+            deferSuccess: true,
+          },
+          async (access) =>
+            mutationSuccess(
+              await command(request.params.assignmentId, request.body as Body, {
+                ...challengeScope(session, access),
+                ...idempotency,
+              }),
+              request,
+              ports,
+            ),
+        );
+      },
+    );
+
+  registerOperationsAssignmentCommand<CancelReviewAssignmentBody>(
+    apiRoutes.cancelReviewAssignment,
+    "review-assignment:cancel",
+    apiSchemas.CancelReviewAssignmentBody,
+    (id, body, context) => ports.reviews.cancel(id, body, context),
+  );
+  registerOperationsAssignmentCommand<ReplaceReviewAssignmentBody>(
+    apiRoutes.replaceReviewAssignment,
+    "review-assignment:replace",
+    apiSchemas.ReplaceReviewAssignmentBody,
+    (id, body, context) => ports.reviews.replace(id, body, context),
   );
 
   // `fastifyLiteralPath` escapes the action suffix's colon; without it the

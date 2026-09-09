@@ -53,4 +53,19 @@ describe("canonical review lifecycle", () => {
       "freeze-score",
     );
   });
+  it("lets Operations cancel only at the COI gate with a recorded reason", () => {
+    expect(
+      canTransition(reviewTransitions, "coi-gate", "cancelled", "platform:ops", [
+        "reason-recorded",
+      ]),
+    ).toBe(true);
+    expect(
+      canTransition(reviewTransitions, "coi-gate", "cancelled", "platform:reviewer", [
+        "reason-recorded",
+      ]),
+    ).toBe(false);
+    expect(canTransition(reviewTransitions, "accepted", "cancelled", "platform:ops", [])).toBe(
+      false,
+    );
+  });
 });

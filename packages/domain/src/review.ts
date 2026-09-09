@@ -7,6 +7,7 @@ export const reviewStates = [
   "submitted",
   "locked",
   "invalidated",
+  "cancelled",
 ] as const;
 export type ReviewState = (typeof reviewStates)[number];
 export const reviewCoiStates = ["pending", "clear", "conflict"] as const;
@@ -20,6 +21,16 @@ export function isReviewCoiState(value: unknown): value is ReviewCoiState {
 }
 
 export const reviewTransitions: readonly Transition<ReviewState>[] = [
+  {
+    from: "coi-gate",
+    to: "cancelled",
+    roles: ["platform:ops"],
+    preconditions: ["reason-recorded"],
+    sideEffects: ["revoke-assignment-access"],
+    notification: "داور",
+    audit: "review.assignment.cancelled",
+    retry: "idempotent",
+  },
   {
     from: "coi-gate",
     to: "accepted",
@@ -71,3 +82,15 @@ export const reviewTransitions: readonly Transition<ReviewState>[] = [
     retry: "manual-review",
   },
 ];
+
+export const reviewOutboxEventTypes = [
+  "rubric.version.created",
+  "review.assignment.created",
+  "review.assignment.cancelled",
+  "review.assignment.replaced",
+] as const;
+export type ReviewOutboxEventType = (typeof reviewOutboxEventTypes)[number];
+
+export function isActiveReviewAssignmentState(state: ReviewState): boolean {
+  return state !== "cancelled" && state !== "invalidated";
+}

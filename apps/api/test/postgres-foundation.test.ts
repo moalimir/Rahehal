@@ -66,9 +66,11 @@ beforeAll(async () => {
     "0022_d1_review_foundation",
     "0023_d2_rubric_authoring",
     "0024_d3_open_evaluation",
+    "0025_d4_review_assignments",
   ]);
 
   // Newest first.
+  expect((await runMigrations(database, "down")).applied).toEqual(["0025_d4_review_assignments"]);
   expect((await runMigrations(database, "down")).applied).toEqual(["0024_d3_open_evaluation"]);
   expect((await runMigrations(database, "down")).applied).toEqual(["0023_d2_rubric_authoring"]);
   const reviewFoundationDown = await runMigrations(database, "down");
@@ -150,6 +152,7 @@ beforeAll(async () => {
     "0022_d1_review_foundation",
     "0023_d2_rubric_authoring",
     "0024_d3_open_evaluation",
+    "0025_d4_review_assignments",
   ]);
   const noOpUp = await runMigrations(database, "up");
   expect(noOpUp.applied).toEqual([]);
@@ -308,6 +311,7 @@ describe("A1a PostgreSQL foundation", () => {
       { id: "0022_d1_review_foundation", checksum: expect.stringMatching(/^[0-9a-f]{64}$/) },
       { id: "0023_d2_rubric_authoring", checksum: expect.stringMatching(/^[0-9a-f]{64}$/) },
       { id: "0024_d3_open_evaluation", checksum: expect.stringMatching(/^[0-9a-f]{64}$/) },
+      { id: "0025_d4_review_assignments", checksum: expect.stringMatching(/^[0-9a-f]{64}$/) },
     ]);
   });
 
@@ -588,6 +592,7 @@ describe("A1a PostgreSQL foundation", () => {
   });
 
   it("fails the A1b migration atomically for an orphaned existing session", async () => {
+    expect((await runMigrations(database, "down")).applied).toEqual(["0025_d4_review_assignments"]);
     expect((await runMigrations(database, "down")).applied).toEqual(["0024_d3_open_evaluation"]);
     expect((await runMigrations(database, "down")).applied).toEqual(["0023_d2_rubric_authoring"]);
     expect((await runMigrations(database, "down")).applied).toEqual(["0022_d1_review_foundation"]);
@@ -696,6 +701,7 @@ describe("A1a PostgreSQL foundation", () => {
       "0022_d1_review_foundation",
       "0023_d2_rubric_authoring",
       "0024_d3_open_evaluation",
+      "0025_d4_review_assignments",
     ]);
   });
 });

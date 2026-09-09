@@ -149,7 +149,7 @@ beforeAll(async () => {
   app = buildApi(
     {
       evaluations: new PostgresEvaluationAdapter(unitOfWork, ids),
-      reviews: new PostgresReviewAdapter(unitOfWork),
+      reviews: new PostgresReviewAdapter(unitOfWork, ids),
       rubrics: new PostgresRubricAdapter(unitOfWork, ids),
       oidcAuthorization: oidc,
       contactVerification,

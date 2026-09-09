@@ -226,6 +226,12 @@ Each resolves a P0 item from [95 §2](95_RISKS_AND_OPEN_QUESTIONS.md). Defaults 
 - **Decision:** each criterion receives a whole-number score from 0 to 5 and a required rationale. Criterion weights total 100%; display the weighted result out of 100. Rubric revisions remain immutable versions; scoring uses the exact assigned version.
 - **Calculation:** sum each criterion's weight multiplied by its score, then divide by 5. Validate completeness before calculating; missing criteria/rationales, duplicate or unknown criterion IDs, out-of-range/fractional scores and invalid weight totals cannot produce a submitted result. This calculated result informs the organization's reasoned decision and does not select a winner automatically.
 
+### DEC-2026-020 — Loose MVP reviewer assignment operations
+
+- **Status:** accepted 2026-09-08 (explicit owner direction) · **Owner:** Product · **Blocking milestone:** Phase 4 D4
+- **Decision:** any active `platform:reviewer` in the active Operations platform workspace is eligible for assignment. The MVP has no hard per-reviewer workload cap. Operations chooses any future due date without a maximum horizon. Passing the due date is an operational overdue signal and does not revoke assignment access by itself. Operations may cancel a pending-COI assignment or replace it with a different reviewer; both require a reason, revoke the old assignment's active status immediately, and preserve its evidence.
+- **Consequences:** workload counts guide Operations but never authorize or block assignment. The fixed two-independent-review requirement from DEC-2026-018 still caps active assignments per eligible proposal. A reviewer user cannot be reused for the same proposal through another membership, and a cancelled reviewer cannot be silently restored. Later SLA escalation, reminder scheduling, reviewer qualification, capacity limits, and cancellation after acceptance require a new decision and command behavior.
+
 ### DEC-2026-016 — Human activation, team onboarding, and conditional solver verification
 
 - **Status:** accepted 2026-09-01 (Product) · **Owner:** Product · **Review:** Security · **Blocking milestone:** Phase 3 C1/C4/C7

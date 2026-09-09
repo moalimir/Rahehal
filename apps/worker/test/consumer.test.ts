@@ -3,6 +3,7 @@ import {
   opportunityOutboxEventTypes,
   parsePrefixedId,
   proposalOutboxEventTypes,
+  reviewOutboxEventTypes,
   solverActivationOutboxEventTypes,
   teamOutboxEventTypes,
 } from "@rahhal/domain";
@@ -45,6 +46,12 @@ describe("idempotent outbox consumer", () => {
 
   it("accepts C7 activation and contact-session events through the worker boundary", () => {
     for (const eventType of solverActivationOutboxEventTypes) {
+      expect(isSupportedOutboxEventType(eventType)).toBe(true);
+    }
+  });
+
+  it("accepts rubric and review-assignment events through the worker boundary", () => {
+    for (const eventType of reviewOutboxEventTypes) {
       expect(isSupportedOutboxEventType(eventType)).toBe(true);
     }
   });

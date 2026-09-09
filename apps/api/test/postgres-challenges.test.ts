@@ -1918,6 +1918,7 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
     // activation), 0018 (C6 opportunities/offers), 0017 (C5
     // clarification/revision), 0016 (C4 submission), 0015 (C2 teams), 0014 (C1
     // solver profile/eligibility), 0013 (proposal foundation), then 0012.
+    expect((await runMigrations(database, "down")).applied).toEqual(["0025_d4_review_assignments"]);
     expect((await runMigrations(database, "down")).applied).toEqual(["0024_d3_open_evaluation"]);
     expect((await runMigrations(database, "down")).applied).toEqual(["0023_d2_rubric_authoring"]);
     expect((await runMigrations(database, "down")).applied).toEqual(["0022_d1_review_foundation"]);
@@ -1962,6 +1963,7 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
       "0022_d1_review_foundation",
       "0023_d2_rubric_authoring",
       "0024_d3_open_evaluation",
+      "0025_d4_review_assignments",
     ]);
 
     const restored = await database.query<{
@@ -2082,7 +2084,7 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
     });
     await thirdApi.close();
     await thirdComposition.close();
-  });
+  }, 20_000);
 
   it("authorizes a cross-tenant platform gate through the unit of work and denies a revoked session", async () => {
     const platformToken = "local-b2-access-platform-ops";

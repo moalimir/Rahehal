@@ -75,6 +75,9 @@ describe("authoritative API contracts", () => {
     expect(apiSchemas.CancelDirectOfferBody.required).toContain("expected_version");
     expect(apiSchemas.StartDirectOfferNegotiationBody.required).toContain("expected_version");
     expect(apiSchemas.CreateRubricVersionBody.required).toContain("expected_version");
+    expect(apiSchemas.CreateReviewAssignmentBody.required).toContain("expected_version");
+    expect(apiSchemas.CancelReviewAssignmentBody.required).toContain("expected_version");
+    expect(apiSchemas.ReplaceReviewAssignmentBody.required).toContain("expected_version");
 
     expectTypeOf<CreateChallengeBody["expected_version"]>().toEqualTypeOf<0>();
     expectTypeOf<PatchChallengeBody["expected_version"]>().toEqualTypeOf<number>();
@@ -415,6 +418,7 @@ describe("D1 review read contracts", () => {
       "coi_status",
       "due_at",
       "id",
+      "overdue",
       "state",
       "version",
     ]);
@@ -498,5 +502,53 @@ describe("D3 evaluation-opening contracts", () => {
       required: ["expected_version"],
       properties: { expected_version: { type: "integer", minimum: 1 } },
     });
+  });
+});
+
+describe("D4 reviewer-assignment contracts", () => {
+  it("publishes Operations-owned assignment commands with concurrency and idempotency", () => {
+    const collection = openApiDocument.paths[apiRoutes.operationsReviewAssignments];
+    expect(collection.get.operationId).toBe("listOperationsReviewAssignments");
+    expect(collection.post.operationId).toBe("createReviewAssignment");
+    expect(collection.post.parameters.map((parameter) => parameter.name)).toEqual([
+      "X-Workspace-Id",
+      "Idempotency-Key",
+    ]);
+    for (const path of [apiRoutes.cancelReviewAssignment, apiRoutes.replaceReviewAssignment]) {
+      const command = openApiDocument.paths[path].post;
+      expect(command.parameters.map((parameter) => parameter.name)).toEqual([
+        "X-Workspace-Id",
+        "Idempotency-Key",
+        "assignmentId",
+      ]);
+      expect(command.responses).toHaveProperty("404");
+    }
+  });
+
+  it("exposes frozen slots and workload counts without proposal content or solver identity", () => {
+    expect(apiSchemas.OperationsReviewAssignmentListSuccessEnvelope).toBeDefined();
+    expect(apiSchemas.OperationsEvaluationProposal.required).toEqual([
+      "challenge_id",
+      "proposal_id",
+      "proposal_version_id",
+      "proposal_tracking_code",
+      "rubric_version_id",
+      "evaluation_version",
+      "required_reviews",
+      "active_assignment_count",
+    ]);
+    expect(apiSchemas.OperationsEvaluationProposal.properties.required_reviews.const).toBe(2);
+    expect(apiSchemas.OperationsEvaluationProposal.properties).not.toHaveProperty("content");
+    expect(apiSchemas.OperationsEvaluationProposal.properties).not.toHaveProperty(
+      "solver_workspace_id",
+    );
+    expect(apiSchemas.CreateReviewAssignmentBody.required).toEqual([
+      "expected_version",
+      "challenge_id",
+      "proposal_id",
+      "reviewer_membership_id",
+      "due_at",
+    ]);
+    expect(apiSchemas.CancelReviewAssignmentBody.required).toEqual(["expected_version", "reason"]);
   });
 });

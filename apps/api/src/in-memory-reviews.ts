@@ -2,11 +2,16 @@ import type {
   ReviewAssignmentListQuery,
   ReviewAssignmentResource,
   ReviewAssignmentListResource,
+  OperationsReviewAssignmentListResource,
+  ReviewAssignmentNextAction,
 } from "@rahhal/contracts";
+import { isActiveReviewAssignmentState, type ReviewAssignmentId } from "@rahhal/domain";
 import { ApiProblem } from "./errors.js";
-import type { ReviewerScope, ReviewPort } from "./ports.js";
+import type { ReviewerScope, ReviewPort, MutationOutcome } from "./ports.js";
 
-export type DemoReviewAssignment = ReviewAssignmentResource & { readonly scope: ReviewerScope };
+export type DemoReviewAssignment = Omit<ReviewAssignmentResource, "overdue"> & {
+  readonly scope: ReviewerScope;
+};
 /** Explicit demo adapter; session and membership authority remain in the unit of work. */
 export class InMemoryReviewAdapter implements ReviewPort {
   constructor(private readonly assignments: readonly DemoReviewAssignment[] = []) {}
@@ -16,6 +21,7 @@ export class InMemoryReviewAdapter implements ReviewPort {
     return this.assignments
       .filter(
         (row) =>
+          isActiveReviewAssignmentState(row.state) &&
           row.scope.membershipId === scope.membershipId &&
           row.scope.actorUserId === scope.actorUserId &&
           row.scope.tenantId === scope.tenantId &&
@@ -26,6 +32,7 @@ export class InMemoryReviewAdapter implements ReviewPort {
         state,
         coi_status,
         due_at,
+        overdue: new Date(due_at).getTime() < Date.now(),
         version,
       }));
   }
@@ -46,4 +53,24 @@ export class InMemoryReviewAdapter implements ReviewPort {
   async get(scope: ReviewerScope, id: string): Promise<ReviewAssignmentResource | null> {
     return this.own(scope).find((row) => row.id === id) ?? null;
   }
+  async listOperations(): Promise<OperationsReviewAssignmentListResource> {
+    throw unavailable();
+  }
+  async create(): Promise<MutationOutcome<ReviewAssignmentId, ReviewAssignmentNextAction>> {
+    throw unavailable();
+  }
+  async cancel(): Promise<MutationOutcome<ReviewAssignmentId, ReviewAssignmentNextAction>> {
+    throw unavailable();
+  }
+  async replace(): Promise<MutationOutcome<ReviewAssignmentId, ReviewAssignmentNextAction>> {
+    throw unavailable();
+  }
+}
+
+function unavailable(): ApiProblem {
+  return new ApiProblem(
+    503,
+    "STORAGE",
+    "Review assignment commands require the connected PostgreSQL runtime",
+  );
 }

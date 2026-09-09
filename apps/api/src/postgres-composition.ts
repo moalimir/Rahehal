@@ -35,7 +35,7 @@ import { PostgresUnitOfWork } from "./postgres/unit-of-work.js";
 import { HmacSessionCredentialIssuer } from "./session-credentials.js";
 
 // D1 review reads require the complete review foundation schema.
-const requiredMigration = "0024_d3_open_evaluation";
+const requiredMigration = "0025_d4_review_assignments";
 
 type OidcAdapter = OidcExchangePort & OidcAuthorizationPort;
 
@@ -135,7 +135,7 @@ export async function createPostgresApiComposition(
     unitOfWork,
     ports: {
       evaluations: new PostgresEvaluationAdapter(unitOfWork, ids),
-      reviews: new PostgresReviewAdapter(unitOfWork),
+      reviews: new PostgresReviewAdapter(unitOfWork, ids),
       rubrics: new PostgresRubricAdapter(unitOfWork, ids),
       oidcAuthorization: oidc,
       contactVerification,
