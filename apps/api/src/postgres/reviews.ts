@@ -1,7 +1,10 @@
 import type {
   CancelReviewAssignmentBody,
   CreateReviewAssignmentBody,
+  DeclareReviewCoiBody,
   MutationReceipt,
+  OperationsReviewConflictListResource,
+  OperationsReviewConflictResource,
   OperationsReviewAssignmentListQuery,
   OperationsReviewAssignmentListResource,
   OperationsReviewAssignmentResource,
@@ -11,9 +14,12 @@ import type {
   ReviewAssignmentListResource,
   ReviewAssignmentNextAction,
   ReviewAssignmentResource,
+  ReviewMaterialsResource,
+  ReviewProposalContentResource,
   ReviewerCandidateResource,
 } from "@rahhal/contracts";
 import {
+  isReviewCoiRelationshipCategory,
   isReviewCoiState,
   isReviewState,
   parseAuditEventId,
@@ -25,7 +31,10 @@ import {
   parseReviewAssignmentId,
   parseRubricVersionId,
   parseUserId,
+  validateRubricCriteria,
   type ReviewAssignmentId,
+  type ReviewCoiRelationshipCategory,
+  type RubricCriterion,
 } from "@rahhal/domain";
 import type { PoolClient } from "pg";
 
@@ -33,6 +42,7 @@ import { ApiProblem, forbidden, idempotencyConflict, notFound, staleVersion } fr
 import type {
   IdFactory,
   MutationOutcome,
+  ReviewerCommandContext,
   ReviewerScope,
   ReviewPort,
   WorkspaceCommandContext,
@@ -43,11 +53,17 @@ import { PostgresUnitOfWork } from "./unit-of-work.js";
 
 type ReviewerRow = {
   readonly id: string;
+  readonly challenge_id: string;
   readonly state: string;
   readonly coi_status: string;
   readonly due_at: Date;
   readonly overdue: boolean;
   readonly lock_version: string;
+  readonly organization_name: string;
+  readonly challenge_title: string;
+  readonly relationship_categories: string[];
+  readonly coi_reason: string | null;
+  readonly declared_at: Date | null;
 };
 type OperationsRow = ReviewerRow & {
   readonly challenge_id: string;
@@ -86,6 +102,27 @@ type EvaluationRow = {
   readonly lock_version: string;
   readonly stage: string;
 };
+type MaterialRow = {
+  readonly assignment_id: string;
+  readonly proposal_version_id: string;
+  readonly rubric_version_id: string;
+  readonly organization_name: string;
+  readonly challenge_title: string;
+  readonly proposal_content: unknown;
+  readonly rubric_criteria: unknown;
+};
+type ConflictRow = {
+  readonly assignment_id: string;
+  readonly reviewer_membership_id: string;
+  readonly reviewer_user_id: string;
+  readonly reviewer_display_name: string;
+  readonly organization_name: string;
+  readonly challenge_title: string;
+  readonly relationship_categories: string[];
+  readonly reason: string;
+  readonly declared_at: Date;
+  readonly assignment_version: string;
+};
 type AssignmentRow = {
   readonly id: string;
   readonly challenge_id: string;
@@ -108,7 +145,21 @@ type Outcome = MutationOutcome<ReviewAssignmentId, ReviewAssignmentNextAction>;
 const nextActions = [
   "await_coi",
   "assign_replacement",
+  "review_materials",
 ] as const satisfies readonly ReviewAssignmentNextAction[];
+
+function validCoiCategories(
+  values: readonly string[],
+): values is readonly ReviewCoiRelationshipCategory[] {
+  return new Set(values).size === values.length && values.every(isReviewCoiRelationshipCategory);
+}
+
+function storedCoiCategories(values: readonly string[]): readonly ReviewCoiRelationshipCategory[] {
+  if (!validCoiCategories(values)) {
+    throw new Error("Invalid stored COI relationship categories");
+  }
+  return values;
+}
 
 function version(value: string): number {
   const parsed = Number(value);
@@ -124,9 +175,49 @@ function reviewerResource(row: ReviewerRow): ReviewAssignmentResource {
     id: parseReviewAssignmentId(row.id),
     state: row.state,
     coi_status: row.coi_status,
+    pre_coi_packet: {
+      organization_name: row.organization_name,
+      challenge_title: row.challenge_title,
+    },
+    coi_declaration: {
+      status: row.coi_status,
+      relationship_categories: storedCoiCategories(row.relationship_categories),
+      reason: row.coi_reason,
+      declared_at: row.declared_at?.toISOString() ?? null,
+    },
     due_at: row.due_at.toISOString(),
     overdue: row.overdue,
     version: version(row.lock_version),
+  };
+}
+
+function materialResource(row: MaterialRow): ReviewMaterialsResource {
+  if (validateRubricCriteria(row.rubric_criteria).length) {
+    throw new Error("Invalid stored rubric criteria");
+  }
+  return {
+    assignment_id: parseReviewAssignmentId(row.assignment_id),
+    proposal_version_id: parseProposalVersionId(row.proposal_version_id),
+    rubric_version_id: parseRubricVersionId(row.rubric_version_id),
+    organization_name: row.organization_name,
+    challenge_title: row.challenge_title,
+    proposal_content: row.proposal_content as ReviewProposalContentResource,
+    rubric_criteria: row.rubric_criteria as readonly RubricCriterion[],
+  };
+}
+
+function conflictResource(row: ConflictRow): OperationsReviewConflictResource {
+  return {
+    assignment_id: parseReviewAssignmentId(row.assignment_id),
+    reviewer_membership_id: parseMembershipId(row.reviewer_membership_id),
+    reviewer_user_id: parseUserId(row.reviewer_user_id),
+    reviewer_display_name: row.reviewer_display_name,
+    organization_name: row.organization_name,
+    challenge_title: row.challenge_title,
+    relationship_categories: storedCoiCategories(row.relationship_categories),
+    reason: row.reason,
+    declared_at: row.declared_at.toISOString(),
+    assignment_version: version(row.assignment_version),
   };
 }
 
@@ -225,22 +316,26 @@ function cachedOutcome(value: unknown): Outcome {
   return { entityVersion: record["entityVersion"] as number, receipt };
 }
 
-const reviewerRows = `
-  SELECT assignment.id, assignment.state, coi.coi_status, assignment.due_at,
+const reviewerRowsBase = `
+  SELECT assignment.id, assignment.challenge_id, assignment.state, coi.coi_status,
+         assignment.due_at,
          (assignment.due_at < transaction_timestamp()) AS overdue,
-         assignment.lock_version
+         assignment.lock_version, packet.organization_name, packet.challenge_title,
+         coi.relationship_categories, coi.reason AS coi_reason, coi.declared_at
   FROM membership membership
   JOIN review_assignment assignment
     ON assignment.reviewer_membership_id = membership.id
    AND assignment.reviewer_user_id = membership.user_id
   JOIN coi_declaration coi ON coi.assignment_id = assignment.id
+  JOIN review_assignment_packet packet ON packet.assignment_id = assignment.id
   WHERE membership.id = $1 AND membership.user_id = $2
     AND membership.tenant_id = $3 AND membership.workspace_id = $4
     AND membership.state = 'active'
     AND membership.role = 'platform:reviewer'
     AND membership.workspace_kind = 'platform'
-    AND assignment.state NOT IN ('cancelled', 'invalidated')
 `;
+const reviewerRows = `${reviewerRowsBase}
+  AND assignment.state NOT IN ('cancelled', 'invalidated')`;
 
 export class PostgresReviewAdapter implements ReviewPort {
   constructor(
@@ -277,6 +372,167 @@ export class PostgresReviewAdapter implements ReviewPort {
     });
   }
 
+  async declareCoi(
+    id: string,
+    body: DeclareReviewCoiBody,
+    context: ReviewerCommandContext,
+  ): Promise<Outcome> {
+    if (body.attestation !== true) {
+      throw new ApiProblem(422, "VALIDATION", "The COI declaration must be attested");
+    }
+    if (body.status !== "clear" && body.status !== "conflict") {
+      throw new ApiProblem(422, "VALIDATION", "The COI declaration status is invalid");
+    }
+    if (
+      !Array.isArray(body.relationship_categories) ||
+      !validCoiCategories(body.relationship_categories)
+    ) {
+      throw new ApiProblem(422, "VALIDATION", "The COI relationship categories are invalid");
+    }
+    const categories = body.relationship_categories;
+    const reason = body.reason?.trim() || null;
+    if (reason && reason.length > 2_000) {
+      throw new ApiProblem(422, "VALIDATION", "The COI reason is too long");
+    }
+    if (body.status === "clear" && (categories.length !== 0 || reason !== null)) {
+      throw new ApiProblem(422, "VALIDATION", "A clear declaration cannot include a conflict");
+    }
+    if (body.status === "conflict" && (categories.length === 0 || reason === null)) {
+      throw new ApiProblem(422, "VALIDATION", "A conflict category and reason are required");
+    }
+    const requestHash = commandFingerprint({
+      action: "review.coi.declare",
+      actor: context.actorUserId,
+      workspace: context.workspaceId,
+      id,
+      body: { ...body, relationship_categories: categories, reason },
+    });
+    return this.unitOfWork.run(async () => {
+      const client = this.unitOfWork.currentClient();
+      await this.lockIdempotency(client, context);
+      const params = reviewerParameters(context);
+      const result = await client.query<ReviewerRow>(
+        `${reviewerRowsBase}
+         AND assignment.id = $5 FOR UPDATE OF assignment, coi`,
+        [...params, id],
+      );
+      const assignment = result.rows[0];
+      if (!assignment) throw notFound();
+      const replay = await this.replay(client, context, requestHash);
+      if (replay) return replay;
+      const currentVersion = version(assignment.lock_version);
+      if (body.expected_version !== currentVersion) throw staleVersion(currentVersion);
+      if (assignment.state !== "coi-gate" || assignment.coi_status !== "pending") {
+        throw new ApiProblem(409, "INVALID_STATE", "The COI declaration is already final", {
+          currentState: assignment.coi_status,
+        });
+      }
+      const now = await this.now(client);
+      const declaration = await client.query(
+        `UPDATE coi_declaration
+         SET coi_status = $2, relationship_categories = $3,
+             reason = $4, declared_by_user_id = $5, declared_at = $6
+         WHERE assignment_id = $1 AND coi_status = 'pending'`,
+        [assignment.id, body.status, categories, reason, context.actorUserId, now],
+      );
+      if (declaration.rowCount !== 1) {
+        throw new ApiProblem(409, "INVALID_STATE", "The COI declaration is already final");
+      }
+      const nextState = body.status === "clear" ? "accepted" : "coi-gate";
+      const updated = await client.query(
+        `UPDATE review_assignment SET state = $2, lock_version = lock_version + 1
+         WHERE id = $1 AND state = 'coi-gate' AND lock_version = 1`,
+        [assignment.id, nextState],
+      );
+      if (updated.rowCount !== 1) throw new Error("COI assignment transition failed");
+      return this.recordMutation(client, context, {
+        action:
+          body.status === "clear" ? "review.assignment.accepted" : "review.coi.conflict_declared",
+        assignmentId: parseReviewAssignmentId(assignment.id),
+        entityVersion: currentVersion + 1,
+        nextAction: body.status === "clear" ? "review_materials" : "assign_replacement",
+        requestHash,
+        now,
+        metadata: {
+          challenge_id: assignment.challenge_id,
+          coi_status: body.status,
+          relationship_category_count: categories.length,
+        },
+        eventMetadata: { challenge_id: assignment.challenge_id },
+      });
+    });
+  }
+
+  async materials(scope: ReviewerScope, id: string): Promise<ReviewMaterialsResource | null> {
+    const params = reviewerParameters(scope);
+    return this.unitOfWork.run(async () => {
+      const result = await this.unitOfWork.currentClient().query<MaterialRow>(
+        `SELECT assignment.id AS assignment_id, assignment.proposal_version_id,
+                assignment.rubric_version_id, packet.organization_name,
+                 packet.challenge_title,
+                 jsonb_build_object(
+                   'title', proposal_version.content->'title',
+                   'problem_statement', proposal_version.content->'problem_statement',
+                   'value_proposition', proposal_version.content->'value_proposition',
+                   'maturity_level', proposal_version.content->'maturity_level',
+                   'prototype_weeks', proposal_version.content->'prototype_weeks',
+                   'technologies', proposal_version.content->'technologies',
+                   'technical_approach', proposal_version.content->'technical_approach',
+                   'architecture', proposal_version.content->'architecture',
+                   'data_needs', proposal_version.content->'data_needs',
+                   'success_metrics', proposal_version.content->'success_metrics',
+                   'ip_status', proposal_version.content->'ip_status',
+                   'duration_weeks', proposal_version.content->'duration_weeks',
+                   'roadmap', proposal_version.content->'roadmap',
+                   'dependencies', proposal_version.content->'dependencies',
+                   'pilot_location', proposal_version.content->'pilot_location',
+                   'risks', proposal_version.content->'risks',
+                   'mitigation', proposal_version.content->'mitigation',
+                   'start_availability', proposal_version.content->'start_availability',
+                   'team_availability', proposal_version.content->'team_availability'
+                 ) AS proposal_content,
+                 rubric_version.criteria AS rubric_criteria
+         FROM membership membership
+         JOIN review_assignment assignment
+           ON assignment.reviewer_membership_id = membership.id
+          AND assignment.reviewer_user_id = membership.user_id
+         JOIN coi_declaration declaration ON declaration.assignment_id = assignment.id
+         JOIN review_assignment_packet packet ON packet.assignment_id = assignment.id
+         JOIN proposal_version ON proposal_version.id = assignment.proposal_version_id
+         JOIN rubric_version ON rubric_version.id = assignment.rubric_version_id
+         WHERE membership.id = $1 AND membership.user_id = $2
+           AND membership.tenant_id = $3 AND membership.workspace_id = $4
+           AND membership.state = 'active' AND membership.role = 'platform:reviewer'
+           AND membership.workspace_kind = 'platform'
+           AND assignment.id = $5 AND assignment.state = 'accepted'
+           AND declaration.coi_status = 'clear'`,
+        [...params, id],
+      );
+      return result.rows[0] ? materialResource(result.rows[0]) : null;
+    });
+  }
+
+  async listConflicts(scope: WorkspaceScope): Promise<OperationsReviewConflictListResource> {
+    authorizeOperations(scope);
+    return this.unitOfWork.run(async () => {
+      const result = await this.unitOfWork.currentClient().query<ConflictRow>(
+        `SELECT assignment.id AS assignment_id, assignment.reviewer_membership_id,
+                assignment.reviewer_user_id, reviewer.display_name AS reviewer_display_name,
+                packet.organization_name, packet.challenge_title,
+                declaration.relationship_categories, declaration.reason,
+                declaration.declared_at, assignment.lock_version::text AS assignment_version
+         FROM review_assignment assignment
+         JOIN coi_declaration declaration ON declaration.assignment_id = assignment.id
+         JOIN review_assignment_packet packet ON packet.assignment_id = assignment.id
+         JOIN app_user reviewer ON reviewer.id = assignment.reviewer_user_id
+         WHERE declaration.coi_status = 'conflict' AND assignment.state = 'coi-gate'
+         ORDER BY declaration.declared_at, assignment.id
+         LIMIT 500`,
+      );
+      return { items: result.rows.map(conflictResource) };
+    });
+  }
+
   async listOperations(
     scope: WorkspaceScope,
     query: OperationsReviewAssignmentListQuery,
@@ -293,11 +549,14 @@ export class PostgresReviewAdapter implements ReviewPort {
                 (assignment.state NOT IN ('cancelled', 'invalidated')
                   AND assignment.due_at < transaction_timestamp()) AS overdue,
                 assignment.lock_version, assignment.replaces_assignment_id,
-                assignment.cancellation_reason, assignment.cancelled_at
+                assignment.cancellation_reason, assignment.cancelled_at,
+                packet.organization_name, packet.challenge_title,
+                coi.relationship_categories, coi.reason AS coi_reason, coi.declared_at
          FROM review_assignment assignment
          JOIN proposal ON proposal.id = assignment.proposal_id
          JOIN app_user reviewer ON reviewer.id = assignment.reviewer_user_id
          JOIN coi_declaration coi ON coi.assignment_id = assignment.id
+         JOIN review_assignment_packet packet ON packet.assignment_id = assignment.id
          WHERE ($1::text IS NULL OR assignment.challenge_id = $1)
          ORDER BY assignment.created_at, assignment.id
          LIMIT 500`,
@@ -468,11 +727,11 @@ export class PostgresReviewAdapter implements ReviewPort {
       if (evaluation.stage !== "evaluating") throw notFound();
       const currentVersion = version(current.lock_version);
       if (body.expected_version !== currentVersion) throw staleVersion(currentVersion);
-      if (current.state !== "coi-gate") {
+      if (current.state !== "coi-gate" && current.state !== "accepted") {
         throw new ApiProblem(
           409,
           "INVALID_STATE",
-          "Only a pending COI assignment can change in D4",
+          "Only a pre-scoring assignment can be cancelled or replaced",
           {
             currentState: current.state,
           },
@@ -719,7 +978,9 @@ export class PostgresReviewAdapter implements ReviewPort {
       readonly action:
         | "review.assignment.created"
         | "review.assignment.cancelled"
-        | "review.assignment.replaced";
+        | "review.assignment.replaced"
+        | "review.assignment.accepted"
+        | "review.coi.conflict_declared";
       readonly assignmentId: ReviewAssignmentId;
       readonly entityVersion: number;
       readonly nextAction: ReviewAssignmentNextAction;

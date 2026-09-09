@@ -35,7 +35,7 @@ import { PostgresUnitOfWork } from "./postgres/unit-of-work.js";
 import { HmacSessionCredentialIssuer } from "./session-credentials.js";
 
 // D1 review reads require the complete review foundation schema.
-const requiredMigration = "0025_d4_review_assignments";
+const requiredMigration = "0026_d5_review_coi";
 
 type OidcAdapter = OidcExchangePort & OidcAuthorizationPort;
 

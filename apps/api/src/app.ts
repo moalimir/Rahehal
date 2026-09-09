@@ -5,6 +5,9 @@ import type {
   ReviewAssignmentListQuery,
   ReviewAssignmentListSuccessEnvelope,
   ReviewAssignmentSuccessEnvelope,
+  ReviewMaterialsSuccessEnvelope,
+  DeclareReviewCoiBody,
+  OperationsReviewConflictListSuccessEnvelope,
   OperationsReviewAssignmentListQuery,
   OperationsReviewAssignmentListSuccessEnvelope,
   CreateReviewAssignmentBody,
@@ -21,6 +24,7 @@ import {
   apiRoutes,
   apiSchemas,
   browserSessionRoutes,
+  reviewCoiApiRoutes,
   type BrowserOidcAuthorizationStartBody,
   type BrowserOidcAuthorizationStartSuccessEnvelope,
   openApiDocument,
@@ -3997,6 +4001,100 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
       ":assignmentId(^rva_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$)",
     );
 
+  app.get<{ Params: ReviewAssignmentParams }>(
+    fastifyReviewAssignmentPath(reviewCoiApiRoutes.reviewAssignmentMaterials),
+    {
+      schema: {
+        params: apiSchemas.ReviewAssignmentParams,
+        response: { 200: apiSchemas.ReviewMaterialsSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request): Promise<ReviewMaterialsSuccessEnvelope> => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const item = await runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "review-materials:read",
+          entityType: "review_assignment",
+          entityId: request.params.assignmentId,
+          deferSuccess: true,
+          allows: (access) =>
+            access.workspace.kind === "platform" && access.role === "platform:reviewer",
+        },
+        async (access) => {
+          const materials = await ports.reviews.materials(
+            proposalScope(session, access),
+            request.params.assignmentId,
+          );
+          await ports.decisionAudit.record({
+            outcome: materials ? "success" : "denied",
+            actorUserId: session.userId,
+            tenantId: access.tenantId,
+            workspaceId: access.workspaceId,
+            action: "review-materials:read",
+            entityType: "review_assignment",
+            entityId: request.params.assignmentId,
+            ...(!materials ? { reason: "record_unreachable" } : {}),
+            correlationId: correlationId(request),
+            occurredAt: ports.clock.now().toISOString(),
+          });
+          return materials;
+        },
+      );
+      if (!item) throw notFound();
+      return success(item, request, ports);
+    },
+  );
+
+  app.post<{ Params: ReviewAssignmentParams; Body: DeclareReviewCoiBody }>(
+    fastifyReviewAssignmentPath(reviewCoiApiRoutes.declareReviewCoi),
+    {
+      schema: {
+        params: apiSchemas.ReviewAssignmentParams,
+        body: apiSchemas.DeclareReviewCoiBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "review:coi-declare",
+          entityType: "review_assignment",
+          entityId: request.params.assignmentId,
+          allows: (access) =>
+            access.workspace.kind === "platform" && access.role === "platform:reviewer",
+          deferSuccess: true,
+        },
+        async (access) =>
+          mutationSuccess(
+            await ports.reviews.declareCoi(request.params.assignmentId, request.body, {
+              ...proposalScope(session, access),
+              ...command,
+            }),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
   app.get<{ Querystring: OperationsReviewAssignmentListQuery }>(
     apiRoutes.operationsReviewAssignments,
     {
@@ -4028,6 +4126,43 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
         async (access) =>
           success(
             await ports.reviews.listOperations(challengeScope(session, access), request.query),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.get(
+    reviewCoiApiRoutes.operationsReviewConflicts,
+    {
+      schema: {
+        response: {
+          200: apiSchemas.OperationsReviewConflictListSuccessEnvelope,
+          ...apiErrorResponses,
+        },
+      },
+    },
+    async (request): Promise<OperationsReviewConflictListSuccessEnvelope> => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "review-conflict:list-operations",
+          entityType: "review_assignment",
+          allows: (access) =>
+            access.workspace.kind === "platform" && access.role === "platform:ops",
+        },
+        async (access) =>
+          success(
+            await ports.reviews.listConflicts(challengeScope(session, access)),
             request,
             ports,
           ),

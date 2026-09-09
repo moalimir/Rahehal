@@ -99,6 +99,13 @@ export const apiRoutes = {
     "/api/v1/organization/direct-offers/{directOfferId}:start-negotiation",
 } as const;
 
+/** Connected D5 routes kept out of the static demo's shared transport chunk. */
+export const reviewCoiApiRoutes = {
+  reviewAssignmentMaterials: "/api/v1/assignments/{assignmentId}/materials",
+  declareReviewCoi: "/api/v1/assignments/{assignmentId}/coi:declare",
+  operationsReviewConflicts: "/api/v1/operations/review-conflicts",
+} as const;
+
 /**
  * Same-origin browser transport owned by the web runtime. These routes are
  * intentionally separate from the bearer-token OpenAPI surface: they adapt

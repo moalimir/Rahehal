@@ -3,6 +3,7 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   apiErrorCodes,
   apiRoutes,
+  reviewCoiApiRoutes,
   apiSchemas,
   isOutboxEvent,
   openApiDocument,
@@ -415,10 +416,12 @@ describe("authoritative API contracts", () => {
 describe("D1 review read contracts", () => {
   it("publishes only bookkeeping on both scoped reads", () => {
     expect(Object.keys(apiSchemas.ReviewAssignment.properties).sort()).toEqual([
+      "coi_declaration",
       "coi_status",
       "due_at",
       "id",
       "overdue",
+      "pre_coi_packet",
       "state",
       "version",
     ]);
@@ -550,5 +553,70 @@ describe("D4 reviewer-assignment contracts", () => {
       "due_at",
     ]);
     expect(apiSchemas.CancelReviewAssignmentBody.required).toEqual(["expected_version", "reason"]);
+  });
+});
+
+describe("D5 COI and reviewer-material contracts", () => {
+  it("publishes attested declaration, gated materials and a purpose-limited conflict queue", () => {
+    const declaration = openApiDocument.paths[reviewCoiApiRoutes.declareReviewCoi].post;
+    expect(declaration.operationId).toBe("declareReviewCoi");
+    expect(declaration.parameters.map((parameter) => parameter.name)).toEqual([
+      "X-Workspace-Id",
+      "Idempotency-Key",
+      "assignmentId",
+    ]);
+    expect(apiSchemas.DeclareReviewCoiBody.required).toEqual([
+      "expected_version",
+      "status",
+      "relationship_categories",
+      "attestation",
+    ]);
+    expect(apiSchemas.DeclareReviewCoiBody.properties.attestation.const).toBe(true);
+    expect(
+      openApiDocument.paths[reviewCoiApiRoutes.reviewAssignmentMaterials].get.operationId,
+    ).toBe("getReviewAssignmentMaterials");
+    expect(
+      openApiDocument.paths[reviewCoiApiRoutes.operationsReviewConflicts].get.operationId,
+    ).toBe("listOperationsReviewConflicts");
+  });
+
+  it("projects only technical and delivery fields into reviewer materials", () => {
+    expect(Object.keys(apiSchemas.ReviewProposalContent.properties).sort()).toEqual(
+      [
+        "title",
+        "problem_statement",
+        "value_proposition",
+        "maturity_level",
+        "prototype_weeks",
+        "technologies",
+        "technical_approach",
+        "architecture",
+        "data_needs",
+        "success_metrics",
+        "ip_status",
+        "duration_weeks",
+        "roadmap",
+        "dependencies",
+        "pilot_location",
+        "risks",
+        "mitigation",
+        "start_availability",
+        "team_availability",
+      ].sort(),
+    );
+    for (const hidden of [
+      "lead_name",
+      "team_summary",
+      "relevant_experience",
+      "budget_amount_minor",
+      "payment_model",
+      "budget_rationale",
+      "attachment_ids",
+    ]) {
+      expect(apiSchemas.ReviewProposalContent.properties).not.toHaveProperty(hidden);
+    }
+    expect(apiSchemas.ReviewMaterials.properties.proposal_content).toBe(
+      apiSchemas.ReviewProposalContent,
+    );
   });
 });

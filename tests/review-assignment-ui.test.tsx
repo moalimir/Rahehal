@@ -4,8 +4,10 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   MutationSuccessEnvelope,
+  OperationsReviewConflictListSuccessEnvelope,
   OperationsReviewAssignmentListSuccessEnvelope,
   ReviewAssignmentListSuccessEnvelope,
+  ReviewMaterialsSuccessEnvelope,
 } from "@rahhal/contracts";
 import { parseCorrelationId, parsePrefixedId } from "@rahhal/domain";
 
@@ -40,6 +42,16 @@ const reviewerEnvelope: ReviewAssignmentListSuccessEnvelope = {
         id: parsePrefixedId("rva_review_assignment_ui", "rva"),
         state: "coi-gate",
         coi_status: "pending",
+        pre_coi_packet: {
+          organization_name: "سازمان آزمایشی",
+          challenge_title: "کاهش مصرف انرژی",
+        },
+        coi_declaration: {
+          status: "pending",
+          relationship_categories: [],
+          reason: null,
+          declared_at: null,
+        },
         due_at: "2026-09-15T12:00:00.000Z",
         overdue: false,
         version: 1,
@@ -49,7 +61,16 @@ const reviewerEnvelope: ReviewAssignmentListSuccessEnvelope = {
   meta,
 };
 
-function operationsEnvelope(withAssignment = false): OperationsReviewAssignmentListSuccessEnvelope {
+const conflictsEnvelope: OperationsReviewConflictListSuccessEnvelope = {
+  ok: true,
+  data: { items: [] },
+  meta,
+};
+
+function operationsEnvelope(
+  withAssignment = false,
+  state: "coi-gate" | "accepted" = "coi-gate",
+): OperationsReviewAssignmentListSuccessEnvelope {
   return {
     ok: true,
     data: {
@@ -77,6 +98,18 @@ function operationsEnvelope(withAssignment = false): OperationsReviewAssignmentL
         ? [
             {
               ...reviewerEnvelope.data.items[0]!,
+              state,
+              coi_status: state === "accepted" ? "clear" : "pending",
+              coi_declaration:
+                state === "accepted"
+                  ? {
+                      status: "clear",
+                      relationship_categories: [],
+                      reason: null,
+                      declared_at: "2026-09-08T12:00:00.000Z",
+                    }
+                  : reviewerEnvelope.data.items[0]!.coi_declaration,
+              version: state === "accepted" ? 2 : 1,
               challenge_id: parsePrefixedId("chl_review_assignment_ui", "chl"),
               proposal_id: parsePrefixedId("prp_review_assignment_ui", "prp"),
               proposal_version_id: parsePrefixedId("prv_review_assignment_ui", "prv"),
@@ -109,6 +142,40 @@ const mutationEnvelope: MutationSuccessEnvelope = {
   meta: { ...meta, entity_version: 1 },
 };
 
+const materialsEnvelope: ReviewMaterialsSuccessEnvelope = {
+  ok: true,
+  data: {
+    assignment_id: parsePrefixedId("rva_review_assignment_ui", "rva"),
+    proposal_version_id: parsePrefixedId("prv_review_assignment_ui", "prv"),
+    rubric_version_id: parsePrefixedId("rbv_review_assignment_ui", "rbv"),
+    organization_name: "سازمان آزمایشی",
+    challenge_title: "کاهش مصرف انرژی",
+    proposal_content: {
+      title: "راهکار پایش هوشمند",
+      problem_statement: "مصرف انرژی بدون بازخورد دقیق ثبت می‌شود.",
+      value_proposition: "کاهش قابل سنجش مصرف",
+      maturity_level: "نمونه اولیه",
+      prototype_weeks: "4",
+      technologies: ["حسگر", "تحلیل داده"],
+      technical_approach: "اندازه‌گیری و تحلیل مرحله‌ای",
+      architecture: "درگاه محلی و داشبورد",
+      data_needs: "داده مصرف ساعتی",
+      success_metrics: "کاهش ده درصدی",
+      ip_status: "مالکیت راهکار متعلق به تیم است",
+      duration_weeks: "12",
+      roadmap: "پایش، پایلوت و ارزیابی",
+      dependencies: "دسترسی به کنتور",
+      pilot_location: "تهران",
+      risks: "کیفیت داده",
+      mitigation: "اعتبارسنجی خودکار",
+      start_availability: "دو هفته پس از انتخاب",
+      team_availability: "نیمه‌وقت",
+    },
+    rubric_criteria: [{ id: "quality", label: "کیفیت فنی", weight: 100, min: 0, max: 5 }],
+  },
+  meta,
+};
+
 beforeEach(() => {
   testState.requestApi.mockReset();
   testState.idempotencyKey.mockClear();
@@ -116,8 +183,8 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-describe("connected D4 reviewer assignments", () => {
-  it("shows reviewers only their own bookkeeping before COI", async () => {
+describe("connected D5 reviewer assignments", () => {
+  it("shows only the pre-COI packet and does not request protected materials", async () => {
     testState.requestApi.mockResolvedValue(reviewerEnvelope);
     const { ConnectedReviewerAssignments } = await import(
       "@/components/internal/connected-review-assignments"
@@ -125,19 +192,106 @@ describe("connected D4 reviewer assignments", () => {
     render(<ConnectedReviewerAssignments />);
 
     expect(await screen.findByText("rva_review_assignment_ui")).toBeVisible();
-    expect(screen.getByText("در انتظار اظهار تعارض منافع")).toBeVisible();
-    expect(screen.getByText("اظهار COI در D5")).toBeVisible();
+    expect(screen.getByText("کاهش مصرف انرژی")).toBeVisible();
+    expect(screen.getByText("سازمان آزمایشی")).toBeVisible();
+    expect(screen.getByRole("group", { name: "اظهار تعارض منافع" })).toBeVisible();
     expect(screen.queryByText("PRP-1405-101")).toBeNull();
+    expect(
+      testState.requestApi.mock.calls.some(([path]) => String(path).endsWith("/materials")),
+    ).toBe(false);
     expect(testState.requestApi).toHaveBeenCalledWith(
       expect.stringContaining("/api/v1/assignments?limit=100"),
       { headers: { "x-workspace-id": testState.workspaceId } },
     );
   });
 
-  it("creates an exact frozen-slot assignment with an idempotency key", async () => {
+  it("submits a clear declaration with attestation and the assignment version", async () => {
     testState.requestApi.mockImplementation(async (_path: string, init: RequestInit = {}) =>
-      init.method === "POST" ? mutationEnvelope : operationsEnvelope(),
+      init.method === "POST"
+        ? {
+            ...mutationEnvelope,
+            data: { ...mutationEnvelope.data, next_actions: ["review_materials"] },
+            meta: { ...mutationEnvelope.meta, entity_version: 2 },
+          }
+        : reviewerEnvelope,
     );
+    const { ConnectedReviewerAssignments } = await import(
+      "@/components/internal/connected-review-assignments"
+    );
+    render(<ConnectedReviewerAssignments />);
+
+    fireEvent.click(
+      await screen.findByLabelText("صحت این اظهار و بررسی روابط ۲۴ ماه گذشته را تأیید می‌کنم."),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "ثبت نهایی اظهار" }));
+    await waitFor(() =>
+      expect(testState.requestApi).toHaveBeenCalledWith(
+        "/api/v1/assignments/rva_review_assignment_ui/coi:declare",
+        expect.objectContaining({
+          method: "POST",
+          headers: {
+            "x-workspace-id": testState.workspaceId,
+            "idempotency-key": "review-assignment-test-key",
+          },
+        }),
+      ),
+    );
+    const declarationCall = testState.requestApi.mock.calls.find(
+      ([path, init]) => String(path).includes("coi:declare") && init?.method === "POST",
+    );
+    expect(JSON.parse(declarationCall?.[1]?.body as string)).toEqual({
+      expected_version: 1,
+      status: "clear",
+      relationship_categories: [],
+      reason: null,
+      attestation: true,
+    });
+  });
+
+  it("loads the exact purpose-limited proposal and rubric after clear COI", async () => {
+    const acceptedEnvelope: ReviewAssignmentListSuccessEnvelope = {
+      ...reviewerEnvelope,
+      data: {
+        items: [
+          {
+            ...reviewerEnvelope.data.items[0]!,
+            state: "accepted",
+            coi_status: "clear",
+            version: 2,
+            coi_declaration: {
+              status: "clear",
+              relationship_categories: [],
+              reason: null,
+              declared_at: meta.server_time,
+            },
+          },
+        ],
+      },
+    };
+    testState.requestApi.mockImplementation(async (path: string) =>
+      path.endsWith("/materials") ? materialsEnvelope : acceptedEnvelope,
+    );
+    const { ConnectedReviewerAssignments } = await import(
+      "@/components/internal/connected-review-assignments"
+    );
+    render(<ConnectedReviewerAssignments />);
+
+    expect(await screen.findByText("راهکار پایش هوشمند")).toBeVisible();
+    expect(screen.getByText("کیفیت فنی · وزن ۱۰۰٪ · امتیاز ۰ تا ۵")).toBeVisible();
+    expect(
+      screen.getByText("این نما فقط محتوای فنی و اجرایی مجاز همان نسخه را نشان می‌دهد."),
+    ).toBeVisible();
+    expect(testState.requestApi).toHaveBeenCalledWith(
+      "/api/v1/assignments/rva_review_assignment_ui/materials",
+      { headers: { "x-workspace-id": testState.workspaceId } },
+    );
+  });
+
+  it("creates an exact frozen-slot assignment with an idempotency key", async () => {
+    testState.requestApi.mockImplementation(async (path: string, init: RequestInit = {}) => {
+      if (path === "/api/v1/operations/review-conflicts") return conflictsEnvelope;
+      return init.method === "POST" ? mutationEnvelope : operationsEnvelope();
+    });
     const { ConnectedOperationsReviewAssignments } = await import(
       "@/components/internal/connected-review-assignments"
     );
@@ -168,9 +322,10 @@ describe("connected D4 reviewer assignments", () => {
   });
 
   it("requires a reason before cancelling and submits the assignment version", async () => {
-    testState.requestApi.mockImplementation(async (_path: string, init: RequestInit = {}) =>
-      init.method === "POST" ? mutationEnvelope : operationsEnvelope(true),
-    );
+    testState.requestApi.mockImplementation(async (path: string, init: RequestInit = {}) => {
+      if (path === "/api/v1/operations/review-conflicts") return conflictsEnvelope;
+      return init.method === "POST" ? mutationEnvelope : operationsEnvelope(true);
+    });
     const { ConnectedOperationsReviewAssignments } = await import(
       "@/components/internal/connected-review-assignments"
     );
@@ -197,5 +352,23 @@ describe("connected D4 reviewer assignments", () => {
       expected_version: 1,
       reason: "داور در این بازه در دسترس نیست.",
     });
+  });
+
+  it("keeps reasoned cancellation and replacement available after COI clears", async () => {
+    testState.requestApi.mockImplementation(async (path: string) =>
+      path === "/api/v1/operations/review-conflicts"
+        ? conflictsEnvelope
+        : operationsEnvelope(true, "accepted"),
+    );
+    const { ConnectedOperationsReviewAssignments } = await import(
+      "@/components/internal/connected-review-assignments"
+    );
+    render(<ConnectedOperationsReviewAssignments />);
+
+    expect(
+      await screen.findByText("داور تعارضی اعلام نکرده و مأموریت را پذیرفته است."),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "لغو مأموریت" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "ثبت جایگزین" })).toBeEnabled();
   });
 });

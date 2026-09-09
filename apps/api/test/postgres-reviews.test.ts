@@ -1,11 +1,20 @@
 import {
   apiRoutes,
+  reviewCoiApiRoutes,
   type ReviewAssignmentListSuccessEnvelope,
   type ErrorEnvelope,
   type OperationsReviewAssignmentListSuccessEnvelope,
+  type OperationsReviewConflictListResource,
+  type ReviewMaterialsSuccessEnvelope,
   type MutationSuccessEnvelope,
 } from "@rahhal/contracts";
-import { parseMembershipId, parseTenantId, parseUserId, parseWorkspaceId } from "@rahhal/domain";
+import {
+  parseCorrelationId,
+  parseMembershipId,
+  parseTenantId,
+  parseUserId,
+  parseWorkspaceId,
+} from "@rahhal/domain";
 import { Client, Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApi } from "../src/app.js";
@@ -190,6 +199,7 @@ beforeAll(async () => {
   created = true;
   database = new Pool({ connectionString: databaseUrl.toString(), max: 1 });
   await runMigrations(database, "up");
+  expect((await runMigrations(database, "down")).applied).toEqual(["0026_d5_review_coi"]);
   expect((await runMigrations(database, "down")).applied).toEqual(["0025_d4_review_assignments"]);
   expect((await runMigrations(database, "down")).applied).toEqual(["0024_d3_open_evaluation"]);
   expect((await runMigrations(database, "down")).applied).toEqual(["0023_d2_rubric_authoring"]);
@@ -199,6 +209,7 @@ beforeAll(async () => {
     "0023_d2_rubric_authoring",
     "0024_d3_open_evaluation",
     "0025_d4_review_assignments",
+    "0026_d5_review_coi",
   ]);
   await seedSyntheticData(database);
   reviews = new PostgresReviewAdapter(new PostgresUnitOfWork(database), new RandomIdFactory());
@@ -324,10 +335,12 @@ describe("D1 PostgreSQL review foundation", () => {
       version: 1,
     });
     expect(Object.keys(own.items[0]!).sort()).toEqual([
+      "coi_declaration",
       "coi_status",
       "due_at",
       "id",
       "overdue",
+      "pre_coi_packet",
       "state",
       "version",
     ]);
@@ -361,9 +374,11 @@ describe("D1 PostgreSQL review foundation", () => {
       "DELETE FROM rubric_version WHERE id = 'rbv_d1_alpha_001'",
     ])
       await expect(database.query(sql)).rejects.toMatchObject({ code: "55000" });
+    expect((await runMigrations(database, "down")).applied).toEqual(["0026_d5_review_coi"]);
     await expect(runMigrations(database, "down")).rejects.toThrow(
       "cannot remove D4 while assignment evidence exists",
     );
+    expect((await runMigrations(database, "up")).applied).toEqual(["0026_d5_review_coi"]);
   });
   it("keeps assignment reads durable across API recreation and audits non-enumerating denial", async () => {
     await app!.close();
@@ -409,6 +424,156 @@ describe("D1 PostgreSQL review foundation", () => {
         })
       ).statusCode,
     ).toBe(200);
+  });
+
+  it("gates exact materials on an immutable reviewer COI declaration", async () => {
+    const beforeClear = await app!.inject({
+      url: reviewCoiApiRoutes.reviewAssignmentMaterials.replace("{assignmentId}", "rva_d1_alpha"),
+      headers,
+    });
+    expect(beforeClear.statusCode).toBe(404);
+    expect(beforeClear.headers["cache-control"]).toBe("no-store");
+
+    const declared = await app!.inject({
+      method: "POST",
+      url: reviewCoiApiRoutes.declareReviewCoi.replace("{assignmentId}", "rva_d1_alpha"),
+      headers: { ...headers, "idempotency-key": "d5-clear-alpha" },
+      payload: {
+        expected_version: 1,
+        status: "clear",
+        relationship_categories: [],
+        reason: null,
+        attestation: true,
+      },
+    });
+    expect(declared.statusCode).toBe(200);
+    expect(declared.json<MutationSuccessEnvelope>()).toMatchObject({
+      data: {
+        entity_id: "rva_d1_alpha",
+        idempotent: false,
+        next_actions: ["review_materials"],
+      },
+      meta: { entity_version: 2 },
+    });
+    const replay = await app!.inject({
+      method: "POST",
+      url: reviewCoiApiRoutes.declareReviewCoi.replace("{assignmentId}", "rva_d1_alpha"),
+      headers: { ...headers, "idempotency-key": "d5-clear-alpha" },
+      payload: {
+        expected_version: 1,
+        status: "clear",
+        relationship_categories: [],
+        reason: null,
+        attestation: true,
+      },
+    });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json<MutationSuccessEnvelope>().data.idempotent).toBe(true);
+
+    const accepted = await reviews.get(scope("alpha"), "rva_d1_alpha");
+    expect(accepted).toMatchObject({
+      state: "accepted",
+      coi_status: "clear",
+      version: 2,
+      pre_coi_packet: {
+        organization_name: "Synthetic Organization Alpha",
+        challenge_title: "چالش آزمایشی قطعی",
+      },
+      coi_declaration: {
+        status: "clear",
+        relationship_categories: [],
+        reason: null,
+      },
+    });
+    const materialsResponse = await app!.inject({
+      url: reviewCoiApiRoutes.reviewAssignmentMaterials.replace("{assignmentId}", "rva_d1_alpha"),
+      headers,
+    });
+    expect(materialsResponse.statusCode).toBe(200);
+    const materials = materialsResponse.json<ReviewMaterialsSuccessEnvelope>().data;
+    expect(materials).toMatchObject({
+      assignment_id: "rva_d1_alpha",
+      proposal_version_id: "prv_foundation_alpha_v2",
+      rubric_version_id: "rbv_d1_alpha_001",
+      organization_name: "Synthetic Organization Alpha",
+      challenge_title: "چالش آزمایشی قطعی",
+      proposal_content: { title: "راهکار کاهش مصرف انرژی" },
+      rubric_criteria: [{ id: "quality", weight: 100, min: 0, max: 5 }],
+    });
+    expect(JSON.stringify(materials)).not.toContain("usr_solver_alpha");
+    expect(JSON.stringify(materials)).not.toContain("wsp_team_alpha");
+    for (const hidden of [
+      "lead_name",
+      "team_summary",
+      "relevant_experience",
+      "budget_amount_minor",
+      "payment_model",
+      "budget_rationale",
+      "attachment_ids",
+    ]) {
+      expect(Object.keys(materials.proposal_content)).not.toContain(hidden);
+    }
+    expect(JSON.stringify(materials)).not.toContain("Synthetic Solver");
+    expect(JSON.stringify(materials)).not.toContain("Synthetic team");
+
+    const conflict = await reviews.declareCoi(
+      "rva_d1_beta",
+      {
+        expected_version: 1,
+        status: "conflict",
+        relationship_categories: ["prior_collaboration"],
+        reason: "همکاری مستقیم در ۲۴ ماه گذشته.",
+        attestation: true,
+      },
+      {
+        ...scope("beta"),
+        idempotencyKey: "d5-conflict-beta",
+        correlationId: parseCorrelationId("cor_d5_conflict_beta"),
+      },
+    );
+    expect(conflict).toMatchObject({
+      entityVersion: 2,
+      receipt: { next_actions: ["assign_replacement"] },
+    });
+    expect(await reviews.materials(scope("beta"), "rva_d1_beta")).toBeNull();
+    const conflicts: OperationsReviewConflictListResource = await reviews.listConflicts({
+      tenantId: parseTenantId("ten_platform"),
+      workspaceId: parseWorkspaceId("wsp_platform_main"),
+      actorUserId: parseUserId("usr_platform_ops"),
+      role: "platform:ops",
+    });
+    expect(conflicts.items).toEqual([
+      expect.objectContaining({
+        assignment_id: "rva_d1_beta",
+        relationship_categories: ["prior_collaboration"],
+        reason: "همکاری مستقیم در ۲۴ ماه گذشته.",
+        assignment_version: 2,
+      }),
+    ]);
+    expect(JSON.stringify(conflicts)).not.toContain("prp_foundation_alpha");
+    expect(JSON.stringify(conflicts)).not.toContain("prv_foundation_alpha_v2");
+    await expect(
+      database.query(
+        "UPDATE coi_declaration SET reason = 'tampered' WHERE assignment_id = 'rva_d1_beta'",
+      ),
+    ).rejects.toMatchObject({ code: "55000" });
+    await expect(runMigrations(database, "down")).rejects.toThrow(
+      "cannot remove D5 while COI or acceptance evidence exists",
+    );
+    const evidence = (
+      await database.query(
+        `SELECT
+           (SELECT count(*) FROM audit_event
+            WHERE action IN ('review.assignment.accepted', 'review.coi.conflict_declared')) AS audits,
+           (SELECT count(*) FROM outbox_event
+            WHERE event_type IN ('review.assignment.accepted', 'review.coi.conflict_declared')) AS events,
+           (SELECT bool_or(payload ? 'reason' OR payload ? 'relationship_categories')
+            FROM outbox_event
+            WHERE event_type IN ('review.assignment.accepted', 'review.coi.conflict_declared'))
+              AS sensitive_event_payload`,
+      )
+    ).rows[0];
+    expect(evidence).toEqual({ audits: "2", events: "2", sensitive_event_payload: false });
   });
   it("does not resurrect removed reviewers when seeds rerun", async () => {
     await database.query("UPDATE membership SET state = 'removed' WHERE id = 'mem_reviewer_alpha'");
@@ -500,7 +665,7 @@ describe("D1 PostgreSQL review foundation", () => {
       method: "POST",
       url: apiRoutes.cancelReviewAssignment.replace("{assignmentId}", "rva_d1_alpha"),
       headers: operationsHeaders("d4-cancel-alpha"),
-      payload: { expected_version: 1, reason: "Reviewer membership was removed." },
+      payload: { expected_version: 2, reason: "Reviewer membership was removed." },
     });
     expect(cancelled.statusCode).toBe(200);
     expect(cancelled.json<MutationSuccessEnvelope>()).toMatchObject({
@@ -509,7 +674,7 @@ describe("D1 PostgreSQL review foundation", () => {
         idempotent: false,
         next_actions: ["assign_replacement"],
       },
-      meta: { entity_version: 2 },
+      meta: { entity_version: 3 },
     });
     const afterCancel = await list();
     const slotAfterCancel = afterCancel.evaluation_proposals[0]!;
@@ -572,7 +737,7 @@ describe("D1 PostgreSQL review foundation", () => {
       url: apiRoutes.replaceReviewAssignment.replace("{assignmentId}", "rva_d1_beta"),
       headers: operationsHeaders("d4-replace-beta-missing-reviewer"),
       payload: {
-        expected_version: 1,
+        expected_version: 2,
         reason: "This update must roll back when its replacement is invalid.",
         reviewer_membership_id: "mem_reviewer_missing",
         due_at: "2099-01-02T00:00:00.000Z",
@@ -586,14 +751,14 @@ describe("D1 PostgreSQL review foundation", () => {
            FROM review_assignment WHERE id = 'rva_d1_beta'`,
         )
       ).rows[0],
-    ).toEqual({ state: "coi-gate", lock_version: "1", cancellation_reason: null });
+    ).toEqual({ state: "coi-gate", lock_version: "2", cancellation_reason: null });
 
     const replaced = await app!.inject({
       method: "POST",
       url: apiRoutes.replaceReviewAssignment.replace("{assignmentId}", "rva_d1_beta"),
       headers: operationsHeaders("d4-replace-beta"),
       payload: {
-        expected_version: 1,
+        expected_version: 2,
         reason: "Reviewer is unavailable for the evaluation window.",
         reviewer_membership_id: "mem_reviewer_delta",
         due_at: "2099-01-02T00:00:00.000Z",
@@ -642,7 +807,7 @@ describe("D1 PostgreSQL review foundation", () => {
       audits: "3",
       events: "3",
       sensitive_event_payload: false,
-      receipts: "3",
+      receipts: "5",
     });
     await expect(
       database.query(

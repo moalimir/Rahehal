@@ -1,6 +1,6 @@
 import { challengeManagedStages, reviewStates } from "@rahhal/domain";
 
-import { apiRoutes } from "./routes.js";
+import { apiRoutes, reviewCoiApiRoutes } from "./routes.js";
 import { apiSchemas, type ApiSchemaName } from "./schemas.js";
 
 const schemaRef = (name: ApiSchemaName) => ({
@@ -325,6 +325,39 @@ export const openApiDocument = {
         },
       },
     },
+    [reviewCoiApiRoutes.reviewAssignmentMaterials]: {
+      get: {
+        operationId: "getReviewAssignmentMaterials",
+        tags: ["Review"],
+        summary: "Read exact frozen proposal and rubric material after clear COI",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, reviewAssignmentIdParameter],
+        responses: {
+          "200": {
+            description: "Exact assigned versions, available only to the active accepted reviewer.",
+            content: jsonContent("ReviewMaterialsSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [reviewCoiApiRoutes.declareReviewCoi]: {
+      post: {
+        operationId: "declareReviewCoi",
+        tags: ["Review"],
+        summary: "Record the assigned reviewer's one-time COI declaration",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, reviewAssignmentIdParameter],
+        requestBody: { required: true, content: jsonContent("DeclareReviewCoiBody") },
+        responses: {
+          "200": {
+            description: "The atomic COI, assignment, audit, outbox, and idempotency receipt.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
     [apiRoutes.operationsReviewAssignments]: {
       get: {
         operationId: "listOperationsReviewAssignments",
@@ -363,11 +396,27 @@ export const openApiDocument = {
         },
       },
     },
+    [reviewCoiApiRoutes.operationsReviewConflicts]: {
+      get: {
+        operationId: "listOperationsReviewConflicts",
+        tags: ["Review"],
+        summary: "List declared reviewer conflicts for cancellation or replacement",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader],
+        responses: {
+          "200": {
+            description: "A purpose-limited conflict queue without proposal or solver identity.",
+            content: jsonContent("OperationsReviewConflictListSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
     [apiRoutes.cancelReviewAssignment]: {
       post: {
         operationId: "cancelReviewAssignment",
         tags: ["Review"],
-        summary: "Cancel a pending assignment while preserving its evidence",
+        summary: "Cancel a pre-scoring assignment while preserving its evidence",
         security: [{ bearerAuth: [] }],
         parameters: [workspaceHeader, idempotencyHeader, reviewAssignmentIdParameter],
         requestBody: { required: true, content: jsonContent("CancelReviewAssignmentBody") },
@@ -384,7 +433,7 @@ export const openApiDocument = {
       post: {
         operationId: "replaceReviewAssignment",
         tags: ["Review"],
-        summary: "Cancel a pending assignment and append its replacement atomically",
+        summary: "Cancel a pre-scoring assignment and append its replacement atomically",
         security: [{ bearerAuth: [] }],
         parameters: [workspaceHeader, idempotencyHeader, reviewAssignmentIdParameter],
         requestBody: { required: true, content: jsonContent("ReplaceReviewAssignmentBody") },

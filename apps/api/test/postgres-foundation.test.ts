@@ -67,9 +67,11 @@ beforeAll(async () => {
     "0023_d2_rubric_authoring",
     "0024_d3_open_evaluation",
     "0025_d4_review_assignments",
+    "0026_d5_review_coi",
   ]);
 
   // Newest first.
+  expect((await runMigrations(database, "down")).applied).toEqual(["0026_d5_review_coi"]);
   expect((await runMigrations(database, "down")).applied).toEqual(["0025_d4_review_assignments"]);
   expect((await runMigrations(database, "down")).applied).toEqual(["0024_d3_open_evaluation"]);
   expect((await runMigrations(database, "down")).applied).toEqual(["0023_d2_rubric_authoring"]);
@@ -153,6 +155,7 @@ beforeAll(async () => {
     "0023_d2_rubric_authoring",
     "0024_d3_open_evaluation",
     "0025_d4_review_assignments",
+    "0026_d5_review_coi",
   ]);
   const noOpUp = await runMigrations(database, "up");
   expect(noOpUp.applied).toEqual([]);
@@ -312,6 +315,7 @@ describe("A1a PostgreSQL foundation", () => {
       { id: "0023_d2_rubric_authoring", checksum: expect.stringMatching(/^[0-9a-f]{64}$/) },
       { id: "0024_d3_open_evaluation", checksum: expect.stringMatching(/^[0-9a-f]{64}$/) },
       { id: "0025_d4_review_assignments", checksum: expect.stringMatching(/^[0-9a-f]{64}$/) },
+      { id: "0026_d5_review_coi", checksum: expect.stringMatching(/^[0-9a-f]{64}$/) },
     ]);
   });
 
@@ -592,6 +596,7 @@ describe("A1a PostgreSQL foundation", () => {
   });
 
   it("fails the A1b migration atomically for an orphaned existing session", async () => {
+    expect((await runMigrations(database, "down")).applied).toEqual(["0026_d5_review_coi"]);
     expect((await runMigrations(database, "down")).applied).toEqual(["0025_d4_review_assignments"]);
     expect((await runMigrations(database, "down")).applied).toEqual(["0024_d3_open_evaluation"]);
     expect((await runMigrations(database, "down")).applied).toEqual(["0023_d2_rubric_authoring"]);
@@ -702,6 +707,7 @@ describe("A1a PostgreSQL foundation", () => {
       "0023_d2_rubric_authoring",
       "0024_d3_open_evaluation",
       "0025_d4_review_assignments",
+      "0026_d5_review_coi",
     ]);
   });
 });

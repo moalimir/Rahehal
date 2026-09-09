@@ -3,12 +3,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   apiRoutes,
+  reviewCoiApiRoutes,
   type MutationSuccessEnvelope,
+  type OperationsReviewConflictListResource,
+  type OperationsReviewConflictListSuccessEnvelope,
   type OperationsReviewAssignmentListResource,
   type OperationsReviewAssignmentListSuccessEnvelope,
+  type ReviewAssignmentResource,
   type ReviewAssignmentListResource,
   type ReviewAssignmentListSuccessEnvelope,
+  type ReviewMaterialsResource,
+  type ReviewMaterialsSuccessEnvelope,
 } from "@rahhal/contracts";
+import type { ReviewCoiRelationshipCategory } from "@rahhal/domain";
 
 import { Panel, StatusBadge } from "@/components/internal/shared";
 import { RouteResolving } from "@/components/route-fallbacks";
@@ -36,8 +43,317 @@ function tehranInputToIso(value: string): string | null {
 
 function assignmentStateLabel(state: string): string {
   if (state === "coi-gate") return "در انتظار اظهار تعارض منافع";
+  if (state === "accepted") return "پذیرفته‌شده و آماده داوری";
   if (state === "cancelled") return "لغوشده";
   return state;
+}
+
+const coiCategoryLabels: Readonly<Record<ReviewCoiRelationshipCategory, string>> = {
+  employment_affiliation: "رابطه استخدامی یا سازمانی",
+  financial_interest: "منفعت مالی",
+  close_personal_relationship: "رابطه شخصی نزدیک",
+  prior_collaboration: "همکاری در ۲۴ ماه گذشته",
+  advisory_role: "نقش مشاوره‌ای",
+  other: "سایر موارد",
+};
+
+type ReviewMaterialField = keyof ReviewMaterialsResource["proposal_content"];
+const reviewMaterialGroups: ReadonlyArray<{
+  title: string;
+  rows: ReadonlyArray<{ field: ReviewMaterialField; label: string }>;
+}> = [
+  {
+    title: "مسئله و ارزش",
+    rows: [
+      { field: "title", label: "عنوان پیشنهاد" },
+      { field: "problem_statement", label: "بیان مسئله" },
+      { field: "value_proposition", label: "ارزش پیشنهادی" },
+    ],
+  },
+  {
+    title: "راهکار فنی",
+    rows: [
+      { field: "technical_approach", label: "رویکرد فنی" },
+      { field: "architecture", label: "معماری راهکار" },
+      { field: "technologies", label: "فناوری‌ها" },
+      { field: "maturity_level", label: "سطح بلوغ راهکار" },
+      { field: "data_needs", label: "داده موردنیاز" },
+      { field: "ip_status", label: "وضعیت مالکیت فکری" },
+    ],
+  },
+  {
+    title: "اجرا و زمان‌بندی",
+    rows: [
+      { field: "roadmap", label: "نقشه راه" },
+      { field: "prototype_weeks", label: "زمان نمونه اولیه" },
+      { field: "duration_weeks", label: "زمان اجرا" },
+      { field: "dependencies", label: "پیش‌نیازها و وابستگی‌ها" },
+      { field: "pilot_location", label: "محل اجرای پایلوت" },
+      { field: "start_availability", label: "زمان شروع" },
+      { field: "team_availability", label: "میزان در دسترس بودن تیم" },
+    ],
+  },
+  {
+    title: "سنجش و ریسک",
+    rows: [
+      { field: "success_metrics", label: "معیارهای موفقیت" },
+      { field: "risks", label: "ریسک‌ها" },
+      { field: "mitigation", label: "برنامه کاهش ریسک" },
+    ],
+  },
+];
+
+function reviewMaterialValue(
+  content: ReviewMaterialsResource["proposal_content"],
+  field: ReviewMaterialField,
+): string {
+  const value = content[field];
+  if (Array.isArray(value)) return value.join("، ") || "ثبت نشده";
+  const text = String(value ?? "").trim();
+  if (!text) return "ثبت نشده";
+  if (field === "prototype_weeks" || field === "duration_weeks") return `${text} هفته`;
+  return text;
+}
+
+function ReviewMaterials({
+  assignment,
+  workspaceId,
+}: {
+  assignment: ReviewAssignmentResource;
+  workspaceId: string;
+}) {
+  const [materials, setMaterials] = useState<ReviewMaterialsResource | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (assignment.state !== "accepted" || assignment.coi_status !== "clear") return;
+    void requestApi<ReviewMaterialsSuccessEnvelope>(
+      reviewCoiApiRoutes.reviewAssignmentMaterials.replace("{assignmentId}", assignment.id),
+      { headers: { "x-workspace-id": workspaceId } },
+    ).then((result) => {
+      if (result.ok) setMaterials(result.data);
+      else setError(result.error.message);
+    });
+  }, [assignment.coi_status, assignment.id, assignment.state, workspaceId]);
+
+  if (assignment.state !== "accepted" || assignment.coi_status !== "clear") return null;
+  if (error)
+    return (
+      <p className="app-field-error" role="alert">
+        {error}
+      </p>
+    );
+  if (!materials) return <p role="status">در حال دریافت نسخه‌های قفل‌شده…</p>;
+  return (
+    <section aria-label={`مواد داوری ${materials.challenge_title}`}>
+      <h3>نسخه‌های قفل‌شده برای داوری</h3>
+      <p>
+        پیشنهاد <bdi>{materials.proposal_version_id}</bdi> · معیارها{" "}
+        <bdi>{materials.rubric_version_id}</bdi>
+      </p>
+      <p>این نما فقط محتوای فنی و اجرایی مجاز همان نسخه را نشان می‌دهد.</p>
+      {reviewMaterialGroups.map((group) => (
+        <div className="app-review-material-group" key={group.title}>
+          <h4>{group.title}</h4>
+          <dl>
+            {group.rows.map((row) => (
+              <div key={row.field}>
+                <dt>{row.label}</dt>
+                <dd>{reviewMaterialValue(materials.proposal_content, row.field)}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      ))}
+      <div className="app-review-material-group">
+        <h4>معیارهای داوری</h4>
+        <ul>
+          {materials.rubric_criteria.map((criterion) => (
+            <li key={criterion.id}>
+              {criterion.label} · وزن {criterion.weight.toLocaleString("fa-IR")}٪ · امتیاز ۰ تا ۵
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
+function ReviewerAssignmentCard({
+  assignment,
+  workspaceId,
+  reload,
+}: {
+  assignment: ReviewAssignmentResource;
+  workspaceId: string;
+  reload: () => Promise<void>;
+}) {
+  const [decision, setDecision] = useState<"clear" | "conflict">("clear");
+  const [categories, setCategories] = useState<ReviewCoiRelationshipCategory[]>([]);
+  const [reason, setReason] = useState("");
+  const [attested, setAttested] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const commandKey = useRef("");
+
+  const toggleCategory = (category: ReviewCoiRelationshipCategory) =>
+    setCategories((current) =>
+      current.includes(category)
+        ? current.filter((item) => item !== category)
+        : [...current, category],
+    );
+
+  const declare = async () => {
+    if (!attested) {
+      setError("تأیید صحت اظهار لازم است.");
+      return;
+    }
+    if (decision === "conflict" && (!categories.length || !reason.trim())) {
+      setError("برای تعارض، دست‌کم یک رابطه و دلیل را ثبت کنید.");
+      return;
+    }
+    commandKey.current ||= idempotencyKey("web-review-coi");
+    setBusy(true);
+    setError("");
+    const result = await requestApi<MutationSuccessEnvelope>(
+      reviewCoiApiRoutes.declareReviewCoi.replace("{assignmentId}", assignment.id),
+      {
+        method: "POST",
+        headers: {
+          "x-workspace-id": workspaceId,
+          "idempotency-key": commandKey.current,
+        },
+        body: JSON.stringify({
+          expected_version: assignment.version,
+          status: decision,
+          relationship_categories: decision === "clear" ? [] : categories,
+          reason: decision === "clear" ? null : reason.trim(),
+          attestation: true,
+        }),
+      },
+    );
+    setBusy(false);
+    if (!result.ok) {
+      setError(result.error.message);
+      return;
+    }
+    commandKey.current = "";
+    setNotice(decision === "clear" ? "اظهار ثبت شد؛ مواد داوری باز شد." : "تعارض ثبت شد.");
+    await reload();
+  };
+
+  return (
+    <article>
+      <div>
+        <StatusBadge
+          tone={
+            assignment.overdue
+              ? "danger"
+              : assignment.coi_status === "clear"
+                ? "success"
+                : "warning"
+          }
+        >
+          {assignment.overdue
+            ? "از موعد گذشته"
+            : assignment.coi_status === "clear"
+              ? "COI روشن"
+              : "نیازمند اقدام"}
+        </StatusBadge>
+        <bdi>{assignment.id}</bdi>
+      </div>
+      <h2>{assignment.pre_coi_packet.challenge_title}</h2>
+      <p>{assignment.pre_coi_packet.organization_name}</p>
+      <p>{assignmentStateLabel(assignment.state)}</p>
+      <p>{formatTehran(assignment.due_at)}</p>
+      {notice && (
+        <p role="status" className="app-status app-status--success">
+          {notice}
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="app-field-error">
+          {error}
+        </p>
+      )}
+      {assignment.coi_status === "pending" && (
+        <fieldset className="app-review-coi">
+          <legend>اظهار تعارض منافع</legend>
+          <p>
+            تنها نام سازمان و عنوان چالش نمایش داده شده است. پیش از اظهار، محتوای پیشنهاد و معیارها
+            قابل دسترسی نیست.
+          </p>
+          <label>
+            <input
+              type="radio"
+              name={`coi-${assignment.id}`}
+              checked={decision === "clear"}
+              onChange={() => setDecision("clear")}
+            />
+            هیچ رابطه مؤثری ندارم
+          </label>
+          <label>
+            <input
+              type="radio"
+              name={`coi-${assignment.id}`}
+              checked={decision === "conflict"}
+              onChange={() => setDecision("conflict")}
+            />
+            تعارض منافع دارم
+          </label>
+          {decision === "conflict" && (
+            <>
+              <div className="app-review-coi-categories">
+                {(Object.keys(coiCategoryLabels) as ReviewCoiRelationshipCategory[]).map(
+                  (category) => (
+                    <label key={category}>
+                      <input
+                        type="checkbox"
+                        checked={categories.includes(category)}
+                        onChange={() => toggleCategory(category)}
+                      />
+                      {coiCategoryLabels[category]}
+                    </label>
+                  ),
+                )}
+              </div>
+              <label className="app-field">
+                <span>شرح تعارض</span>
+                <textarea
+                  rows={3}
+                  value={reason}
+                  onChange={(event) => setReason(event.target.value)}
+                />
+              </label>
+            </>
+          )}
+          <label>
+            <input
+              type="checkbox"
+              checked={attested}
+              onChange={(event) => setAttested(event.target.checked)}
+            />
+            صحت این اظهار و بررسی روابط ۲۴ ماه گذشته را تأیید می‌کنم.
+          </label>
+          <button
+            type="button"
+            className="app-button app-button--primary"
+            disabled={busy}
+            onClick={() => void declare()}
+          >
+            ثبت نهایی اظهار
+          </button>
+        </fieldset>
+      )}
+      {assignment.coi_status === "conflict" && (
+        <p>تعارض ثبت شده است. مواد بسته مانده و عملیات باید مأموریت را جایگزین کند.</p>
+      )}
+      <ReviewMaterials assignment={assignment} workspaceId={workspaceId} />
+      <footer>
+        <span>نسخه مأموریت {assignment.version.toLocaleString("fa-IR")}</span>
+      </footer>
+    </article>
+  );
 }
 
 export function ConnectedReviewerAssignments() {
@@ -68,7 +384,7 @@ export function ConnectedReviewerAssignments() {
   return (
     <section aria-labelledby="connected-reviewer-assignments-title">
       <h1 id="connected-reviewer-assignments-title">مأموریت‌های داوری من</h1>
-      <p>این فهرست از سرور خوانده می‌شود و تا D5 فقط اطلاعات مأموریت را نشان می‌دهد.</p>
+      <p>مواد هر مأموریت فقط پس از اظهار روشن و پذیرش سروری همان مأموریت باز می‌شود.</p>
       {error && (
         <p className="app-field-error" role="alert">
           {error}
@@ -77,40 +393,14 @@ export function ConnectedReviewerAssignments() {
       {queue?.items.length === 0 ? (
         <p className="challenge-empty-state">مأموریت فعالی برای شما ثبت نشده است.</p>
       ) : (
-        <div className="app-assignment-list">
+        <div className="app-assignment-list app-reviewer-assignment-list">
           {queue?.items.map((assignment) => (
-            <article key={assignment.id}>
-              <div>
-                <StatusBadge
-                  tone={
-                    assignment.state === "cancelled"
-                      ? "neutral"
-                      : assignment.overdue
-                        ? "danger"
-                        : "warning"
-                  }
-                >
-                  {assignment.state === "cancelled"
-                    ? "لغوشده"
-                    : assignment.overdue
-                      ? "از موعد گذشته"
-                      : "فعال"}
-                </StatusBadge>
-                <bdi>{assignment.id}</bdi>
-              </div>
-              <h2>{assignmentStateLabel(assignment.state)}</h2>
-              <p>
-                وضعیت COI:{" "}
-                {assignment.coi_status === "pending" ? "ثبت‌نشده" : assignment.coi_status}
-              </p>
-              <p>{formatTehran(assignment.due_at)}</p>
-              <footer>
-                <span>نسخه مأموریت {assignment.version.toLocaleString("fa-IR")}</span>
-                {assignment.state === "coi-gate" && (
-                  <StatusBadge tone="info">اظهار COI در D5</StatusBadge>
-                )}
-              </footer>
-            </article>
+            <ReviewerAssignmentCard
+              key={assignment.id}
+              assignment={assignment}
+              workspaceId={workspaceId!}
+              reload={load}
+            />
           ))}
         </div>
       )}
@@ -124,6 +414,7 @@ export function ConnectedOperationsReviewAssignments() {
   const runtime = useWebRuntime();
   const workspaceId = runtime.me?.active_context?.workspace_id;
   const [data, setData] = useState<OperationsReviewAssignmentListResource | null>(null);
+  const [conflicts, setConflicts] = useState<OperationsReviewConflictListResource | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState("");
@@ -137,24 +428,35 @@ export function ConnectedOperationsReviewAssignments() {
 
   const load = useCallback(async () => {
     if (!workspaceId) return;
-    const result = await requestApi<OperationsReviewAssignmentListSuccessEnvelope>(
-      apiRoutes.operationsReviewAssignments,
-      { headers: { "x-workspace-id": workspaceId } },
-    );
-    if (!result.ok) {
-      setError(result.error.message);
+    const [assignmentResult, conflictResult] = await Promise.all([
+      requestApi<OperationsReviewAssignmentListSuccessEnvelope>(
+        apiRoutes.operationsReviewAssignments,
+        { headers: { "x-workspace-id": workspaceId } },
+      ),
+      requestApi<OperationsReviewConflictListSuccessEnvelope>(
+        reviewCoiApiRoutes.operationsReviewConflicts,
+        { headers: { "x-workspace-id": workspaceId } },
+      ),
+    ]);
+    if (!assignmentResult.ok) {
+      setError(assignmentResult.error.message);
       return;
     }
-    setData(result.data);
+    if (!conflictResult.ok) {
+      setError(conflictResult.error.message);
+      return;
+    }
+    setData(assignmentResult.data);
+    setConflicts(conflictResult.data);
     setSelectedProposal((current) =>
-      result.data.evaluation_proposals.some((item) => item.proposal_id === current)
+      assignmentResult.data.evaluation_proposals.some((item) => item.proposal_id === current)
         ? current
-        : (result.data.evaluation_proposals[0]?.proposal_id ?? ""),
+        : (assignmentResult.data.evaluation_proposals[0]?.proposal_id ?? ""),
     );
     setSelectedReviewer((current) =>
-      result.data.reviewers.some((item) => item.membership_id === current)
+      assignmentResult.data.reviewers.some((item) => item.membership_id === current)
         ? current
-        : (result.data.reviewers[0]?.membership_id ?? ""),
+        : (assignmentResult.data.reviewers[0]?.membership_id ?? ""),
     );
     setError("");
   }, [workspaceId]);
@@ -245,7 +547,7 @@ export function ConnectedOperationsReviewAssignments() {
     );
   };
 
-  if (!data && !error) return <RouteResolving />;
+  if ((!data || !conflicts) && !error) return <RouteResolving />;
   return (
     <section aria-labelledby="connected-operations-reviews-title">
       <h1 id="connected-operations-reviews-title">تخصیص داوران</h1>
@@ -260,6 +562,33 @@ export function ConnectedOperationsReviewAssignments() {
           {error}
         </p>
       )}
+      <Panel title="صف تعارض منافع" eyebrow="فقط لغو یا جایگزینی؛ بدون دسترسی به پیشنهاد">
+        {conflicts?.items.length === 0 ? (
+          <p className="challenge-empty-state">تعارض ثبت‌شده‌ای در صف نیست.</p>
+        ) : (
+          <div className="app-assignment-list">
+            {conflicts?.items.map((conflict) => (
+              <article key={conflict.assignment_id}>
+                <div>
+                  <StatusBadge tone="danger">نیازمند جایگزینی</StatusBadge>
+                  <bdi>{conflict.assignment_id}</bdi>
+                </div>
+                <h3>{conflict.challenge_title}</h3>
+                <p>
+                  {conflict.organization_name} · {conflict.reviewer_display_name}
+                </p>
+                <p>
+                  {conflict.relationship_categories
+                    .map((category) => coiCategoryLabels[category])
+                    .join("، ")}
+                </p>
+                <p>{conflict.reason}</p>
+                <p>{formatTehran(conflict.declared_at)}</p>
+              </article>
+            ))}
+          </div>
+        )}
+      </Panel>
       <Panel title="مأموریت تازه" eyebrow="موعد دلخواه و آینده · بدون سقف بار کاری">
         <div className="app-form-grid">
           <label className="app-field">
@@ -356,6 +685,9 @@ export function ConnectedOperationsReviewAssignments() {
                   <p>دلیل لغو: {assignment.cancellation_reason}</p>
                 ) : (
                   <>
+                    {assignment.state === "accepted" && (
+                      <p>داور تعارضی اعلام نکرده و مأموریت را پذیرفته است.</p>
+                    )}
                     <label className="app-field">
                       <span>دلیل لغو یا جایگزینی</span>
                       <textarea

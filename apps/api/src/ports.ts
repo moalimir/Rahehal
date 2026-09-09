@@ -4,10 +4,13 @@ import type {
   ReviewAssignmentListQuery,
   OperationsReviewAssignmentListQuery,
   OperationsReviewAssignmentListResource,
+  OperationsReviewConflictListResource,
   CreateReviewAssignmentBody,
   CancelReviewAssignmentBody,
+  DeclareReviewCoiBody,
   ReplaceReviewAssignmentBody,
   ReviewAssignmentNextAction,
+  ReviewMaterialsResource,
 } from "@rahhal/contracts";
 import type {
   ChallengeApprovalBriefResource,
@@ -733,12 +736,22 @@ export interface AccessDecisionAuditPort {
 }
 
 export type ReviewerScope = WorkspaceScope & { readonly membershipId: MembershipId };
+export type ReviewerCommandContext = WorkspaceCommandContext & ReviewerScope;
 export interface ReviewPort {
   list(
     scope: ReviewerScope,
     query: ReviewAssignmentListQuery,
   ): Promise<ReviewAssignmentListResource>;
   get(scope: ReviewerScope, id: string): Promise<ReviewAssignmentResource | null>;
+  materials(scope: ReviewerScope, id: string): Promise<ReviewMaterialsResource | null>;
+  declareCoi(
+    id: string,
+    body: DeclareReviewCoiBody,
+    context: ReviewerCommandContext,
+  ): Promise<
+    MutationOutcome<import("@rahhal/domain").ReviewAssignmentId, ReviewAssignmentNextAction>
+  >;
+  listConflicts(scope: WorkspaceScope): Promise<OperationsReviewConflictListResource>;
   listOperations(
     scope: WorkspaceScope,
     query: OperationsReviewAssignmentListQuery,

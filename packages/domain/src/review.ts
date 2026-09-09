@@ -12,12 +12,26 @@ export const reviewStates = [
 export type ReviewState = (typeof reviewStates)[number];
 export const reviewCoiStates = ["pending", "clear", "conflict"] as const;
 export type ReviewCoiState = (typeof reviewCoiStates)[number];
+export const reviewCoiRelationshipCategories = [
+  "employment_affiliation",
+  "financial_interest",
+  "close_personal_relationship",
+  "prior_collaboration",
+  "advisory_role",
+  "other",
+] as const;
+export type ReviewCoiRelationshipCategory = (typeof reviewCoiRelationshipCategories)[number];
 
 export function isReviewState(value: unknown): value is ReviewState {
   return reviewStates.includes(value as ReviewState);
 }
 export function isReviewCoiState(value: unknown): value is ReviewCoiState {
   return reviewCoiStates.includes(value as ReviewCoiState);
+}
+export function isReviewCoiRelationshipCategory(
+  value: unknown,
+): value is ReviewCoiRelationshipCategory {
+  return reviewCoiRelationshipCategories.includes(value as ReviewCoiRelationshipCategory);
 }
 
 export const reviewTransitions: readonly Transition<ReviewState>[] = [
@@ -88,6 +102,8 @@ export const reviewOutboxEventTypes = [
   "review.assignment.created",
   "review.assignment.cancelled",
   "review.assignment.replaced",
+  "review.assignment.accepted",
+  "review.coi.conflict_declared",
 ] as const;
 export type ReviewOutboxEventType = (typeof reviewOutboxEventTypes)[number];
 

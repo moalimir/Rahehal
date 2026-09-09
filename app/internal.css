@@ -2633,6 +2633,46 @@
   justify-content: space-between;
   color: var(--app-muted);
 }
+.app-reviewer-assignment-list {
+  grid-template-columns: minmax(0, 1fr);
+}
+.app-review-coi {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid var(--app-line);
+  border-radius: 12px;
+}
+.app-review-coi > label,
+.app-review-coi-categories label {
+  display: flex;
+  gap: 8px;
+  align-items: start;
+}
+.app-review-coi-categories {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+}
+.app-review-material-group {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--app-line);
+}
+.app-review-material-group dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 18px;
+}
+.app-review-material-group dt {
+  color: var(--app-muted);
+  font-size: 12px;
+}
+.app-review-material-group dd {
+  margin: 3px 0 0;
+  white-space: pre-wrap;
+}
 .app-coi-options {
   display: grid;
   grid-template-columns: repeat(2, 1fr);

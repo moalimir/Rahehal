@@ -3,14 +3,21 @@ import type {
   ReviewAssignmentResource,
   ReviewAssignmentListResource,
   OperationsReviewAssignmentListResource,
+  OperationsReviewConflictListResource,
   ReviewAssignmentNextAction,
+  ReviewMaterialsResource,
 } from "@rahhal/contracts";
 import { isActiveReviewAssignmentState, type ReviewAssignmentId } from "@rahhal/domain";
 import { ApiProblem } from "./errors.js";
 import type { ReviewerScope, ReviewPort, MutationOutcome } from "./ports.js";
 
-export type DemoReviewAssignment = Omit<ReviewAssignmentResource, "overdue"> & {
+export type DemoReviewAssignment = Omit<
+  ReviewAssignmentResource,
+  "overdue" | "pre_coi_packet" | "coi_declaration"
+> & {
   readonly scope: ReviewerScope;
+  readonly pre_coi_packet?: ReviewAssignmentResource["pre_coi_packet"];
+  readonly coi_declaration?: ReviewAssignmentResource["coi_declaration"];
 };
 /** Explicit demo adapter; session and membership authority remain in the unit of work. */
 export class InMemoryReviewAdapter implements ReviewPort {
@@ -27,10 +34,20 @@ export class InMemoryReviewAdapter implements ReviewPort {
           row.scope.tenantId === scope.tenantId &&
           row.scope.workspaceId === scope.workspaceId,
       )
-      .map(({ id, state, coi_status, due_at, version }) => ({
+      .map(({ id, state, coi_status, due_at, version, pre_coi_packet, coi_declaration }) => ({
         id,
         state,
         coi_status,
+        pre_coi_packet: pre_coi_packet ?? {
+          organization_name: "سازمان نمایشی",
+          challenge_title: "چالش نمایشی",
+        },
+        coi_declaration: coi_declaration ?? {
+          status: coi_status,
+          relationship_categories: [],
+          reason: null,
+          declared_at: null,
+        },
         due_at,
         overdue: new Date(due_at).getTime() < Date.now(),
         version,
@@ -52,6 +69,15 @@ export class InMemoryReviewAdapter implements ReviewPort {
   }
   async get(scope: ReviewerScope, id: string): Promise<ReviewAssignmentResource | null> {
     return this.own(scope).find((row) => row.id === id) ?? null;
+  }
+  async materials(): Promise<ReviewMaterialsResource | null> {
+    throw unavailable();
+  }
+  async declareCoi(): Promise<MutationOutcome<ReviewAssignmentId, ReviewAssignmentNextAction>> {
+    throw unavailable();
+  }
+  async listConflicts(): Promise<OperationsReviewConflictListResource> {
+    throw unavailable();
   }
   async listOperations(): Promise<OperationsReviewAssignmentListResource> {
     throw unavailable();

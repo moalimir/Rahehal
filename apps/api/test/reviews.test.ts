@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   apiRoutes,
+  reviewCoiApiRoutes,
   type ErrorEnvelope,
   type ReviewAssignmentListSuccessEnvelope,
   type ReviewAssignmentSuccessEnvelope,
@@ -80,10 +81,12 @@ describe("D1 reviewer boundary", () => {
     expect(page.items.map((row) => row.id)).toEqual(["rva_alpha_001"]);
     expect(page.next_cursor).toBe("rva_alpha_001");
     expect(Object.keys(page.items[0]!).sort()).toEqual([
+      "coi_declaration",
       "coi_status",
       "due_at",
       "id",
       "overdue",
+      "pre_coi_packet",
       "state",
       "version",
     ]);
@@ -134,18 +137,49 @@ describe("D1 reviewer boundary", () => {
       id: "rva_alpha_001",
       state: "coi-gate",
       coi_status: "pending",
+      pre_coi_packet: {
+        organization_name: "سازمان نمایشی",
+        challenge_title: "چالش نمایشی",
+      },
+      coi_declaration: {
+        status: "pending",
+        relationship_categories: [],
+        reason: null,
+        declared_at: null,
+      },
       due_at: "2027-01-01T00:00:00.000Z",
       overdue: false,
       version: 1,
     });
-    for (const suffix of ["/materials", "/review:save-draft", "/coi:declare"]) {
-      const denied = await app.inject({
-        method: suffix === "/materials" ? "GET" : "POST",
-        url: `${apiRoutes.reviewAssignments}/rva_alpha_001${suffix}`,
-        headers: headers(),
-      });
-      expect(denied.statusCode).toBe(404);
-    }
+    const materials = await app.inject({
+      url: reviewCoiApiRoutes.reviewAssignmentMaterials.replace("{assignmentId}", "rva_alpha_001"),
+      headers: headers(),
+    });
+    expect(materials.statusCode).toBe(503);
+    expect(materials.json<ErrorEnvelope>().error.code).toBe("STORAGE");
+    const declaration = await app.inject({
+      method: "POST",
+      url: reviewCoiApiRoutes.declareReviewCoi.replace("{assignmentId}", "rva_alpha_001"),
+      headers: { ...headers(), "idempotency-key": "demo-coi-is-unavailable" },
+      payload: {
+        expected_version: 1,
+        status: "clear",
+        relationship_categories: [],
+        reason: null,
+        attestation: true,
+      },
+    });
+    expect(declaration.statusCode).toBe(503);
+    expect(declaration.json<ErrorEnvelope>().error.code).toBe("STORAGE");
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `${apiRoutes.reviewAssignments}/rva_alpha_001/review:save-draft`,
+          headers: headers(),
+        })
+      ).statusCode,
+    ).toBe(404);
   });
   it.each(["owner", "solver", "platformOps"] as const)(
     "denies %s rather than treating a platform role as a reviewer grant",
@@ -217,6 +251,15 @@ describe("D1 reviewer boundary", () => {
           throw new Error("store unavailable");
         },
         async get() {
+          throw new Error("store unavailable");
+        },
+        async materials() {
+          throw new Error("store unavailable");
+        },
+        async declareCoi() {
+          throw new Error("store unavailable");
+        },
+        async listConflicts() {
           throw new Error("store unavailable");
         },
         async listOperations() {
