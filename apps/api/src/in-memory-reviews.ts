@@ -6,6 +6,7 @@ import type {
   OperationsReviewConflictListResource,
   ReviewAssignmentNextAction,
   ReviewMaterialsResource,
+  ReviewResource,
 } from "@rahhal/contracts";
 import { isActiveReviewAssignmentState, type ReviewAssignmentId } from "@rahhal/domain";
 import { ApiProblem } from "./errors.js";
@@ -73,7 +74,16 @@ export class InMemoryReviewAdapter implements ReviewPort {
   async materials(): Promise<ReviewMaterialsResource | null> {
     throw unavailable();
   }
+  async review(): Promise<ReviewResource | null> {
+    throw unavailable();
+  }
   async declareCoi(): Promise<MutationOutcome<ReviewAssignmentId, ReviewAssignmentNextAction>> {
+    throw unavailable();
+  }
+  async saveDraft(): Promise<MutationOutcome<ReviewAssignmentId, ReviewAssignmentNextAction>> {
+    throw unavailable();
+  }
+  async submit(): Promise<MutationOutcome<ReviewAssignmentId, ReviewAssignmentNextAction>> {
     throw unavailable();
   }
   async listConflicts(): Promise<OperationsReviewConflictListResource> {
@@ -89,6 +99,12 @@ export class InMemoryReviewAdapter implements ReviewPort {
     throw unavailable();
   }
   async replace(): Promise<MutationOutcome<ReviewAssignmentId, ReviewAssignmentNextAction>> {
+    throw unavailable();
+  }
+  async lock(): Promise<MutationOutcome<ReviewAssignmentId, ReviewAssignmentNextAction>> {
+    throw unavailable();
+  }
+  async invalidate(): Promise<MutationOutcome<ReviewAssignmentId, ReviewAssignmentNextAction>> {
     throw unavailable();
   }
 }

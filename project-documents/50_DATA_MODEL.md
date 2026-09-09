@@ -187,7 +187,9 @@ Offer mutations require `expected_version` and tenant-scoped idempotency and com
 
 **D5 executable COI gate:** migration `0026_d5_review_coi` adds one immutable `review_assignment_packet` snapshot per assignment containing only the organization name and challenge title needed to identify a conflict. It extends `coi_declaration` with validated relationship categories, a reason, declaring actor and server timestamp, and admits exactly one immutable `pending -> clear|conflict` transition by the assigned active reviewer. A clear declaration advances the assignment from `coi-gate` version 1 to `accepted` version 2; a conflict preserves `coi-gate` with version 2 and can never unlock material. Pre-scoring cancellation/replacement now accepts either state and retains the declaration and packet on the cancelled row. The material query requires the same active reviewer membership/user, accepted assignment and clear declaration, selects the exact frozen proposal/rubric versions, and constructs a field-level technical/delivery projection that excludes solver identity, team history, commercial terms, declarations and attachment identifiers. Rollback refuses once final COI or accepted-assignment evidence exists.
 
-The SQL below is a consolidated target sketch, not the executable shape of the delivered D1-D5 tables or a claim that scoring/decision writes exist. D6-D9 supply review/decision commands. Conflicts cannot be overridden into material access.
+**D6 executable score evidence:** migration `0027_d6_review_scoring` adds one `review_scorecard` per assignment with versioned draft scores, a server-calculated weighted result in integer tenths, and attributable submission, lock and invalidation timestamps/reasons. PostgreSQL validates draft shape and the exact assigned rubric, requires complete 0-5 integer scores plus rationale at submission, and permits only the correlated `accepted -> draft -> submitted -> locked -> invalidated` assignment transitions. Submitted score arrays cannot change. Lock and invalidation require active Operations actors distinct from the reviewer; invalidation also excludes any current owner/member of the challenge organization. Operations may cancel an unfinished draft, and replacement after cancellation or invalidation appends a new assignment for the same frozen evidence and a reviewer absent from proposal history. Rollback refuses once any D6 score/state evidence exists.
+
+The SQL below is a consolidated target sketch, not the executable shape of the delivered D1-D6 tables or a claim that decision writes exist. D7-D9 supply comparison/decision commands. Conflicts cannot be overridden into material access.
 
 ```sql
 CREATE TABLE rubric (
@@ -215,7 +217,7 @@ CREATE TABLE review_assignment (
   UNIQUE (proposal_version_id, reviewer_user_id)
 );
 
--- COI as a first-class record (D8, X-07) — replaces localStorage flag
+-- COI as a first-class record — replaces the connected browser's demo flag
 CREATE TABLE coi_declaration (
   id            text PRIMARY KEY,
   assignment_id text NOT NULL UNIQUE REFERENCES review_assignment(id),
@@ -227,15 +229,17 @@ CREATE TABLE coi_declaration (
   updated_at    timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE review (
+CREATE TABLE review_scorecard (
   id            text PRIMARY KEY,            -- rev_*
-  assignment_id text NOT NULL REFERENCES review_assignment(id),
-  scores        jsonb NOT NULL,             -- [{criterion_id, value, rationale}] — rationale required
-  overall_rationale text NOT NULL,
+  assignment_id text NOT NULL UNIQUE REFERENCES review_assignment(id),
+  scores        jsonb NOT NULL,             -- [{criterion_id, value, rationale}]; complete rationale at submit
+  review_version bigint NOT NULL,
+  weighted_score_tenths smallint,
   submitted_at  timestamptz,
-  receipt_id    text,
-  locked        boolean NOT NULL DEFAULT false,
-  UNIQUE (assignment_id)
+  lock_reason   text,
+  locked_at     timestamptz,
+  invalidation_reason text,
+  invalidated_at timestamptz
 );
 
 CREATE TABLE decision (

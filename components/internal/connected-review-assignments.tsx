@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   apiRoutes,
   reviewCoiApiRoutes,
+  reviewScoringApiRoutes,
   type MutationSuccessEnvelope,
   type OperationsReviewConflictListResource,
   type OperationsReviewConflictListSuccessEnvelope,
@@ -14,8 +15,10 @@ import {
   type ReviewAssignmentListSuccessEnvelope,
   type ReviewMaterialsResource,
   type ReviewMaterialsSuccessEnvelope,
+  type ReviewResource,
+  type ReviewSuccessEnvelope,
 } from "@rahhal/contracts";
-import type { ReviewCoiRelationshipCategory } from "@rahhal/domain";
+import type { CriterionScore, ReviewCoiRelationshipCategory } from "@rahhal/domain";
 
 import { Panel, StatusBadge } from "@/components/internal/shared";
 import { RouteResolving } from "@/components/route-fallbacks";
@@ -44,6 +47,10 @@ function tehranInputToIso(value: string): string | null {
 function assignmentStateLabel(state: string): string {
   if (state === "coi-gate") return "در انتظار اظهار تعارض منافع";
   if (state === "accepted") return "پذیرفته‌شده و آماده داوری";
+  if (state === "draft") return "پیش‌نویس داوری";
+  if (state === "submitted") return "ثبت‌شده و در انتظار قفل عملیات";
+  if (state === "locked") return "قفل‌شده و کامل";
+  if (state === "invalidated") return "باطل‌شده";
   if (state === "cancelled") return "لغوشده";
   return state;
 }
@@ -115,27 +122,256 @@ function reviewMaterialValue(
   return text;
 }
 
+function ReviewScorecard({
+  assignment,
+  materials,
+  review,
+  workspaceId,
+  reload,
+}: {
+  assignment: ReviewAssignmentResource;
+  materials: ReviewMaterialsResource;
+  review: ReviewResource | null;
+  workspaceId: string;
+  reload: () => Promise<void>;
+}) {
+  const initialDraft = useCallback(() => {
+    const existing = new Map(review?.scores.map((score) => [score.criterion_id, score]));
+    return Object.fromEntries(
+      materials.rubric_criteria.map((criterion) => {
+        const score = existing.get(criterion.id);
+        return [
+          criterion.id,
+          { value: score ? String(score.value) : "", rationale: score?.rationale ?? "" },
+        ];
+      }),
+    ) as Record<string, { value: string; rationale: string }>;
+  }, [materials.rubric_criteria, review]);
+  const [draft, setDraft] = useState(initialDraft);
+  const [dirty, setDirty] = useState(false);
+  const [busy, setBusy] = useState<"save" | "submit" | "">("");
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const commandKeys = useRef(new Map<string, string>());
+
+  useEffect(() => {
+    setDraft(initialDraft());
+    setDirty(false);
+  }, [initialDraft]);
+
+  const setField = (criterionId: string, field: "value" | "rationale", value: string) => {
+    setDraft((current) => ({
+      ...current,
+      [criterionId]: { ...current[criterionId]!, [field]: value },
+    }));
+    setDirty(true);
+    setNotice("");
+  };
+  const enteredScores = (): readonly CriterionScore[] | null => {
+    const scores: CriterionScore[] = [];
+    for (const criterion of materials.rubric_criteria) {
+      const entry = draft[criterion.id]!;
+      const started = entry.value !== "" || entry.rationale !== "";
+      if (!started) continue;
+      if (entry.value === "") return null;
+      scores.push({
+        criterion_id: criterion.id,
+        value: Number(entry.value),
+        rationale: entry.rationale,
+      });
+    }
+    return scores;
+  };
+  const command = async (kind: "save" | "submit", path: string, body: Record<string, unknown>) => {
+    const keyName = `${kind}-${assignment.id}-${assignment.version}`;
+    const key = commandKeys.current.get(keyName) ?? idempotencyKey(`web-review-${kind}`);
+    commandKeys.current.set(keyName, key);
+    setBusy(kind);
+    setError("");
+    const result = await requestApi<MutationSuccessEnvelope>(path, {
+      method: "POST",
+      headers: { "x-workspace-id": workspaceId, "idempotency-key": key },
+      body: JSON.stringify(body),
+    });
+    setBusy("");
+    if (!result.ok) {
+      setError(result.error.message);
+      return;
+    }
+    commandKeys.current.delete(keyName);
+    setNotice(
+      kind === "save"
+        ? `پیش‌نویس ذخیره شد · رسید ${result.data.receipt_id}`
+        : `داوری نهایی ثبت شد · رسید ${result.data.receipt_id}`,
+    );
+    await reload();
+  };
+  const save = () => {
+    const scores = enteredScores();
+    if (!scores) {
+      setError("برای هر معیاری که شروع کرده‌اید، امتیاز ۰ تا ۵ را انتخاب کنید.");
+      return;
+    }
+    void command(
+      "save",
+      reviewScoringApiRoutes.saveReviewDraft.replace("{assignmentId}", assignment.id),
+      { expected_version: assignment.version, scores },
+    );
+  };
+  const submit = () => {
+    if (dirty) {
+      setError("ابتدا تغییرات پیش‌نویس را ذخیره کنید.");
+      return;
+    }
+    void command(
+      "submit",
+      reviewScoringApiRoutes.submitReview.replace("{assignmentId}", assignment.id),
+      { expected_version: assignment.version },
+    );
+  };
+  const savedComplete =
+    review?.scores.length === materials.rubric_criteria.length &&
+    review.scores.every((score) => score.rationale.trim().length > 0);
+  const previewScores = enteredScores();
+  const preview =
+    previewScores && previewScores.length === materials.rubric_criteria.length
+      ? materials.rubric_criteria.reduce((sum, criterion) => {
+          const score = previewScores.find((item) => item.criterion_id === criterion.id);
+          return sum + criterion.weight * (score?.value ?? 0);
+        }, 0) / 5
+      : null;
+  const editable = assignment.state === "accepted" || assignment.state === "draft";
+
+  return (
+    <section className="app-review-scorecard" aria-labelledby={`scorecard-${assignment.id}`}>
+      <h3 id={`scorecard-${assignment.id}`}>امتیازدهی معیارنامه</h3>
+      <p>امتیاز هر معیار عدد صحیح از ۰ تا ۵ است و ثبت نهایی برای همه معیارها دلیل می‌خواهد.</p>
+      {notice && (
+        <p role="status" className="app-status app-status--success">
+          <bdi>{notice}</bdi>
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="app-field-error">
+          {error}
+        </p>
+      )}
+      {materials.rubric_criteria.map((criterion) => {
+        const entry = draft[criterion.id]!;
+        return (
+          <fieldset key={criterion.id} className="app-review-score-criterion" disabled={!editable}>
+            <legend>
+              {criterion.label} · وزن {criterion.weight.toLocaleString("fa-IR")}٪
+            </legend>
+            <label className="app-field">
+              <span>امتیاز {criterion.label}</span>
+              <select
+                value={entry.value}
+                onChange={(event) => setField(criterion.id, "value", event.target.value)}
+              >
+                <option value="">انتخاب کنید</option>
+                {[0, 1, 2, 3, 4, 5].map((value) => (
+                  <option key={value} value={value}>
+                    {value.toLocaleString("fa-IR")}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="app-field">
+              <span>دلیل امتیاز {criterion.label}</span>
+              <textarea
+                rows={4}
+                maxLength={4000}
+                value={entry.rationale}
+                onChange={(event) => setField(criterion.id, "rationale", event.target.value)}
+              />
+            </label>
+          </fieldset>
+        );
+      })}
+      <div className="app-review-score-total" aria-live="polite">
+        <strong>
+          {review?.weighted_score_tenths !== null && review?.weighted_score_tenths !== undefined
+            ? (review.weighted_score_tenths / 10).toLocaleString("fa-IR")
+            : preview === null
+              ? "—"
+              : preview.toLocaleString("fa-IR")}
+        </strong>
+        <span>امتیاز وزنی از ۱۰۰</span>
+      </div>
+      {editable ? (
+        <footer className="app-form-footer">
+          <button
+            type="button"
+            className="app-button app-button--secondary"
+            disabled={Boolean(busy)}
+            onClick={save}
+          >
+            ذخیره پیش‌نویس
+          </button>
+          <button
+            type="button"
+            className="app-button app-button--primary"
+            disabled={Boolean(busy) || assignment.state !== "draft" || !savedComplete || dirty}
+            onClick={submit}
+          >
+            ثبت نهایی داوری
+          </button>
+        </footer>
+      ) : (
+        <p>
+          {assignment.state === "submitted"
+            ? "داوری ثبت شده و در انتظار قفل صریح عملیات است."
+            : "داوری قفل شده و دیگر قابل ویرایش نیست."}
+        </p>
+      )}
+    </section>
+  );
+}
+
 function ReviewMaterials({
   assignment,
   workspaceId,
+  reload,
 }: {
   assignment: ReviewAssignmentResource;
   workspaceId: string;
+  reload: () => Promise<void>;
 }) {
   const [materials, setMaterials] = useState<ReviewMaterialsResource | null>(null);
+  const [review, setReview] = useState<ReviewResource | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
-    if (assignment.state !== "accepted" || assignment.coi_status !== "clear") return;
-    void requestApi<ReviewMaterialsSuccessEnvelope>(
-      reviewCoiApiRoutes.reviewAssignmentMaterials.replace("{assignmentId}", assignment.id),
-      { headers: { "x-workspace-id": workspaceId } },
-    ).then((result) => {
-      if (result.ok) setMaterials(result.data);
-      else setError(result.error.message);
+    if (
+      !["accepted", "draft", "submitted", "locked"].includes(assignment.state) ||
+      assignment.coi_status !== "clear"
+    )
+      return;
+    void Promise.all([
+      requestApi<ReviewMaterialsSuccessEnvelope>(
+        reviewCoiApiRoutes.reviewAssignmentMaterials.replace("{assignmentId}", assignment.id),
+        { headers: { "x-workspace-id": workspaceId } },
+      ),
+      requestApi<ReviewSuccessEnvelope>(
+        reviewScoringApiRoutes.reviewAssignmentReview.replace("{assignmentId}", assignment.id),
+        { headers: { "x-workspace-id": workspaceId } },
+      ),
+    ]).then(([materialsResult, reviewResult]) => {
+      if (!materialsResult.ok) setError(materialsResult.error.message);
+      else if (!reviewResult.ok) setError(reviewResult.error.message);
+      else {
+        setMaterials(materialsResult.data);
+        setReview(reviewResult.data);
+        setError("");
+      }
     });
-  }, [assignment.coi_status, assignment.id, assignment.state, workspaceId]);
+  }, [assignment.coi_status, assignment.id, assignment.state, assignment.version, workspaceId]);
 
-  if (assignment.state !== "accepted" || assignment.coi_status !== "clear") return null;
+  if (
+    !["accepted", "draft", "submitted", "locked"].includes(assignment.state) ||
+    assignment.coi_status !== "clear"
+  )
+    return null;
   if (error)
     return (
       <p className="app-field-error" role="alert">
@@ -174,6 +410,13 @@ function ReviewMaterials({
           ))}
         </ul>
       </div>
+      <ReviewScorecard
+        assignment={assignment}
+        materials={materials}
+        review={review}
+        workspaceId={workspaceId}
+        reload={reload}
+      />
     </section>
   );
 }
@@ -348,7 +591,7 @@ function ReviewerAssignmentCard({
       {assignment.coi_status === "conflict" && (
         <p>تعارض ثبت شده است. مواد بسته مانده و عملیات باید مأموریت را جایگزین کند.</p>
       )}
-      <ReviewMaterials assignment={assignment} workspaceId={workspaceId} />
+      <ReviewMaterials assignment={assignment} workspaceId={workspaceId} reload={reload} />
       <footer>
         <span>نسخه مأموریت {assignment.version.toLocaleString("fa-IR")}</span>
       </footer>
@@ -547,6 +790,26 @@ export function ConnectedOperationsReviewAssignments() {
     );
   };
 
+  const transitionReview = (
+    assignment: OperationsReviewAssignmentListResource["assignments"][number],
+    kind: "lock" | "invalidate",
+  ) => {
+    const reason = reasons[assignment.id]?.trim() ?? "";
+    if (!reason) {
+      setError(kind === "lock" ? "دلیل قفل را ثبت کنید." : "دلیل ابطال را ثبت کنید.");
+      return;
+    }
+    const route = (
+      kind === "lock" ? reviewScoringApiRoutes.lockReview : reviewScoringApiRoutes.invalidateReview
+    ).replace("{assignmentId}", assignment.id);
+    void command(
+      `review-${kind}-${assignment.id}-${assignment.version}-${reason}`,
+      route,
+      { expected_version: assignment.version, reason },
+      kind === "lock" ? "داوری قفل شد" : "داوری باطل شد و جایگزین لازم است",
+    );
+  };
+
   if ((!data || !conflicts) && !error) return <RouteResolving />;
   return (
     <section aria-labelledby="connected-operations-reviews-title">
@@ -663,16 +926,26 @@ export function ConnectedOperationsReviewAssignments() {
                     tone={
                       assignment.state === "cancelled"
                         ? "neutral"
-                        : assignment.overdue
+                        : assignment.state === "invalidated"
                           ? "danger"
-                          : "info"
+                          : assignment.state === "locked"
+                            ? "success"
+                            : assignment.overdue
+                              ? "danger"
+                              : "info"
                     }
                   >
                     {assignment.state === "cancelled"
                       ? "لغوشده"
-                      : assignment.overdue
-                        ? "از موعد گذشته"
-                        : "فعال"}
+                      : assignment.state === "invalidated"
+                        ? "باطل‌شده"
+                        : assignment.state === "locked"
+                          ? "قفل‌شده"
+                          : assignment.state === "submitted"
+                            ? "آماده قفل"
+                            : assignment.overdue
+                              ? "از موعد گذشته"
+                              : "فعال"}
                   </StatusBadge>
                   <bdi>{assignment.id}</bdi>
                 </div>
@@ -683,6 +956,134 @@ export function ConnectedOperationsReviewAssignments() {
                 <p>{formatTehran(assignment.due_at)}</p>
                 {assignment.state === "cancelled" ? (
                   <p>دلیل لغو: {assignment.cancellation_reason}</p>
+                ) : assignment.state === "submitted" ? (
+                  <>
+                    <p>
+                      امتیاز وزنی:{" "}
+                      {assignment.review_summary?.weighted_score_tenths === null ||
+                      assignment.review_summary?.weighted_score_tenths === undefined
+                        ? "—"
+                        : (assignment.review_summary.weighted_score_tenths / 10).toLocaleString(
+                            "fa-IR",
+                          ) + " از ۱۰۰"}
+                    </p>
+                    <label className="app-field">
+                      <span>دلیل قفل</span>
+                      <textarea
+                        rows={3}
+                        value={reasons[assignment.id] ?? ""}
+                        onChange={(event) =>
+                          setReasons((current) => ({
+                            ...current,
+                            [assignment.id]: event.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="app-button app-button--primary"
+                      disabled={Boolean(busy)}
+                      onClick={() => transitionReview(assignment, "lock")}
+                    >
+                      قفل داوری
+                    </button>
+                  </>
+                ) : assignment.state === "locked" ? (
+                  <>
+                    <p>
+                      امتیاز وزنی{" "}
+                      {(
+                        (assignment.review_summary?.weighted_score_tenths ?? 0) / 10
+                      ).toLocaleString("fa-IR")}{" "}
+                      از ۱۰۰ · این داوری در شمارش کامل بودن معتبر است.
+                    </p>
+                    <p>دلیل قفل: {assignment.review_summary?.lock_reason}</p>
+                    <label className="app-field">
+                      <span>دلیل ابطال</span>
+                      <textarea
+                        rows={3}
+                        value={reasons[assignment.id] ?? ""}
+                        onChange={(event) =>
+                          setReasons((current) => ({
+                            ...current,
+                            [assignment.id]: event.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="app-button app-button--secondary"
+                      disabled={Boolean(busy)}
+                      onClick={() => transitionReview(assignment, "invalidate")}
+                    >
+                      ابطال داوری
+                    </button>
+                  </>
+                ) : assignment.state === "invalidated" ? (
+                  <>
+                    <p>دلیل ابطال: {assignment.review_summary?.invalidation_reason}</p>
+                    <p>داوری باطل‌شده حفظ شده است و برای تکمیل ارزیابی باید داور تازه تعیین شود.</p>
+                    <label className="app-field">
+                      <span>دلیل جایگزینی</span>
+                      <textarea
+                        rows={3}
+                        value={reasons[assignment.id] ?? ""}
+                        onChange={(event) =>
+                          setReasons((current) => ({
+                            ...current,
+                            [assignment.id]: event.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="app-field">
+                      <span>داور جایگزین</span>
+                      <select
+                        value={replacementReviewers[assignment.id] ?? ""}
+                        onChange={(event) =>
+                          setReplacementReviewers((current) => ({
+                            ...current,
+                            [assignment.id]: event.target.value,
+                          }))
+                        }
+                      >
+                        <option value="">انتخاب کنید</option>
+                        {data.reviewers
+                          .filter(
+                            (reviewer) =>
+                              reviewer.membership_id !== assignment.reviewer_membership_id,
+                          )
+                          .map((reviewer) => (
+                            <option key={reviewer.membership_id} value={reviewer.membership_id}>
+                              {reviewer.display_name}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                    <label className="app-field">
+                      <span>موعد جایگزین به وقت تهران (UTC+3:30)</span>
+                      <input
+                        type="datetime-local"
+                        value={replacementDueDates[assignment.id] ?? dueAt}
+                        onChange={(event) =>
+                          setReplacementDueDates((current) => ({
+                            ...current,
+                            [assignment.id]: event.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="app-button app-button--primary"
+                      disabled={Boolean(busy)}
+                      onClick={() => updateAssignment(assignment, "replace")}
+                    >
+                      ثبت جایگزین
+                    </button>
+                  </>
                 ) : (
                   <>
                     {assignment.state === "accepted" && (

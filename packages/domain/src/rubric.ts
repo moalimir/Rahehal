@@ -77,20 +77,18 @@ export type RubricScoreResult =
   | { readonly ok: true; readonly weighted_score_tenths: number }
   | { readonly ok: false; readonly issues: readonly RubricIssue[] };
 
-/** A complete score is an integer number of tenths, from 0 to 1000 (display /10). */
-export function calculateRubricScore(
+/** Drafts may be incomplete, but every value they do contain is bounded and exact-version. */
+export function validateRubricScoreDraft(
   criteria: readonly RubricCriterion[],
   value: unknown,
-): RubricScoreResult {
+): readonly RubricIssue[] {
   const issues = [...validateRubricCriteria(criteria)];
-  if (issues.length) return { ok: false, issues };
+  if (issues.length) return issues;
   if (!Array.isArray(value))
-    return {
-      ok: false,
-      issues: [{ path: "scores", code: "required", message: "Criterion scores are required" }],
-    };
+    return [{ path: "scores", code: "required", message: "Criterion scores are required" }];
+  if (value.length > criteria.length)
+    issues.push({ path: "scores", code: "invalid", message: "Too many criterion scores" });
   const seen = new Set<string>();
-  let weighted = 0;
   value.forEach((item: unknown, index: number) => {
     const path = `scores.${index}`;
     if (!isRecord(item)) {
@@ -126,7 +124,33 @@ export function calculateRubricScore(
         code: "invalid",
         message: "Score must be a whole number from 0 to 5",
       });
-    else weighted += criterion.weight * item.value;
+    if (typeof item.rationale !== "string" || item.rationale.length > 4000)
+      issues.push({
+        path: `${path}.rationale`,
+        code: "invalid",
+        message: "Rationale must be text up to 4000 characters",
+      });
+  });
+  return issues;
+}
+
+/** A complete score is an integer number of tenths, from 0 to 1000 (display /10). */
+export function calculateRubricScore(
+  criteria: readonly RubricCriterion[],
+  value: unknown,
+): RubricScoreResult {
+  const issues = [...validateRubricScoreDraft(criteria, value)];
+  if (issues.length) return { ok: false, issues };
+  if (!Array.isArray(value)) throw new Error("Validated score input must be an array");
+  const seen = new Set<string>();
+  let weighted = 0;
+  value.forEach((item: unknown, index: number) => {
+    const path = `scores.${index}`;
+    if (!isRecord(item)) throw new Error("Validated score item must be an object");
+    const criterion = criteria.find((entry) => entry.id === item.criterion_id);
+    if (!criterion) throw new Error("Validated score must reference a criterion");
+    seen.add(criterion.id);
+    weighted += criterion.weight * (item.value as number);
     if (
       typeof item.rationale !== "string" ||
       item.rationale.trim().length < 1 ||

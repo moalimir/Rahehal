@@ -106,6 +106,15 @@ export const reviewCoiApiRoutes = {
   operationsReviewConflicts: "/api/v1/operations/review-conflicts",
 } as const;
 
+/** Connected D6 scoring routes kept out of the static demo's shared transport chunk. */
+export const reviewScoringApiRoutes = {
+  reviewAssignmentReview: "/api/v1/assignments/{assignmentId}/review",
+  saveReviewDraft: "/api/v1/assignments/{assignmentId}/review:save-draft",
+  submitReview: "/api/v1/assignments/{assignmentId}/review:submit",
+  lockReview: "/api/v1/operations/review-assignments/{assignmentId}:lock",
+  invalidateReview: "/api/v1/operations/review-assignments/{assignmentId}:invalidate",
+} as const;
+
 /**
  * Same-origin browser transport owned by the web runtime. These routes are
  * intentionally separate from the bearer-token OpenAPI surface: they adapt

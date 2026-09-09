@@ -1,6 +1,6 @@
 import { challengeManagedStages, reviewStates } from "@rahhal/domain";
 
-import { apiRoutes, reviewCoiApiRoutes } from "./routes.js";
+import { apiRoutes, reviewCoiApiRoutes, reviewScoringApiRoutes } from "./routes.js";
 import { apiSchemas, type ApiSchemaName } from "./schemas.js";
 
 const schemaRef = (name: ApiSchemaName) => ({
@@ -358,6 +358,56 @@ export const openApiDocument = {
         },
       },
     },
+    [reviewScoringApiRoutes.reviewAssignmentReview]: {
+      get: {
+        operationId: "getOwnReview",
+        tags: ["Review"],
+        summary: "Read the assigned reviewer's own draft or final review",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, reviewAssignmentIdParameter],
+        responses: {
+          "200": {
+            description: "The assignment-scoped scorecard, or null before the first draft save.",
+            content: jsonContent("ReviewSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [reviewScoringApiRoutes.saveReviewDraft]: {
+      post: {
+        operationId: "saveReviewDraft",
+        tags: ["Review"],
+        summary: "Create or update a bounded score draft against the exact rubric version",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, reviewAssignmentIdParameter],
+        requestBody: { required: true, content: jsonContent("SaveReviewDraftBody") },
+        responses: {
+          "200": {
+            description: "The atomic draft, assignment, audit, outbox, and idempotency receipt.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [reviewScoringApiRoutes.submitReview]: {
+      post: {
+        operationId: "submitReview",
+        tags: ["Review"],
+        summary: "Validate and freeze a complete review scorecard",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, reviewAssignmentIdParameter],
+        requestBody: { required: true, content: jsonContent("SubmitReviewBody") },
+        responses: {
+          "200": {
+            description: "The atomic immutable submission receipt.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
     [apiRoutes.operationsReviewAssignments]: {
       get: {
         operationId: "listOperationsReviewAssignments",
@@ -440,6 +490,40 @@ export const openApiDocument = {
         responses: {
           "200": {
             description: "The replacement assignment receipt preserving the original evidence.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [reviewScoringApiRoutes.lockReview]: {
+      post: {
+        operationId: "lockReview",
+        tags: ["Review"],
+        summary: "Explicitly lock a submitted review as Operations",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, reviewAssignmentIdParameter],
+        requestBody: { required: true, content: jsonContent("LockReviewBody") },
+        responses: {
+          "200": {
+            description: "The atomic review lock receipt.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [reviewScoringApiRoutes.invalidateReview]: {
+      post: {
+        operationId: "invalidateReview",
+        tags: ["Review"],
+        summary: "Invalidate a locked review with a reason and distinct Operations actor",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, reviewAssignmentIdParameter],
+        requestBody: { required: true, content: jsonContent("InvalidateReviewBody") },
+        responses: {
+          "200": {
+            description: "The immutable invalidation receipt; replacement remains explicit.",
             content: jsonContent("MutationSuccessEnvelope"),
           },
           ...protectedCommandErrors,

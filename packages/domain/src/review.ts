@@ -66,6 +66,16 @@ export const reviewTransitions: readonly Transition<ReviewState>[] = [
     retry: "idempotent",
   },
   {
+    from: "accepted",
+    to: "cancelled",
+    roles: ["platform:ops"],
+    preconditions: ["reason-recorded"],
+    sideEffects: ["revoke-assignment-access"],
+    notification: "داور",
+    audit: "review.assignment.cancelled",
+    retry: "idempotent",
+  },
+  {
     from: "draft",
     to: "submitted",
     roles: ["platform:reviewer"],
@@ -73,6 +83,16 @@ export const reviewTransitions: readonly Transition<ReviewState>[] = [
     sideEffects: ["freeze-score", "create-receipt"],
     notification: "سازمان",
     audit: "review.submitted",
+    retry: "idempotent",
+  },
+  {
+    from: "draft",
+    to: "cancelled",
+    roles: ["platform:ops"],
+    preconditions: ["reason-recorded"],
+    sideEffects: ["revoke-assignment-access", "preserve-score-draft"],
+    notification: "داور",
+    audit: "review.assignment.cancelled",
     retry: "idempotent",
   },
   {
@@ -104,6 +124,11 @@ export const reviewOutboxEventTypes = [
   "review.assignment.replaced",
   "review.assignment.accepted",
   "review.coi.conflict_declared",
+  "review.draft.created",
+  "review.draft.updated",
+  "review.submitted",
+  "review.locked",
+  "review.invalidated",
 ] as const;
 export type ReviewOutboxEventType = (typeof reviewOutboxEventTypes)[number];
 

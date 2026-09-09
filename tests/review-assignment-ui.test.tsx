@@ -8,8 +8,9 @@ import type {
   OperationsReviewAssignmentListSuccessEnvelope,
   ReviewAssignmentListSuccessEnvelope,
   ReviewMaterialsSuccessEnvelope,
+  ReviewSuccessEnvelope,
 } from "@rahhal/contracts";
-import { parseCorrelationId, parsePrefixedId } from "@rahhal/domain";
+import { parseCorrelationId, parsePrefixedId, type ReviewState } from "@rahhal/domain";
 
 const testState = vi.hoisted(() => ({
   requestApi: vi.fn(),
@@ -69,8 +70,20 @@ const conflictsEnvelope: OperationsReviewConflictListSuccessEnvelope = {
 
 function operationsEnvelope(
   withAssignment = false,
-  state: "coi-gate" | "accepted" = "coi-gate",
+  state: ReviewState = "coi-gate",
 ): OperationsReviewAssignmentListSuccessEnvelope {
+  const scored = ["submitted", "locked", "invalidated"].includes(state);
+  const clear = state !== "coi-gate" && state !== "cancelled";
+  const assignmentVersion =
+    state === "invalidated"
+      ? 7
+      : state === "locked"
+        ? 6
+        : state === "submitted"
+          ? 5
+          : clear
+            ? 2
+            : 1;
   return {
     ok: true,
     data: {
@@ -99,17 +112,16 @@ function operationsEnvelope(
             {
               ...reviewerEnvelope.data.items[0]!,
               state,
-              coi_status: state === "accepted" ? "clear" : "pending",
-              coi_declaration:
-                state === "accepted"
-                  ? {
-                      status: "clear",
-                      relationship_categories: [],
-                      reason: null,
-                      declared_at: "2026-09-08T12:00:00.000Z",
-                    }
-                  : reviewerEnvelope.data.items[0]!.coi_declaration,
-              version: state === "accepted" ? 2 : 1,
+              coi_status: clear ? "clear" : "pending",
+              coi_declaration: clear
+                ? {
+                    status: "clear",
+                    relationship_categories: [],
+                    reason: null,
+                    declared_at: "2026-09-08T12:00:00.000Z",
+                  }
+                : reviewerEnvelope.data.items[0]!.coi_declaration,
+              version: assignmentVersion,
               challenge_id: parsePrefixedId("chl_review_assignment_ui", "chl"),
               proposal_id: parsePrefixedId("prp_review_assignment_ui", "prp"),
               proposal_version_id: parsePrefixedId("prv_review_assignment_ui", "prv"),
@@ -121,6 +133,19 @@ function operationsEnvelope(
               replaces_assignment_id: null,
               cancellation_reason: null,
               cancelled_at: null,
+              review_summary: scored
+                ? {
+                    id: parsePrefixedId("rev_review_assignment_ui", "rev"),
+                    version: 3,
+                    weighted_score_tenths: 800,
+                    submitted_at: meta.server_time,
+                    lock_reason: state === "submitted" ? null : "بازبینی کامل شد و امتیاز قفل شد.",
+                    locked_at: state === "submitted" ? null : meta.server_time,
+                    invalidated_at: state === "invalidated" ? meta.server_time : null,
+                    invalidation_reason:
+                      state === "invalidated" ? "ناسازگاری شواهد با نسخه مأموریت" : null,
+                  }
+                : null,
             },
           ]
         : [],
@@ -176,6 +201,56 @@ const materialsEnvelope: ReviewMaterialsSuccessEnvelope = {
   meta,
 };
 
+const emptyReviewEnvelope: ReviewSuccessEnvelope = {
+  ok: true,
+  data: null,
+  meta,
+};
+
+const draftReviewEnvelope: ReviewSuccessEnvelope = {
+  ok: true,
+  data: {
+    id: parsePrefixedId("rev_review_assignment_ui", "rev"),
+    assignment_id: parsePrefixedId("rva_review_assignment_ui", "rva"),
+    version: 2,
+    state: "draft",
+    scores: [
+      {
+        criterion_id: "quality",
+        value: 4,
+        rationale: "شواهد فنی با معیار نسخه قفل‌شده سازگار است.",
+      },
+    ],
+    weighted_score_tenths: null,
+    submitted_at: null,
+    lock_reason: null,
+    locked_at: null,
+    invalidated_at: null,
+    invalidation_reason: null,
+  },
+  meta,
+};
+
+const draftAssignmentEnvelope: ReviewAssignmentListSuccessEnvelope = {
+  ...reviewerEnvelope,
+  data: {
+    items: [
+      {
+        ...reviewerEnvelope.data.items[0]!,
+        state: "draft",
+        coi_status: "clear",
+        version: 4,
+        coi_declaration: {
+          status: "clear",
+          relationship_categories: [],
+          reason: null,
+          declared_at: meta.server_time,
+        },
+      },
+    ],
+  },
+};
+
 beforeEach(() => {
   testState.requestApi.mockReset();
   testState.idempotencyKey.mockClear();
@@ -183,7 +258,7 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-describe("connected D5 reviewer assignments", () => {
+describe("connected D5/D6 reviewer assignments", () => {
   it("shows only the pre-COI packet and does not request protected materials", async () => {
     testState.requestApi.mockResolvedValue(reviewerEnvelope);
     const { ConnectedReviewerAssignments } = await import(
@@ -268,9 +343,11 @@ describe("connected D5 reviewer assignments", () => {
         ],
       },
     };
-    testState.requestApi.mockImplementation(async (path: string) =>
-      path.endsWith("/materials") ? materialsEnvelope : acceptedEnvelope,
-    );
+    testState.requestApi.mockImplementation(async (path: string) => {
+      if (path.endsWith("/materials")) return materialsEnvelope;
+      if (path.endsWith("/review")) return emptyReviewEnvelope;
+      return acceptedEnvelope;
+    });
     const { ConnectedReviewerAssignments } = await import(
       "@/components/internal/connected-review-assignments"
     );
@@ -285,6 +362,96 @@ describe("connected D5 reviewer assignments", () => {
       "/api/v1/assignments/rva_review_assignment_ui/materials",
       { headers: { "x-workspace-id": testState.workspaceId } },
     );
+  });
+
+  it("saves a partial reviewer draft against the current assignment version", async () => {
+    const acceptedEnvelope: ReviewAssignmentListSuccessEnvelope = {
+      ...reviewerEnvelope,
+      data: {
+        items: [
+          {
+            ...reviewerEnvelope.data.items[0]!,
+            state: "accepted",
+            coi_status: "clear",
+            version: 2,
+            coi_declaration: {
+              status: "clear",
+              relationship_categories: [],
+              reason: null,
+              declared_at: meta.server_time,
+            },
+          },
+        ],
+      },
+    };
+    testState.requestApi.mockImplementation(async (path: string, init: RequestInit = {}) => {
+      if (init.method === "POST") {
+        return {
+          ...mutationEnvelope,
+          data: { ...mutationEnvelope.data, next_actions: ["continue_review"] },
+          meta: { ...mutationEnvelope.meta, entity_version: 3 },
+        };
+      }
+      if (path.endsWith("/materials")) return materialsEnvelope;
+      if (path.endsWith("/review")) return emptyReviewEnvelope;
+      return acceptedEnvelope;
+    });
+    const { ConnectedReviewerAssignments } = await import(
+      "@/components/internal/connected-review-assignments"
+    );
+    render(<ConnectedReviewerAssignments />);
+
+    fireEvent.change(await screen.findByLabelText("امتیاز کیفیت فنی"), {
+      target: { value: "4" },
+    });
+    fireEvent.change(screen.getByLabelText("دلیل امتیاز کیفیت فنی"), {
+      target: { value: "" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "ذخیره پیش‌نویس" }));
+    await waitFor(() =>
+      expect(testState.requestApi).toHaveBeenCalledWith(
+        "/api/v1/assignments/rva_review_assignment_ui/review:save-draft",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    const saveCall = testState.requestApi.mock.calls.find(
+      ([path, init]) => String(path).endsWith("review:save-draft") && init?.method === "POST",
+    );
+    expect(JSON.parse(saveCall?.[1]?.body as string)).toEqual({
+      expected_version: 2,
+      scores: [{ criterion_id: "quality", value: 4, rationale: "" }],
+    });
+  });
+
+  it("submits only the saved complete scorecard", async () => {
+    testState.requestApi.mockImplementation(async (path: string, init: RequestInit = {}) => {
+      if (init.method === "POST") {
+        return {
+          ...mutationEnvelope,
+          data: { ...mutationEnvelope.data, next_actions: ["await_review_lock"] },
+          meta: { ...mutationEnvelope.meta, entity_version: 5 },
+        };
+      }
+      if (path.endsWith("/materials")) return materialsEnvelope;
+      if (path.endsWith("/review")) return draftReviewEnvelope;
+      return draftAssignmentEnvelope;
+    });
+    const { ConnectedReviewerAssignments } = await import(
+      "@/components/internal/connected-review-assignments"
+    );
+    render(<ConnectedReviewerAssignments />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "ثبت نهایی داوری" }));
+    await waitFor(() =>
+      expect(testState.requestApi).toHaveBeenCalledWith(
+        "/api/v1/assignments/rva_review_assignment_ui/review:submit",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    const submitCall = testState.requestApi.mock.calls.find(
+      ([path, init]) => String(path).endsWith("review:submit") && init?.method === "POST",
+    );
+    expect(JSON.parse(submitCall?.[1]?.body as string)).toEqual({ expected_version: 4 });
   });
 
   it("creates an exact frozen-slot assignment with an idempotency key", async () => {
@@ -370,5 +537,68 @@ describe("connected D5 reviewer assignments", () => {
     ).toBeVisible();
     expect(screen.getByRole("button", { name: "لغو مأموریت" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "ثبت جایگزین" })).toBeEnabled();
+  });
+
+  it("requires a reason for the explicit Operations lock", async () => {
+    testState.requestApi.mockImplementation(async (path: string, init: RequestInit = {}) => {
+      if (path === "/api/v1/operations/review-conflicts") return conflictsEnvelope;
+      return init.method === "POST" ? mutationEnvelope : operationsEnvelope(true, "submitted");
+    });
+    const { ConnectedOperationsReviewAssignments } = await import(
+      "@/components/internal/connected-review-assignments"
+    );
+    render(<ConnectedOperationsReviewAssignments />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "قفل داوری" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("دلیل قفل را ثبت کنید.");
+    fireEvent.change(screen.getByLabelText("دلیل قفل"), {
+      target: { value: "کامل بودن معیارها و رسید ثبت بررسی شد." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "قفل داوری" }));
+    await waitFor(() =>
+      expect(testState.requestApi).toHaveBeenCalledWith(
+        "/api/v1/operations/review-assignments/rva_review_assignment_ui:lock",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    const lockCall = testState.requestApi.mock.calls.find(
+      ([path, init]) => String(path).endsWith(":lock") && init?.method === "POST",
+    );
+    expect(JSON.parse(lockCall?.[1]?.body as string)).toEqual({
+      expected_version: 5,
+      reason: "کامل بودن معیارها و رسید ثبت بررسی شد.",
+    });
+  });
+
+  it("shows lock evidence and requires a reason for Operations invalidation", async () => {
+    testState.requestApi.mockImplementation(async (path: string, init: RequestInit = {}) => {
+      if (path === "/api/v1/operations/review-conflicts") return conflictsEnvelope;
+      return init.method === "POST" ? mutationEnvelope : operationsEnvelope(true, "locked");
+    });
+    const { ConnectedOperationsReviewAssignments } = await import(
+      "@/components/internal/connected-review-assignments"
+    );
+    render(<ConnectedOperationsReviewAssignments />);
+
+    expect(await screen.findByText("دلیل قفل: بازبینی کامل شد و امتیاز قفل شد.")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "ابطال داوری" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("دلیل ابطال را ثبت کنید.");
+    fireEvent.change(screen.getByLabelText("دلیل ابطال"), {
+      target: { value: "شواهد داوری با نسخه تخصیص‌یافته سازگار نبود." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "ابطال داوری" }));
+    await waitFor(() =>
+      expect(testState.requestApi).toHaveBeenCalledWith(
+        "/api/v1/operations/review-assignments/rva_review_assignment_ui:invalidate",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    const invalidateCall = testState.requestApi.mock.calls.find(
+      ([path, init]) => String(path).endsWith(":invalidate") && init?.method === "POST",
+    );
+    expect(JSON.parse(invalidateCall?.[1]?.body as string)).toEqual({
+      expected_version: 6,
+      reason: "شواهد داوری با نسخه تخصیص‌یافته سازگار نبود.",
+    });
   });
 });

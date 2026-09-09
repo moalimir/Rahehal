@@ -6,7 +6,12 @@ import type {
   ReviewAssignmentListSuccessEnvelope,
   ReviewAssignmentSuccessEnvelope,
   ReviewMaterialsSuccessEnvelope,
+  ReviewSuccessEnvelope,
   DeclareReviewCoiBody,
+  SaveReviewDraftBody,
+  SubmitReviewBody,
+  LockReviewBody,
+  InvalidateReviewBody,
   OperationsReviewConflictListSuccessEnvelope,
   OperationsReviewAssignmentListQuery,
   OperationsReviewAssignmentListSuccessEnvelope,
@@ -25,6 +30,7 @@ import {
   apiSchemas,
   browserSessionRoutes,
   reviewCoiApiRoutes,
+  reviewScoringApiRoutes,
   type BrowserOidcAuthorizationStartBody,
   type BrowserOidcAuthorizationStartSuccessEnvelope,
   openApiDocument,
@@ -4095,6 +4101,107 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
     },
   );
 
+  app.get<{ Params: ReviewAssignmentParams }>(
+    fastifyReviewAssignmentPath(reviewScoringApiRoutes.reviewAssignmentReview),
+    {
+      schema: {
+        params: apiSchemas.ReviewAssignmentParams,
+        response: { 200: apiSchemas.ReviewSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request): Promise<ReviewSuccessEnvelope> => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "review:read-own",
+          entityType: "review_assignment",
+          entityId: request.params.assignmentId,
+          allows: (access) =>
+            access.workspace.kind === "platform" && access.role === "platform:reviewer",
+        },
+        async (access) =>
+          success(
+            await ports.reviews.review(proposalScope(session, access), request.params.assignmentId),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  const registerReviewerScoreCommand = <Body extends { readonly expected_version: number }>(
+    route: string,
+    action: string,
+    schema: object,
+    command: (
+      id: string,
+      body: Body,
+      context: import("./ports.js").ReviewerCommandContext,
+    ) => Promise<MutationOutcome<ReviewAssignmentId, ReviewAssignmentNextAction>>,
+  ) =>
+    app.post<{ Params: ReviewAssignmentParams; Body: Body }>(
+      fastifyReviewAssignmentPath(route),
+      {
+        schema: {
+          params: apiSchemas.ReviewAssignmentParams,
+          body: schema,
+          response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+        },
+      },
+      async (request) => {
+        const session = await requireSession(
+          request,
+          ports.sessions,
+          ports.decisionAudit,
+          ports.clock,
+        );
+        const idempotency = idempotencyCommand(request);
+        return runAuthorizedWorkspace(
+          request,
+          ports,
+          session,
+          {
+            action,
+            entityType: "review_assignment",
+            entityId: request.params.assignmentId,
+            allows: (access) =>
+              access.workspace.kind === "platform" && access.role === "platform:reviewer",
+            deferSuccess: true,
+          },
+          async (access) =>
+            mutationSuccess(
+              await command(request.params.assignmentId, request.body as Body, {
+                ...proposalScope(session, access),
+                ...idempotency,
+              }),
+              request,
+              ports,
+            ),
+        );
+      },
+    );
+
+  registerReviewerScoreCommand<SaveReviewDraftBody>(
+    reviewScoringApiRoutes.saveReviewDraft,
+    "review:save-draft",
+    apiSchemas.SaveReviewDraftBody,
+    (id, body, context) => ports.reviews.saveDraft(id, body, context),
+  );
+  registerReviewerScoreCommand<SubmitReviewBody>(
+    reviewScoringApiRoutes.submitReview,
+    "review:submit",
+    apiSchemas.SubmitReviewBody,
+    (id, body, context) => ports.reviews.submit(id, body, context),
+  );
+
   app.get<{ Querystring: OperationsReviewAssignmentListQuery }>(
     apiRoutes.operationsReviewAssignments,
     {
@@ -4273,6 +4380,18 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
     "review-assignment:replace",
     apiSchemas.ReplaceReviewAssignmentBody,
     (id, body, context) => ports.reviews.replace(id, body, context),
+  );
+  registerOperationsAssignmentCommand<LockReviewBody>(
+    reviewScoringApiRoutes.lockReview,
+    "review:lock",
+    apiSchemas.LockReviewBody,
+    (id, body, context) => ports.reviews.lock(id, body, context),
+  );
+  registerOperationsAssignmentCommand<InvalidateReviewBody>(
+    reviewScoringApiRoutes.invalidateReview,
+    "review:invalidate",
+    apiSchemas.InvalidateReviewBody,
+    (id, body, context) => ports.reviews.invalidate(id, body, context),
   );
 
   // `fastifyLiteralPath` escapes the action suffix's colon; without it the

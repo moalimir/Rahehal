@@ -4,6 +4,7 @@ import {
   apiErrorCodes,
   apiRoutes,
   reviewCoiApiRoutes,
+  reviewScoringApiRoutes,
   apiSchemas,
   isOutboxEvent,
   openApiDocument,
@@ -79,6 +80,10 @@ describe("authoritative API contracts", () => {
     expect(apiSchemas.CreateReviewAssignmentBody.required).toContain("expected_version");
     expect(apiSchemas.CancelReviewAssignmentBody.required).toContain("expected_version");
     expect(apiSchemas.ReplaceReviewAssignmentBody.required).toContain("expected_version");
+    expect(apiSchemas.SaveReviewDraftBody.required).toContain("expected_version");
+    expect(apiSchemas.SubmitReviewBody.required).toContain("expected_version");
+    expect(apiSchemas.LockReviewBody.required).toContain("expected_version");
+    expect(apiSchemas.InvalidateReviewBody.required).toContain("expected_version");
 
     expectTypeOf<CreateChallengeBody["expected_version"]>().toEqualTypeOf<0>();
     expectTypeOf<PatchChallengeBody["expected_version"]>().toEqualTypeOf<number>();
@@ -618,5 +623,56 @@ describe("D5 COI and reviewer-material contracts", () => {
     expect(apiSchemas.ReviewMaterials.properties.proposal_content).toBe(
       apiSchemas.ReviewProposalContent,
     );
+  });
+});
+
+describe("D6 review scoring contracts", () => {
+  it("publishes own-review draft/submission and Operations lifecycle commands", () => {
+    expect(
+      openApiDocument.paths[reviewScoringApiRoutes.reviewAssignmentReview].get.operationId,
+    ).toBe("getOwnReview");
+    for (const path of [
+      reviewScoringApiRoutes.saveReviewDraft,
+      reviewScoringApiRoutes.submitReview,
+      reviewScoringApiRoutes.lockReview,
+      reviewScoringApiRoutes.invalidateReview,
+    ]) {
+      const command = openApiDocument.paths[path].post;
+      expect(command.parameters.map((parameter) => parameter.name)).toEqual([
+        "X-Workspace-Id",
+        "Idempotency-Key",
+        "assignmentId",
+      ]);
+      expect(command.responses).toHaveProperty("404");
+    }
+  });
+
+  it("keeps draft scores exact and review evidence versioned", () => {
+    expect(apiSchemas.SaveReviewDraftBody).toMatchObject({
+      additionalProperties: false,
+      required: ["expected_version", "scores"],
+      properties: {
+        scores: {
+          maxItems: 20,
+          items: {
+            additionalProperties: false,
+            required: ["criterion_id", "value", "rationale"],
+            properties: { value: { type: "integer", minimum: 0, maximum: 5 } },
+          },
+        },
+      },
+    });
+    expect(apiSchemas.Review.required).toEqual(
+      expect.arrayContaining([
+        "id",
+        "assignment_id",
+        "version",
+        "state",
+        "scores",
+        "weighted_score_tenths",
+      ]),
+    );
+    expect(apiSchemas.LockReviewBody.required).toEqual(["expected_version", "reason"]);
+    expect(apiSchemas.InvalidateReviewBody.required).toEqual(["expected_version", "reason"]);
   });
 });

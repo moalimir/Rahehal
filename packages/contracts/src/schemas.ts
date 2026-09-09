@@ -856,6 +856,64 @@ const reviewAssignmentSchema = {
   },
 } as const;
 
+const reviewScoreSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["criterion_id", "value", "rationale"],
+  properties: {
+    criterion_id: { type: "string", pattern: "^[a-z][a-z0-9_-]{0,39}$" },
+    value: { type: "integer", minimum: 0, maximum: 5 },
+    rationale: { type: "string", maxLength: 4_000 },
+  },
+} as const;
+const operationsReviewSummarySchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "version",
+    "weighted_score_tenths",
+    "submitted_at",
+    "lock_reason",
+    "locked_at",
+    "invalidated_at",
+    "invalidation_reason",
+  ],
+  properties: {
+    id: idSchema("rev"),
+    version: { type: "integer", minimum: 1 },
+    weighted_score_tenths: { type: ["integer", "null"], minimum: 0, maximum: 1_000 },
+    submitted_at: nullableDateTimeSchema,
+    lock_reason: { type: ["string", "null"], minLength: 1, maxLength: 2_000 },
+    locked_at: nullableDateTimeSchema,
+    invalidated_at: nullableDateTimeSchema,
+    invalidation_reason: { type: ["string", "null"], minLength: 1, maxLength: 2_000 },
+  },
+} as const;
+const reviewResourceSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "assignment_id",
+    "version",
+    "state",
+    "scores",
+    "weighted_score_tenths",
+    "submitted_at",
+    "lock_reason",
+    "locked_at",
+    "invalidated_at",
+    "invalidation_reason",
+  ],
+  properties: {
+    ...operationsReviewSummarySchema.properties,
+    assignment_id: idSchema("rva"),
+    state: { type: "string", enum: ["draft", "submitted", "locked", "invalidated"] },
+    scores: { type: "array", maxItems: 20, items: reviewScoreSchema },
+  },
+} as const;
+
 const operationsReviewConflictSchema = {
   type: "object",
   additionalProperties: false,
@@ -935,6 +993,7 @@ const operationsReviewAssignmentSchema = {
     "replaces_assignment_id",
     "cancellation_reason",
     "cancelled_at",
+    "review_summary",
   ],
   properties: {
     ...reviewAssignmentSchema.properties,
@@ -949,6 +1008,7 @@ const operationsReviewAssignmentSchema = {
     replaces_assignment_id: { oneOf: [idSchema("rva"), { type: "null" }] },
     cancellation_reason: { type: ["string", "null"], maxLength: 2_000 },
     cancelled_at: nullableDateTimeSchema,
+    review_summary: { oneOf: [operationsReviewSummarySchema, { type: "null" }] },
   },
 } as const;
 
@@ -2768,6 +2828,8 @@ export const apiSchemas = {
   ReviewProposalContent: reviewProposalContentSchema,
   ReviewMaterials: reviewMaterialsSchema,
   ReviewMaterialsSuccessEnvelope: successEnvelopeFor(reviewMaterialsSchema),
+  Review: reviewResourceSchema,
+  ReviewSuccessEnvelope: successEnvelopeFor({ oneOf: [reviewResourceSchema, { type: "null" }] }),
   OperationsReviewAssignment: operationsReviewAssignmentSchema,
   OperationsEvaluationProposal: operationsEvaluationProposalSchema,
   ReviewerCandidate: reviewerCandidateSchema,
@@ -2836,6 +2898,39 @@ export const apiSchemas = {
       },
       reason: { type: ["string", "null"], minLength: 1, maxLength: 2_000 },
       attestation: { const: true },
+    },
+  },
+  SaveReviewDraftBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "scores"],
+    properties: {
+      expected_version: versionedCommandProperties.expected_version,
+      scores: { type: "array", maxItems: 20, items: reviewScoreSchema },
+    },
+  },
+  SubmitReviewBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version"],
+    properties: { expected_version: versionedCommandProperties.expected_version },
+  },
+  LockReviewBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "reason"],
+    properties: {
+      expected_version: versionedCommandProperties.expected_version,
+      reason: versionedCommandProperties.reason,
+    },
+  },
+  InvalidateReviewBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version", "reason"],
+    properties: {
+      expected_version: versionedCommandProperties.expected_version,
+      reason: versionedCommandProperties.reason,
     },
   },
   ReviewAssignmentParams: {

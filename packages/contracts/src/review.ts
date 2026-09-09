@@ -4,12 +4,14 @@ import type {
   ProposalId,
   ProposalVersionId,
   ReviewAssignmentId,
+  ReviewId,
   ReviewCoiRelationshipCategory,
   ReviewCoiState,
   ReviewState,
   RubricCriterion,
   RubricVersionId,
   UserId,
+  CriterionScore,
 } from "@rahhal/domain";
 import type { MutationSuccessEnvelope, SuccessEnvelope, VersionedCommand } from "./envelopes.js";
 import type { ProposalContentResource } from "./proposal.js";
@@ -90,6 +92,35 @@ export type ReviewMaterialsResource = {
 };
 export type ReviewMaterialsSuccessEnvelope = SuccessEnvelope<ReviewMaterialsResource>;
 
+export type ReviewScoreResource = CriterionScore;
+export type ReviewResource = {
+  readonly id: ReviewId;
+  readonly assignment_id: ReviewAssignmentId;
+  readonly version: number;
+  readonly state: Extract<ReviewState, "draft" | "submitted" | "locked" | "invalidated">;
+  readonly scores: readonly ReviewScoreResource[];
+  /** Exact integer tenths of a point; divide by ten for display out of 100. */
+  readonly weighted_score_tenths: number | null;
+  readonly submitted_at: string | null;
+  readonly lock_reason: string | null;
+  readonly locked_at: string | null;
+  readonly invalidated_at: string | null;
+  readonly invalidation_reason: string | null;
+};
+export type ReviewSuccessEnvelope = SuccessEnvelope<ReviewResource | null>;
+
+export type OperationsReviewSummaryResource = Pick<
+  ReviewResource,
+  | "id"
+  | "version"
+  | "weighted_score_tenths"
+  | "submitted_at"
+  | "lock_reason"
+  | "locked_at"
+  | "invalidated_at"
+  | "invalidation_reason"
+>;
+
 export type ReviewerCandidateResource = {
   readonly membership_id: MembershipId;
   readonly user_id: UserId;
@@ -109,6 +140,7 @@ export type OperationsReviewAssignmentResource = ReviewAssignmentResource & {
   readonly replaces_assignment_id: ReviewAssignmentId | null;
   readonly cancellation_reason: string | null;
   readonly cancelled_at: string | null;
+  readonly review_summary: OperationsReviewSummaryResource | null;
 };
 
 /** Frozen evaluation slots visible to Operations without proposal content or solver identity. */
@@ -172,7 +204,21 @@ export type DeclareReviewCoiBody = Pick<VersionedCommand, "expected_version"> & 
   readonly reason?: string | null;
   readonly attestation: true;
 };
-export type ReviewAssignmentNextAction = "await_coi" | "assign_replacement" | "review_materials";
+export type SaveReviewDraftBody = Pick<VersionedCommand, "expected_version"> & {
+  readonly scores: readonly ReviewScoreResource[];
+};
+export type SubmitReviewBody = Pick<VersionedCommand, "expected_version">;
+export type LockReviewBody = Pick<VersionedCommand, "expected_version"> & {
+  readonly reason: string;
+};
+export type InvalidateReviewBody = LockReviewBody;
+export type ReviewAssignmentNextAction =
+  | "await_coi"
+  | "assign_replacement"
+  | "review_materials"
+  | "continue_review"
+  | "await_review_lock"
+  | "review_complete";
 export type ReviewAssignmentMutationSuccessEnvelope = MutationSuccessEnvelope<
   ReviewAssignmentId,
   ReviewAssignmentNextAction

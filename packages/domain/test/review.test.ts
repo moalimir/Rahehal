@@ -53,19 +53,21 @@ describe("canonical review lifecycle", () => {
       "freeze-score",
     );
   });
-  it("lets Operations cancel only at the COI gate with a recorded reason", () => {
-    expect(
-      canTransition(reviewTransitions, "coi-gate", "cancelled", "platform:ops", [
-        "reason-recorded",
-      ]),
-    ).toBe(true);
+  it("lets Operations cancel unfinished assignments only with a recorded reason", () => {
+    for (const state of ["coi-gate", "accepted", "draft"] as const)
+      expect(
+        canTransition(reviewTransitions, state, "cancelled", "platform:ops", ["reason-recorded"]),
+      ).toBe(true);
     expect(
       canTransition(reviewTransitions, "coi-gate", "cancelled", "platform:reviewer", [
         "reason-recorded",
       ]),
     ).toBe(false);
-    expect(canTransition(reviewTransitions, "accepted", "cancelled", "platform:ops", [])).toBe(
-      false,
-    );
+    expect(canTransition(reviewTransitions, "draft", "cancelled", "platform:ops", [])).toBe(false);
+    expect(
+      canTransition(reviewTransitions, "submitted", "cancelled", "platform:ops", [
+        "reason-recorded",
+      ]),
+    ).toBe(false);
   });
 });

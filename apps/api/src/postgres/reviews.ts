@@ -2,6 +2,8 @@ import type {
   CancelReviewAssignmentBody,
   CreateReviewAssignmentBody,
   DeclareReviewCoiBody,
+  InvalidateReviewBody,
+  LockReviewBody,
   MutationReceipt,
   OperationsReviewConflictListResource,
   OperationsReviewConflictResource,
@@ -10,6 +12,9 @@ import type {
   OperationsReviewAssignmentResource,
   OperationsEvaluationProposalResource,
   ReplaceReviewAssignmentBody,
+  ReviewResource,
+  SaveReviewDraftBody,
+  SubmitReviewBody,
   ReviewAssignmentListQuery,
   ReviewAssignmentListResource,
   ReviewAssignmentNextAction,
@@ -19,6 +24,7 @@ import type {
   ReviewerCandidateResource,
 } from "@rahhal/contracts";
 import {
+  calculateRubricScore,
   isReviewCoiRelationshipCategory,
   isReviewCoiState,
   isReviewState,
@@ -29,12 +35,15 @@ import {
   parseProposalVersionId,
   parseReceiptId,
   parseReviewAssignmentId,
+  parseReviewId,
   parseRubricVersionId,
   parseUserId,
   validateRubricCriteria,
+  validateRubricScoreDraft,
   type ReviewAssignmentId,
   type ReviewCoiRelationshipCategory,
   type RubricCriterion,
+  type CriterionScore,
 } from "@rahhal/domain";
 import type { PoolClient } from "pg";
 
@@ -77,6 +86,14 @@ type OperationsRow = ReviewerRow & {
   readonly replaces_assignment_id: string | null;
   readonly cancellation_reason: string | null;
   readonly cancelled_at: Date | null;
+  readonly review_id: string | null;
+  readonly review_version: string | null;
+  readonly weighted_score_tenths: number | null;
+  readonly submitted_at: Date | null;
+  readonly lock_reason: string | null;
+  readonly locked_at: Date | null;
+  readonly invalidated_at: Date | null;
+  readonly invalidation_reason: string | null;
 };
 type CandidateRow = {
   readonly membership_id: string;
@@ -135,6 +152,24 @@ type AssignmentRow = {
   readonly state: string;
   readonly lock_version: string;
 };
+type ScorecardRow = {
+  readonly id: string;
+  readonly assignment_id: string;
+  readonly review_version: string;
+  readonly state: string;
+  readonly scores: unknown;
+  readonly weighted_score_tenths: number | null;
+  readonly submitted_at: Date | null;
+  readonly lock_reason: string | null;
+  readonly locked_at: Date | null;
+  readonly invalidated_at: Date | null;
+  readonly invalidation_reason: string | null;
+  readonly rubric_criteria: unknown;
+};
+type ScorecardReadRow = Omit<ScorecardRow, "id" | "review_version"> & {
+  readonly id: string | null;
+  readonly review_version: string | null;
+};
 type IdempotencyRow = {
   readonly request_hash: string;
   readonly status: string;
@@ -146,6 +181,9 @@ const nextActions = [
   "await_coi",
   "assign_replacement",
   "review_materials",
+  "continue_review",
+  "await_review_lock",
+  "review_complete",
 ] as const satisfies readonly ReviewAssignmentNextAction[];
 
 function validCoiCategories(
@@ -237,6 +275,43 @@ function operationsResource(row: OperationsRow): OperationsReviewAssignmentResou
       : null,
     cancellation_reason: row.cancellation_reason,
     cancelled_at: row.cancelled_at?.toISOString() ?? null,
+    review_summary:
+      row.review_id && row.review_version
+        ? {
+            id: parseReviewId(row.review_id),
+            version: version(row.review_version),
+            weighted_score_tenths: row.weighted_score_tenths,
+            submitted_at: row.submitted_at?.toISOString() ?? null,
+            lock_reason: row.lock_reason,
+            locked_at: row.locked_at?.toISOString() ?? null,
+            invalidated_at: row.invalidated_at?.toISOString() ?? null,
+            invalidation_reason: row.invalidation_reason,
+          }
+        : null,
+  };
+}
+
+function scorecardResource(row: ScorecardRow): ReviewResource {
+  if (!["draft", "submitted", "locked", "invalidated"].includes(row.state)) {
+    throw new Error("Invalid stored review state");
+  }
+  if (
+    validateRubricScoreDraft(row.rubric_criteria as readonly RubricCriterion[], row.scores).length
+  ) {
+    throw new Error("Invalid stored review scores");
+  }
+  return {
+    id: parseReviewId(row.id),
+    assignment_id: parseReviewAssignmentId(row.assignment_id),
+    version: version(row.review_version),
+    state: row.state as ReviewResource["state"],
+    scores: row.scores as readonly CriterionScore[],
+    weighted_score_tenths: row.weighted_score_tenths,
+    submitted_at: row.submitted_at?.toISOString() ?? null,
+    lock_reason: row.lock_reason,
+    locked_at: row.locked_at?.toISOString() ?? null,
+    invalidated_at: row.invalidated_at?.toISOString() ?? null,
+    invalidation_reason: row.invalidation_reason,
   };
 }
 
@@ -504,11 +579,272 @@ export class PostgresReviewAdapter implements ReviewPort {
            AND membership.tenant_id = $3 AND membership.workspace_id = $4
            AND membership.state = 'active' AND membership.role = 'platform:reviewer'
            AND membership.workspace_kind = 'platform'
-           AND assignment.id = $5 AND assignment.state = 'accepted'
+           AND assignment.id = $5
+           AND assignment.state IN ('accepted','draft','submitted','locked')
            AND declaration.coi_status = 'clear'`,
         [...params, id],
       );
       return result.rows[0] ? materialResource(result.rows[0]) : null;
+    });
+  }
+
+  async review(scope: ReviewerScope, id: string): Promise<ReviewResource | null> {
+    const params = reviewerParameters(scope);
+    return this.unitOfWork.run(async () => {
+      const result = await this.unitOfWork.currentClient().query<ScorecardReadRow>(
+        `SELECT review.id, assignment.id AS assignment_id,
+                review.review_version::text, assignment.state, review.scores,
+                review.weighted_score_tenths, review.submitted_at, review.locked_at,
+                review.lock_reason, review.invalidated_at, review.invalidation_reason,
+                rubric_version.criteria AS rubric_criteria
+         FROM membership membership
+         JOIN review_assignment assignment
+           ON assignment.reviewer_membership_id = membership.id
+          AND assignment.reviewer_user_id = membership.user_id
+         JOIN coi_declaration declaration ON declaration.assignment_id = assignment.id
+         JOIN rubric_version ON rubric_version.id = assignment.rubric_version_id
+         LEFT JOIN review_scorecard review ON review.assignment_id = assignment.id
+         WHERE membership.id = $1 AND membership.user_id = $2
+           AND membership.tenant_id = $3 AND membership.workspace_id = $4
+           AND membership.state = 'active' AND membership.role = 'platform:reviewer'
+           AND membership.workspace_kind = 'platform' AND assignment.id = $5
+           AND assignment.state IN ('accepted','draft','submitted','locked')
+           AND declaration.coi_status = 'clear'`,
+        [...params, id],
+      );
+      const row = result.rows[0];
+      if (!row) throw notFound();
+      if (!row.id || !row.review_version) return null;
+      return scorecardResource(row as ScorecardRow);
+    });
+  }
+
+  async saveDraft(
+    id: string,
+    body: SaveReviewDraftBody,
+    context: ReviewerCommandContext,
+  ): Promise<Outcome> {
+    const params = reviewerParameters(context);
+    const requestHash = commandFingerprint({
+      action: "review.draft.save",
+      actor: context.actorUserId,
+      workspace: context.workspaceId,
+      id,
+      body,
+    });
+    return this.unitOfWork.run(async () => {
+      const client = this.unitOfWork.currentClient();
+      await this.lockIdempotency(client, context);
+      const assignmentResult = await client.query<AssignmentRow>(
+        `SELECT assignment.id, assignment.challenge_id, assignment.tenant_id,
+                assignment.proposal_id, assignment.proposal_version_id,
+                assignment.rubric_version_id, assignment.reviewer_membership_id,
+                assignment.reviewer_user_id, assignment.state, assignment.lock_version::text
+         FROM membership membership
+         JOIN review_assignment assignment
+           ON assignment.reviewer_membership_id = membership.id
+          AND assignment.reviewer_user_id = membership.user_id
+         JOIN coi_declaration declaration ON declaration.assignment_id = assignment.id
+         WHERE membership.id = $1 AND membership.user_id = $2
+           AND membership.tenant_id = $3 AND membership.workspace_id = $4
+           AND membership.state = 'active' AND membership.role = 'platform:reviewer'
+           AND membership.workspace_kind = 'platform' AND assignment.id = $5
+           AND assignment.state NOT IN ('cancelled','invalidated')
+           AND declaration.coi_status = 'clear'
+         FOR UPDATE OF assignment`,
+        [...params, id],
+      );
+      const assignment = assignmentResult.rows[0];
+      if (!assignment) throw notFound();
+      const replay = await this.replay(client, context, requestHash);
+      if (replay) return replay;
+      const currentVersion = version(assignment.lock_version);
+      if (body.expected_version !== currentVersion) throw staleVersion(currentVersion);
+      if (assignment.state !== "accepted" && assignment.state !== "draft") {
+        throw new ApiProblem(409, "INVALID_STATE", "Only an active review draft can be saved", {
+          currentState: assignment.state,
+        });
+      }
+      const rubric = await client.query<{ criteria: unknown }>(
+        "SELECT criteria FROM rubric_version WHERE id = $1",
+        [assignment.rubric_version_id],
+      );
+      const criteria = rubric.rows[0]?.criteria;
+      if (!criteria) throw new Error("Review assignment rubric is missing");
+      const issues = validateRubricScoreDraft(criteria as readonly RubricCriterion[], body.scores);
+      if (issues.length) {
+        throw new ApiProblem(422, "VALIDATION", "Review draft scores are invalid", {
+          fields: issues,
+        });
+      }
+      const now = await this.now(client);
+      let reviewId: string;
+      let reviewVersion: number;
+      let action: "review.draft.created" | "review.draft.updated";
+      if (assignment.state === "accepted") {
+        reviewId = this.ids.next("rev");
+        reviewVersion = 1;
+        action = "review.draft.created";
+        const inserted = await client.query(
+          `INSERT INTO review_scorecard (
+             id, assignment_id, scores, review_version,
+             created_by_user_id, created_at, updated_at
+           ) VALUES ($1,$2,$3::jsonb,1,$4,$5,$5)`,
+          [reviewId, assignment.id, JSON.stringify(body.scores), context.actorUserId, now],
+        );
+        if (inserted.rowCount !== 1) throw new Error("Review draft insert failed");
+      } else {
+        const updated = await client.query<{ id: string; review_version: string }>(
+          `UPDATE review_scorecard
+           SET scores = $2::jsonb, review_version = review_version + 1, updated_at = $3
+           WHERE assignment_id = $1 AND submitted_at IS NULL
+           RETURNING id, review_version::text`,
+          [assignment.id, JSON.stringify(body.scores), now],
+        );
+        if (!updated.rows[0]) throw new Error("Review draft update failed");
+        reviewId = updated.rows[0].id;
+        reviewVersion = version(updated.rows[0].review_version);
+        action = "review.draft.updated";
+      }
+      const updatedAssignment = await client.query(
+        `UPDATE review_assignment SET state = 'draft', lock_version = lock_version + 1
+         WHERE id = $1`,
+        [assignment.id],
+      );
+      if (updatedAssignment.rowCount !== 1)
+        throw new Error("Review draft assignment update failed");
+      return this.recordMutation(client, context, {
+        action,
+        assignmentId: parseReviewAssignmentId(assignment.id),
+        entityVersion: currentVersion + 1,
+        nextAction: "continue_review",
+        requestHash,
+        now,
+        metadata: {
+          challenge_id: assignment.challenge_id,
+          proposal_id: assignment.proposal_id,
+          review_id: reviewId,
+          review_version: reviewVersion,
+          scored_criterion_count: body.scores.length,
+        },
+        eventMetadata: {
+          challenge_id: assignment.challenge_id,
+          proposal_id: assignment.proposal_id,
+          review_id: reviewId,
+          review_version: reviewVersion,
+        },
+      });
+    });
+  }
+
+  async submit(
+    id: string,
+    body: SubmitReviewBody,
+    context: ReviewerCommandContext,
+  ): Promise<Outcome> {
+    const params = reviewerParameters(context);
+    const requestHash = commandFingerprint({
+      action: "review.submit",
+      actor: context.actorUserId,
+      workspace: context.workspaceId,
+      id,
+      body,
+    });
+    return this.unitOfWork.run(async () => {
+      const client = this.unitOfWork.currentClient();
+      await this.lockIdempotency(client, context);
+      const assignmentResult = await client.query<AssignmentRow>(
+        `SELECT assignment.id, assignment.challenge_id, assignment.tenant_id,
+                assignment.proposal_id, assignment.proposal_version_id,
+                assignment.rubric_version_id, assignment.reviewer_membership_id,
+                assignment.reviewer_user_id, assignment.state, assignment.lock_version::text
+         FROM membership membership
+         JOIN review_assignment assignment
+           ON assignment.reviewer_membership_id = membership.id
+          AND assignment.reviewer_user_id = membership.user_id
+         JOIN coi_declaration declaration ON declaration.assignment_id = assignment.id
+         WHERE membership.id = $1 AND membership.user_id = $2
+           AND membership.tenant_id = $3 AND membership.workspace_id = $4
+           AND membership.state = 'active' AND membership.role = 'platform:reviewer'
+           AND membership.workspace_kind = 'platform' AND assignment.id = $5
+           AND assignment.state NOT IN ('cancelled','invalidated')
+           AND declaration.coi_status = 'clear'
+         FOR UPDATE OF assignment`,
+        [...params, id],
+      );
+      const assignment = assignmentResult.rows[0];
+      if (!assignment) throw notFound();
+      const replay = await this.replay(client, context, requestHash);
+      if (replay) return replay;
+      const currentVersion = version(assignment.lock_version);
+      if (body.expected_version !== currentVersion) throw staleVersion(currentVersion);
+      if (assignment.state !== "draft") {
+        throw new ApiProblem(409, "INVALID_STATE", "Only a saved review draft can be submitted", {
+          currentState: assignment.state,
+        });
+      }
+      const scorecard = await client.query<{
+        id: string;
+        review_version: string;
+        scores: unknown;
+        criteria: unknown;
+      }>(
+        `SELECT review.id, review.review_version::text, review.scores, rubric.criteria
+         FROM review_scorecard review
+         JOIN rubric_version rubric ON rubric.id = $2
+         WHERE review.assignment_id = $1 AND review.submitted_at IS NULL
+         FOR UPDATE OF review`,
+        [assignment.id, assignment.rubric_version_id],
+      );
+      const draft = scorecard.rows[0];
+      if (!draft) throw new Error("Review draft is missing");
+      const calculation = calculateRubricScore(
+        draft.criteria as readonly RubricCriterion[],
+        draft.scores,
+      );
+      if (!calculation.ok) {
+        throw new ApiProblem(422, "VALIDATION", "Review is incomplete", {
+          fields: calculation.issues,
+        });
+      }
+      const now = await this.now(client);
+      const reviewVersion = version(draft.review_version) + 1;
+      const submitted = await client.query(
+        `UPDATE review_scorecard
+         SET review_version = review_version + 1,
+             weighted_score_tenths = $2, submitted_by_user_id = $3,
+             submitted_at = $4, updated_at = $4
+         WHERE assignment_id = $1 AND submitted_at IS NULL`,
+        [assignment.id, calculation.weighted_score_tenths, context.actorUserId, now],
+      );
+      if (submitted.rowCount !== 1) throw new Error("Review submission failed");
+      const updatedAssignment = await client.query(
+        `UPDATE review_assignment SET state = 'submitted', lock_version = lock_version + 1
+         WHERE id = $1`,
+        [assignment.id],
+      );
+      if (updatedAssignment.rowCount !== 1) throw new Error("Review submission transition failed");
+      return this.recordMutation(client, context, {
+        action: "review.submitted",
+        assignmentId: parseReviewAssignmentId(assignment.id),
+        entityVersion: currentVersion + 1,
+        nextAction: "await_review_lock",
+        requestHash,
+        now,
+        metadata: {
+          challenge_id: assignment.challenge_id,
+          proposal_id: assignment.proposal_id,
+          review_id: draft.id,
+          review_version: reviewVersion,
+          weighted_score_tenths: calculation.weighted_score_tenths,
+        },
+        eventMetadata: {
+          challenge_id: assignment.challenge_id,
+          proposal_id: assignment.proposal_id,
+          review_id: draft.id,
+          review_version: reviewVersion,
+        },
+      });
     });
   }
 
@@ -550,6 +886,10 @@ export class PostgresReviewAdapter implements ReviewPort {
                   AND assignment.due_at < transaction_timestamp()) AS overdue,
                 assignment.lock_version, assignment.replaces_assignment_id,
                 assignment.cancellation_reason, assignment.cancelled_at,
+                review.id AS review_id, review.review_version::text,
+                review.weighted_score_tenths, review.submitted_at,
+                review.lock_reason, review.locked_at,
+                review.invalidated_at, review.invalidation_reason,
                 packet.organization_name, packet.challenge_title,
                 coi.relationship_categories, coi.reason AS coi_reason, coi.declared_at
          FROM review_assignment assignment
@@ -557,6 +897,7 @@ export class PostgresReviewAdapter implements ReviewPort {
          JOIN app_user reviewer ON reviewer.id = assignment.reviewer_user_id
          JOIN coi_declaration coi ON coi.assignment_id = assignment.id
          JOIN review_assignment_packet packet ON packet.assignment_id = assignment.id
+         LEFT JOIN review_scorecard review ON review.assignment_id = assignment.id
          WHERE ($1::text IS NULL OR assignment.challenge_id = $1)
          ORDER BY assignment.created_at, assignment.id
          LIMIT 500`,
@@ -700,6 +1041,136 @@ export class PostgresReviewAdapter implements ReviewPort {
     return this.cancelOrReplace(id, body, context, body);
   }
 
+  async lock(id: string, body: LockReviewBody, context: WorkspaceCommandContext): Promise<Outcome> {
+    authorizeOperations(context);
+    return this.transitionFinalReview(id, body, context, "lock");
+  }
+
+  async invalidate(
+    id: string,
+    body: InvalidateReviewBody,
+    context: WorkspaceCommandContext,
+  ): Promise<Outcome> {
+    authorizeOperations(context);
+    return this.transitionFinalReview(id, body, context, "invalidate");
+  }
+
+  private async transitionFinalReview(
+    id: string,
+    body: LockReviewBody | InvalidateReviewBody,
+    context: WorkspaceCommandContext,
+    kind: "lock" | "invalidate",
+  ): Promise<Outcome> {
+    const reason = body.reason.trim();
+    if (!reason) throw new ApiProblem(422, "VALIDATION", "A review transition reason is required");
+    const action = kind === "lock" ? "review.locked" : "review.invalidated";
+    const requestHash = commandFingerprint({
+      action,
+      actor: context.actorUserId,
+      workspace: context.workspaceId,
+      id,
+      body,
+    });
+    return this.unitOfWork.run(async () => {
+      const client = this.unitOfWork.currentClient();
+      await this.lockIdempotency(client, context);
+      const initial = await this.assignment(client, id, false);
+      const evaluation = await this.evaluation(client, initial.challenge_id);
+      const current = await this.assignment(client, id, true);
+      const replay = await this.replay(client, context, requestHash);
+      if (replay) return replay;
+      if (evaluation.stage !== "evaluating") throw notFound();
+      const currentVersion = version(current.lock_version);
+      if (body.expected_version !== currentVersion) throw staleVersion(currentVersion);
+      const expectedState = kind === "lock" ? "submitted" : "locked";
+      if (current.state !== expectedState) {
+        throw new ApiProblem(
+          409,
+          "INVALID_STATE",
+          `Only a ${expectedState} review can be ${kind === "lock" ? "locked" : "invalidated"}`,
+          { currentState: current.state },
+        );
+      }
+      if (current.reviewer_user_id === context.actorUserId) {
+        throw new ApiProblem(
+          403,
+          "NO_ACCESS",
+          "The assigned reviewer cannot control their own submitted review",
+        );
+      }
+      if (kind === "invalidate") {
+        const decidingActor = await client.query(
+          `SELECT 1 FROM membership membership
+           JOIN challenge challenge ON challenge.workspace_id = membership.workspace_id
+           WHERE challenge.id = $1 AND membership.user_id = $2
+             AND membership.role IN ('org:owner','org:member')
+             AND membership.state = 'active'`,
+          [current.challenge_id, context.actorUserId],
+        );
+        if (decidingActor.rowCount) {
+          throw new ApiProblem(
+            403,
+            "NO_ACCESS",
+            "An organization decision actor cannot invalidate review evidence",
+          );
+        }
+      }
+      const scorecard = await client.query<{ id: string; review_version: string }>(
+        `SELECT id, review_version::text FROM review_scorecard
+         WHERE assignment_id = $1 FOR UPDATE`,
+        [current.id],
+      );
+      const review = scorecard.rows[0];
+      if (!review) throw new Error("Submitted review scorecard is missing");
+      const now = await this.now(client);
+      const updatedReview =
+        kind === "lock"
+          ? await client.query(
+              `UPDATE review_scorecard
+               SET locked_by_user_id = $2, lock_reason = $3, locked_at = $4, updated_at = $4
+               WHERE assignment_id = $1 AND submitted_at IS NOT NULL AND locked_at IS NULL`,
+              [current.id, context.actorUserId, reason, now],
+            )
+          : await client.query(
+              `UPDATE review_scorecard
+               SET invalidated_by_user_id = $2, invalidation_reason = $3,
+                   invalidated_at = $4, updated_at = $4
+               WHERE assignment_id = $1 AND locked_at IS NOT NULL AND invalidated_at IS NULL`,
+              [current.id, context.actorUserId, reason, now],
+            );
+      if (updatedReview.rowCount !== 1) throw new Error("Review lifecycle update failed");
+      const nextState = kind === "lock" ? "locked" : "invalidated";
+      const updatedAssignment = await client.query(
+        `UPDATE review_assignment SET state = $2, lock_version = lock_version + 1 WHERE id = $1`,
+        [current.id, nextState],
+      );
+      if (updatedAssignment.rowCount !== 1) throw new Error("Review assignment transition failed");
+      const challengeVersion = version(evaluation.lock_version);
+      await this.bumpChallenge(client, evaluation.challenge_id, challengeVersion + 1, now);
+      return this.recordMutation(client, context, {
+        action,
+        assignmentId: parseReviewAssignmentId(current.id),
+        entityVersion: currentVersion + 1,
+        nextAction: kind === "lock" ? "review_complete" : "assign_replacement",
+        requestHash,
+        now,
+        metadata: {
+          challenge_id: current.challenge_id,
+          proposal_id: current.proposal_id,
+          review_id: review.id,
+          review_version: version(review.review_version),
+          reason,
+        },
+        eventMetadata: {
+          challenge_id: current.challenge_id,
+          proposal_id: current.proposal_id,
+          review_id: review.id,
+          review_version: version(review.review_version),
+        },
+      });
+    });
+  }
+
   private async cancelOrReplace(
     id: string,
     body: CancelReviewAssignmentBody,
@@ -727,24 +1198,32 @@ export class PostgresReviewAdapter implements ReviewPort {
       if (evaluation.stage !== "evaluating") throw notFound();
       const currentVersion = version(current.lock_version);
       if (body.expected_version !== currentVersion) throw staleVersion(currentVersion);
-      if (current.state !== "coi-gate" && current.state !== "accepted") {
+      const replacesInvalidated = current.state === "invalidated" && replacement !== null;
+      if (
+        current.state !== "coi-gate" &&
+        current.state !== "accepted" &&
+        current.state !== "draft" &&
+        !replacesInvalidated
+      ) {
         throw new ApiProblem(
           409,
           "INVALID_STATE",
-          "Only a pre-scoring assignment can be cancelled or replaced",
+          "Only an unfinished assignment can be cancelled, or invalidated evidence replaced",
           {
             currentState: current.state,
           },
         );
       }
       const now = await this.now(client);
-      await client.query(
-        `UPDATE review_assignment
-         SET state = 'cancelled', lock_version = lock_version + 1,
-             cancellation_reason = $2, cancelled_by_user_id = $3, cancelled_at = $4
-         WHERE id = $1`,
-        [current.id, reason, context.actorUserId, now],
-      );
+      if (!replacesInvalidated) {
+        await client.query(
+          `UPDATE review_assignment
+           SET state = 'cancelled', lock_version = lock_version + 1,
+               cancellation_reason = $2, cancelled_by_user_id = $3, cancelled_at = $4
+           WHERE id = $1`,
+          [current.id, reason, context.actorUserId, now],
+        );
+      }
 
       let targetId = parseReviewAssignmentId(current.id);
       let entityVersion = currentVersion + 1;
@@ -802,7 +1281,9 @@ export class PostgresReviewAdapter implements ReviewPort {
         metadata: {
           challenge_id: current.challenge_id,
           proposal_id: current.proposal_id,
-          cancelled_assignment_id: current.id,
+          ...(replacement
+            ? { replaced_assignment_id: current.id, replaced_assignment_state: current.state }
+            : { cancelled_assignment_id: current.id }),
           reason,
           ...(reviewerUserId ? { reviewer_user_id: reviewerUserId } : {}),
           ...(dueAt ? { due_at: dueAt.toISOString() } : {}),
@@ -810,7 +1291,9 @@ export class PostgresReviewAdapter implements ReviewPort {
         eventMetadata: {
           challenge_id: current.challenge_id,
           proposal_id: current.proposal_id,
-          cancelled_assignment_id: current.id,
+          ...(replacement
+            ? { replaced_assignment_id: current.id, replaced_assignment_state: current.state }
+            : { cancelled_assignment_id: current.id }),
         },
       });
     });
@@ -980,7 +1463,12 @@ export class PostgresReviewAdapter implements ReviewPort {
         | "review.assignment.cancelled"
         | "review.assignment.replaced"
         | "review.assignment.accepted"
-        | "review.coi.conflict_declared";
+        | "review.coi.conflict_declared"
+        | "review.draft.created"
+        | "review.draft.updated"
+        | "review.submitted"
+        | "review.locked"
+        | "review.invalidated";
       readonly assignmentId: ReviewAssignmentId;
       readonly entityVersion: number;
       readonly nextAction: ReviewAssignmentNextAction;

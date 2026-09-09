@@ -25,6 +25,7 @@ export const idPrefixes = {
   notification: "ntf",
   contactVerificationAttempt: "otp",
   reviewAssignment: "rva",
+  review: "rev",
   rubric: "rub",
   rubricVersion: "rbv",
   case: "case",
@@ -67,6 +68,7 @@ export type SolverActivationId = PrefixedId<"act">;
 export type NotificationId = PrefixedId<"ntf">;
 export type ContactVerificationAttemptId = PrefixedId<"otp">;
 export type ReviewAssignmentId = PrefixedId<"rva">;
+export type ReviewId = PrefixedId<"rev">;
 export type RubricId = PrefixedId<"rub">;
 export type RubricVersionId = PrefixedId<"rbv">;
 export type CaseId = PrefixedId<"case">;
@@ -103,6 +105,7 @@ export type EntityId =
   | NotificationId
   | ContactVerificationAttemptId
   | ReviewAssignmentId
+  | ReviewId
   | RubricId
   | RubricVersionId
   | CaseId
@@ -135,6 +138,7 @@ const entityIdPrefixes = [
   idPrefixes.solverActivation,
   idPrefixes.contactVerificationAttempt,
   idPrefixes.reviewAssignment,
+  idPrefixes.review,
   idPrefixes.rubric,
   idPrefixes.rubricVersion,
   idPrefixes.case,
@@ -245,5 +249,6 @@ export const parseAuditEventId = createIdentifierParser(idPrefixes.auditEvent);
 export const parseCorrelationId = createIdentifierParser(idPrefixes.correlation);
 
 export const parseReviewAssignmentId = createIdentifierParser(idPrefixes.reviewAssignment);
+export const parseReviewId = createIdentifierParser(idPrefixes.review);
 export const parseRubricId = createIdentifierParser(idPrefixes.rubric);
 export const parseRubricVersionId = createIdentifierParser(idPrefixes.rubricVersion);

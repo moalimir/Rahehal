@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   calculateRubricScore,
+  validateRubricScoreDraft,
   validateRubricCriteria,
   type RubricCriterion,
 } from "../src/rubric.js";
@@ -57,6 +58,13 @@ describe("DEC-2026-019 rubric policy", () => {
       [scores[0], { ...scores[1], criterion_id: "foreign_version" }],
     ])
       expect(calculateRubricScore(criteria, invalid).ok).toBe(false);
+  });
+  it("allows incomplete draft rationale while rejecting malformed draft values", () => {
+    expect(validateRubricScoreDraft(criteria, [{ ...scores[0], rationale: "" }])).toEqual([]);
+    expect(validateRubricScoreDraft(criteria, [{ ...scores[0], value: 6 }])).not.toEqual([]);
+    expect(
+      validateRubricScoreDraft(criteria, [{ ...scores[0], criterion_id: "foreign_version" }]),
+    ).not.toEqual([]);
   });
   it("requires bounded integer scores and rationale for every criterion", () => {
     for (const patch of [

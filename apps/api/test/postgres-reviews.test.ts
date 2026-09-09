@@ -199,6 +199,7 @@ beforeAll(async () => {
   created = true;
   database = new Pool({ connectionString: databaseUrl.toString(), max: 1 });
   await runMigrations(database, "up");
+  expect((await runMigrations(database, "down")).applied).toEqual(["0027_d6_review_scoring"]);
   expect((await runMigrations(database, "down")).applied).toEqual(["0026_d5_review_coi"]);
   expect((await runMigrations(database, "down")).applied).toEqual(["0025_d4_review_assignments"]);
   expect((await runMigrations(database, "down")).applied).toEqual(["0024_d3_open_evaluation"]);
@@ -210,6 +211,7 @@ beforeAll(async () => {
     "0024_d3_open_evaluation",
     "0025_d4_review_assignments",
     "0026_d5_review_coi",
+    "0027_d6_review_scoring",
   ]);
   await seedSyntheticData(database);
   reviews = new PostgresReviewAdapter(new PostgresUnitOfWork(database), new RandomIdFactory());
@@ -374,11 +376,15 @@ describe("D1 PostgreSQL review foundation", () => {
       "DELETE FROM rubric_version WHERE id = 'rbv_d1_alpha_001'",
     ])
       await expect(database.query(sql)).rejects.toMatchObject({ code: "55000" });
+    expect((await runMigrations(database, "down")).applied).toEqual(["0027_d6_review_scoring"]);
     expect((await runMigrations(database, "down")).applied).toEqual(["0026_d5_review_coi"]);
     await expect(runMigrations(database, "down")).rejects.toThrow(
       "cannot remove D4 while assignment evidence exists",
     );
-    expect((await runMigrations(database, "up")).applied).toEqual(["0026_d5_review_coi"]);
+    expect((await runMigrations(database, "up")).applied).toEqual([
+      "0026_d5_review_coi",
+      "0027_d6_review_scoring",
+    ]);
   });
   it("keeps assignment reads durable across API recreation and audits non-enumerating denial", async () => {
     await app!.close();
@@ -557,9 +563,11 @@ describe("D1 PostgreSQL review foundation", () => {
         "UPDATE coi_declaration SET reason = 'tampered' WHERE assignment_id = 'rva_d1_beta'",
       ),
     ).rejects.toMatchObject({ code: "55000" });
+    expect((await runMigrations(database, "down")).applied).toEqual(["0027_d6_review_scoring"]);
     await expect(runMigrations(database, "down")).rejects.toThrow(
       "cannot remove D5 while COI or acceptance evidence exists",
     );
+    expect((await runMigrations(database, "up")).applied).toEqual(["0027_d6_review_scoring"]);
     const evidence = (
       await database.query(
         `SELECT
@@ -814,5 +822,195 @@ describe("D1 PostgreSQL review foundation", () => {
         "UPDATE review_assignment SET cancellation_reason = 'tampered' WHERE id = 'rva_d1_alpha'",
       ),
     ).rejects.toMatchObject({ code: "55000" });
+  });
+
+  it("versions drafts, freezes submission, locks explicitly, and replaces invalidated evidence", async () => {
+    const gammaAssignment = (
+      await database.query<{ id: string }>(
+        `SELECT id FROM review_assignment
+         WHERE reviewer_user_id = 'usr_reviewer_gamma' AND state = 'coi-gate'`,
+      )
+    ).rows[0]!.id;
+    const gammaContext = (key: string) => ({
+      ...scope("gamma"),
+      idempotencyKey: key,
+      correlationId: parseCorrelationId(`cor_${key}`),
+    });
+    const operationsContext = (key: string, actor = "usr_platform_ops") => ({
+      tenantId: parseTenantId("ten_platform"),
+      workspaceId: parseWorkspaceId("wsp_platform_main"),
+      actorUserId: parseUserId(actor),
+      role: "platform:ops" as const,
+      idempotencyKey: key,
+      correlationId: parseCorrelationId(`cor_${key}`),
+    });
+
+    await reviews.declareCoi(
+      gammaAssignment,
+      {
+        expected_version: 1,
+        status: "clear",
+        relationship_categories: [],
+        reason: null,
+        attestation: true,
+      },
+      gammaContext("d6_gamma_clear"),
+    );
+    expect(await reviews.review(scope("gamma"), gammaAssignment)).toBeNull();
+
+    const draft = await reviews.saveDraft(
+      gammaAssignment,
+      { expected_version: 2, scores: [{ criterion_id: "quality", value: 4, rationale: "" }] },
+      gammaContext("d6_gamma_draft"),
+    );
+    expect(draft).toMatchObject({
+      entityVersion: 3,
+      receipt: { next_actions: ["continue_review"] },
+    });
+    await expect(
+      reviews.submit(
+        gammaAssignment,
+        { expected_version: 3 },
+        gammaContext("d6_gamma_incomplete_submit"),
+      ),
+    ).rejects.toMatchObject({ statusCode: 422, code: "VALIDATION" });
+
+    await reviews.saveDraft(
+      gammaAssignment,
+      {
+        expected_version: 3,
+        scores: [
+          {
+            criterion_id: "quality",
+            value: 4,
+            rationale: "شواهد فنی با معیار نسخه قفل‌شده سازگار است.",
+          },
+        ],
+      },
+      gammaContext("d6_gamma_complete_draft"),
+    );
+    const saved = await reviews.review(scope("gamma"), gammaAssignment);
+    expect(saved).toMatchObject({ state: "draft", version: 2, weighted_score_tenths: null });
+
+    const submitted = await reviews.submit(
+      gammaAssignment,
+      { expected_version: 4 },
+      gammaContext("d6_gamma_submit"),
+    );
+    expect(submitted).toMatchObject({
+      entityVersion: 5,
+      receipt: { next_actions: ["await_review_lock"] },
+    });
+    expect(await reviews.review(scope("gamma"), gammaAssignment)).toMatchObject({
+      state: "submitted",
+      version: 3,
+      weighted_score_tenths: 800,
+    });
+    expect(await reviews.materials(scope("gamma"), gammaAssignment)).not.toBeNull();
+    await expect(
+      reviews.saveDraft(
+        gammaAssignment,
+        { expected_version: 5, scores: [] },
+        gammaContext("d6_gamma_edit_after_submit"),
+      ),
+    ).rejects.toMatchObject({ statusCode: 409, code: "INVALID_STATE" });
+
+    const locked = await reviews.lock(
+      gammaAssignment,
+      { expected_version: 5, reason: "کامل بودن معیارها و رسید ثبت بررسی شد." },
+      operationsContext("d6_gamma_lock"),
+    );
+    expect(locked).toMatchObject({
+      entityVersion: 6,
+      receipt: { next_actions: ["review_complete"] },
+    });
+    await expect(
+      database.query(`UPDATE review_scorecard SET scores = '[]'::jsonb WHERE assignment_id = $1`, [
+        gammaAssignment,
+      ]),
+    ).rejects.toMatchObject({ code: "55000" });
+    await expect(
+      reviews.invalidate(
+        gammaAssignment,
+        { expected_version: 6, reason: "self invalidation must fail" },
+        operationsContext("d6_gamma_self_invalidate", "usr_reviewer_gamma"),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403, code: "NO_ACCESS" });
+    await expect(
+      reviews.invalidate(
+        gammaAssignment,
+        { expected_version: 6, reason: "organization decision actor must fail" },
+        operationsContext("d6_gamma_org_invalidate", "usr_owner_alpha"),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403, code: "NO_ACCESS" });
+
+    const invalidated = await reviews.invalidate(
+      gammaAssignment,
+      { expected_version: 6, reason: "شواهد داوری با نسخه تخصیص‌یافته سازگار نبود." },
+      operationsContext("d6_gamma_invalidate"),
+    );
+    expect(invalidated).toMatchObject({
+      entityVersion: 7,
+      receipt: { next_actions: ["assign_replacement"] },
+    });
+    await expect(reviews.review(scope("gamma"), gammaAssignment)).rejects.toMatchObject({
+      statusCode: 404,
+    });
+    expect(await reviews.materials(scope("gamma"), gammaAssignment)).toBeNull();
+
+    await database.query(`
+      INSERT INTO app_user (
+        id, display_name, primary_email, email_verified, created_at, updated_at
+      ) VALUES (
+        'usr_reviewer_epsilon', 'Synthetic Reviewer epsilon',
+        'reviewer-epsilon@synthetic.invalid', true,
+        transaction_timestamp(), transaction_timestamp()
+      );
+      INSERT INTO membership (
+        id, tenant_id, workspace_id, workspace_kind, user_id, role, state, created_at, updated_at
+      ) VALUES (
+        'mem_reviewer_epsilon', 'ten_platform', 'wsp_platform_main', 'platform',
+        'usr_reviewer_epsilon', 'platform:reviewer', 'active',
+        transaction_timestamp(), transaction_timestamp()
+      );
+    `);
+    const replacement = await reviews.replace(
+      gammaAssignment,
+      {
+        expected_version: 7,
+        reason: "داوری باطل‌شده باید با داور مستقل تازه جایگزین شود.",
+        reviewer_membership_id: parseMembershipId("mem_reviewer_epsilon"),
+        due_at: "2099-01-03T00:00:00.000Z",
+      },
+      operationsContext("d6_gamma_replace"),
+    );
+    expect(replacement).toMatchObject({
+      entityVersion: 1,
+      receipt: { next_actions: ["await_coi"] },
+    });
+    const operations = await reviews.listOperations(operationsContext("d6_list"), {});
+    expect(operations.assignments).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: gammaAssignment,
+          state: "invalidated",
+          review_summary: expect.objectContaining({
+            weighted_score_tenths: 800,
+            lock_reason: "کامل بودن معیارها و رسید ثبت بررسی شد.",
+            invalidation_reason: "شواهد داوری با نسخه تخصیص‌یافته سازگار نبود.",
+          }),
+        }),
+        expect.objectContaining({
+          id: replacement.receipt.entity_id,
+          replaces_assignment_id: gammaAssignment,
+          reviewer_user_id: "usr_reviewer_epsilon",
+          state: "coi-gate",
+        }),
+      ]),
+    );
+    expect(operations.evaluation_proposals[0]?.active_assignment_count).toBe(2);
+    await expect(runMigrations(database, "down")).rejects.toThrow(
+      "cannot remove D6 while scoring evidence exists",
+    );
   });
 });

@@ -8,9 +8,14 @@ import type {
   CreateReviewAssignmentBody,
   CancelReviewAssignmentBody,
   DeclareReviewCoiBody,
+  SaveReviewDraftBody,
+  SubmitReviewBody,
+  LockReviewBody,
+  InvalidateReviewBody,
   ReplaceReviewAssignmentBody,
   ReviewAssignmentNextAction,
   ReviewMaterialsResource,
+  ReviewResource,
 } from "@rahhal/contracts";
 import type {
   ChallengeApprovalBriefResource,
@@ -174,7 +179,8 @@ export type IdFactory = {
       | "oat"
       | "act"
       | "otp"
-      | "rva",
+      | "rva"
+      | "rev",
   ): string;
 };
 
@@ -744,9 +750,24 @@ export interface ReviewPort {
   ): Promise<ReviewAssignmentListResource>;
   get(scope: ReviewerScope, id: string): Promise<ReviewAssignmentResource | null>;
   materials(scope: ReviewerScope, id: string): Promise<ReviewMaterialsResource | null>;
+  review(scope: ReviewerScope, id: string): Promise<ReviewResource | null>;
   declareCoi(
     id: string,
     body: DeclareReviewCoiBody,
+    context: ReviewerCommandContext,
+  ): Promise<
+    MutationOutcome<import("@rahhal/domain").ReviewAssignmentId, ReviewAssignmentNextAction>
+  >;
+  saveDraft(
+    id: string,
+    body: SaveReviewDraftBody,
+    context: ReviewerCommandContext,
+  ): Promise<
+    MutationOutcome<import("@rahhal/domain").ReviewAssignmentId, ReviewAssignmentNextAction>
+  >;
+  submit(
+    id: string,
+    body: SubmitReviewBody,
     context: ReviewerCommandContext,
   ): Promise<
     MutationOutcome<import("@rahhal/domain").ReviewAssignmentId, ReviewAssignmentNextAction>
@@ -772,6 +793,20 @@ export interface ReviewPort {
   replace(
     id: string,
     body: ReplaceReviewAssignmentBody,
+    context: WorkspaceCommandContext,
+  ): Promise<
+    MutationOutcome<import("@rahhal/domain").ReviewAssignmentId, ReviewAssignmentNextAction>
+  >;
+  lock(
+    id: string,
+    body: LockReviewBody,
+    context: WorkspaceCommandContext,
+  ): Promise<
+    MutationOutcome<import("@rahhal/domain").ReviewAssignmentId, ReviewAssignmentNextAction>
+  >;
+  invalidate(
+    id: string,
+    body: InvalidateReviewBody,
     context: WorkspaceCommandContext,
   ): Promise<
     MutationOutcome<import("@rahhal/domain").ReviewAssignmentId, ReviewAssignmentNextAction>

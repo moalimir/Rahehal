@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   apiRoutes,
   reviewCoiApiRoutes,
+  reviewScoringApiRoutes,
   type ErrorEnvelope,
   type ReviewAssignmentListSuccessEnvelope,
   type ReviewAssignmentSuccessEnvelope,
@@ -171,15 +172,14 @@ describe("D1 reviewer boundary", () => {
     });
     expect(declaration.statusCode).toBe(503);
     expect(declaration.json<ErrorEnvelope>().error.code).toBe("STORAGE");
-    expect(
-      (
-        await app.inject({
-          method: "POST",
-          url: `${apiRoutes.reviewAssignments}/rva_alpha_001/review:save-draft`,
-          headers: headers(),
-        })
-      ).statusCode,
-    ).toBe(404);
+    const draft = await app.inject({
+      method: "POST",
+      url: reviewScoringApiRoutes.saveReviewDraft.replace("{assignmentId}", "rva_alpha_001"),
+      headers: { ...headers(), "idempotency-key": "demo-review-draft-unavailable" },
+      payload: { expected_version: 1, scores: [] },
+    });
+    expect(draft.statusCode).toBe(503);
+    expect(draft.json<ErrorEnvelope>().error.code).toBe("STORAGE");
   });
   it.each(["owner", "solver", "platformOps"] as const)(
     "denies %s rather than treating a platform role as a reviewer grant",
@@ -256,7 +256,16 @@ describe("D1 reviewer boundary", () => {
         async materials() {
           throw new Error("store unavailable");
         },
+        async review() {
+          throw new Error("store unavailable");
+        },
         async declareCoi() {
+          throw new Error("store unavailable");
+        },
+        async saveDraft() {
+          throw new Error("store unavailable");
+        },
+        async submit() {
           throw new Error("store unavailable");
         },
         async listConflicts() {
@@ -272,6 +281,12 @@ describe("D1 reviewer boundary", () => {
           throw new Error("store unavailable");
         },
         async replace() {
+          throw new Error("store unavailable");
+        },
+        async lock() {
+          throw new Error("store unavailable");
+        },
+        async invalidate() {
           throw new Error("store unavailable");
         },
       },
@@ -326,5 +341,30 @@ describe("D1 reviewer boundary", () => {
     });
     expect(unavailable.statusCode).toBe(503);
     expect(unavailable.json<ErrorEnvelope>().error.code).toBe("STORAGE");
+  });
+
+  it("keeps D6 review evidence commands connected-only and role-scoped", async () => {
+    const ownReview = await app.inject({
+      url: reviewScoringApiRoutes.reviewAssignmentReview.replace("{assignmentId}", "rva_alpha_001"),
+      headers: headers(),
+    });
+    expect(ownReview.statusCode).toBe(503);
+    expect(ownReview.json<ErrorEnvelope>().error.code).toBe("STORAGE");
+
+    const deniedReviewer = await app.inject({
+      method: "POST",
+      url: reviewScoringApiRoutes.saveReviewDraft.replace("{assignmentId}", "rva_alpha_001"),
+      headers: { ...headers("owner"), "idempotency-key": "denied-review-draft" },
+      payload: { expected_version: 1, scores: [] },
+    });
+    expect(deniedReviewer.statusCode).toBe(403);
+
+    const unavailableOps = await app.inject({
+      method: "POST",
+      url: reviewScoringApiRoutes.lockReview.replace("{assignmentId}", "rva_alpha_001"),
+      headers: { ...headers("platformOps"), "idempotency-key": "demo-review-lock-unavailable" },
+      payload: { expected_version: 1, reason: "کنترل کامل بودن داوری" },
+    });
+    expect(unavailableOps.statusCode).toBe(503);
   });
 });
