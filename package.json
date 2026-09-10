@@ -89,7 +89,7 @@
     "seed:demo": "PLAYWRIGHT_SKIP_WEBSERVER=1 playwright test playwright/seed-demo.pw.ts --project=desktop-1280x800 --reporter=list"
   },
   "dependencies": {
-    "next": "16.3.1",
+    "next": "16.3.4",
     "react": "19.1.1",
     "react-dom": "19.1.1"
   },
