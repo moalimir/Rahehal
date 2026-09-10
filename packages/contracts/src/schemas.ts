@@ -2192,10 +2192,99 @@ const challengeEvaluationResourceSchema = {
   },
 } as const;
 
+const reviewComparisonCriterionScoreSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["criterion_id", "average_score_tenths"],
+  properties: {
+    criterion_id: { type: "string", pattern: "^[a-z][a-z0-9_-]{0,39}$" },
+    average_score_tenths: { type: "integer", minimum: 0, maximum: 50 },
+  },
+} as const;
+const reviewComparisonScoreSummarySchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["average_weighted_score_tenths", "criteria"],
+  properties: {
+    average_weighted_score_tenths: { type: "integer", minimum: 0, maximum: 1_000 },
+    criteria: {
+      type: "array",
+      minItems: 1,
+      maxItems: 20,
+      items: reviewComparisonCriterionScoreSchema,
+    },
+  },
+} as const;
+const reviewComparisonProposalSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "proposal_id",
+    "proposal_version_id",
+    "tracking_code",
+    "status",
+    "active_assignment_count",
+    "locked_review_count",
+    "cancelled_assignment_count",
+    "invalidated_review_count",
+    "score_summary",
+  ],
+  properties: {
+    proposal_id: idSchema("prp"),
+    proposal_version_id: idSchema("prv"),
+    tracking_code: { type: "string", pattern: "^PRP-[0-9]{4}-[0-9]{3,6}$" },
+    status: {
+      type: "string",
+      enum: ["needs_assignment", "reviews_in_progress", "complete"],
+    },
+    active_assignment_count: { type: "integer", minimum: 0, maximum: 2 },
+    locked_review_count: { type: "integer", minimum: 0, maximum: 2 },
+    cancelled_assignment_count: { type: "integer", minimum: 0 },
+    invalidated_review_count: { type: "integer", minimum: 0 },
+    score_summary: { oneOf: [reviewComparisonScoreSummarySchema, { type: "null" }] },
+  },
+} as const;
+const challengeReviewComparisonResourceSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "challenge_id",
+    "challenge_version_id",
+    "rubric_version_id",
+    "required_reviews",
+    "proposal_count",
+    "completed_proposal_count",
+    "scores_released",
+    "criteria",
+    "proposals",
+    "version",
+  ],
+  properties: {
+    challenge_id: idSchema("chl"),
+    challenge_version_id: idSchema("chv"),
+    rubric_version_id: idSchema("rbv"),
+    required_reviews: { const: 2 },
+    proposal_count: { type: "integer", minimum: 0 },
+    completed_proposal_count: { type: "integer", minimum: 0 },
+    scores_released: { type: "boolean" },
+    criteria: rubricCriteriaSchema,
+    proposals: { type: "array", maxItems: 500, items: reviewComparisonProposalSchema },
+    version: { type: "integer", minimum: 1 },
+  },
+} as const;
+
 export const apiSchemas = {
   EvaluationRosterProposal: evaluationRosterProposalSchema,
   ChallengeEvaluation: challengeEvaluationResourceSchema,
   ChallengeEvaluationSuccessEnvelope: successEnvelopeFor(challengeEvaluationResourceSchema, true),
+  ReviewComparisonCriterionScore: reviewComparisonCriterionScoreSchema,
+  ReviewComparisonScoreSummary: reviewComparisonScoreSummarySchema,
+  ReviewComparisonProposal: reviewComparisonProposalSchema,
+  ChallengeReviewComparison: challengeReviewComparisonResourceSchema,
+  ChallengeReviewComparisonSuccessEnvelope: successEnvelopeFor(
+    challengeReviewComparisonResourceSchema,
+    true,
+  ),
   OpenChallengeEvaluationBody: {
     type: "object",
     additionalProperties: false,

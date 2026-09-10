@@ -4,9 +4,12 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   apiRoutes,
+  reviewComparisonApiRoutes,
   type ChallengeEvaluationMutationSuccessEnvelope,
   type ChallengeEvaluationResource,
   type ChallengeEvaluationSuccessEnvelope,
+  type ChallengeReviewComparisonResource,
+  type ChallengeReviewComparisonSuccessEnvelope,
   type OpenChallengeEvaluationBody,
 } from "@rahhal/contracts";
 import type { EvaluationReadinessBlocker } from "@rahhal/domain";
@@ -48,10 +51,116 @@ function tehranDate(value: string): string {
   }).format(new Date(value));
 }
 
+const comparisonStatusLabels: Record<
+  ChallengeReviewComparisonResource["proposals"][number]["status"],
+  string
+> = {
+  needs_assignment: "نیازمند تخصیص جایگزین",
+  reviews_in_progress: "داوری در جریان",
+  complete: "دو داوری معتبر کامل",
+};
+
+function scoreOutOf(value: number, divisor: number): string {
+  return (
+    (value / 10).toLocaleString("fa-IR", {
+      minimumFractionDigits: value % 10 === 0 ? 0 : 1,
+      maximumFractionDigits: 1,
+    }) + ` از ${divisor.toLocaleString("fa-IR")}`
+  );
+}
+
+function ReviewComparison({ comparison }: { comparison: ChallengeReviewComparisonResource }) {
+  const criteria = new Map(comparison.criteria.map((criterion) => [criterion.id, criterion]));
+  return (
+    <section className="challenge-review-comparison" aria-labelledby="review-comparison-title">
+      <header>
+        <div>
+          <h3 id="review-comparison-title">مقایسه نتیجه داوری</h3>
+          <p>
+            نتیجه‌ها بدون هویت داور و فقط پس از تکمیل دو داوری معتبر برای همه پیشنهادها نمایش داده
+            می‌شوند.
+          </p>
+        </div>
+        <span className="challenge-status-badge" data-ready={comparison.scores_released}>
+          {comparison.scores_released ? "امتیازها آزاد شده" : "در انتظار تکمیل"}
+        </span>
+      </header>
+      <p className="challenge-review-comparison__progress">
+        {comparison.completed_proposal_count.toLocaleString("fa-IR")} از{" "}
+        {comparison.proposal_count.toLocaleString("fa-IR")} پیشنهاد کامل است.
+      </p>
+      {comparison.proposals.length ? (
+        <div className="challenge-review-comparison__grid">
+          {comparison.proposals.map((proposal) => (
+            <article key={proposal.proposal_id}>
+              <header>
+                <strong>
+                  <bdi dir="ltr">{proposal.tracking_code}</bdi>
+                </strong>
+                <span>{comparisonStatusLabels[proposal.status]}</span>
+              </header>
+              <dl>
+                <div>
+                  <dt>داوری معتبر قفل‌شده</dt>
+                  <dd>
+                    {proposal.locked_review_count.toLocaleString("fa-IR")} از{" "}
+                    {comparison.required_reviews.toLocaleString("fa-IR")}
+                  </dd>
+                </div>
+                <div>
+                  <dt>تخصیص فعال</dt>
+                  <dd>{proposal.active_assignment_count.toLocaleString("fa-IR")}</dd>
+                </div>
+                <div>
+                  <dt>تخصیص لغوشده</dt>
+                  <dd>{proposal.cancelled_assignment_count.toLocaleString("fa-IR")}</dd>
+                </div>
+                <div>
+                  <dt>داوری باطل‌شده</dt>
+                  <dd>{proposal.invalidated_review_count.toLocaleString("fa-IR")}</dd>
+                </div>
+              </dl>
+              {proposal.score_summary ? (
+                <div className="challenge-review-comparison__score">
+                  <p>
+                    میانگین کل:{" "}
+                    <strong>
+                      {scoreOutOf(proposal.score_summary.average_weighted_score_tenths, 100)}
+                    </strong>
+                  </p>
+                  <ul>
+                    {proposal.score_summary.criteria.map((score) => (
+                      <li key={score.criterion_id}>
+                        <span>{criteria.get(score.criterion_id)?.label ?? score.criterion_id}</span>
+                        <strong>{scoreOutOf(score.average_score_tenths, 5)}</strong>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <p className="challenge-review-comparison__withheld">
+                  امتیاز این پیشنهاد تا تکمیل کل فهرست منتشر نمی‌شود.
+                </p>
+              )}
+            </article>
+          ))}
+        </div>
+      ) : (
+        <p className="challenge-evaluation-roster__empty">
+          پیشنهادی در فهرست ارزیابی نیست؛ مسیر تصمیم بدون انتخاب در دسترس خواهد بود.
+        </p>
+      )}
+    </section>
+  );
+}
+
 export function ChallengeEvaluationPage({ id }: { id: string }) {
   const runtime = useWebRuntime();
   const workspaceId = runtime.me?.active_context?.workspace_id;
   const [evaluation, setEvaluation] = useState<ChallengeEvaluationResource | null>(null);
+  const [comparison, setComparison] = useState<ChallengeReviewComparisonResource | null>(null);
+  const [comparisonLoading, setComparisonLoading] = useState(false);
+  const [comparisonError, setComparisonError] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -76,6 +185,29 @@ export function ChallengeEvaluationPage({ id }: { id: string }) {
     setCommandError("");
     retry.current = null;
     setLoading(false);
+    if (result.data.opened_at === null) {
+      setComparison(null);
+      setComparisonError("");
+      setComparisonLoading(false);
+      return;
+    }
+    setComparisonLoading(true);
+    setComparisonError("");
+    const comparisonResult = await requestApi<ChallengeReviewComparisonSuccessEnvelope>(
+      reviewComparisonApiRoutes.challengeReviewComparison.replace(
+        "{challengeId}",
+        encodeURIComponent(id),
+      ),
+      { headers: { "X-Workspace-Id": workspaceId } },
+    );
+    if (!comparisonResult.ok) {
+      setComparison(null);
+      setComparisonError(comparisonResult.error.message);
+      setComparisonLoading(false);
+      return;
+    }
+    setComparison(comparisonResult.data);
+    setComparisonLoading(false);
   }, [id, workspaceId]);
 
   useEffect(() => {
@@ -239,9 +371,30 @@ export function ChallengeEvaluationPage({ id }: { id: string }) {
         </section>
 
         {opened ? (
-          <p className="challenge-evaluation-opened">
-            ارزیابی در {tehranDate(evaluation.opened_at!)} به وقت تهران آغاز شد.
-          </p>
+          <>
+            <p className="challenge-evaluation-opened">
+              ارزیابی در {tehranDate(evaluation.opened_at!)} به وقت تهران آغاز شد.
+            </p>
+            {comparisonLoading ? (
+              <p className="challenge-loading-state" role="status">
+                در حال دریافت وضعیت داوری‌ها…
+              </p>
+            ) : comparisonError ? (
+              <section className="challenge-empty-state" role="alert">
+                <h3>مقایسه داوری دریافت نشد</h3>
+                <p>{comparisonError}</p>
+                <button
+                  type="button"
+                  className="challenge-button challenge-button--secondary"
+                  onClick={() => void load()}
+                >
+                  تلاش دوباره
+                </button>
+              </section>
+            ) : comparison ? (
+              <ReviewComparison comparison={comparison} />
+            ) : null}
+          </>
         ) : (
           <form
             className="challenge-evaluation-action"

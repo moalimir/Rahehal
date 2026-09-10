@@ -4,6 +4,7 @@ import {
   apiErrorCodes,
   apiRoutes,
   reviewCoiApiRoutes,
+  reviewComparisonApiRoutes,
   reviewScoringApiRoutes,
   apiSchemas,
   isOutboxEvent,
@@ -674,5 +675,41 @@ describe("D6 review scoring contracts", () => {
     );
     expect(apiSchemas.LockReviewBody.required).toEqual(["expected_version", "reason"]);
     expect(apiSchemas.InvalidateReviewBody.required).toEqual(["expected_version", "reason"]);
+  });
+});
+
+describe("D7 blind comparison contracts", () => {
+  it("publishes one organization-scoped identity-free comparison read", () => {
+    const read = openApiDocument.paths[reviewComparisonApiRoutes.challengeReviewComparison].get;
+    expect(read.operationId).toBe("getChallengeReviewComparison");
+    expect(read.parameters.map((parameter) => parameter.name)).toEqual([
+      "X-Workspace-Id",
+      "challengeId",
+    ]);
+    expect(read.responses).toHaveProperty("404");
+  });
+
+  it("contains completeness and aggregates without identities or individual votes", () => {
+    expect(apiSchemas.ChallengeReviewComparison.properties.required_reviews.const).toBe(2);
+    expect(apiSchemas.ChallengeReviewComparison.required).toContain("scores_released");
+    expect(Object.keys(apiSchemas.ReviewComparisonProposal.properties).sort()).toEqual(
+      [
+        "proposal_id",
+        "proposal_version_id",
+        "tracking_code",
+        "status",
+        "active_assignment_count",
+        "locked_review_count",
+        "cancelled_assignment_count",
+        "invalidated_review_count",
+        "score_summary",
+      ].sort(),
+    );
+    const serialized = JSON.stringify({
+      resource: apiSchemas.ChallengeReviewComparison,
+      proposal: apiSchemas.ReviewComparisonProposal,
+      score: apiSchemas.ReviewComparisonScoreSummary,
+    });
+    expect(serialized).not.toMatch(/reviewer|rationale|solver|workspace|user_id/);
   });
 });

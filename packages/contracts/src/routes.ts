@@ -115,6 +115,11 @@ export const reviewScoringApiRoutes = {
   invalidateReview: "/api/v1/operations/review-assignments/{assignmentId}:invalidate",
 } as const;
 
+/** Connected D7 comparison route kept out of the static demo's shared transport chunk. */
+export const reviewComparisonApiRoutes = {
+  challengeReviewComparison: "/api/v1/challenges/{challengeId}/review-comparison",
+} as const;
+
 /**
  * Same-origin browser transport owned by the web runtime. These routes are
  * intentionally separate from the bearer-token OpenAPI surface: they adapt

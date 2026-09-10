@@ -889,6 +889,99 @@
   font-weight: 800;
 }
 
+.challenge-review-comparison {
+  display: grid;
+  gap: 14px;
+  border-top: 1px solid #e8edeb;
+  padding-top: 20px;
+}
+
+.challenge-review-comparison > header,
+.challenge-review-comparison__grid article > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.challenge-review-comparison h3,
+.challenge-review-comparison p {
+  margin: 0;
+}
+
+.challenge-review-comparison > header p,
+.challenge-review-comparison__progress,
+.challenge-review-comparison__withheld {
+  color: var(--challenge-muted);
+  font-size: 13px;
+}
+
+.challenge-review-comparison__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.challenge-review-comparison__grid article {
+  display: grid;
+  gap: 14px;
+  border: 1px solid var(--challenge-border);
+  border-radius: 10px;
+  background: #fff;
+  padding: 15px;
+}
+
+.challenge-review-comparison__grid article > header span {
+  color: var(--challenge-muted);
+  font-size: 12px;
+}
+
+.challenge-review-comparison__grid dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.challenge-review-comparison__grid dl div {
+  border-radius: 8px;
+  background: #f8faf9;
+  padding: 9px 10px;
+}
+
+.challenge-review-comparison__grid dt {
+  color: var(--challenge-muted);
+  font-size: 12px;
+}
+
+.challenge-review-comparison__grid dd {
+  margin: 4px 0 0;
+  font-weight: 800;
+}
+
+.challenge-review-comparison__score {
+  display: grid;
+  gap: 9px;
+  border-top: 1px solid #e8edeb;
+  padding-top: 12px;
+}
+
+.challenge-review-comparison__score ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.challenge-review-comparison__score li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--challenge-muted);
+  font-size: 12px;
+}
+
 .challenge-field,
 .challenge-choice-group,
 .challenge-checkbox-group {
@@ -1812,6 +1905,10 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .challenge-review-comparison__grid {
+    grid-template-columns: 1fr;
+  }
+
   .challenge-evaluation-roster li {
     grid-template-columns: minmax(130px, 0.8fr) minmax(220px, 1.4fr);
   }
@@ -2144,7 +2241,8 @@
   }
 
   .challenge-evaluation-summary,
-  .challenge-evaluation-roster li {
+  .challenge-evaluation-roster li,
+  .challenge-review-comparison__grid dl {
     grid-template-columns: 1fr;
   }
 

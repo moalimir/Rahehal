@@ -1,6 +1,7 @@
 import type {
   CreateRubricVersionBody,
   ChallengeEvaluationSuccessEnvelope,
+  ChallengeReviewComparisonSuccessEnvelope,
   OpenChallengeEvaluationBody,
   ReviewAssignmentListQuery,
   ReviewAssignmentListSuccessEnvelope,
@@ -30,6 +31,7 @@ import {
   apiSchemas,
   browserSessionRoutes,
   reviewCoiApiRoutes,
+  reviewComparisonApiRoutes,
   reviewScoringApiRoutes,
   type BrowserOidcAuthorizationStartBody,
   type BrowserOidcAuthorizationStartSuccessEnvelope,
@@ -3778,6 +3780,51 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
             entityId: request.params.challengeId,
           });
           return versionedSuccess(evaluation, request, ports, evaluation.version);
+        },
+      );
+    },
+  );
+  app.get<{ Params: { challengeId: string } }>(
+    reviewComparisonApiRoutes.challengeReviewComparison.replace("{challengeId}", ":challengeId"),
+    {
+      schema: {
+        params: challengeIdParamsSchema,
+        response: {
+          200: apiSchemas.ChallengeReviewComparisonSuccessEnvelope,
+          ...apiErrorResponses,
+        },
+      },
+    },
+    async (request): Promise<ChallengeReviewComparisonSuccessEnvelope> => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "review-comparison:read",
+          entityType: "challenge",
+          entityId: request.params.challengeId,
+          allows: canEditChallenge,
+          deferSuccess: true,
+        },
+        async (access) => {
+          const comparison = await ports.evaluations.comparison(
+            challengeScope(session, access),
+            request.params.challengeId,
+          );
+          if (!comparison) throw notFound();
+          await recordWorkspaceAccessSuccess(request, ports, session, access, {
+            action: "review-comparison:read",
+            entityType: "challenge",
+            entityId: request.params.challengeId,
+          });
+          return versionedSuccess(comparison, request, ports, comparison.version);
         },
       );
     },

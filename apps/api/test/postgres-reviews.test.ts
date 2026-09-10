@@ -21,6 +21,7 @@ import { buildApi } from "../src/app.js";
 import { createPostgresApiComposition } from "../src/postgres-composition.js";
 import { runMigrations } from "../src/postgres/migrations.js";
 import { PostgresReviewAdapter } from "../src/postgres/reviews.js";
+import { PostgresEvaluationAdapter } from "../src/postgres/evaluations.js";
 import { seedSyntheticData } from "../src/postgres/seeds.js";
 import { PostgresUnitOfWork } from "../src/postgres/unit-of-work.js";
 import { RandomIdFactory } from "../src/primitives.js";
@@ -29,7 +30,7 @@ import {
   LocalTestOidcAuthorizationAdapter,
   LocalTestSessionCredentialIssuer,
 } from "./support/local-test-identity.js";
-import type { ReviewerScope } from "../src/ports.js";
+import type { ReviewerScope, WorkspaceScope } from "../src/ports.js";
 
 const adminUrl = testDatabaseAdminUrl();
 const name = `rahhal_d1_review_${process.pid}_${Date.now()}`;
@@ -41,6 +42,7 @@ let connected = false;
 let created = false;
 let app: ReturnType<typeof buildApi> | undefined;
 let reviews: PostgresReviewAdapter;
+let evaluations: PostgresEvaluationAdapter;
 const scope = (suffix: string): ReviewerScope => ({
   tenantId: parseTenantId("ten_platform"),
   workspaceId: parseWorkspaceId("wsp_platform_main"),
@@ -215,6 +217,10 @@ beforeAll(async () => {
   ]);
   await seedSyntheticData(database);
   reviews = new PostgresReviewAdapter(new PostgresUnitOfWork(database), new RandomIdFactory());
+  evaluations = new PostgresEvaluationAdapter(
+    new PostgresUnitOfWork(database),
+    new RandomIdFactory(),
+  );
   expect(await reviews.list(scope("alpha"), {})).toEqual({ items: [] });
   // Synthetic publication/submission setup; these are D1 database-boundary tests,
   // not a claim that the browser or publication command was exercised here.
@@ -1012,5 +1018,133 @@ describe("D1 PostgreSQL review foundation", () => {
     await expect(runMigrations(database, "down")).rejects.toThrow(
       "cannot remove D6 while scoring evidence exists",
     );
+  });
+
+  it("withholds every aggregate until the full roster has two valid locked reviews", async () => {
+    const organizationScope: WorkspaceScope = {
+      tenantId: parseTenantId("ten_org_alpha"),
+      workspaceId: parseWorkspaceId("wsp_org_alpha"),
+      actorUserId: parseUserId("usr_owner_alpha"),
+      role: "org:owner",
+    };
+    const initial = await evaluations.comparison(organizationScope, "chl_synthetic_alpha");
+    expect(initial).toMatchObject({
+      proposal_count: 1,
+      completed_proposal_count: 0,
+      scores_released: false,
+      proposals: [
+        {
+          status: "reviews_in_progress",
+          active_assignment_count: 2,
+          locked_review_count: 0,
+          cancelled_assignment_count: 2,
+          invalidated_review_count: 1,
+          score_summary: null,
+        },
+      ],
+    });
+
+    const assignments = await database.query<{ id: string; reviewer: string }>(
+      `SELECT id, regexp_replace(reviewer_user_id, '^usr_reviewer_', '') AS reviewer
+       FROM review_assignment
+       WHERE challenge_id = 'chl_synthetic_alpha'
+         AND reviewer_user_id IN ('usr_reviewer_delta','usr_reviewer_epsilon')
+         AND state = 'coi-gate'
+       ORDER BY reviewer_user_id`,
+    );
+    expect(assignments.rows.map((row) => row.reviewer)).toEqual(["delta", "epsilon"]);
+    const operationsContext = (key: string) => ({
+      tenantId: parseTenantId("ten_platform"),
+      workspaceId: parseWorkspaceId("wsp_platform_main"),
+      actorUserId: parseUserId("usr_platform_ops"),
+      role: "platform:ops" as const,
+      idempotencyKey: key,
+      correlationId: parseCorrelationId(`cor_${key}`),
+    });
+    for (const [index, assignment] of assignments.rows.entries()) {
+      const reviewerContext = {
+        ...scope(assignment.reviewer),
+        idempotencyKey: `d7_${assignment.reviewer}_clear`,
+        correlationId: parseCorrelationId(`cor_d7_${assignment.reviewer}_clear`),
+      };
+      await reviews.declareCoi(
+        assignment.id,
+        {
+          expected_version: 1,
+          status: "clear",
+          relationship_categories: [],
+          reason: null,
+          attestation: true,
+        },
+        reviewerContext,
+      );
+      await reviews.saveDraft(
+        assignment.id,
+        {
+          expected_version: 2,
+          scores: [
+            {
+              criterion_id: "quality",
+              value: index === 0 ? 3 : 5,
+              rationale: "ارزیابی مستقل بر پایه نسخه معیارهای قفل‌شده ثبت شد.",
+            },
+          ],
+        },
+        {
+          ...reviewerContext,
+          idempotencyKey: `d7_${assignment.reviewer}_draft`,
+          correlationId: parseCorrelationId(`cor_d7_${assignment.reviewer}_draft`),
+        },
+      );
+      await reviews.submit(
+        assignment.id,
+        { expected_version: 3 },
+        {
+          ...reviewerContext,
+          idempotencyKey: `d7_${assignment.reviewer}_submit`,
+          correlationId: parseCorrelationId(`cor_d7_${assignment.reviewer}_submit`),
+        },
+      );
+      await reviews.lock(
+        assignment.id,
+        { expected_version: 4, reason: "رسید و کامل بودن داوری بررسی شد." },
+        operationsContext(`d7_${assignment.reviewer}_lock`),
+      );
+      const during = await evaluations.comparison(organizationScope, "chl_synthetic_alpha");
+      if (index === 0) {
+        expect(during).toMatchObject({
+          completed_proposal_count: 0,
+          scores_released: false,
+          proposals: [{ locked_review_count: 1, score_summary: null }],
+        });
+      }
+    }
+
+    const released = await evaluations.comparison(organizationScope, "chl_synthetic_alpha");
+    expect(released).toMatchObject({
+      completed_proposal_count: 1,
+      scores_released: true,
+      proposals: [
+        {
+          status: "complete",
+          locked_review_count: 2,
+          score_summary: {
+            average_weighted_score_tenths: 800,
+            criteria: [{ criterion_id: "quality", average_score_tenths: 40 }],
+          },
+        },
+      ],
+    });
+    expect(JSON.stringify(released)).not.toMatch(/reviewer|rationale|solver|workspace|user_id/);
+    await expect(
+      evaluations.comparison(
+        {
+          ...organizationScope,
+          tenantId: parseTenantId("ten_org_beta"),
+          workspaceId: parseWorkspaceId("wsp_org_beta"),
+        },
+        "chl_synthetic_alpha",
+      ),
+    ).rejects.toMatchObject({ statusCode: 404, code: "NOT_FOUND" });
   });
 });

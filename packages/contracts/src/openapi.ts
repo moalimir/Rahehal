@@ -1,6 +1,11 @@
 import { challengeManagedStages, reviewStates } from "@rahhal/domain";
 
-import { apiRoutes, reviewCoiApiRoutes, reviewScoringApiRoutes } from "./routes.js";
+import {
+  apiRoutes,
+  reviewCoiApiRoutes,
+  reviewComparisonApiRoutes,
+  reviewScoringApiRoutes,
+} from "./routes.js";
 import { apiSchemas, type ApiSchemaName } from "./schemas.js";
 
 const schemaRef = (name: ApiSchemaName) => ({
@@ -220,6 +225,23 @@ export const openApiDocument = {
           "200": {
             description: "Evaluation readiness and the exact roster visible to the organization.",
             content: jsonContent("ChallengeEvaluationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [reviewComparisonApiRoutes.challengeReviewComparison]: {
+      get: {
+        operationId: "getChallengeReviewComparison",
+        tags: ["Review"],
+        summary: "Read identity-free review completeness and released aggregate scores",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, challengeIdParameter],
+        responses: {
+          "200": {
+            description:
+              "Frozen-roster completeness; aggregate scores appear only after every proposal is complete.",
+            content: jsonContent("ChallengeReviewComparisonSuccessEnvelope"),
           },
           ...protectedCommandErrors,
         },

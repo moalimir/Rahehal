@@ -1,6 +1,7 @@
 import type {
   ChallengeEvaluationNextAction,
   ChallengeEvaluationResource,
+  ChallengeReviewComparisonResource,
   EvaluationRosterProposalResource,
   MutationReceipt,
   OpenChallengeEvaluationBody,
@@ -8,6 +9,8 @@ import type {
 import {
   evaluationBlockingProposalStates,
   evaluationRosterProposalStates,
+  calculateReviewComparisonScore,
+  canReleaseReviewComparisonScores,
   isChallengeStage,
   isEvaluationRosterProposalState,
   parseAuditEventId,
@@ -17,9 +20,13 @@ import {
   parseProposalId,
   parseProposalVersionId,
   parseReceiptId,
+  parseRubricVersionId,
   requiredReviewsPerEligibleProposal,
+  validateRubricCriteria,
   type ChallengeId,
   type EvaluationReadinessBlocker,
+  type LockedReviewScore,
+  type RubricCriterion,
 } from "@rahhal/domain";
 import type { PoolClient } from "pg";
 
@@ -47,6 +54,20 @@ type EvaluationRow = {
   readonly rubric_version_id: string;
   readonly required_reviews: number;
   readonly opened_at: Date;
+};
+type ComparisonSnapshotRow = EvaluationRow & {
+  readonly criteria: unknown;
+};
+type ComparisonProposalRow = {
+  readonly proposal_id: string;
+  readonly proposal_version_id: string;
+  readonly tracking_code: string;
+  readonly active_assignment_count: string;
+  readonly locked_review_count: string;
+  readonly distinct_locked_reviewer_count: string;
+  readonly cancelled_assignment_count: string;
+  readonly invalidated_review_count: string;
+  readonly locked_reviews: unknown;
 };
 type ProposalRow = {
   readonly proposal_id: string;
@@ -83,6 +104,31 @@ function lockVersion(value: string): number {
   const result = Number(value);
   if (!Number.isSafeInteger(result) || result < 0) throw new Error("Invalid challenge version");
   return result;
+}
+
+function comparisonCount(value: string, maximum?: number): number {
+  const result = Number(value);
+  if (!Number.isSafeInteger(result) || result < 0 || (maximum !== undefined && result > maximum)) {
+    throw new Error("Invalid review comparison count");
+  }
+  return result;
+}
+
+function lockedReviewScores(value: unknown): readonly LockedReviewScore[] {
+  if (!Array.isArray(value)) throw new Error("Invalid locked review comparison evidence");
+  return value.map((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw new Error("Invalid locked review comparison evidence");
+    }
+    const row = item as Record<string, unknown>;
+    if (!Number.isSafeInteger(row["weighted_score_tenths"]) || !Array.isArray(row["scores"])) {
+      throw new Error("Invalid locked review comparison evidence");
+    }
+    return {
+      weighted_score_tenths: row["weighted_score_tenths"] as number,
+      scores: row["scores"] as LockedReviewScore["scores"],
+    };
+  });
 }
 
 function cachedOutcome(value: unknown): Outcome {
@@ -352,6 +398,139 @@ export class PostgresEvaluationAdapter implements EvaluationPort {
         roster: readiness.roster,
         opened_at: null,
         version,
+      };
+    });
+  }
+
+  async comparison(
+    scope: WorkspaceScope,
+    challengeId: string,
+  ): Promise<ChallengeReviewComparisonResource | null> {
+    return this.unitOfWork.run(async () => {
+      const client = this.unitOfWork.currentClient();
+      const challenge = await this.challenge(client, scope, challengeId, false);
+      const snapshot = await client.query<ComparisonSnapshotRow>(
+        `SELECT evaluation.challenge_version_id, evaluation.rubric_version_id,
+                evaluation.required_reviews, evaluation.opened_at, rubric.criteria
+         FROM challenge_evaluation evaluation
+         JOIN rubric_version rubric ON rubric.id = evaluation.rubric_version_id
+         WHERE evaluation.challenge_id = $1`,
+        [challenge.id],
+      );
+      const evaluation = snapshot.rows[0];
+      if (!evaluation) return null;
+      if (evaluation.required_reviews !== requiredReviewsPerEligibleProposal) {
+        throw new Error("Invalid persisted review policy");
+      }
+      if (validateRubricCriteria(evaluation.criteria).length) {
+        throw new Error("Invalid persisted comparison rubric");
+      }
+      const criteria = evaluation.criteria as readonly RubricCriterion[];
+      const rows = await client.query<ComparisonProposalRow>(
+        `SELECT roster.proposal_id, roster.proposal_version_id, proposal.tracking_code,
+                count(assignment.id) FILTER (
+                  WHERE assignment.state NOT IN ('cancelled','invalidated')
+                )::text AS active_assignment_count,
+                count(assignment.id) FILTER (
+                  WHERE assignment.state = 'locked'
+                    AND scorecard.locked_at IS NOT NULL
+                    AND scorecard.invalidated_at IS NULL
+                )::text AS locked_review_count,
+                count(DISTINCT assignment.reviewer_user_id) FILTER (
+                  WHERE assignment.state = 'locked'
+                    AND scorecard.locked_at IS NOT NULL
+                    AND scorecard.invalidated_at IS NULL
+                )::text AS distinct_locked_reviewer_count,
+                count(assignment.id) FILTER (
+                  WHERE assignment.state = 'cancelled'
+                )::text AS cancelled_assignment_count,
+                count(assignment.id) FILTER (
+                  WHERE assignment.state = 'invalidated'
+                    AND scorecard.invalidated_at IS NOT NULL
+                )::text AS invalidated_review_count,
+                coalesce(
+                  jsonb_agg(
+                    jsonb_build_object(
+                      'weighted_score_tenths', scorecard.weighted_score_tenths,
+                      'scores', scorecard.scores
+                    ) ORDER BY assignment.id
+                  ) FILTER (
+                    WHERE assignment.state = 'locked'
+                      AND scorecard.locked_at IS NOT NULL
+                      AND scorecard.invalidated_at IS NULL
+                  ),
+                  '[]'::jsonb
+                ) AS locked_reviews
+         FROM evaluation_proposal roster
+         JOIN proposal ON proposal.id = roster.proposal_id
+         LEFT JOIN review_assignment assignment
+           ON assignment.challenge_id = roster.challenge_id
+          AND assignment.proposal_id = roster.proposal_id
+          AND assignment.proposal_version_id = roster.proposal_version_id
+          AND assignment.rubric_version_id = $2
+         LEFT JOIN review_scorecard scorecard ON scorecard.assignment_id = assignment.id
+         WHERE roster.challenge_id = $1
+         GROUP BY roster.proposal_id, roster.proposal_version_id, proposal.tracking_code
+         ORDER BY proposal.tracking_code, roster.proposal_id`,
+        [challenge.id, evaluation.rubric_version_id],
+      );
+      const bookkeeping = rows.rows.map((row) => {
+        const active = comparisonCount(
+          row.active_assignment_count,
+          requiredReviewsPerEligibleProposal,
+        );
+        const locked = comparisonCount(row.locked_review_count, requiredReviewsPerEligibleProposal);
+        const distinctLocked = comparisonCount(
+          row.distinct_locked_reviewer_count,
+          requiredReviewsPerEligibleProposal,
+        );
+        if (locked !== distinctLocked || locked > active) {
+          throw new Error("Invalid distinct review comparison evidence");
+        }
+        const reviews = lockedReviewScores(row.locked_reviews);
+        if (reviews.length !== locked) {
+          throw new Error("Invalid locked review comparison evidence count");
+        }
+        return {
+          row,
+          active,
+          locked,
+          cancelled: comparisonCount(row.cancelled_assignment_count),
+          invalidated: comparisonCount(row.invalidated_review_count),
+          reviews,
+        };
+      });
+      const scoresReleased = canReleaseReviewComparisonScores(
+        bookkeeping.map((item) => item.locked),
+      );
+      return {
+        challenge_id: parseChallengeId(challenge.id),
+        challenge_version_id: parseChallengeVersionId(evaluation.challenge_version_id),
+        rubric_version_id: parseRubricVersionId(evaluation.rubric_version_id),
+        required_reviews: requiredReviewsPerEligibleProposal,
+        proposal_count: bookkeeping.length,
+        completed_proposal_count: bookkeeping.filter(
+          (item) => item.locked === requiredReviewsPerEligibleProposal,
+        ).length,
+        scores_released: scoresReleased,
+        criteria,
+        proposals: bookkeeping.map(({ row, active, locked, cancelled, invalidated, reviews }) => ({
+          proposal_id: parseProposalId(row.proposal_id),
+          proposal_version_id: parseProposalVersionId(row.proposal_version_id),
+          tracking_code: row.tracking_code,
+          status:
+            locked === requiredReviewsPerEligibleProposal
+              ? "complete"
+              : active < requiredReviewsPerEligibleProposal
+                ? "needs_assignment"
+                : "reviews_in_progress",
+          active_assignment_count: active,
+          locked_review_count: locked,
+          cancelled_assignment_count: cancelled,
+          invalidated_review_count: invalidated,
+          score_summary: scoresReleased ? calculateReviewComparisonScore(criteria, reviews) : null,
+        })),
+        version: lockVersion(challenge.lock_version),
       };
     });
   }

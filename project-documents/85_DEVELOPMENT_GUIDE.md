@@ -55,6 +55,8 @@ The stack is intentionally incomplete but no longer browser-authoritative for th
 
 D1 reviewer provisioning is repeatable through `apps/api/seeds/d1-reviewers.sql`: each reviewer has a distinct human identity/membership in the shared platform workspace, an existing Dex identity link, and a local synthetic session. Re-running seeds does not reactivate a removed membership. Restart Dex after changing its static local users and rerun the normal database seed. Newly provisioned reviewers have an empty authoritative assignment queue; after Operations creates an assignment and the reviewer clears COI, the D6 connected screen permits score draft and submission against the exact frozen rubric.
 
+D7 adds `GET /api/v1/challenges/{challengeId}/review-comparison` to the connected evaluation page. Exercise it with an active organization owner/member after opening evaluation. Before every frozen proposal has two locked, non-invalidated reviews, verify that all `score_summary` values are `null` while completeness and cancelled/invalidated counts remain visible. After the final Operations lock, verify that aggregate weighted and per-criterion means appear together and that the response contains no reviewer/solver identity, individual vote, rationale or operational reason. D7 adds no migration; the PostgreSQL review suite carries the authoritative projection coverage.
+
 ### Local PostgreSQL workflow
 
 Start only the database, apply the full migration set, and load synthetic data:

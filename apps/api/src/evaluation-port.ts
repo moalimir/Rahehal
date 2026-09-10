@@ -1,6 +1,7 @@
 import type {
   ChallengeEvaluationNextAction,
   ChallengeEvaluationResource,
+  ChallengeReviewComparisonResource,
   OpenChallengeEvaluationBody,
 } from "@rahhal/contracts";
 import type { ChallengeId } from "@rahhal/domain";
@@ -10,6 +11,10 @@ import type { MutationOutcome, WorkspaceCommandContext, WorkspaceScope } from ".
 
 export interface EvaluationPort {
   get(scope: WorkspaceScope, challengeId: string): Promise<ChallengeEvaluationResource | null>;
+  comparison(
+    scope: WorkspaceScope,
+    challengeId: string,
+  ): Promise<ChallengeReviewComparisonResource | null>;
   open(
     challengeId: string,
     body: OpenChallengeEvaluationBody,
@@ -32,6 +37,14 @@ export class UnavailableEvaluationAdapter implements EvaluationPort {
       503,
       "STORAGE",
       "Evaluation opening requires the connected PostgreSQL runtime",
+    );
+  }
+
+  async comparison(): Promise<never> {
+    throw new ApiProblem(
+      503,
+      "STORAGE",
+      "Review comparison requires the connected PostgreSQL runtime",
     );
   }
 }
