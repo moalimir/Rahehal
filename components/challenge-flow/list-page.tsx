@@ -13,6 +13,7 @@ import {
 } from "@/domain/challenge";
 import { useChallengeList } from "@/components/challenge-flow/hooks";
 import { useChallengeGateway } from "@/components/runtime-provider";
+import { isNetworkWebRuntime } from "@/lib/runtime/mode";
 import { formatDateTime } from "@/lib/challenges/model";
 
 type TabId = "all" | "draft" | "under_review" | "published";
@@ -235,7 +236,14 @@ export function ChallengeListPage() {
                   >
                     {action.label}
                   </Link>
-                  {isDraftStatus(record.status) && (
+                  {/* Discarding a draft is a browser-store operation the demo
+                      owns; the connected contract has no command for it,
+                      because a challenge version is append-only evidence and
+                      removing one needs an authorised invalidation rather than
+                      a delete. The connected adapter says so with a typed
+                      refusal, but offering a control that can only ever fail
+                      is not honest, so it is not offered there. */}
+                  {isDraftStatus(record.status) && !isNetworkWebRuntime && (
                     <button
                       type="button"
                       className="challenge-delete-button"

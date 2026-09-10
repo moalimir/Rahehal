@@ -174,6 +174,71 @@ describe("A1b PostgreSQL identity, workspace, and transaction boundary", () => {
     expect(stored.rows[0]?.row).not.toContain(ownerRefreshToken);
   });
 
+  it("lists only the workspaces a human can still enter", async () => {
+    // `/me`'s workspace list is what the application chrome builds the
+    // workspace switcher and «تیم‌های من» from. It was assembled from every
+    // membership regardless of state, so a solver who left a team kept being
+    // offered it -- a door the authority check then refused with NOT_FOUND.
+    // The membership itself stays listed, because a removed membership is a
+    // true fact about that person and its `state` is what says so.
+    //
+    // The contributor is the actor rather than the owner, because a team
+    // workspace's owner membership cannot be removed at all: the schema
+    // requires exactly one active owner, which is why a sole owner has to
+    // transfer ownership before leaving.
+    const token = "local-a1b-access-contributor-alpha";
+    await database.query(
+      `INSERT INTO app_session (
+         id, user_id, origin_tenant_id, token_family_id, access_token_digest,
+         refresh_token_digest, session_version, active_tenant_id, active_workspace_id,
+         issued_at, access_expires_at, refresh_expires_at, last_used_at
+       ) VALUES ('ses_reachability', 'usr_team_contributor_alpha', 'ten_solver_alpha',
+         'family_reachability', $1, $2, 1, 'ten_solver_alpha', 'wsp_team_alpha',
+         '2026-01-01T00:00:00Z', '2029-01-01T00:00:00Z', '2030-01-01T00:00:00Z',
+         '2026-01-01T00:00:00Z')`,
+      [credentialDigest(token), credentialDigest(`${token}-refresh`)],
+    );
+    const session = await adapter.authenticate(token);
+    if (!session) throw new Error("the reachability session was not authenticated");
+
+    const membership = "mem_team_contributor_alpha";
+    const workspaceIds = async () =>
+      (await adapter.getMe(session))?.workspaces.map((workspace) => workspace.id) ?? [];
+    const setState = (state: string) =>
+      database.query(
+        `UPDATE membership SET state = $2, lock_version = lock_version + 1 WHERE id = $1`,
+        [membership, state],
+      );
+
+    expect(await workspaceIds()).toEqual(["wsp_team_alpha"]);
+
+    // Leaving a team is recorded as a removed membership.
+    await setState("removed");
+    expect(await workspaceIds()).toEqual([]);
+    expect((await adapter.getMe(session))?.memberships).toContainEqual(
+      expect.objectContaining({ workspace_id: "wsp_team_alpha", state: "removed" }),
+    );
+
+    // A suspended member cannot enter either.
+    await setState("suspended");
+    expect(await workspaceIds()).toEqual([]);
+
+    // Restoring the membership restores the door.
+    await setState("active");
+    expect(await workspaceIds()).toEqual(["wsp_team_alpha"]);
+
+    // And an archived team is unreachable however active the membership is --
+    // the same rule `activeAccess` already enforced.
+    await database.query(
+      `UPDATE team_workspace
+         SET status = 'archived', lock_version = lock_version + 1,
+             archived_at = clock_timestamp(), archived_by_user_id = 'usr_solver_alpha',
+             archive_reason = 'بایگانی برای بررسی دسترسی'
+       WHERE workspace_id = 'wsp_team_alpha'`,
+    );
+    expect(await workspaceIds()).toEqual([]);
+  });
+
   it("binds revalidation to the database session principal", async () => {
     const session = await adapter.authenticate(ownerAccessToken);
     if (!session) throw new Error("seeded session was not authenticated");
@@ -477,15 +542,46 @@ describe("A1b PostgreSQL identity, workspace, and transaction boundary", () => {
     expect(persisted.rows[0]).toMatchObject({
       access_token_digest: credentialDigest(first.tokens.access_token),
       refresh_token_digest: credentialDigest(first.tokens.refresh_token),
-      active_workspace_id: null,
+      // This human holds exactly one workspace, so the exchange enters it
+      // rather than answering a chooser with a single button on it.
+      active_workspace_id: ownerWorkspaceId,
       last_authenticated_at: new Date(fixedTimestamp),
     });
+    expect(first.receipt.next_actions).toEqual(["continue"]);
     for (const serialized of [persisted.rows[0]?.session_row, persisted.rows[0]?.replay_row]) {
       expect(serialized).not.toContain(first.tokens.access_token);
       expect(serialized).not.toContain(first.tokens.refresh_token);
       expect(serialized).not.toContain(localOidcRecord.authorizationCode);
       expect(serialized).not.toContain(localOidcRecord.codeVerifier);
     }
+  });
+
+  it("still asks a human who holds two workspaces to choose", async () => {
+    // The auto-entry above must not become "pick the first one for them".
+    // Where the choice is real the exchange has to leave it open, because
+    // guessing would silently scope the next command to a workspace the
+    // person did not intend.
+    await database.query(
+      `
+        INSERT INTO membership (
+          id, tenant_id, workspace_id, workspace_kind, user_id, role, state, lock_version
+        ) VALUES ('mem_owner_alpha_second', 'ten_org_beta', 'wsp_org_beta', 'org',
+                  'usr_owner_alpha', 'org:member', 'active', 1)
+        ON CONFLICT (id) DO NOTHING
+      `,
+    );
+
+    const outcome = await adapter.exchange(
+      exchangeBody(),
+      command("a1b-exchange-two-workspaces", 41),
+    );
+    expect(outcome.receipt.next_actions).toEqual(["select_workspace"]);
+
+    const stored = await database.query<{ active_workspace_id: string | null }>(
+      "SELECT active_workspace_id FROM app_session WHERE id = $1",
+      [outcome.tokens.session_id],
+    );
+    expect(stored.rows[0]?.active_workspace_id).toBeNull();
   });
 
   it("rolls back session, audit, outbox, and replay metadata on commit failure", async () => {

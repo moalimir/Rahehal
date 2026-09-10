@@ -56,6 +56,12 @@ export const legacyRouteEntries: LegacyRouteResolution[] = [
     "مشاهده فرصت‌ها",
   ),
   redirect("/solver/teams", "/app/solver/teams"),
+  // `/app/solver/invitations` and `/app/solver/teams` rendered the same
+  // component under three different names -- the route said invitations, the
+  // document title said دعوت‌های حل‌کننده, and the heading said تیم‌ها و همکاری.
+  // Teams is the canonical name because the page owns both the workspaces a
+  // human belongs to and the invitations into them.
+  redirect("/app/solver/invitations", "/app/solver/teams"),
   unavailable(
     "/solver/data-room",
     "اتاق داده به پرونده مشخص نیاز دارد",

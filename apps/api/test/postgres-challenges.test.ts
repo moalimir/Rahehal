@@ -1175,6 +1175,83 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
       expect(projection.rows[0]?.row).not.toContain(confidential);
     }
 
+    // Every projected field equals the published version it was written from.
+    //
+    // The assertions above pin literals, which cannot catch the failure that
+    // matters: a projection that is internally valid but says something the
+    // organization's own record does not. That is what an organization and a
+    // solver disagreeing looks like -- the org reads the aggregate, the solver
+    // reads this row -- and it stays invisible until someone compares the two
+    // screens. Comparing them here is the only place it is cheap.
+    const fidelity = await database.query<{
+      field: string;
+      aggregate: string | null;
+      projected: string | null;
+    }>(
+      `
+        SELECT field, aggregate, projected FROM (
+          SELECT 'title' AS field, cv.content->>'title' AS aggregate, p.title AS projected
+          FROM challenge c
+          JOIN challenge_version cv ON cv.id = c.published_version_id
+          JOIN challenge_public_projection p ON p.challenge_id = c.id
+          WHERE c.id = $1
+          UNION ALL
+          SELECT 'public_summary', cv.content->>'public_summary', p.public_summary
+          FROM challenge c
+          JOIN challenge_version cv ON cv.id = c.published_version_id
+          JOIN challenge_public_projection p ON p.challenge_id = c.id
+          WHERE c.id = $1
+          UNION ALL
+          SELECT 'category', cv.content->>'category', p.category
+          FROM challenge c
+          JOIN challenge_version cv ON cv.id = c.published_version_id
+          JOIN challenge_public_projection p ON p.challenge_id = c.id
+          WHERE c.id = $1
+          UNION ALL
+          SELECT 'location', cv.content->>'location', p.location
+          FROM challenge c
+          JOIN challenge_version cv ON cv.id = c.published_version_id
+          JOIN challenge_public_projection p ON p.challenge_id = c.id
+          WHERE c.id = $1
+          UNION ALL
+          SELECT 'visibility', cv.content->>'visibility', p.visibility
+          FROM challenge c
+          JOIN challenge_version cv ON cv.id = c.published_version_id
+          JOIN challenge_public_projection p ON p.challenge_id = c.id
+          WHERE c.id = $1
+          UNION ALL
+          SELECT 'verification_required', cv.content->>'verification_required',
+                 p.verification_required::text
+          FROM challenge c
+          JOIN challenge_version cv ON cv.id = c.published_version_id
+          JOIN challenge_public_projection p ON p.challenge_id = c.id
+          WHERE c.id = $1
+          UNION ALL
+          SELECT 'nda_required', cv.content->>'nda_required', p.nda_required::text
+          FROM challenge c
+          JOIN challenge_version cv ON cv.id = c.published_version_id
+          JOIN challenge_public_projection p ON p.challenge_id = c.id
+          WHERE c.id = $1
+          UNION ALL
+          SELECT 'document_gate_required', cv.content->>'document_gate_required',
+                 p.document_gate_required::text
+          FROM challenge c
+          JOIN challenge_version cv ON cv.id = c.published_version_id
+          JOIN challenge_public_projection p ON p.challenge_id = c.id
+          WHERE c.id = $1
+          UNION ALL
+          SELECT 'ip_terms', cv.content->>'ip_terms', p.ip_terms
+          FROM challenge c
+          JOIN challenge_version cv ON cv.id = c.published_version_id
+          JOIN challenge_public_projection p ON p.challenge_id = c.id
+          WHERE c.id = $1
+        ) AS comparison
+        WHERE aggregate IS DISTINCT FROM projected
+      `,
+      [challengeId],
+    );
+    expect(fidelity.rows).toEqual([]);
+
     const evidence = await database.query<{
       audits: string;
       receipts: string;

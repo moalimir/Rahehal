@@ -1055,7 +1055,11 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
               ...sessionCookies(outcome.tokens, settings, ports.clock.now()),
               clearBrowserAuthorizationFlowCookie(settings),
             ])
-            .header("location", "/app/org/challenges/new")
+            // `/app` resolves whichever workspace this human actually reaches.
+            // Sending everyone to the organization's challenge form landed a
+            // platform operator and a reviewer on a page they have no
+            // authority for, one navigation after signing in successfully.
+            .header("location", "/app")
             .send();
         } catch {
           return fail();

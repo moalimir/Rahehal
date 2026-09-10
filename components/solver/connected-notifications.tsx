@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Icon } from "@/components/icons";
 import { useWebRuntime } from "@/components/runtime-provider";
@@ -12,12 +12,14 @@ import {
 import { useConnectedFamily } from "@/components/solver/use-connected";
 import type { NotificationKind } from "@rahhal/domain";
 import type { GatewayResult } from "@/lib/api/result";
+import { RecordId } from "@/components/solver/record-identity";
 import { proposalHref } from "@/lib/workspace/proposal-navigation";
 import {
   notificationsScopeLost,
   readNotifications,
   type NotificationView,
 } from "@/lib/workspace/notification-view";
+import { announceNotificationStateChanged } from "@/lib/workspace/unread-badge";
 
 /**
  * What each projected event means to the human reading it.
@@ -55,6 +57,13 @@ const kindLabels: Record<NotificationKind, string> = {
  * re-checks access at that moment rather than trusting the access the
  * projection saw when the row was written.
  */
+/** What the opaque identifier under a notification belongs to. */
+const subjectLabels: Record<NotificationView["items"][number]["subject_type"], string> = {
+  proposal: "شناسه پیشنهاد",
+  team: "شناسه فضای تیمی",
+  direct_offer: "شناسه دعوت مستقیم",
+};
+
 function deepLink(
   subjectType: NotificationView["items"][number]["subject_type"],
   subjectId: string,
@@ -68,16 +77,33 @@ function deepLink(
     );
   if (subjectType === "team") return "/app/solver/teams";
   if (subjectType === "direct_offer")
-    return persona === "org" ? "/app/org/invitations" : "/app/solver/received-proposals";
+    return persona === "org"
+      ? "/app/org/invitations"
+      : `/app/solver/received-proposals/?offer=${encodeURIComponent(subjectId)}`;
   return null;
 }
 
 export function ConnectedNotifications({ persona }: { persona: "solver" | "org" }) {
   const runtime = useWebRuntime();
   const connected = useConnectedFamily(readNotifications, notificationsScopeLost);
+  const refreshNotifications = connected.refresh;
   const [filter, setFilter] = useState<"all" | "unread">("all");
   const [notice, setNotice] = useState("");
   const [pending, setPending] = useState(false);
+
+  useEffect(() => {
+    const refreshVisible = () => {
+      if (document.visibilityState === "visible") refreshNotifications();
+    };
+    const interval = window.setInterval(refreshVisible, 15_000);
+    window.addEventListener("focus", refreshVisible);
+    document.addEventListener("visibilitychange", refreshVisible);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshVisible);
+      document.removeEventListener("visibilitychange", refreshVisible);
+    };
+  }, [refreshNotifications]);
 
   if (connected.state.kind !== "ready")
     return <ConnectedFamilyFallback state={connected.state} label="اعلان‌ها" />;
@@ -89,6 +115,7 @@ export function ConnectedNotifications({ persona }: { persona: "solver" | "org" 
     const result = await command();
     setPending(false);
     if (result.ok) {
+      announceNotificationStateChanged();
       connected.refresh();
       return;
     }
@@ -98,7 +125,7 @@ export function ConnectedNotifications({ persona }: { persona: "solver" | "org" 
   const visible = filter === "unread" ? view.items.filter((item) => !item.read_at) : view.items;
 
   return (
-    <>
+    <div className="rh-connected-notifications-page">
       {notice && (
         <div className="rh-profile-toast" role="status">
           <Icon name="notification" />
@@ -115,12 +142,17 @@ export function ConnectedNotifications({ persona }: { persona: "solver" | "org" 
           </button>
         </ConnectedFamilyError>
       )}
-      <header className="rh-profile-heading">
+      <header className="rh-profile-heading rh-connected-page-head rh-connected-notifications-head">
         <div>
-          <h1>اعلان‌های این فضای کاری</h1>
-          <p>{view.unreadCount.toLocaleString("fa-IR")} اعلان خوانده‌نشده</p>
+          <small>رویدادهای فضای کاری فعال</small>
+          <h1>اعلان‌ها</h1>
+          <p>
+            {view.items.length.toLocaleString("fa-IR")} رویداد اخیر ·{" "}
+            {view.unreadCount.toLocaleString("fa-IR")} خوانده‌نشده
+          </p>
         </div>
         <button
+          className="rh-profile-outline"
           type="button"
           disabled={pending || view.unreadCount === 0}
           onClick={() => void run(() => gateways!.notifications.markAllRead())}
@@ -128,7 +160,11 @@ export function ConnectedNotifications({ persona }: { persona: "solver" | "org" 
           خواندن همه
         </button>
       </header>
-      <div className="rh-proposal-tabs" role="tablist" aria-label="فیلتر اعلان‌ها">
+      <div
+        className="rh-proposal-tabs rh-connected-notification-tabs"
+        role="tablist"
+        aria-label="فیلتر اعلان‌ها"
+      >
         {(
           [
             ["all", "همه"],
@@ -147,12 +183,23 @@ export function ConnectedNotifications({ persona }: { persona: "solver" | "org" 
           </button>
         ))}
       </div>
-      <section className="rh-card rh-membership-list">
+      <section className="rh-card rh-connected-notification-list" aria-live="polite">
         {visible.map((item) => {
           const href = deepLink(item.subject_type, item.subject_id, persona);
           return (
             <article className={!item.read_at ? "is-unread" : ""} key={item.id}>
-              <div>
+              <span className="rh-connected-notification-list__icon">
+                <Icon
+                  name={
+                    item.subject_type === "proposal"
+                      ? "decision"
+                      : item.subject_type === "team"
+                        ? "people"
+                        : "brief"
+                  }
+                />
+              </span>
+              <div className="rh-connected-notification-list__copy">
                 <small>
                   {new Intl.DateTimeFormat("fa-IR", {
                     dateStyle: "medium",
@@ -160,11 +207,9 @@ export function ConnectedNotifications({ persona }: { persona: "solver" | "org" 
                   }).format(new Date(item.occurred_at))}
                 </small>
                 <h3>{kindLabels[item.kind] ?? item.kind}</h3>
-                <p>
-                  <bdi dir="ltr">{item.subject_id}</bdi>
-                </p>
+                <RecordId value={item.subject_id} label={subjectLabels[item.subject_type]} />
               </div>
-              <div className="rh-membership-actions">
+              <div className="rh-connected-notification-list__actions">
                 {href && (
                   <Link
                     href={href}
@@ -191,12 +236,12 @@ export function ConnectedNotifications({ persona }: { persona: "solver" | "org" 
           );
         })}
         {!visible.length && !view.error && (
-          <div className="rh-profile-empty">
+          <div className="rh-profile-empty rh-connected-notification-empty">
             <Icon name="notification" />
             <h2>{filter === "unread" ? "اعلان خوانده‌نشده‌ای ندارید" : "اعلانی ثبت نشده است"}</h2>
           </div>
         )}
       </section>
-    </>
+    </div>
   );
 }

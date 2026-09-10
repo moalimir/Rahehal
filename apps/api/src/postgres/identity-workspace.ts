@@ -631,6 +631,28 @@ export class PostgresIdentityWorkspaceAdapter
         [actor.user_id, this.clock.now().toISOString()],
       );
 
+      /**
+       * A single reachable workspace is not a choice.
+       *
+       * The exchange left the active context null and always answered
+       * `select_workspace`, so every sign-in landed on a chooser -- even for a
+       * platform operator or an organization member who has exactly one
+       * workspace and no decision to make. `/app`'s contract already says one
+       * reachable workspace enters it; this is the server half of that. Two or
+       * more still resolve to null, because then the choice is real.
+       */
+      const reachable = await client.query<{ tenant_id: string; workspace_id: string }>(
+        `
+          SELECT membership.tenant_id, membership.workspace_id
+          FROM membership
+          JOIN workspace ON workspace.id = membership.workspace_id
+          WHERE membership.user_id = $1 AND membership.state = 'active'
+          LIMIT 2
+        `,
+        [actor.user_id],
+      );
+      const onlyWorkspace = reachable.rowCount === 1 ? reachable.rows[0] : null;
+
       const sessionId = parseSessionId(this.ids.next("ses"));
       const version = 1;
       const issued = this.credentials.issue(sessionId, version);
@@ -643,7 +665,7 @@ export class PostgresIdentityWorkspaceAdapter
             id, user_id, origin_tenant_id, token_family_id, access_token_digest,
             refresh_token_digest, session_version, active_tenant_id, active_workspace_id,
             issued_at, access_expires_at, refresh_expires_at, last_used_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, NULL, $8, $9, $10, $8)
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $11, $12, $8, $9, $10, $8)
         `,
         [
           sessionId,
@@ -656,6 +678,8 @@ export class PostgresIdentityWorkspaceAdapter
           issuedAt.toISOString(),
           accessExpiresAt,
           refreshExpiresAt,
+          onlyWorkspace?.tenant_id ?? null,
+          onlyWorkspace?.workspace_id ?? null,
         ],
       );
       const evidence = await this.sessionEvidence(
@@ -668,7 +692,7 @@ export class PostgresIdentityWorkspaceAdapter
         },
         "session.exchanged",
         command,
-        ["select_workspace"],
+        [onlyWorkspace ? "continue" : "select_workspace"],
         issuedAt.toISOString(),
       );
       const cached = {
@@ -1009,7 +1033,7 @@ export class PostgresIdentityWorkspaceAdapter
       const user = userResult.rows[0];
       if (!user) return null;
 
-      const accessResult = await client.query<AccessRow>(
+      const accessResult = await client.query<AccessRow & { reachable: boolean }>(
         `
           SELECT
             m.id AS membership_id,
@@ -1023,7 +1047,20 @@ export class PostgresIdentityWorkspaceAdapter
             m.updated_at AS membership_updated_at,
             w.name AS workspace_name,
             w.owner_user_id,
-            w.team_kind
+            w.team_kind,
+            (
+              m.state = 'active'
+              AND (
+                w.kind <> 'team'
+                OR EXISTS (
+                  SELECT 1
+                  FROM team_workspace AS team
+                  WHERE team.tenant_id = w.tenant_id
+                    AND team.workspace_id = w.id
+                    AND team.status = 'active'
+                )
+              )
+            ) AS reachable
           FROM membership AS m
           JOIN workspace AS w
             ON w.id = m.workspace_id
@@ -1035,7 +1072,10 @@ export class PostgresIdentityWorkspaceAdapter
         `,
         [current.user_id],
       );
-      const accesses = accessResult.rows.map(accessFromRow);
+      const accesses = accessResult.rows.map((row) => ({
+        access: accessFromRow(row),
+        reachable: row.reachable,
+      }));
       const active = current.active_workspace_id
         ? await this.activeAccess(client, parseUserId(current.user_id), current.active_workspace_id)
         : null;
@@ -1048,8 +1088,18 @@ export class PostgresIdentityWorkspaceAdapter
           primary_phone: user.primary_phone,
           phone_verified: user.phone_verified,
         },
-        memberships: accesses.map((access) => membershipResource(access.membership)),
-        workspaces: accesses.map((access) => workspaceResource(access.workspace)),
+        // A membership stays listed whatever its state -- a removed one is a
+        // true fact about this person, and its `state` is what says so. A
+        // workspace does not: this list is the set a human can actually enter,
+        // and the application chrome builds the switcher and «تیم‌های من» from
+        // it. Listing a workspace they have left, been removed from, been
+        // suspended in, or whose team is archived offered a door that the
+        // authority check then refuses -- the same reachability rule
+        // `activeAccess` enforces, so the two now answer alike.
+        memberships: accesses.map(({ access }) => membershipResource(access.membership)),
+        workspaces: accesses
+          .filter(({ reachable }) => reachable)
+          .map(({ access }) => workspaceResource(access.workspace)),
         active_context: active
           ? {
               tenant_id: active.tenantId,

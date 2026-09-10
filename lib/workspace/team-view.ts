@@ -26,6 +26,19 @@ export type TeamView = {
   readonly failures: readonly { readonly family: string; readonly error: GatewayFailure }[];
 };
 
+/** A failed family must not render its empty-state as though the server returned an empty list. */
+export function teamFamilyAvailable(view: TeamView, family: string): boolean {
+  return !view.failures.some((failure) => failure.family === family);
+}
+
+/**
+ * A denied optional management family is an unavailable affordance, not a page error.
+ * Other failures remain visible so a transient backend problem can still be retried.
+ */
+export function teamFailureNeedsAttention(failure: TeamView["failures"][number]): boolean {
+  return failure.error.code !== "NO_ACCESS";
+}
+
 export async function readTeamView(
   gateways: WorkspaceGateways,
   includeActiveTeam = true,

@@ -595,6 +595,467 @@
   background: var(--color-action-primary);
 }
 
+/* Connected organization inboxes use their own structure. The legacy cards
+   above reserve columns for demo-only checkboxes and avatars. */
+.org-connected-page-head {
+  min-height: 104px;
+}
+
+.org-connected-summary .org-metric {
+  min-height: 116px;
+}
+
+.org-offer-form {
+  display: grid;
+  gap: 18px;
+  border-color: #b9dbe0;
+  box-shadow: 0 16px 42px rgba(7, 89, 98, 0.08);
+}
+
+.org-offer-form__step {
+  min-height: 30px;
+  padding: 5px 10px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 7px;
+  color: #087f8d;
+  background: #e8f8f8;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.org-offer-form__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 15px;
+}
+
+.org-offer-form__grid label {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 7px;
+}
+
+.org-offer-form__grid label.is-wide {
+  grid-column: 1 / -1;
+}
+
+.org-offer-form__grid label > span {
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.org-offer-form__grid label > small {
+  color: var(--org-muted);
+  font-size: 12px;
+}
+
+.org-offer-form__grid :is(input, select, textarea) {
+  width: 100%;
+  min-height: 46px;
+  padding: 10px 12px;
+  border: 1px solid #c6d5e1;
+  border-radius: 9px;
+  outline: 0;
+  color: var(--org-navy);
+  background: #fff;
+  font: inherit;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.org-offer-form__grid textarea {
+  min-height: 116px;
+  resize: vertical;
+}
+
+.org-offer-form__grid :is(input, select, textarea):focus-visible,
+.org-connected-toolbar :is(input, select):focus-visible {
+  border-color: #0799a5;
+  box-shadow: 0 0 0 3px rgba(7, 153, 165, 0.13);
+}
+
+.org-offer-form > footer {
+  padding-top: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border-top: 1px solid #e4ecf2;
+}
+
+.org-offer-form > footer p {
+  max-width: 700px;
+  margin: 0;
+  color: var(--org-muted);
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.org-connected-offer-list,
+.org-connected-inbox {
+  display: grid;
+  gap: 14px;
+}
+
+.org-connected-offer-card,
+.org-connected-inbox-card {
+  min-width: 0;
+  padding: 21px;
+  border: 1px solid var(--org-line);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 10px 32px rgba(7, 29, 70, 0.045);
+}
+
+.org-connected-offer-card > header,
+.org-connected-inbox-card > header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 16px;
+}
+
+.org-connected-offer-card__title {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.org-connected-offer-card__title > span {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  color: #087f8d;
+  background: #e7f8f7;
+}
+
+.org-connected-offer-card__title svg {
+  width: 20px;
+}
+
+.org-connected-offer-card h2,
+.org-connected-inbox-card h2 {
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+  font-size: 19px;
+  line-height: 1.6;
+}
+
+.org-connected-offer-card small,
+.org-connected-inbox-card small {
+  color: var(--org-muted);
+  font-size: 12px;
+}
+
+.org-connected-offer-card__meta {
+  margin-top: 17px;
+  padding: 11px 13px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 24px;
+  border-radius: 9px;
+  color: #52677d;
+  background: #f6f9fb;
+  font-size: 12px;
+}
+
+.org-connected-offer-card__meta > span {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.org-connected-offer-card__meta svg {
+  width: 16px;
+  flex: 0 0 auto;
+  color: #087f8d;
+}
+
+.org-connected-offer-card__meta bdi {
+  overflow-wrap: anywhere;
+}
+
+.org-connected-offer-card__summary {
+  max-width: 900px;
+  margin: 16px 0 0;
+  color: #41566d;
+  line-height: 1.95;
+}
+
+.org-connected-offer-card__response {
+  margin-top: 14px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #bde2d3;
+  border-radius: 9px;
+  color: #176c53;
+  background: #effaf5;
+}
+
+.org-connected-offer-card__response > svg {
+  width: 20px;
+  flex: 0 0 auto;
+}
+
+.org-connected-offer-card__response span {
+  display: grid;
+  gap: 2px;
+}
+
+.org-connected-offer-card__response small {
+  color: #4f7568;
+}
+
+.org-connected-offer-card > footer {
+  margin-top: 17px;
+  padding-top: 14px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  border-top: 1px solid #e7edf2;
+}
+
+.org-connected-offer-card > footer:empty {
+  display: none;
+}
+
+.org-connected-offer-card > footer button {
+  min-height: 42px;
+  padding: 0 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid #a7c7d1;
+  border-radius: 8px;
+  color: #087f8d;
+  background: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.org-connected-offer-card > footer button:first-child:not(:last-child) {
+  border-color: var(--color-action-primary);
+  color: #fff;
+  background: var(--color-action-primary);
+}
+
+.org-connected-offer-card > footer button svg {
+  width: 17px;
+}
+
+.org-connected-toolbar {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(190px, 0.35fr) auto auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.org-connected-toolbar > label {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+  color: #435971;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.org-connected-toolbar__control {
+  min-height: 46px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #c7d5e0;
+  border-radius: 9px;
+  background: #fff;
+}
+
+.org-connected-toolbar__control svg {
+  width: 18px;
+  flex: 0 0 auto;
+  color: #778ba0;
+}
+
+.org-connected-toolbar__control input {
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  border: 0;
+  outline: 0;
+  color: var(--org-navy);
+  background: transparent;
+  font: inherit;
+}
+
+.org-connected-toolbar select {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 11px;
+  border: 1px solid #c7d5e0;
+  border-radius: 9px;
+  color: var(--org-navy);
+  background: #fff;
+  font: inherit;
+}
+
+.org-connected-toolbar__result {
+  min-height: 46px;
+  padding: 7px 13px;
+  display: grid;
+  align-content: center;
+  border-radius: 9px;
+  color: #087f8d;
+  background: #eaf8f8;
+  white-space: nowrap;
+}
+
+.org-connected-toolbar__result strong,
+.org-connected-toolbar__result span {
+  display: block;
+}
+
+.org-connected-toolbar__result span {
+  font-size: 12px;
+}
+
+.org-connected-toolbar > button {
+  min-height: 46px;
+  padding: 0 13px;
+  border: 0;
+  color: #087f8d;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.org-connected-inbox-card__title {
+  min-width: 0;
+}
+
+.org-connected-inbox-card__title p {
+  margin: 3px 0 0;
+  color: var(--org-muted);
+  font-size: 12px;
+}
+
+.org-connected-inbox-card__facts {
+  margin: 17px 0 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid #e0e8ef;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.org-connected-inbox-card__facts > div {
+  min-width: 0;
+  padding: 12px 14px;
+  border-inline-end: 1px solid #e0e8ef;
+  background: #fbfcfd;
+}
+
+.org-connected-inbox-card__facts > div:last-child {
+  border-inline-end: 0;
+}
+
+.org-connected-inbox-card__facts dt {
+  color: var(--org-muted);
+  font-size: 12px;
+}
+
+.org-connected-inbox-card__facts dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.org-connected-inbox-card__evidence {
+  margin-top: 12px;
+  padding: 11px 13px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: 9px;
+  color: #50657c;
+  background: #f4f7fa;
+}
+
+.org-connected-inbox-card__evidence > svg {
+  width: 20px;
+  flex: 0 0 auto;
+  color: #4776a5;
+}
+
+.org-connected-inbox-card__evidence > span {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 12px;
+}
+
+.org-connected-inbox-card__evidence small {
+  flex-basis: 100%;
+}
+
+.org-connected-inbox-card__evidence bdi {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.org-connected-inbox-card > footer {
+  margin-top: 16px;
+  padding-top: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-top: 1px solid #e5ecf1;
+}
+
+.org-connected-inbox-card > footer p {
+  margin: 0;
+  color: var(--org-muted);
+  font-size: 12px;
+}
+
+.org-connected-inbox-card > footer a {
+  min-height: 42px;
+  padding: 0 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border-radius: 8px;
+  color: #fff;
+  background: var(--color-action-primary);
+  font-size: 12px;
+  font-weight: 800;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.org-connected-inbox-card > footer a svg {
+  width: 16px;
+}
+
 .org-modal-layer {
   position: fixed;
   inset: 0;
@@ -1311,6 +1772,13 @@
   .org-settings-nav h2 {
     grid-column: 1 / -1;
   }
+  .org-connected-toolbar {
+    grid-template-columns: minmax(0, 1fr) minmax(170px, 0.45fr);
+  }
+  .org-connected-toolbar__result,
+  .org-connected-toolbar > button {
+    justify-self: stretch;
+  }
 }
 
 @media (max-width: 560px) {
@@ -1383,6 +1851,69 @@
     grid-column: 2;
     text-align: right;
   }
+  .org-offer-form__grid,
+  .org-connected-toolbar,
+  .org-connected-inbox-card__facts {
+    grid-template-columns: 1fr;
+  }
+  .org-offer-form__grid label.is-wide {
+    grid-column: auto;
+  }
+  .org-offer-form > footer,
+  .org-connected-inbox-card > footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .org-offer-form > footer .org-button,
+  .org-connected-inbox-card > footer a {
+    width: 100%;
+  }
+  .org-connected-offer-card,
+  .org-connected-inbox-card {
+    padding: 16px;
+  }
+  .org-connected-offer-card > header,
+  .org-connected-inbox-card > header {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .org-connected-offer-card__title {
+    grid-template-columns: 38px minmax(0, 1fr);
+  }
+  .org-connected-offer-card__title > span {
+    width: 38px;
+    height: 38px;
+  }
+  .org-connected-offer-card > header > .org-status,
+  .org-connected-inbox-card > header > .org-status {
+    margin-inline-start: 50px;
+  }
+  .org-connected-offer-card__meta {
+    display: grid;
+    gap: 8px;
+  }
+  .org-connected-offer-card__meta > span {
+    align-items: flex-start;
+  }
+  .org-connected-offer-card > footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .org-connected-offer-card > footer button {
+    width: 100%;
+  }
+  .org-connected-inbox-card__facts {
+    overflow: visible;
+  }
+  .org-connected-inbox-card__facts > div {
+    border-inline-end: 0;
+    border-bottom: 1px solid #e0e8ef;
+  }
+  .org-connected-inbox-card__facts > div:last-child {
+    border-bottom: 0;
+  }
+  .org-connected-inbox-card__evidence > span {
+    display: grid;
+  }
 }
 
 /* --------------------------------------------------------------------------
@@ -1435,4 +1966,157 @@
   outline: 2px solid #8a6a1f;
   outline-offset: 2px;
   border-radius: 4px;
+}
+
+/* Inbox grouped by call ----------------------------------------------------
+   Proposals are only comparable within the call they answer, so the call is
+   the unit an organization reads. A flat list made someone running several
+   calls at once check the challenge line on every card to know which
+   competition they were looking at. */
+.org-connected-inbox-group {
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid var(--org-line);
+  border-radius: 16px;
+  background: #fbfdfe;
+}
+
+.org-connected-inbox-group__head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.org-connected-inbox-group__head h2 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 18px;
+  line-height: 1.6;
+}
+
+.org-connected-inbox-group__head p {
+  margin: 5px 0 0;
+  color: var(--org-muted);
+  font-size: 12px;
+}
+
+.org-connected-inbox-group__counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.org-connected-inbox-group__counts span {
+  padding: 5px 11px;
+  border-radius: 999px;
+  background: #eef4f9;
+  color: #4a6076;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* The one count that means work is waiting carries the only colour, so a
+   glance down the page finds the calls that need attention. */
+.org-connected-inbox-group__counts .is-waiting {
+  background: #fdf1de;
+  color: #8a5a12;
+}
+
+.org-connected-inbox-card h3 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.org-connected-inbox-card__title p {
+  margin: 4px 0 0;
+  color: var(--org-muted);
+  font-size: 12px;
+}
+
+.org-connected-inbox-card > footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--org-line);
+}
+
+.org-connected-inbox-card__version {
+  color: var(--org-muted);
+  font-size: 12px;
+}
+
+/* Record evidence rail ----------------------------------------------------
+   The identity and cryptographic evidence a decision is attributable to,
+   beside the decision rather than repeated on every list row. */
+.org-connected-record-rail {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+  margin-top: 16px;
+  padding: 18px;
+  border: 1px solid var(--org-line);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.org-connected-record-rail > div {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  align-content: start;
+}
+
+.org-connected-record-rail small {
+  color: var(--org-muted);
+  font-size: 12px;
+}
+
+.org-connected-record-rail strong {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.org-connected-record-rail .org-status {
+  justify-self: start;
+}
+
+@media (max-width: 760px) {
+  .org-connected-inbox-group__head,
+  .org-connected-inbox-card > header {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* The organization reads the same grouped submission the solver wrote. */
+.org-proposal-content-group + .org-proposal-content-group {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--org-line, #d8e2ef);
+}
+.org-proposal-content-group h3 {
+  margin: 0 0 10px;
+  color: var(--org-navy, #071d46);
+  font-size: 13px;
+  font-weight: 800;
+}
+.org-proposal-content-group dl {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+.org-proposal-content-group dt {
+  color: #5d7086;
+  font-size: 12px;
+}
+.org-proposal-content-group dd {
+  margin: 2px 0 0;
+  line-height: 1.9;
 }

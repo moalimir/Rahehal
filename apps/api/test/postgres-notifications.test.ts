@@ -274,6 +274,95 @@ describe("C8 PostgreSQL notification projection and read model", () => {
     expect(seen.size).toBe(4);
   });
 
+  it("tells an invited solver they were invited, in the workspace they read", async () => {
+    // `team.invitation.sent` was routed to a membership in the *team's*
+    // workspace, which an invitee by definition does not hold yet, so the join
+    // matched nothing and every invitation notified nobody. A person found out
+    // they had been invited only by opening the team page unprompted.
+    await seedInvitation("tiv_c8_pending", "usr_team_candidate_alpha");
+    await emitInvitationSent("evt_c8_invite_0001", "tiv_c8_pending");
+    await consumer.pollOnce();
+
+    const projected = await database.query<{
+      workspace_id: string;
+      user_id: string;
+      kind: string;
+      subject_type: string;
+      subject_id: string;
+    }>(
+      `SELECT workspace_id, user_id, kind, subject_type, subject_id FROM notification
+       WHERE source_event_id = 'evt_c8_invite_0001'`,
+    );
+    expect(projected.rows).toEqual([
+      {
+        // Their own workspace, because the team's is not theirs to read yet.
+        workspace_id: "wsp_c8_candidate",
+        user_id: "usr_team_candidate_alpha",
+        kind: "team.invitation.sent",
+        subject_type: "team",
+        // ...while the subject still names the team the invitation is about.
+        subject_id: "wsp_team_alpha",
+      },
+    ]);
+
+    // Nobody else is told: an invitation is addressed to one person, and the
+    // team's own members learn about it from the team's invitation list.
+    const scope: WorkspaceScope = {
+      tenantId: parseTenantId("ten_solver_alpha"),
+      workspaceId: parseWorkspaceId("wsp_c8_candidate"),
+      actorUserId: parseUserId("usr_team_candidate_alpha"),
+      role: "individual",
+    };
+    expect((await notifications.summary(scope)).unread_count).toBe(1);
+  });
+
+  it("tells a requester their membership request was decided, accepted or not", async () => {
+    // The decision was routed through a membership in the *team's* workspace,
+    // which only an accepted requester ends up holding. A rejection therefore
+    // reached nobody: the one person waiting on the answer was the one person
+    // never told, and nothing in the product said so.
+    await seedMembershipRequest("tmr_c8_rejected", "rejected");
+    await emitTeamEvent(
+      "evt_c8_reject_0001",
+      "team.membership-request.rejected",
+      "team_membership_request",
+      "tmr_c8_rejected",
+    );
+    await consumer.pollOnce();
+
+    const projected = await database.query<{
+      workspace_id: string;
+      user_id: string;
+      kind: string;
+      subject_id: string;
+    }>(
+      `SELECT workspace_id, user_id, kind, subject_id FROM notification
+       WHERE source_event_id = 'evt_c8_reject_0001'`,
+    );
+    expect(projected.rows).toEqual([
+      {
+        // Their own workspace, because a rejected requester holds no other.
+        workspace_id: "wsp_c8_candidate",
+        user_id: "usr_team_candidate_alpha",
+        kind: "team.membership-request.rejected",
+        // ...while the subject still names the team they asked to join.
+        subject_id: "wsp_team_alpha",
+      },
+    ]);
+  });
+
+  it("notifies nobody when the invitation names a contact that is not a user", async () => {
+    // C8 reads no contact details, so an invitation to an email address that
+    // has never activated reaches that person out of band, not here.
+    await seedInvitation("tiv_c8_contact", null);
+    await emitInvitationSent("evt_c8_invite_0002", "tiv_c8_contact");
+    await consumer.pollOnce();
+    const projected = await database.query<{ count: string }>(
+      "SELECT count(*) AS count FROM notification WHERE source_event_id = 'evt_c8_invite_0002'",
+    );
+    expect(projected.rows[0]?.count).toBe("0");
+  });
+
   it("refuses to unread a notification once it is read", async () => {
     await seedProposalRows();
     await emitProposalSubmitted("evt_c8_immutable_0001");
@@ -349,4 +438,85 @@ async function seedProposalRows(): Promise<void> {
   } finally {
     client.release();
   }
+}
+
+/** The team workspace's invitation to a solver who holds only a personal workspace. */
+/** The personal workspace an invitee or requester reads their notifications in. */
+async function seedCandidateWorkspace(): Promise<void> {
+  await database.query(`
+    INSERT INTO workspace (id, tenant_id, tenant_kind, kind, name, owner_user_id, team_kind,
+      created_at, updated_at)
+    VALUES ('wsp_c8_candidate', 'ten_solver_alpha', 'solver', 'individual',
+      'Synthetic Candidate Workspace', 'usr_team_candidate_alpha', NULL,
+      clock_timestamp(), clock_timestamp())
+    ON CONFLICT (id) DO NOTHING
+  `);
+  await database.query(`
+    INSERT INTO membership (id, tenant_id, workspace_id, workspace_kind, user_id, role, state,
+      created_at, updated_at)
+    VALUES ('mem_c8_candidate', 'ten_solver_alpha', 'wsp_c8_candidate', 'individual',
+      'usr_team_candidate_alpha', 'individual', 'active', clock_timestamp(), clock_timestamp())
+    ON CONFLICT (id) DO NOTHING
+  `);
+}
+
+async function seedInvitation(invitationId: string, recipientUserId: string | null): Promise<void> {
+  await seedCandidateWorkspace();
+  await database.query(
+    `INSERT INTO team_invitation (
+       id, tenant_id, workspace_id, inviter_user_id, recipient_user_id, recipient_email,
+       proposed_role, scope, commitment, ip_notice, state, lock_version, expires_at,
+       created_at, updated_at
+     ) VALUES ($1, 'ten_solver_alpha', 'wsp_team_alpha', 'usr_solver_alpha', $2,
+       'team-candidate-alpha@synthetic.invalid', 'team:contributor',
+       'همکاری در پیشنهادهای این تیم', 'حداقل ده ساعت در هفته',
+       'مالکیت فکری تابع قرارداد تیم است.', 'sent', 1,
+       clock_timestamp() + interval '14 days', clock_timestamp(), clock_timestamp())`,
+    [invitationId, recipientUserId],
+  );
+}
+
+/** Emits the outbox row a C2 invitation would write, without the aggregate command. */
+async function emitInvitationSent(eventId: string, invitationId: string): Promise<void> {
+  await database.query(
+    `INSERT INTO outbox_event (
+       id, tenant_id, correlation_id, event_type, schema_version, aggregate_type,
+       aggregate_id, payload, dedupe_key, occurred_at, available_at
+     ) VALUES ($1,'ten_solver_alpha','cor_c8_invite','team.invitation.sent',1,'team_invitation',
+       $2, jsonb_build_object('entity_version', 1), $3, clock_timestamp(), clock_timestamp())`,
+    [eventId, invitationId, `team.invitation.sent:${eventId}`],
+  );
+}
+
+/** A membership request from a solver who holds only a personal workspace. */
+async function seedMembershipRequest(requestId: string, state: string): Promise<void> {
+  await seedCandidateWorkspace();
+  await database.query(
+    `INSERT INTO team_membership_request (
+       id, tenant_id, workspace_id, requester_user_id, requested_role, introduction,
+       availability, state, decision_reason, reviewed_by_user_id, lock_version, expires_at,
+       created_at, updated_at
+     ) VALUES ($1, 'ten_solver_alpha', 'wsp_team_alpha', 'usr_team_candidate_alpha',
+       'team:contributor', 'علاقه‌مند به همکاری در این تیم هستم.', 'پاره‌وقت', $2,
+       'ظرفیت تیم تکمیل است.', 'usr_solver_alpha', 1, clock_timestamp() + interval '30 days',
+       clock_timestamp(), clock_timestamp())`,
+    [requestId, state],
+  );
+}
+
+/** Emits the outbox row a C2 command would write, without the aggregate command. */
+async function emitTeamEvent(
+  eventId: string,
+  eventType: string,
+  aggregateType: string,
+  aggregateId: string,
+): Promise<void> {
+  await database.query(
+    `INSERT INTO outbox_event (
+       id, tenant_id, correlation_id, event_type, schema_version, aggregate_type,
+       aggregate_id, payload, dedupe_key, occurred_at, available_at
+     ) VALUES ($1,'ten_solver_alpha','cor_c8_team',$2,1,$3,
+       $4, jsonb_build_object('entity_version', 1), $5, clock_timestamp(), clock_timestamp())`,
+    [eventId, eventType, aggregateType, aggregateId, `${eventType}:${eventId}`],
+  );
 }

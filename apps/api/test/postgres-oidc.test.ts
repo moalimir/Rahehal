@@ -395,7 +395,11 @@ describe("A2 PostgreSQL OIDC authorization", () => {
       headers: { cookie: flowCookie },
     });
     expect(exchange.statusCode).toBe(303);
-    expect(exchange.headers.location).toBe("/app/org/challenges/new");
+    // `/app` resolves whichever workspace this human reaches. Landing everyone
+    // on the organization's challenge form sent a platform operator and a
+    // reviewer to a page they have no authority for, one navigation after
+    // signing in successfully.
+    expect(exchange.headers.location).toBe("/app");
     expect(exchange.body).not.toContain("rahhal-at-");
     expect(exchange.body).not.toContain("rahhal-rt-");
     const sessionCookieValues = setCookieValues(exchange);
@@ -411,9 +415,11 @@ describe("A2 PostgreSQL OIDC authorization", () => {
     expect(me.statusCode).toBe(200);
     const signedIn = jsonBody<MeResponse>(me);
     expect(signedIn.data.user.email_verified).toBe(true);
-    // A freshly exchanged session carries no active workspace; the server's own
-    // receipt says the next action is `select_workspace`.
-    expect(signedIn.data.active_context).toBeNull();
+    // This human holds exactly one workspace, so the exchange enters it rather
+    // than answering a chooser with a single button on it. The two-workspace
+    // case, where the choice is real and the context stays null, is covered in
+    // the identity suite.
+    expect(signedIn.data.active_context?.workspace_id).toBe("wsp_org_alpha");
     expect(signedIn.data.workspaces.some((workspace) => workspace.id === "wsp_org_alpha")).toBe(
       true,
     );
@@ -430,23 +436,23 @@ describe("A2 PostgreSQL OIDC authorization", () => {
     });
     expect(deniedWrite.statusCode).toBe(403);
 
-    // Same-origin and a real membership are still not enough: without a selected
-    // workspace the command is refused, and the refusal does not confirm the
-    // workspace exists.
-    const beforeSelection = await app.inject({
+    // A workspace this session does not hold is still refused, and the refusal
+    // does not confirm whether it exists. Entering the one workspace a human
+    // holds widens nothing: scope is still checked per request.
+    const foreignWorkspace = await app.inject({
       method: "POST",
       url: "/api/v1/challenges",
       headers: {
         cookie: accessCookie,
         origin: "http://localhost:3000",
         "sec-fetch-site": "same-origin",
-        "x-workspace-id": "wsp_org_alpha",
-        "idempotency-key": "a3-browser-create-before-selection",
+        "x-workspace-id": "wsp_org_beta",
+        "idempotency-key": "a3-browser-create-foreign-workspace",
       },
-      payload: { expected_version: 0, draft: { title: "Write before workspace selection" } },
+      payload: { expected_version: 0, draft: { title: "Write into a foreign workspace" } },
     });
-    expect(beforeSelection.statusCode).toBe(404);
-    expect(jsonBody<{ error: { code: string } }>(beforeSelection).error.code).toBe("NOT_FOUND");
+    expect(foreignWorkspace.statusCode).toBe(404);
+    expect(jsonBody<{ error: { code: string } }>(foreignWorkspace).error.code).toBe("NOT_FOUND");
 
     const selectWorkspace = await app.inject({
       method: "POST",

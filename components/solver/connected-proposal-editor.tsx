@@ -11,6 +11,8 @@ import type {
   ProposalResource,
 } from "@rahhal/contracts";
 import { majorAmountToMinor, minorAmountToMajor } from "@/lib/challenges/model";
+import { RecordId } from "@/components/solver/record-identity";
+import { proposalStateLabels } from "@/lib/workspace/proposal-labels";
 import { proposalHref, readProposalRecordId } from "@/lib/workspace/proposal-navigation";
 
 function parseRecordId(): string | null {
@@ -38,21 +40,69 @@ type TextField = Exclude<
   "budget_currency"
 >;
 
-const longFields: readonly (readonly [string, TextField])[] = [
-  ["درک مسئله", "problem_statement"],
-  ["ارزش پیشنهادی", "value_proposition"],
-  ["رویکرد فنی", "technical_approach"],
-  ["معماری راهکار", "architecture"],
-  ["داده‌ها و دسترسی‌های موردنیاز", "data_needs"],
-  ["سنجه‌های موفقیت", "success_metrics"],
-  ["نقشه راه", "roadmap"],
-  ["وابستگی‌ها", "dependencies"],
-  ["ریسک‌ها", "risks"],
-  ["برنامه کاهش ریسک", "mitigation"],
-  ["ترکیب تیم", "team_summary"],
-  ["تجربه مرتبط", "relevant_experience"],
-  ["مبنای بودجه", "budget_rationale"],
+const proposalFieldSections: readonly {
+  readonly title: string;
+  readonly description: string;
+  readonly icon: "spark" | "trend" | "people" | "decision";
+  readonly fields: readonly (readonly [string, TextField])[];
+}[] = [
+  {
+    title: "راهکار و ارزش پیشنهادی",
+    description: "مسئله را با زبان خودتان صورت‌بندی کنید و منطق راهکار را روشن بنویسید.",
+    icon: "spark",
+    fields: [
+      ["درک مسئله", "problem_statement"],
+      ["ارزش پیشنهادی", "value_proposition"],
+      ["رویکرد فنی", "technical_approach"],
+      ["معماری راهکار", "architecture"],
+      ["داده‌ها و دسترسی‌های موردنیاز", "data_needs"],
+    ],
+  },
+  {
+    title: "اجرا، سنجش و ریسک",
+    description: "مسیر تحویل، معیار موفقیت و ریسک‌های اصلی اجرا را مشخص کنید.",
+    icon: "trend",
+    fields: [
+      ["سنجه‌های موفقیت", "success_metrics"],
+      ["نقشه راه", "roadmap"],
+      ["وابستگی‌ها", "dependencies"],
+      ["ریسک‌ها", "risks"],
+      ["برنامه کاهش ریسک", "mitigation"],
+    ],
+  },
+  {
+    title: "تیم و تجربه",
+    description: "ترکیب تیم و سابقه مرتبط با این مسئله را برای سازمان توضیح دهید.",
+    icon: "people",
+    fields: [
+      ["ترکیب تیم", "team_summary"],
+      ["تجربه مرتبط", "relevant_experience"],
+    ],
+  },
+  {
+    title: "بودجه و مدل همکاری",
+    description: "منطق بودجه و چارچوب پیشنهادی همکاری را شفاف کنید.",
+    icon: "decision",
+    fields: [["مبنای بودجه", "budget_rationale"]],
+  },
 ] as const;
+
+const requiredTextFields = new Set<TextField>([
+  "problem_statement",
+  "value_proposition",
+  "technical_approach",
+  "success_metrics",
+]);
+
+const fullWidthTextFields = new Set<TextField>([
+  ...requiredTextFields,
+  "architecture",
+  "data_needs",
+  "roadmap",
+  "team_summary",
+  "relevant_experience",
+  "budget_rationale",
+]);
 
 export function ConnectedProposalEditor() {
   const runtime = useWebRuntime();
@@ -158,25 +208,50 @@ export function ConnectedProposalEditor() {
   };
 
   return (
-    <>
-      <header className="rh-profile-heading">
+    <div className="rh-connected-proposal-editor">
+      <header className="rh-profile-heading rh-connected-page-head rh-connected-proposal-head">
         <div>
-          <small>
-            <bdi dir="ltr">{proposal.id}</bdi> · نسخه {proposal.version.toLocaleString("fa-IR")}
+          <small className="rh-connected-proposal-head__id">
+            {proposal.tracking_code ? (
+              <bdi dir="ltr">{proposal.tracking_code}</bdi>
+            ) : (
+              "پیش‌نویس ارسال‌نشده"
+            )}{" "}
+            · نسخه {proposal.version.toLocaleString("fa-IR")}
           </small>
           <h1>{editable ? "تدوین پیشنهاد" : "اقدام روی پیشنهاد"}</h1>
           <p>هر ذخیره یک نسخه سروری تازه می‌سازد؛ ارسال نهایی همان نسخه را قفل می‌کند.</p>
+          <RecordId value={proposal.id} label="شناسه پیشنهاد" />
         </div>
         <Link
           className="rh-profile-outline"
           href={proposalHref(`/app/solver/proposals/${proposal.id}/preview`)}
         >
-          مشاهده پرونده
+          <Icon name="eye" /> مشاهده پرونده
         </Link>
       </header>
 
+      <section className="rh-connected-proposal-meta" aria-label="وضعیت پیشنهاد">
+        <div>
+          <small>وضعیت پرونده</small>
+          <strong>{proposalStateLabels[proposal.state]}</strong>
+        </div>
+        <div>
+          <small>نسخه فعال</small>
+          <strong>{proposal.version.toLocaleString("fa-IR")}</strong>
+        </div>
+        <div>
+          <small>آمادگی محتوا</small>
+          <strong>{proposal.readiness.ready ? "آماده ارسال" : "نیازمند تکمیل"}</strong>
+        </div>
+        <div>
+          <small>شرایط فراخوان</small>
+          <strong>{eligibility?.status === "eligible" ? "تأییدشده" : "نیازمند بررسی"}</strong>
+        </div>
+      </section>
+
       {proposal.state === "clarification_requested" && openClarification && (
-        <section className="rh-card rh-solver-flow-card">
+        <section className="rh-card rh-solver-flow-card rh-connected-flow-card">
           <h2>پاسخ به شفاف‌سازی</h2>
           <p>{openClarification.question}</p>
           <label>
@@ -216,7 +291,7 @@ export function ConnectedProposalEditor() {
       )}
 
       {proposal.state === "revision_requested" && openRevision && (
-        <section className="rh-card rh-solver-flow-card">
+        <section className="rh-card rh-solver-flow-card rh-connected-flow-card">
           <h2>درخواست اصلاح</h2>
           <p>{openRevision.scope}</p>
           <button
@@ -247,150 +322,230 @@ export function ConnectedProposalEditor() {
 
       {editable && (
         <form
-          className="rh-card rh-wizard-editor"
+          className="rh-card rh-connected-proposal-form"
           onSubmit={(event) => {
             event.preventDefault();
             void save();
           }}
         >
-          <div className="rh-wizard-fields">
-            <label>
-              <span>عنوان پیشنهاد *</span>
-              <input
-                required
-                minLength={5}
-                value={draft.title}
-                onChange={(e) => set("title", e.target.value)}
-              />
-            </label>
-            <label>
-              <span>مرحله بلوغ</span>
-              <input
-                value={draft.maturity_level}
-                onChange={(e) => set("maturity_level", e.target.value)}
-              />
-            </label>
-            <label>
-              <span>زمان نمونه اولیه (هفته) *</span>
-              <input
-                dir="ltr"
-                inputMode="numeric"
-                required
-                value={draft.prototype_weeks}
-                onChange={(e) => set("prototype_weeks", e.target.value)}
-              />
-            </label>
-            <label>
-              <span>مدت اجرا (هفته) *</span>
-              <input
-                dir="ltr"
-                inputMode="numeric"
-                required
-                value={draft.duration_weeks}
-                onChange={(e) => set("duration_weeks", e.target.value)}
-              />
-            </label>
-            <label>
-              <span>فناوری‌ها</span>
-              <input
-                value={draft.technologies.join("، ")}
-                onChange={(e) => set("technologies", textList(e.target.value))}
-              />
-            </label>
-            <label>
-              <span>وضعیت مالکیت فکری *</span>
-              <input
-                required
-                value={draft.ip_status}
-                onChange={(e) => set("ip_status", e.target.value)}
-              />
-            </label>
-            {longFields.map(([label, field]) => (
-              <label key={field}>
-                <span>
-                  {label}
-                  {[
-                    "problem_statement",
-                    "value_proposition",
-                    "technical_approach",
-                    "success_metrics",
-                  ].includes(field)
-                    ? " *"
-                    : ""}
-                </span>
-                <textarea
-                  rows={4}
-                  value={draft[field]}
-                  onChange={(e) => set(field, e.target.value)}
-                />
-              </label>
-            ))}
-            <label>
-              <span>محل پایلوت</span>
-              <input
-                value={draft.pilot_location}
-                onChange={(e) => set("pilot_location", e.target.value)}
-              />
-            </label>
-            <label>
-              <span>مسئول اصلی</span>
-              <input value={draft.lead_name} onChange={(e) => set("lead_name", e.target.value)} />
-            </label>
-            <label>
-              <span>بودجه پیشنهادی (ریال) *</span>
-              <input
-                dir="ltr"
-                inputMode="numeric"
-                required
-                value={
-                  draft.budget_amount_minor === null
-                    ? ""
-                    : String(minorAmountToMajor(draft.budget_amount_minor))
-                }
-                onChange={(e) => set("budget_amount_minor", majorAmountToMinor(e.target.value))}
-              />
-            </label>
-            <label>
-              <span>مدل پرداخت</span>
-              <input
-                value={draft.payment_model}
-                onChange={(e) => set("payment_model", e.target.value)}
-              />
-            </label>
-            <label>
-              <span>آمادگی شروع</span>
-              <input
-                value={draft.start_availability}
-                onChange={(e) => set("start_availability", e.target.value)}
-              />
-            </label>
-            <label>
-              <span>ظرفیت زمانی تیم</span>
-              <input
-                value={draft.team_availability}
-                onChange={(e) => set("team_availability", e.target.value)}
-              />
-            </label>
-            {(
-              [
-                ["nda_accepted", "شرایط محرمانگی را می‌پذیرم"],
-                ["conflict_declared", "وضعیت تعارض منافع را اعلام می‌کنم"],
-                ["ip_accepted", "شرایط مالکیت فکری را می‌پذیرم"],
-                ["accuracy_confirmed", "صحت اطلاعات و اختیار ارسال را تأیید می‌کنم"],
-              ] as const
-            ).map(([field, label]) => (
-              <label className="rh-wizard-consent" key={field}>
+          <header className="rh-connected-proposal-form__head">
+            <div>
+              <span>
+                <Icon name="brief" />
+              </span>
+              <div>
+                <small>نسخه قابل ویرایش</small>
+                <h2>اطلاعات پیشنهاد</h2>
+                <p>هر بخش را دقیق و قابل ارزیابی تکمیل کنید؛ فیلدهای ستاره‌دار الزامی‌اند.</p>
+              </div>
+            </div>
+            <span className={proposal.readiness.ready ? "is-ready" : "is-incomplete"}>
+              {proposal.readiness.ready ? "آماده ارسال" : "پیش‌نویس ناقص"}
+            </span>
+          </header>
+
+          <fieldset className="rh-connected-proposal-section">
+            <legend>
+              <span>
+                <Icon name="brief" />
+              </span>
+              <span>
+                <strong>مشخصات پایه</strong>
+                <small>عنوان، بلوغ، زمان و فناوری‌های اصلی راهکار</small>
+              </span>
+            </legend>
+            <div className="rh-connected-proposal-section__grid">
+              <label className="rh-connected-field is-wide">
+                <span>عنوان پیشنهاد *</span>
                 <input
-                  type="checkbox"
-                  checked={draft[field]}
-                  onChange={(e) => set(field, e.target.checked)}
+                  required
+                  minLength={5}
+                  value={draft.title}
+                  onChange={(e) => set("title", e.target.value)}
+                  placeholder="یک عنوان روشن و نتیجه‌محور"
                 />
-                <span>{label}</span>
               </label>
-            ))}
-          </div>
-          <footer className="rh-profile-actions">
-            <button type="submit" disabled={pending}>
+              <label className="rh-connected-field">
+                <span>مرحله بلوغ</span>
+                <input
+                  value={draft.maturity_level}
+                  onChange={(e) => set("maturity_level", e.target.value)}
+                  placeholder="برای نمونه: نمونه اولیه آزمایشگاهی"
+                />
+              </label>
+              <label className="rh-connected-field">
+                <span>فناوری‌ها</span>
+                <input
+                  value={draft.technologies.join("، ")}
+                  onChange={(e) => set("technologies", textList(e.target.value))}
+                  placeholder="با ویرگول جدا کنید"
+                />
+              </label>
+              <label className="rh-connected-field">
+                <span>زمان نمونه اولیه (هفته) *</span>
+                <input
+                  dir="ltr"
+                  inputMode="numeric"
+                  required
+                  value={draft.prototype_weeks}
+                  onChange={(e) => set("prototype_weeks", e.target.value)}
+                />
+              </label>
+              <label className="rh-connected-field">
+                <span>مدت اجرا (هفته) *</span>
+                <input
+                  dir="ltr"
+                  inputMode="numeric"
+                  required
+                  value={draft.duration_weeks}
+                  onChange={(e) => set("duration_weeks", e.target.value)}
+                />
+              </label>
+              <label className="rh-connected-field is-wide">
+                <span>وضعیت مالکیت فکری *</span>
+                <input
+                  required
+                  value={draft.ip_status}
+                  onChange={(e) => set("ip_status", e.target.value)}
+                  placeholder="مالکیت، مجوزها یا محدودیت‌های موجود"
+                />
+              </label>
+            </div>
+          </fieldset>
+
+          {proposalFieldSections.map((section) => (
+            <fieldset className="rh-connected-proposal-section" key={section.title}>
+              <legend>
+                <span>
+                  <Icon name={section.icon} />
+                </span>
+                <span>
+                  <strong>{section.title}</strong>
+                  <small>{section.description}</small>
+                </span>
+              </legend>
+              <div className="rh-connected-proposal-section__grid">
+                {section.fields.map(([label, field]) => (
+                  <label
+                    className={
+                      fullWidthTextFields.has(field)
+                        ? "rh-connected-field is-wide"
+                        : "rh-connected-field"
+                    }
+                    key={field}
+                  >
+                    <span>
+                      {label}
+                      {requiredTextFields.has(field) ? " *" : ""}
+                    </span>
+                    <textarea
+                      rows={fullWidthTextFields.has(field) ? 5 : 4}
+                      value={draft[field]}
+                      onChange={(e) => set(field, e.target.value)}
+                    />
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          ))}
+
+          <fieldset className="rh-connected-proposal-section">
+            <legend>
+              <span>
+                <Icon name="location" />
+              </span>
+              <span>
+                <strong>برنامه همکاری و تحویل</strong>
+                <small>محل اجرا، مسئول اصلی، ظرفیت و مدل مالی پیشنهادی</small>
+              </span>
+            </legend>
+            <div className="rh-connected-proposal-section__grid">
+              <label className="rh-connected-field">
+                <span>محل پایلوت</span>
+                <input
+                  value={draft.pilot_location}
+                  onChange={(e) => set("pilot_location", e.target.value)}
+                />
+              </label>
+              <label className="rh-connected-field">
+                <span>مسئول اصلی</span>
+                <input value={draft.lead_name} onChange={(e) => set("lead_name", e.target.value)} />
+              </label>
+              <label className="rh-connected-field">
+                <span>آمادگی شروع</span>
+                <input
+                  value={draft.start_availability}
+                  onChange={(e) => set("start_availability", e.target.value)}
+                />
+              </label>
+              <label className="rh-connected-field">
+                <span>ظرفیت زمانی تیم</span>
+                <input
+                  value={draft.team_availability}
+                  onChange={(e) => set("team_availability", e.target.value)}
+                />
+              </label>
+              <label className="rh-connected-field">
+                <span>بودجه پیشنهادی (ریال) *</span>
+                <input
+                  dir="ltr"
+                  inputMode="numeric"
+                  required
+                  value={
+                    draft.budget_amount_minor === null
+                      ? ""
+                      : String(minorAmountToMajor(draft.budget_amount_minor))
+                  }
+                  onChange={(e) => set("budget_amount_minor", majorAmountToMinor(e.target.value))}
+                />
+              </label>
+              <label className="rh-connected-field">
+                <span>مدل پرداخت</span>
+                <input
+                  value={draft.payment_model}
+                  onChange={(e) => set("payment_model", e.target.value)}
+                />
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset className="rh-connected-proposal-section rh-connected-proposal-consents">
+            <legend>
+              <span>
+                <Icon name="shield" />
+              </span>
+              <span>
+                <strong>تأییدها و تعهدات</strong>
+                <small>پیش از ارسال نهایی، وضعیت هر مورد را مشخص کنید.</small>
+              </span>
+            </legend>
+            <div>
+              {(
+                [
+                  ["nda_accepted", "شرایط محرمانگی را می‌پذیرم"],
+                  ["conflict_declared", "وضعیت تعارض منافع را اعلام می‌کنم"],
+                  ["ip_accepted", "شرایط مالکیت فکری را می‌پذیرم"],
+                  ["accuracy_confirmed", "صحت اطلاعات و اختیار ارسال را تأیید می‌کنم"],
+                ] as const
+              ).map(([field, label]) => (
+                <label key={field}>
+                  <input
+                    type="checkbox"
+                    checked={draft[field]}
+                    onChange={(e) => set(field, e.target.checked)}
+                  />
+                  <span>{label}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+
+          <footer className="rh-connected-proposal-actions">
+            <div>
+              <strong>نسخه {proposal.version.toLocaleString("fa-IR")}</strong>
+              <small>ابتدا ذخیره کنید تا آمادگی روی سرور دوباره محاسبه شود.</small>
+            </div>
+            <button className="rh-profile-outline" type="submit" disabled={pending}>
               {pending ? "در حال ذخیره…" : "ذخیره نسخه"}
             </button>
             <button
@@ -399,6 +554,7 @@ export function ConnectedProposalEditor() {
               disabled={pending || !proposal.readiness.ready || eligibility?.status !== "eligible"}
               onClick={() => void submit()}
             >
+              <Icon name="lock" />
               {proposal.state === "revision_draft" ? "ارسال نسخه اصلاحی" : "ارسال نهایی و قفل نسخه"}
             </button>
           </footer>
@@ -406,8 +562,16 @@ export function ConnectedProposalEditor() {
       )}
 
       {!proposal.readiness.ready && editable && (
-        <section className="rh-card rh-profile-empty" role="status">
-          <h2>موارد باقی‌مانده پیش از ارسال</h2>
+        <section className="rh-card rh-connected-readiness" role="status">
+          <header>
+            <span>
+              <Icon name="spark" />
+            </span>
+            <div>
+              <small>کنترل آمادگی</small>
+              <h2>موارد باقی‌مانده پیش از ارسال</h2>
+            </div>
+          </header>
           <ul>
             {proposal.readiness.issues.map((issue) => (
               <li key={issue.path}>{issue.message}</li>
@@ -417,12 +581,18 @@ export function ConnectedProposalEditor() {
         </section>
       )}
       {eligibility && eligibility.status !== "eligible" && (
-        <section className="rh-card rh-profile-empty">
-          <h2>شرایط ارسال کامل نیست</h2>
-          {eligibility.reasons.map((reason) => (
-            <p key={reason.code}>{reason.message}</p>
-          ))}
+        <section className="rh-card rh-connected-eligibility-note">
+          <span>
+            <Icon name="shield" />
+          </span>
+          <div>
+            <h2>شرایط ارسال کامل نیست</h2>
+            {eligibility.reasons.map((reason) => (
+              <p key={reason.code}>{reason.message}</p>
+            ))}
+          </div>
           <Link
+            className="rh-profile-outline"
             href={`/app/solver/opportunities/record/?id=${encodeURIComponent(proposal.challenge_id)}`}
           >
             بررسی شرایط فراخوان
@@ -444,6 +614,6 @@ export function ConnectedProposalEditor() {
           </button>
         </div>
       )}
-    </>
+    </div>
   );
 }

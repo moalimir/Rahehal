@@ -11,7 +11,12 @@ import {
   proposalStatusGroups,
   readSolverDashboardSummary,
 } from "@/lib/workspace/solver-summary";
-import { readTeamView, teamViewScopeLost } from "@/lib/workspace/team-view";
+import {
+  readTeamView,
+  teamFailureNeedsAttention,
+  teamFamilyAvailable,
+  teamViewScopeLost,
+} from "@/lib/workspace/team-view";
 
 const meta = { server_time: "2026-09-05T00:00:00.000Z", correlation_id: "cor_test_0001" };
 
@@ -159,6 +164,30 @@ describe("C9 connected team view", () => {
       }),
     );
     expect(view.failures.map((failure) => failure.family)).toEqual(["team"]);
+  });
+
+  it("hides denied management families but keeps genuine failures actionable", async () => {
+    const view = await readTeamView(
+      gateways({
+        team: {
+          read: async () => ok({ members: [] }),
+          sentInvitations: async () => fail("NO_ACCESS"),
+          incomingInvitations: async () => ok([]),
+          incomingRequests: async () => fail("NO_ACCESS"),
+          ownRequests: async () => ok([]),
+        },
+      }),
+    );
+
+    expect(teamFamilyAvailable(view, "sentInvitations")).toBe(false);
+    expect(teamFamilyAvailable(view, "requests")).toBe(false);
+    expect(view.failures.filter(teamFailureNeedsAttention)).toEqual([]);
+    expect(
+      teamFailureNeedsAttention({
+        family: "sentInvitations",
+        error: { code: "STORAGE", message: "offline" } as never,
+      }),
+    ).toBe(true);
   });
 });
 

@@ -97,12 +97,17 @@ export function countProposals(list: ProposalListResource): SolverProposalCounts
  */
 export async function readSolverDashboardSummary(
   gateways: WorkspaceGateways,
+  workspaceKind: "individual" | "team" = "team",
 ): Promise<SolverDashboardSummary> {
+  const teamRead =
+    workspaceKind === "team"
+      ? gateways.team.read()
+      : Promise.resolve<Awaited<ReturnType<WorkspaceGateways["team"]["read"]>> | null>(null);
   const [profile, proposals, notifications, team] = await Promise.all([
     gateways.solverProfile.read(),
     gateways.proposals.list(),
     gateways.notifications.summary(),
-    gateways.team.read(),
+    teamRead,
   ]);
 
   // One read per distinct challenge, through the public projection only, so a
@@ -125,7 +130,7 @@ export async function readSolverDashboardSummary(
   if (!notifications.ok) failures.push({ family: "notifications", error: notifications.error });
   // An individual workspace has no team, and the server says so with a denial.
   // Reporting that would put an error on a page that is working correctly.
-  if (!team.ok && team.error.code !== "NO_ACCESS" && team.error.code !== "NOT_FOUND") {
+  if (team && !team.ok && team.error.code !== "NO_ACCESS" && team.error.code !== "NOT_FOUND") {
     failures.push({ family: "team", error: team.error });
   }
 
@@ -134,7 +139,7 @@ export async function readSolverDashboardSummary(
     proposals: proposals.ok ? countProposals(proposals.data) : null,
     proposalRows: proposals.ok ? proposals.data.items : null,
     challengeTitles,
-    team: team.ok ? team.data : null,
+    team: team?.ok ? team.data : null,
     unreadNotifications: notifications.ok
       ? (notifications.data as NotificationSummaryResource).unread_count
       : null,

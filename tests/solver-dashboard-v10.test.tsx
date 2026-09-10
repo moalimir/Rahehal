@@ -21,7 +21,7 @@ describe("داشبوردهای جدید حل‌کننده", () => {
     expect(
       screen.getByRole("heading", { level: 2, name: "دعوت‌نامه‌های تیمی" }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "پیشنهادهای دریافتی" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "دعوت‌های همکاری" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "تیم‌سازی" })).toBeInTheDocument();
     for (const link of screen.getAllByRole("link", { name: "مشاهده فرصت" })) {
       expect(link.getAttribute("href")).toMatch(/^\/app\/solver\/opportunities(?:\/|\?)/);

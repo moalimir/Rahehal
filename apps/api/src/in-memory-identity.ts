@@ -534,6 +534,23 @@ export class InMemoryIdentityAdapter
         if (state.consumedOidcExchanges.has(credentialScope)) throw forbidden();
         state.consumedOidcExchanges.add(credentialScope);
         const id = parseSessionId(this.ids.next("ses"));
+        /**
+         * A single reachable workspace is not a choice.
+         *
+         * The exchange left the active context null and always answered
+         * `select_workspace`, so every sign-in landed on a chooser -- even for
+         * a platform operator or an organization member who has exactly one
+         * workspace and no decision to make. `/app`'s contract already says
+         * one reachable workspace enters it; this is the server half of that.
+         * Two or more still resolve to null, because then the choice is real.
+         */
+        const reachable = this.seeds.filter(
+          (candidate) =>
+            candidate.user.id === seed.user.id &&
+            this.state.membershipStates.get(candidate.membership.id) === "active" &&
+            !this.state.archivedTeamWorkspaces.has(candidate.workspace.id),
+        );
+        const onlyWorkspace = reachable.length === 1 ? reachable[0] : null;
         const session: StoredSession = {
           id,
           userId: seed.user.id,
@@ -545,14 +562,14 @@ export class InMemoryIdentityAdapter
           refreshExpiresAt: new Date(
             this.clock.now().getTime() + 14 * 24 * 60 * 60_000,
           ).toISOString(),
-          activeWorkspaceId: null,
+          activeWorkspaceId: onlyWorkspace?.workspace.id ?? null,
           revoked: false,
         };
         state.sessions.set(id, session);
         state.accessIndex.set(session.accessToken, id);
         state.refreshIndex.set(session.refreshToken, id);
         const mutation = this.receipt(state, session, "session.exchanged", command, [
-          "select_workspace",
+          onlyWorkspace ? "continue" : "select_workspace",
         ]);
         const outcome = { ...mutation, tokens: this.tokens(session) };
         state.tokenIdempotency.set(key, { fingerprint, outcome: structuredClone(outcome) });
@@ -682,11 +699,18 @@ export class InMemoryIdentityAdapter
       if (!storedSession) throw forbidden();
       if (!userSeed) return null;
       const seeds = this.seeds.filter((seed) => seed.user.id === session.userId);
+      /**
+       * The workspaces this human can actually enter, which is the same rule
+       * the active context is resolved by, one line below. `/me`'s workspace
+       * list feeds the switcher and «تیم‌های من», so a workspace left, removed
+       * from, suspended in, or belonging to an archived team was still offered
+       * as a door the authority check then refused.
+       */
+      const reachable = (seed: (typeof seeds)[number]) =>
+        this.state.membershipStates.get(seed.membership.id) === "active" &&
+        !this.state.archivedTeamWorkspaces.has(seed.workspace.id);
       const activeSeed = seeds.find(
-        (seed) =>
-          seed.workspace.id === storedSession.activeWorkspaceId &&
-          this.state.membershipStates.get(seed.membership.id) === "active" &&
-          !this.state.archivedTeamWorkspaces.has(seed.workspace.id),
+        (seed) => seed.workspace.id === storedSession.activeWorkspaceId && reachable(seed),
       );
       return {
         user: {
@@ -703,7 +727,7 @@ export class InMemoryIdentityAdapter
             this.state.membershipStates.get(seed.membership.id) ?? "removed",
           ),
         ),
-        workspaces: seeds.map(workspaceResource),
+        workspaces: seeds.filter(reachable).map(workspaceResource),
         active_context: activeSeed
           ? {
               tenant_id: activeSeed.workspace.tenantId,

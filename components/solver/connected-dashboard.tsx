@@ -64,9 +64,9 @@ export function ConnectedSolverDashboard() {
   });
 
   return (
-    <>
-      <section className="rh-dashboard-hero">
-        <div>
+    <div className="rh-connected-dashboard">
+      <section className="rh-dashboard-hero rh-connected-dashboard-hero">
+        <div className="rh-connected-dashboard-hero__content">
           <small className="rh-dashboard-hero__context">
             <Icon name={team ? "people" : "user"} />
             {team ? "فضای تیمی فعال" : "فضای شخصی فعال"}
@@ -81,9 +81,24 @@ export function ConnectedSolverDashboard() {
                   ? `${actionable.length.toLocaleString("fa-IR")} مورد از ${rows.length.toLocaleString("fa-IR")} پیشنهاد این فضا منتظر اقدام شماست.`
                   : `${rows.length.toLocaleString("fa-IR")} پیشنهاد در این فضای کاری دارید و اقدام بازی روی آن‌ها نیست.`}
           </p>
-          <Link className="rh-button rh-button--primary" href="/app/solver/opportunities">
-            مشاهده فرصت‌های منتشرشده
-          </Link>
+          <div className="rh-connected-dashboard-hero__actions">
+            <Link className="rh-button rh-button--primary" href="/app/solver/opportunities">
+              مشاهده فرصت‌های منتشرشده <Icon name="arrow" />
+            </Link>
+            <Link className="rh-button rh-button--secondary" href="/app/solver/proposals">
+              راه‌حل‌های من
+            </Link>
+          </div>
+        </div>
+        <div className="rh-connected-dashboard-hero__summary" aria-label="خلاصه فضای کاری">
+          <article>
+            <span>همه پیشنهادها</span>
+            <strong>{rows.length.toLocaleString("fa-IR")}</strong>
+          </article>
+          <article className={actionable.length > 0 ? "has-action" : ""}>
+            <span>منتظر اقدام</span>
+            <strong>{actionable.length.toLocaleString("fa-IR")}</strong>
+          </article>
         </div>
       </section>
 
@@ -95,7 +110,7 @@ export function ConnectedSolverDashboard() {
         </ConnectedFamilyError>
       ))}
 
-      <div className="rh-dashboard-top">
+      <div className="rh-dashboard-top rh-connected-dashboard-top">
         <ConnectedProfileCard
           profile={summary.profile}
           userName={userName}
@@ -106,7 +121,10 @@ export function ConnectedSolverDashboard() {
       </div>
 
       {team && (
-        <section className="rh-card rh-membership-list" aria-label="وضعیت تیم">
+        <section
+          className="rh-card rh-membership-list rh-connected-team-summary"
+          aria-label="وضعیت تیم"
+        >
           <header>
             <div>
               <h2>تیم شما</h2>
@@ -129,19 +147,31 @@ export function ConnectedSolverDashboard() {
         </section>
       )}
 
-      <section className="rh-card rh-metrics-card">
+      <section className="rh-card rh-metrics-card rh-connected-metrics-card">
         <header>
-          <h2>خلاصه وضعیت راه‌حل‌ها</h2>
+          <div>
+            <small>نمای وضعیت</small>
+            <h2>خلاصه راه‌حل‌ها</h2>
+          </div>
           <span>{workspaceName ?? "فضای کاری فعال"}</span>
         </header>
         {summary.proposals ? (
           <div>
             {metrics.map(([label, field, icon, status], index) => (
               <article key={field} className={`tone-${index}`}>
-                <Icon name={icon} />
-                <span>{label}</span>
-                <strong>{summary.proposals![field].toLocaleString("fa-IR")}</strong>
-                <Link href={`/app/solver/proposals?status=${status}`}>مشاهده فهرست</Link>
+                <span className="rh-connected-metric__icon">
+                  <Icon name={icon} />
+                </span>
+                <div>
+                  <span>{label}</span>
+                  <strong>{summary.proposals![field].toLocaleString("fa-IR")}</strong>
+                </div>
+                <Link
+                  href={`/app/solver/proposals?status=${status}`}
+                  aria-label={`مشاهده ${label}`}
+                >
+                  <Icon name="arrow" />
+                </Link>
               </article>
             ))}
           </div>
@@ -150,50 +180,138 @@ export function ConnectedSolverDashboard() {
         )}
       </section>
 
-      <section className="rh-card rh-membership-list">
-        <header>
-          <div>
-            <h2>پیشنهادهای اخیر</h2>
-            <p>
-              {summary.unreadNotifications === null
-                ? "شمار اعلان‌ها خوانده نشد"
-                : `${summary.unreadNotifications.toLocaleString("fa-IR")} اعلان خوانده‌نشده`}
-            </p>
+      <section
+        className="rh-card rh-connected-recent-proposals"
+        aria-labelledby="recent-proposals-title"
+      >
+        <header className="rh-connected-recent-proposals__head">
+          <div className="rh-connected-recent-proposals__intro">
+            <span aria-hidden="true">
+              <Icon name="history" />
+            </span>
+            <div>
+              <small>{team ? "فعالیت راه‌حل‌های تیم" : "فعالیت راه‌حل‌های شما"}</small>
+              <h2 id="recent-proposals-title">پیشنهادهای اخیر</h2>
+              <p>
+                {rows.length > 0
+                  ? "آخرین تغییرها و اقدام‌های باز این فضای کاری"
+                  : "از اینجا مسیر پیشنهادهای فضای کاری را دنبال کنید"}
+              </p>
+            </div>
           </div>
-          <Link href="/app/solver/notifications">مشاهده اعلان‌ها</Link>
+          <Link
+            className={`rh-connected-notification-status ${
+              summary.unreadNotifications === null
+                ? "is-unknown"
+                : summary.unreadNotifications > 0
+                  ? "is-unread"
+                  : "is-clear"
+            }`}
+            href="/app/solver/notifications"
+            aria-label={
+              summary.unreadNotifications === null
+                ? "مشاهده مرکز اعلان‌ها؛ وضعیت اعلان‌ها در دسترس نیست"
+                : summary.unreadNotifications > 0
+                  ? `مشاهده ${summary.unreadNotifications.toLocaleString("fa-IR")} اعلان جدید`
+                  : "مشاهده مرکز اعلان‌ها؛ همه اعلان‌ها خوانده شده‌اند"
+            }
+          >
+            <span className="rh-connected-notification-status__icon">
+              <Icon name={summary.unreadNotifications === 0 ? "check" : "notification"} />
+            </span>
+            <span>
+              <small>مرکز اعلان‌ها</small>
+              <strong>
+                {summary.unreadNotifications === null
+                  ? "وضعیت اعلان‌ها در دسترس نیست"
+                  : summary.unreadNotifications > 0
+                    ? `${summary.unreadNotifications.toLocaleString("fa-IR")} اعلان جدید`
+                    : "همه اعلان‌ها خوانده شده‌اند"}
+              </strong>
+            </span>
+            <Icon name="arrow" />
+          </Link>
         </header>
-        {recent.slice(0, 4).map((row) => {
-          const title = challengeTitle(row.challenge_id);
-          return (
-            <article key={row.id} className={actionable.includes(row) ? "is-unread" : ""}>
-              <div>
-                <small>
-                  <bdi dir="ltr">{row.tracking_code ?? row.id}</bdi> · {formatDate(row.updated_at)}
-                </small>
-                <h3>
-                  {title ?? (
-                    <>
-                      فراخوان <bdi dir="ltr">{row.challenge_id}</bdi>
-                    </>
-                  )}
-                </h3>
-                <p>{proposalStateLabels[row.state]}</p>
-              </div>
-              <Link href={proposalHref(`/app/solver/proposals/${row.id}/preview`)}>
-                مشاهده پرونده
+
+        {recent.length > 0 && (
+          <div className="rh-connected-recent-proposals__list" aria-label="آخرین پیشنهادها">
+            {recent.slice(0, 4).map((row) => {
+              const title = challengeTitle(row.challenge_id);
+              const isActionable = actionable.includes(row);
+              const destination = isActionable ? "edit" : "preview";
+              return (
+                <article key={row.id} className={isActionable ? "has-action" : ""}>
+                  <span className="rh-connected-recent-proposal__icon" aria-hidden="true">
+                    <Icon name={isActionable ? "notification" : "brief"} />
+                  </span>
+                  <div className="rh-connected-recent-proposal__content">
+                    <small className="rh-connected-recent-proposal__meta">
+                      <time dateTime={row.updated_at}>{formatDate(row.updated_at)}</time>
+                      {row.tracking_code ? (
+                        <>
+                          <span aria-hidden="true">·</span>
+                          <bdi dir="ltr">{row.tracking_code}</bdi>
+                        </>
+                      ) : null}
+                    </small>
+                    <h3>{title ?? "فراخوان بدون عنوان عمومی"}</h3>
+                    <div className="rh-connected-recent-proposal__facts">
+                      <span className={isActionable ? "is-action" : ""}>
+                        {proposalStateLabels[row.state]}
+                      </span>
+                      <span>نسخه {row.version.toLocaleString("fa-IR")}</span>
+                    </div>
+                  </div>
+                  <Link
+                    className="rh-connected-recent-proposal__action"
+                    href={proposalHref(`/app/solver/proposals/${row.id}/${destination}`)}
+                  >
+                    {isActionable ? "ادامه و اقدام" : "مشاهده پرونده"}
+                    <Icon name="arrow" />
+                  </Link>
+                </article>
+              );
+            })}
+            <footer>
+              <Link href="/app/solver/proposals">
+                مشاهده همه پیشنهادهای {team ? "تیم" : "من"} <Icon name="arrow" />
               </Link>
-            </article>
-          );
-        })}
+            </footer>
+          </div>
+        )}
+
         {summary.proposalRows && rows.length === 0 && (
-          <div className="rh-profile-empty">
-            <Icon name="search" />
-            <h3>هنوز پیشنهادی در این فضا ندارید</h3>
-            <p>یک فراخوان منتشرشده را باز کنید و اولین پیش‌نویس خود را بسازید.</p>
-            <Link href="/app/solver/opportunities">مشاهده فراخوان‌ها</Link>
+          <div className="rh-connected-dashboard-empty">
+            <span className="rh-connected-dashboard-empty__icon" aria-hidden="true">
+              <Icon name="brief" />
+            </span>
+            <div>
+              <small>اولین قدم</small>
+              <h3>هنوز پیشنهادی در این فضا ندارید</h3>
+              <p>
+                {team
+                  ? "یک فرصت متناسب پیدا کنید و نخستین پیشنهاد تیم را از همین فضای کاری بسازید."
+                  : "یک فرصت متناسب پیدا کنید و نخستین پیش‌نویس خود را از همین فضای کاری بسازید."}
+              </p>
+            </div>
+            <Link href="/app/solver/opportunities">
+              یافتن فرصت مناسب <Icon name="arrow" />
+            </Link>
+          </div>
+        )}
+
+        {summary.proposalRows === null && (
+          <div className="rh-connected-dashboard-empty is-unavailable">
+            <span className="rh-connected-dashboard-empty__icon" aria-hidden="true">
+              <Icon name="brief" />
+            </span>
+            <div>
+              <h3>پیشنهادها اکنون در دسترس نیستند</h3>
+              <p>جزئیات خطا در بالای صفحه نمایش داده شده است؛ برای بازیابی دوباره تلاش کنید.</p>
+            </div>
           </div>
         )}
       </section>
-    </>
+    </div>
   );
 }

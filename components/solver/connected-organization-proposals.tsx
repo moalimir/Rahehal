@@ -11,8 +11,12 @@ import {
 } from "@/components/solver/connected-family-state";
 import { useConnectedFamily } from "@/components/solver/use-connected";
 import type { GatewayResult } from "@/lib/api/result";
+import { RecordId } from "@/components/solver/record-identity";
 import { proposalHref, readProposalRecordId } from "@/lib/workspace/proposal-navigation";
-import { formatMinorAmount } from "@/lib/challenges/model";
+import {
+  proposalAttachmentSummary,
+  proposalContentGroups,
+} from "@/lib/workspace/proposal-content-fields";
 import { proposalStateLabels } from "@/lib/workspace/proposal-labels";
 import {
   organizationInboxScopeLost,
@@ -26,6 +30,13 @@ function formatDate(value: string) {
   return new Intl.DateTimeFormat("fa-IR", { dateStyle: "medium", timeStyle: "short" }).format(
     new Date(value),
   );
+}
+
+function proposalTone(state: keyof typeof proposalStateLabels): string {
+  if (["eligible", "selected"].includes(state)) return "is-success";
+  if (["ineligible", "rejected", "withdrawn"].includes(state)) return "is-danger";
+  if (["submitted", "resubmitted", "clarification_submitted"].includes(state)) return "is-info";
+  return "is-warning";
 }
 
 function useCommandRunner(refresh: () => void) {
@@ -81,6 +92,52 @@ export function ConnectedOrganizationProposals() {
       ),
     [query, rows, status],
   );
+  const newCount = rows.filter((row) => row.item.state === "submitted").length;
+  const followUpCount = rows.filter((row) =>
+    ["resubmitted", "clarification_submitted"].includes(row.item.state),
+  ).length;
+
+  /**
+   * The inbox grouped by the call each proposal answers.
+   *
+   * A flat list forced an organization running several calls at once to read
+   * the challenge line on every card to work out which competition it was
+   * looking at, and offered no way to see how one call was doing. Proposals
+   * are only comparable within a call, so the call is the unit.
+   *
+   * Groups are ordered by the work waiting in them, then by recency: a call
+   * with answered clarifications sitting unread is the one that should be at
+   * the top of the page.
+   */
+  const groups = useMemo(() => {
+    const byChallenge = new Map<
+      string,
+      { challenge: (typeof visible)[number]["challenge"]; rows: typeof visible }
+    >();
+    for (const row of visible) {
+      const existing = byChallenge.get(row.item.challenge_id);
+      if (existing) existing.rows.push(row);
+      else byChallenge.set(row.item.challenge_id, { challenge: row.challenge, rows: [row] });
+    }
+    return [...byChallenge.entries()]
+      .map(([challengeId, group]) => ({
+        challengeId,
+        challenge: group.challenge,
+        rows: [...group.rows].sort((left, right) =>
+          right.item.submitted_at.localeCompare(left.item.submitted_at),
+        ),
+        waiting: group.rows.filter((row) =>
+          ["submitted", "resubmitted", "clarification_submitted"].includes(row.item.state),
+        ).length,
+        latest: group.rows.reduce(
+          (newest, row) => (row.item.submitted_at > newest ? row.item.submitted_at : newest),
+          "",
+        ),
+      }))
+      .sort(
+        (left, right) => right.waiting - left.waiting || right.latest.localeCompare(left.latest),
+      );
+  }, [visible]);
 
   if (connected.state.kind !== "ready")
     return (
@@ -99,27 +156,67 @@ export function ConnectedOrganizationProposals() {
           </button>
         </ConnectedFamilyError>
       )}
-      <header className="rh-profile-heading">
+      <header className="org-page-head org-connected-page-head">
         <div>
+          <span>مرکز پیشنهادها</span>
           <h1>پیشنهادهای دریافتی</h1>
           <p>
-            {rows.length.toLocaleString("fa-IR")} پیشنهاد ارسال‌شده به فراخوان‌های این سازمان.
-            محتوای هر پیشنهاد فقط از صفحه پرونده و در چارچوب دسترسی اعطاشده خوانده می‌شود.
+            نسخه‌های قفل‌شده را مرور کنید، پیشنهادهای تازه را از موارد نیازمند پیگیری جدا کنید و
+            وارد پرونده دقیق هر پیشنهاد شوید.
           </p>
         </div>
       </header>
-      <section className="org-filter-card">
-        <label>
-          <Icon name="search" />
-          <span className="sr-only">جست‌وجوی پیشنهادها</span>
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="جست‌وجوی شناسه، کد پیگیری یا عنوان فراخوان"
-          />
+
+      <section
+        className="org-metrics org-metrics--three org-connected-summary"
+        aria-label="خلاصه پیشنهادها"
+      >
+        <article className="org-metric">
+          <span>
+            <Icon name="decision" />
+          </span>
+          <div>
+            <small>همه پیشنهادها</small>
+            <strong>{rows.length.toLocaleString("fa-IR")}</strong>
+            <p>نسخه قابل مشاهده برای این سازمان</p>
+          </div>
+        </article>
+        <article className="org-metric org-metric--violet">
+          <span>
+            <Icon name="mail" />
+          </span>
+          <div>
+            <small>ارسال تازه</small>
+            <strong>{newCount.toLocaleString("fa-IR")}</strong>
+            <p>آماده شروع بررسی شرایط</p>
+          </div>
+        </article>
+        <article className="org-metric org-metric--amber">
+          <span>
+            <Icon name="notification" />
+          </span>
+          <div>
+            <small>نیازمند پیگیری</small>
+            <strong>{followUpCount.toLocaleString("fa-IR")}</strong>
+            <p>پاسخ شفاف‌سازی یا نسخه اصلاحی</p>
+          </div>
+        </article>
+      </section>
+
+      <section className="org-card org-connected-toolbar" aria-label="فیلتر پیشنهادها">
+        <label className="org-connected-toolbar__search">
+          <span>جست‌وجو</span>
+          <span className="org-connected-toolbar__control">
+            <Icon name="search" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="شناسه، کد پیگیری یا عنوان فراخوان"
+            />
+          </span>
         </label>
         <label>
-          <span className="sr-only">وضعیت پیشنهاد</span>
+          <span>وضعیت</span>
           <select value={status} onChange={(event) => setStatus(event.target.value)}>
             <option value="all">همه وضعیت‌ها</option>
             {states.map((value) => (
@@ -129,56 +226,102 @@ export function ConnectedOrganizationProposals() {
             ))}
           </select>
         </label>
-      </section>
-      <section className="org-proposal-list">
-        {visible.map(({ item, challenge }) => (
-          <article key={item.id}>
-            <header>
-              <div>
-                <small>
-                  <bdi dir="ltr">{item.tracking_code}</bdi>
-                </small>
-                <h2>{challenge?.title ?? <bdi dir="ltr">{item.challenge_id}</bdi>}</h2>
-                <p>
-                  {item.owner_workspace_kind === "team" ? "فضای تیمی" : "فضای شخصی"} · ارسال{" "}
-                  {formatDate(item.submitted_at)}
-                </p>
-              </div>
-              <span className="org-status is-info">{proposalStateLabels[item.state]}</span>
-            </header>
-            <dl>
-              <div>
-                <dt>نسخه ارسالی</dt>
-                <dd>
-                  <bdi dir="ltr">{item.submitted_version.id}</bdi> · شماره{" "}
-                  {item.submitted_version.version_number.toLocaleString("fa-IR")}
-                </dd>
-              </div>
-              <div>
-                <dt>اثر انگشت محتوا</dt>
-                <dd>
-                  <bdi dir="ltr">{item.submitted_version.content_hash.slice(0, 16)}</bdi>
-                </dd>
-              </div>
-              <div>
-                <dt>قفل‌شده در</dt>
-                <dd>{formatDate(item.submitted_version.locked_at)}</dd>
-              </div>
-            </dl>
-            <footer>
-              <Link className="is-primary" href={proposalHref(`/app/org/proposals/${item.id}`)}>
-                مشاهده پرونده
-              </Link>
-            </footer>
-          </article>
-        ))}
-        {!visible.length && !connected.state.data.error && (
-          <div className="rh-profile-empty">
-            <Icon name="search" />
-            <h2>{rows.length ? "موردی با این فیلتر پیدا نشد" : "هنوز پیشنهادی دریافت نشده است"}</h2>
-          </div>
+        <div className="org-connected-toolbar__result" aria-live="polite">
+          <strong>{visible.length.toLocaleString("fa-IR")}</strong>
+          <span>نتیجه از {rows.length.toLocaleString("fa-IR")} پیشنهاد</span>
+        </div>
+        {(query || status !== "all") && (
+          <button
+            type="button"
+            onClick={() => {
+              setQuery("");
+              setStatus("all");
+            }}
+          >
+            پاک‌کردن فیلترها
+          </button>
         )}
       </section>
+
+      {groups.map((group) => (
+        <section
+          className="org-connected-inbox-group"
+          key={group.challengeId}
+          aria-label={`پیشنهادهای فراخوان ${group.challenge?.title ?? group.challengeId}`}
+        >
+          <header className="org-connected-inbox-group__head">
+            <div>
+              <h2>{group.challenge?.title ?? "فراخوان بدون عنوان عمومی"}</h2>
+              <p>
+                {group.challenge ? (
+                  <>
+                    {group.challenge.category} · مهلت{" "}
+                    {formatDate(group.challenge.proposal_deadline)}
+                  </>
+                ) : (
+                  "این فراخوان دیگر در نمای عمومی خوانده نمی‌شود."
+                )}
+              </p>
+            </div>
+            <div className="org-connected-inbox-group__counts">
+              <span>
+                <strong>{group.rows.length.toLocaleString("fa-IR")}</strong> پیشنهاد
+              </span>
+              {group.waiting > 0 && (
+                <span className="is-waiting">
+                  <strong>{group.waiting.toLocaleString("fa-IR")}</strong> منتظر اقدام شما
+                </span>
+              )}
+            </div>
+          </header>
+
+          <div className="org-connected-inbox">
+            {group.rows.map(({ item }) => (
+              <article className="org-connected-inbox-card" key={item.id}>
+                <header>
+                  <div className="org-connected-inbox-card__title">
+                    {/* The call is named once, in the group header above, so a
+                        card identifies the submission instead of repeating it.
+                        The tracking code is what an organization quotes back
+                        to a solver, which makes it the card's own name. */}
+                    <h3>
+                      <bdi dir="ltr">{item.tracking_code}</bdi>
+                    </h3>
+                    <p>
+                      {item.owner_workspace_kind === "team" ? "فضای تیمی" : "فضای شخصی"} ·{" "}
+                      {formatDate(item.submitted_at)}
+                    </p>
+                  </div>
+                  <span className={`org-status ${proposalTone(item.state)}`}>
+                    {proposalStateLabels[item.state]}
+                  </span>
+                </header>
+                <footer>
+                  <span className="org-connected-inbox-card__version">
+                    نسخه قفل‌شده {item.submitted_version.version_number.toLocaleString("fa-IR")} ·
+                    قفل در {formatDate(item.submitted_version.locked_at)}
+                  </span>
+                  <Link className="is-primary" href={proposalHref(`/app/org/proposals/${item.id}`)}>
+                    مشاهده پرونده <Icon name="arrow" />
+                  </Link>
+                </footer>
+              </article>
+            ))}
+          </div>
+        </section>
+      ))}
+
+      {!visible.length && !connected.state.data.error && (
+        <div className="org-card rh-profile-empty">
+          <Icon name="search" />
+          <h2>{rows.length ? "موردی با این فیلتر پیدا نشد" : "هنوز پیشنهادی دریافت نشده است"}</h2>
+          <p>
+            {rows.length
+              ? "عبارت جست‌وجو یا وضعیت انتخاب‌شده را تغییر دهید."
+              : "پیشنهادهای ارسال‌شده به فراخوان‌های سازمان در اینجا ظاهر می‌شوند."}
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -229,7 +372,6 @@ export function ConnectedOrganizationProposalDetail({ proposalId }: { proposalId
 
   const content = proposal.content;
   const version = proposal.submitted_version;
-  const openClarification = proposal.clarifications.find((item) => item.state === "submitted");
   const revisionDeadlineIso = revisionDeadline ? new Date(revisionDeadline).toISOString() : "";
   const canStartEligibility = proposal.state === "submitted";
   const canDecideEligibility = proposal.state === "eligibility_review";
@@ -255,43 +397,85 @@ export function ConnectedOrganizationProposalDetail({ proposalId }: { proposalId
             </span>
           </nav>
           <h1>{content.title || view.challenge?.title || "پیشنهاد دریافتی"}</h1>
-          <p>
-            {proposalStateLabels[proposal.state]} · نسخه{" "}
-            {version.version_number.toLocaleString("fa-IR")} · قفل‌شده در{" "}
-            {formatDate(version.locked_at)}
-          </p>
+          <p>{view.challenge ? `در پاسخ به «${view.challenge.title}»` : "فراخوان این سازمان"}</p>
         </div>
       </header>
 
+      {/* The evidence an organization needs to prove which exact version it
+          decided on. It used to sit on every inbox card, where it competed
+          with the facts that decide whether to open a proposal at all; here
+          it is beside the decision it supports. */}
+      <section className="org-connected-record-rail" aria-label="شناسه و شواهد نسخه">
+        <div>
+          <small>وضعیت</small>
+          <strong className={`org-status ${proposalTone(proposal.state)}`}>
+            {proposalStateLabels[proposal.state]}
+          </strong>
+        </div>
+        <div>
+          <small>کد پیگیری</small>
+          <strong>
+            <bdi dir="ltr">{proposal.tracking_code}</bdi>
+          </strong>
+        </div>
+        <div>
+          <small>فضای حل‌کننده</small>
+          <strong>{proposal.owner_workspace_kind === "team" ? "فضای تیمی" : "فضای شخصی"}</strong>
+        </div>
+        <div>
+          <small>نسخه قفل‌شده</small>
+          <strong>شماره {version.version_number.toLocaleString("fa-IR")}</strong>
+          <RecordId value={version.id} label="شناسه نسخه ارسالی" />
+        </div>
+        <div>
+          <small>قفل‌شده در</small>
+          <strong>{formatDate(version.locked_at)}</strong>
+        </div>
+        <div>
+          <small>اثر انگشت محتوا</small>
+          <RecordId value={version.content_hash} label="اثر انگشت محتوای نسخه" />
+        </div>
+      </section>
+
       <section className="org-card" aria-label="محتوای نسخه ارسالی">
         <h2>محتوای نسخه ارسالی</h2>
-        <dl>
-          {(
-            [
-              ["بیان مسئله", content.problem_statement],
-              ["ارزش پیشنهادی", content.value_proposition],
-              ["رویکرد فنی", content.technical_approach],
-              ["معماری راهکار", content.architecture],
-              ["معیارهای موفقیت", content.success_metrics],
-              ["نقشه راه", content.roadmap],
-              ["ریسک‌ها", content.risks],
-              ["تیم اجرا", content.team_summary],
-            ] as const
-          ).map(([label, value]) => (
-            <div key={label}>
-              <dt>{label}</dt>
-              <dd>{value || "ثبت نشده"}</dd>
-            </div>
-          ))}
-          <div>
-            <dt>بودجه درخواستی</dt>
-            <dd>
-              {content.budget_amount_minor === null
-                ? "ثبت نشده"
-                : `${formatMinorAmount(content.budget_amount_minor)} ${content.budget_currency}`}
-            </dd>
+        {/* The whole submission, in the same groups the solver reads it in.
+            This card used to render eight of thirty fields and none of the four
+            declarations, so the party deciding on a proposal saw less of it
+            than the party that wrote it -- and could not confirm that the terms
+            the challenge required had been accepted. */}
+        {proposalContentGroups.map((group) => (
+          <div className="org-proposal-content-group" key={group.title}>
+            <h3>{group.title}</h3>
+            <dl>
+              {group.rows.map((row) => (
+                <div key={row.field}>
+                  <dt>{row.label}</dt>
+                  <dd>{row.value(content)}</dd>
+                </div>
+              ))}
+            </dl>
           </div>
-        </dl>
+        ))}
+        <div className="org-proposal-content-group">
+          <h3>فایل‌ها</h3>
+          <dl>
+            <div>
+              <dt>پیوست‌ها</dt>
+              <dd>
+                {proposalAttachmentSummary(content).length ? (
+                  proposalAttachmentSummary(content).map((id) => (
+                    <bdi dir="ltr" key={id}>
+                      {id}{" "}
+                    </bdi>
+                  ))
+                ) : (
+                  <>فایلی ثبت نشده است</>
+                )}
+              </dd>
+            </div>
+          </dl>
+        </div>
       </section>
 
       <section className="org-card" aria-label="شفاف‌سازی‌ها">
@@ -487,10 +671,14 @@ export function ConnectedOrganizationProposalDetail({ proposalId }: { proposalId
         {!hasOrganizationAction && (
           <p>در وضعیت فعلی، اقدام تازه‌ای برای سازمان در این مرحله وجود ندارد.</p>
         )}
-        {openClarification && (
+        {canResolveClarification && (
+          // The only action in this state is closing the answered clarification,
+          // and that control belongs beside the question it answers rather than
+          // here. Without this line the panel rendered a heading and an opaque
+          // `pcl_…` identifier, which reads as a section that failed to load.
           <p>
-            یک شفاف‌سازی پاسخ‌داده‌شده در انتظار جمع‌بندی است:{" "}
-            <bdi dir="ltr">{openClarification.id}</bdi>
+            پاسخ شفاف‌سازی رسیده است. برای ادامه، جمع‌بندی خود را در همان بخش «شفاف‌سازی‌ها» بالاتر
+            ثبت کنید.
           </p>
         )}
       </section>

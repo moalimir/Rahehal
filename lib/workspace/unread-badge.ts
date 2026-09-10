@@ -1,8 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useWebRuntime } from "@/components/runtime-provider";
+
+const NOTIFICATION_STATE_CHANGED = "rahhal:notification-state-changed";
+const NOTIFICATION_POLL_INTERVAL_MS = 15_000;
+
+/**
+ * Tells every mounted workspace surface that a notification command committed.
+ *
+ * The page and the application shell are separate React branches. Without a
+ * shared invalidation signal, marking a row read refreshed the list but left
+ * the header badge stale until the next navigation.
+ */
+export function announceNotificationStateChanged(): void {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(NOTIFICATION_STATE_CHANGED));
+}
 
 /**
  * The unread notification count both application shells put in their header.
@@ -23,20 +37,42 @@ export function useUnreadNotificationCount(refreshKey?: string): number {
   const gateways = runtime.workspaceGateways;
   const activeWorkspaceId = runtime.me?.active_context?.workspace_id ?? null;
   const [unreadCount, setUnreadCount] = useState(0);
+  const requestSequence = useRef(0);
 
-  useEffect(() => {
+  const refresh = useCallback(() => {
+    const request = ++requestSequence.current;
     if (runtime.mode !== "network" || !gateways || !activeWorkspaceId) {
       setUnreadCount(0);
       return;
     }
-    let cancelled = false;
     void gateways.notifications.summary().then((result) => {
-      if (!cancelled) setUnreadCount(result.ok ? result.data.unread_count : 0);
+      if (request === requestSequence.current)
+        setUnreadCount(result.ok ? result.data.unread_count : 0);
     });
-    return () => {
-      cancelled = true;
+  }, [activeWorkspaceId, gateways, runtime.mode]);
+
+  useEffect(() => {
+    refresh();
+    const refreshVisible = () => {
+      if (document.visibilityState === "visible") refresh();
     };
-  }, [activeWorkspaceId, gateways, refreshKey, runtime.mode]);
+    const interval = window.setInterval(refreshVisible, NOTIFICATION_POLL_INTERVAL_MS);
+    // The announcement is not a poll. It says a notification command committed
+    // in this document, so it re-reads unconditionally: gating it on visibility
+    // left the header contradicting the page it sits above -- the row said read
+    // and the badge still said unread -- whenever the document was not visible
+    // at the moment the command resolved.
+    window.addEventListener(NOTIFICATION_STATE_CHANGED, refresh);
+    window.addEventListener("focus", refreshVisible);
+    document.addEventListener("visibilitychange", refreshVisible);
+    return () => {
+      requestSequence.current += 1;
+      window.clearInterval(interval);
+      window.removeEventListener(NOTIFICATION_STATE_CHANGED, refresh);
+      window.removeEventListener("focus", refreshVisible);
+      document.removeEventListener("visibilitychange", refreshVisible);
+    };
+  }, [refresh, refreshKey]);
 
   return unreadCount;
 }

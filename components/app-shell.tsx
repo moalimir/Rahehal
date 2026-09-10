@@ -195,7 +195,7 @@ export function RoleAppShell({
         {(role !== "solver" || onSignOut) && (
           <div className="unified-sidebar__bottom">
             {role !== "solver" && (
-              <Link href={role === "org" ? "/app/org/settings" : "/app/help"}>
+              <Link href="/app/help">
                 <Icon name="shield" />
                 <span>راهنما و پشتیبانی</span>
               </Link>

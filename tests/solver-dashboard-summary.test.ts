@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { GatewayResult } from "@/lib/api/result";
 import type { WorkspaceGateways } from "@/lib/workspace/gateways";
@@ -112,5 +112,17 @@ describe("C9 connected solver dashboard summary", () => {
     );
     expect(summaryScopeLost(summary)).toBe(false);
     expect(summary.profile).toBeNull();
+  });
+
+  it("does not issue a team request for an individual workspace", async () => {
+    const readTeam = vi.fn(async () => denied());
+    const summary = await readSolverDashboardSummary(
+      gateways({ team: { read: readTeam } }),
+      "individual",
+    );
+
+    expect(readTeam).not.toHaveBeenCalled();
+    expect(summary.team).toBeNull();
+    expect(summary.failures).toEqual([]);
   });
 });

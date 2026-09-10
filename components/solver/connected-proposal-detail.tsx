@@ -4,26 +4,14 @@ import Link from "next/link";
 
 import { Icon } from "@/components/icons";
 import { useActiveWorkspaceName } from "@/components/solver/use-connected";
+import { RecordId } from "@/components/solver/record-identity";
 import { proposalHref } from "@/lib/workspace/proposal-navigation";
-import { formatMinorAmount } from "@/lib/challenges/model";
+import {
+  proposalAttachmentSummary,
+  proposalContentGroups,
+} from "@/lib/workspace/proposal-content-fields";
 import { proposalStateLabels as labels } from "@/lib/workspace/proposal-labels";
 import type { ProposalRecordView } from "@/lib/workspace/proposal-record";
-
-const contentFields: readonly (readonly [string, keyof ProposalRecordContent])[] = [
-  ["بیان مسئله", "problem_statement"],
-  ["ارزش پیشنهادی", "value_proposition"],
-  ["رویکرد فنی", "technical_approach"],
-  ["معماری راهکار", "architecture"],
-  ["معیارهای موفقیت", "success_metrics"],
-  ["نقشه راه", "roadmap"],
-  ["ریسک‌ها", "risks"],
-  ["برنامه کاهش ریسک", "mitigation"],
-  ["تیم اجرا", "team_summary"],
-  ["تجربه مرتبط", "relevant_experience"],
-  ["مبنای بودجه", "budget_rationale"],
-];
-
-type ProposalRecordContent = NonNullable<ProposalRecordView["proposal"]>["content"];
 
 /**
  * The authoritative record for one proposal.
@@ -33,6 +21,7 @@ type ProposalRecordContent = NonNullable<ProposalRecordView["proposal"]>["conten
  * whether it is foreign or absent, matching the API, which deliberately does
  * not distinguish them either.
  */
+
 export function ConnectedProposalDetail({ view }: { view: ProposalRecordView }) {
   const workspaceName = useActiveWorkspaceName();
   const proposal = view.proposal;
@@ -46,41 +35,52 @@ export function ConnectedProposalDetail({ view }: { view: ProposalRecordView }) 
       </section>
     );
   const content = proposal.content;
+  const attachments = proposalAttachmentSummary(content);
   const versions = [...proposal.versions].sort((a, b) => a.version_number - b.version_number);
-  const actionable = ["clarification_requested", "revision_requested", "revision_draft"].includes(
-    proposal.state,
-  );
+  // The label names the action the state actually offers. One fixed "اعمال
+  // اصلاحات" sent a person answering a question and a person revising a version
+  // to the same button under the same wrong name; the editor behind it has
+  // always been state-aware, so only the invitation to it was misleading.
+  const actionLabels: Partial<Record<typeof proposal.state, string>> = {
+    clarification_requested: "پاسخ به شفاف‌سازی",
+    revision_requested: "شروع نسخه اصلاح‌شده",
+    revision_draft: "ادامه نسخه اصلاح‌شده",
+  };
+  const actionLabel = actionLabels[proposal.state];
   const openClarifications = proposal.clarifications.filter((item) => item.state === "requested");
   return (
     <>
       <header className="rh-profile-heading">
         <div>
+          {/* The last crumb carries the tracking code once one is issued --
+              the reference a human quotes -- and the record's state before
+              that. It deliberately does not repeat the heading below it, and
+              it never shows the opaque id, which says nothing and cannot be
+              read aloud. */}
           <nav aria-label="مسیر صفحه">
             <Link href="/app/solver/proposals">پیشنهادها</Link>
             <span>/</span>
             <span>
-              <bdi dir="ltr">{proposal.id}</bdi>
+              {proposal.tracking_code ? (
+                <bdi dir="ltr">{proposal.tracking_code}</bdi>
+              ) : (
+                labels[proposal.state]
+              )}
             </span>
           </nav>
-          <h1>
-            {content.title || view.challengeTitle || (
-              <>
-                پیشنهاد <bdi dir="ltr">{proposal.id}</bdi>
-              </>
-            )}
-          </h1>
+          <h1>{content.title || view.challengeTitle || "پیش‌نویس بدون عنوان"}</h1>
           <p>
             {workspaceName ? `${workspaceName} · ` : ""}
             {labels[proposal.state]}
           </p>
         </div>
         <div className="rh-profile-actions">
-          {actionable && (
+          {actionLabel && (
             <Link
               className="rh-profile-primary"
               href={proposalHref(`/app/solver/proposals/${proposal.id}/edit`)}
             >
-              اعمال اصلاحات
+              {actionLabel}
             </Link>
           )}
         </div>
@@ -88,10 +88,9 @@ export function ConnectedProposalDetail({ view }: { view: ProposalRecordView }) 
       <section className="rh-summary-grid rh-summary-grid--three" aria-label="خلاصه پیشنهاد">
         <article className="rh-card">
           <div>
-            <small>شناسه و نسخه</small>
-            <strong>
-              <bdi dir="ltr">{proposal.id}</bdi> · نسخه {proposal.version.toLocaleString("fa-IR")}
-            </strong>
+            <small>نسخه پرونده</small>
+            <strong>نسخه {proposal.version.toLocaleString("fa-IR")}</strong>
+            <RecordId value={proposal.id} label="شناسه پیشنهاد" />
           </div>
         </article>
         <article className="rh-card">
@@ -124,45 +123,39 @@ export function ConnectedProposalDetail({ view }: { view: ProposalRecordView }) 
       <section className="rh-card rh-solver-flow-card">
         <h2>محتوای نسخه جاری</h2>
         <p>
-          این صفحه مستقیماً از نسخه <bdi dir="ltr">{proposal.current_version_id}</bdi> روی سرور
-          خوانده شده است.
+          این صفحه مستقیماً از نسخه {proposal.version.toLocaleString("fa-IR")} روی سرور خوانده شده
+          است.
         </p>
-        <dl>
-          {contentFields.map(([label, field]) => (
-            <div key={label}>
-              <dt>{label}</dt>
-              <dd>{String(content[field] ?? "") || "ثبت نشده"}</dd>
+        {proposalContentGroups.map((group) => (
+          <div className="rh-proposal-content-group" key={group.title}>
+            <h3>{group.title}</h3>
+            <dl>
+              {group.rows.map((row) => (
+                <div key={row.field}>
+                  <dt>{row.label}</dt>
+                  <dd>{row.value(content)}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        ))}
+        <div className="rh-proposal-content-group">
+          <h3>فایل‌ها</h3>
+          <dl>
+            <div>
+              <dt>پیوست‌ها</dt>
+              <dd>
+                {attachments.length
+                  ? attachments.map((id) => (
+                      <bdi dir="ltr" key={id}>
+                        {id}{" "}
+                      </bdi>
+                    ))
+                  : "فایلی ثبت نشده است"}
+              </dd>
             </div>
-          ))}
-          <div>
-            <dt>فناوری‌ها</dt>
-            <dd>{content.technologies.join("، ") || "ثبت نشده"}</dd>
-          </div>
-          <div>
-            <dt>بودجه درخواستی</dt>
-            <dd>
-              {content.budget_amount_minor === null
-                ? "ثبت نشده"
-                : `${formatMinorAmount(content.budget_amount_minor)} ${content.budget_currency}`}
-            </dd>
-          </div>
-          <div>
-            <dt>زمان اجرا</dt>
-            <dd>{content.duration_weeks ? `${content.duration_weeks} هفته` : "ثبت نشده"}</dd>
-          </div>
-          <div>
-            <dt>فایل‌ها</dt>
-            <dd>
-              {content.attachment_ids.length
-                ? content.attachment_ids.map((id) => (
-                    <bdi dir="ltr" key={id}>
-                      {id}{" "}
-                    </bdi>
-                  ))
-                : "فایلی ثبت نشده است"}
-            </dd>
-          </div>
-        </dl>
+          </dl>
+        </div>
       </section>
       <section className="rh-card rh-membership-list">
         <header>
@@ -174,9 +167,6 @@ export function ConnectedProposalDetail({ view }: { view: ProposalRecordView }) 
         {versions.map((version) => (
           <article key={version.id}>
             <div>
-              <small>
-                <bdi dir="ltr">{version.id}</bdi>
-              </small>
               <h3>
                 نسخه {version.version_number.toLocaleString("fa-IR")}{" "}
                 {version.locked ? "· قفل‌شده" : ""}
@@ -186,6 +176,7 @@ export function ConnectedProposalDetail({ view }: { view: ProposalRecordView }) 
                   ? `تغییر در ${version.changed_fields.length.toLocaleString("fa-IR")} بخش`
                   : "نسخه پایه"}
               </p>
+              <RecordId value={version.id} label="شناسه نسخه" />
             </div>
             <time dateTime={version.created_at}>
               {new Intl.DateTimeFormat("fa-IR", { dateStyle: "medium", timeStyle: "short" }).format(

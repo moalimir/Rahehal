@@ -8,6 +8,13 @@ type Recipient = {
   readonly tenantId: string;
   readonly workspaceId: string;
   readonly userId: string;
+  /**
+   * The team workspace a team notification points at, when that is not the
+   * workspace the recipient reads it in. An invitee has no membership in the
+   * team yet, so the row is scoped to their own workspace while still naming
+   * the team it is about.
+   */
+  readonly subjectWorkspaceId?: string | null;
 };
 
 type Subject = {
@@ -52,9 +59,13 @@ export class NotificationProjector implements OutboxHandler<PoolClient> {
           recipient.userId,
           projection.kind,
           subject.type,
-          // A team notification points at the workspace the recipient can open,
-          // not at the invitation or request row the event was emitted against.
-          subject.type === "team" ? recipient.workspaceId : subject.id,
+          // A team notification points at the team workspace, not at the
+          // invitation or request row the event was emitted against. That is
+          // the recipient's own workspace in every case but a pending
+          // invitation, where the invitee is not a member yet.
+          subject.type === "team"
+            ? (recipient.subjectWorkspaceId ?? recipient.workspaceId)
+            : subject.id,
           event.event_id,
           event.correlation_id,
           event.occurred_at,
@@ -154,18 +165,26 @@ export class NotificationProjector implements OutboxHandler<PoolClient> {
     subjectId: string,
   ): Promise<readonly Recipient[]> {
     if (audience === "team-invitation-recipient") {
-      // Only an accepted invitation has a membership to notify; a pending one
-      // is addressed to a contact that may not be a user yet, and C8 does not
-      // read contact details.
+      // An invitation is delivered to the invitee's own workspace, because
+      // being invited is precisely the state of not being a member yet: the
+      // earlier join against the team's membership matched nothing, so
+      // `team.invitation.sent` reached nobody and the invitee was told only by
+      // opening the team page on their own initiative.
+      //
+      // An invitation addressed to a contact that is not a user yet still
+      // notifies nobody -- C8 reads no contact details -- and that person is
+      // reached out of band instead.
       return rows(
         await client.query<Recipient>(
           `SELECT membership.tenant_id AS "tenantId",
                   membership.workspace_id AS "workspaceId",
-                  membership.user_id AS "userId"
+                  membership.user_id AS "userId",
+                  team_invitation.workspace_id AS "subjectWorkspaceId"
            FROM team_invitation
            JOIN membership ON membership.user_id = team_invitation.recipient_user_id
-            AND membership.workspace_id = team_invitation.workspace_id
             AND membership.state = 'active'
+           JOIN workspace ON workspace.id = membership.workspace_id
+            AND workspace.kind = 'individual'
            WHERE team_invitation.id = $1 AND team_invitation.recipient_user_id IS NOT NULL`,
           [subjectId],
         ),
@@ -186,15 +205,22 @@ export class NotificationProjector implements OutboxHandler<PoolClient> {
         ),
       );
     }
+    // A decision on a membership request is addressed to the person who asked,
+    // and it reaches them in their own workspace. Resolving it through a
+    // membership in the *team* worked only for an acceptance: a rejected
+    // requester never joins, so the join matched nothing and the one person
+    // waiting on the answer was the one person never told.
     return rows(
       await client.query<Recipient>(
         `SELECT membership.tenant_id AS "tenantId",
                 membership.workspace_id AS "workspaceId",
-                membership.user_id AS "userId"
+                membership.user_id AS "userId",
+                team_membership_request.workspace_id AS "subjectWorkspaceId"
          FROM team_membership_request
          JOIN membership ON membership.user_id = team_membership_request.requester_user_id
-          AND membership.workspace_id = team_membership_request.workspace_id
           AND membership.state = 'active'
+         JOIN workspace ON workspace.id = membership.workspace_id
+          AND workspace.kind = 'individual'
          WHERE team_membership_request.id = $1`,
         [subjectId],
       ),

@@ -10,10 +10,21 @@ import {
   ConnectedFamilyFallback,
 } from "@/components/solver/connected-family-state";
 import { useConnectedFamily } from "@/components/solver/use-connected";
-import { decideTeamPermission, teamRole, type TeamNonOwnerRole } from "@rahhal/domain";
+import {
+  decideTeamPermission,
+  teamRole,
+  type TeamKind,
+  type TeamNonOwnerRole,
+} from "@rahhal/domain";
 import type { GatewayResult } from "@/lib/api/result";
+import { RecordId } from "@/components/solver/record-identity";
 import { TEAM_ROLE_LABELS } from "@/lib/solver/permissions";
-import { readTeamView, teamViewScopeLost } from "@/lib/workspace/team-view";
+import {
+  readTeamView,
+  teamFailureNeedsAttention,
+  teamFamilyAvailable,
+  teamViewScopeLost,
+} from "@/lib/workspace/team-view";
 import {
   membershipStateLabels,
   teamInvitationStateLabels,
@@ -28,8 +39,39 @@ const nonOwnerRoles: readonly TeamNonOwnerRole[] = [
   teamRole.viewer,
 ] as readonly TeamNonOwnerRole[];
 
+type PageNotice = { readonly tone: "success" | "error"; readonly message: string };
+
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("fa-IR", { dateStyle: "medium" }).format(new Date(value));
+}
+
+const teamKindLabels: Record<TeamKind, string> = {
+  "expert-team": "تیم مستقل",
+  company: "شرکت رسمی",
+  lab: "آزمایشگاه",
+  "academic-group": "گروه دانشگاهی",
+};
+
+function TeamEmptyState({
+  icon,
+  title,
+  description,
+}: {
+  icon: "mail" | "people" | "history";
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="rh-team-empty" role="status">
+      <span>
+        <Icon name={icon} />
+      </span>
+      <div>
+        <strong>{title}</strong>
+        <p>{description}</p>
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -55,11 +97,11 @@ export function ConnectedTeamsExperience() {
     [activeWorkspaceKind],
   );
   const connected = useConnectedFamily(read, teamViewScopeLost, activeWorkspaceKind);
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState<PageNotice | null>(null);
   const [pending, setPending] = useState(false);
   const [creating, setCreating] = useState(false);
   const [teamName, setTeamName] = useState("");
-  const [teamKind, setTeamKind] = useState("expert-team");
+  const [teamKind, setTeamKind] = useState<TeamKind>("expert-team");
 
   useEffect(() => {
     setCreating(new URLSearchParams(window.location.search).get("create") === "1");
@@ -79,37 +121,163 @@ export function ConnectedTeamsExperience() {
    * page shows after a command is the server's answer and not an optimistic
    * guess that a later read would contradict.
    */
-  const run = async (command: () => Promise<GatewayResult<unknown>>, success: string) => {
+  /**
+   * The one workspace a solver always has and never leaves.
+   *
+   * Read before the command runs, because it cannot be what the command
+   * removed and `refreshMe` does not hand the new identity back synchronously.
+   */
+  const personalWorkspaceId =
+    runtime.me?.workspaces.find((workspace) => workspace.kind === "individual")?.id ?? null;
+
+  const run = async (
+    command: () => Promise<GatewayResult<unknown>>,
+    success: string,
+    options?: { readonly leavesActiveWorkspace?: boolean },
+  ) => {
     setPending(true);
     const result = await command();
-    setPending(false);
     if (result.ok) {
-      setNotice(`${success} · شناسه همبستگی ${result.meta.correlation_id}`);
+      // Every command on this page can change which workspaces this human
+      // holds -- accepting an invitation, leaving, archiving. The team list and
+      // the workspace switcher both read `/me`, so refreshing only the family
+      // left the page saying "دعوت پذیرفته شد" above a list that did not
+      // contain the team, until a full reload.
+      await runtime.refreshMe();
+      // Leaving or archiving the active team ends the context you were working
+      // in, and the server drops it. Falling through to `/app`'s resolver then
+      // asked which workspace to enter -- a question with an obvious answer,
+      // since a solver's personal workspace is the one they always hold and
+      // never leave. The chooser is right after signing in, where the choice is
+      // real; it is not right here, where you asked to leave rather than to go
+      // somewhere.
+      if (options?.leavesActiveWorkspace && personalWorkspaceId) {
+        const error = await runtime.switchWorkspace(personalWorkspaceId);
+        if (error) {
+          setPending(false);
+          setNotice({ tone: "error", message: `${success}؛ بازگشت به فضای شخصی انجام نشد.` });
+          return;
+        }
+      }
       connected.refresh();
+      setPending(false);
+      setNotice({ tone: "success", message: success });
       return;
     }
-    setNotice(result.error.message);
+    setPending(false);
+    setNotice({ tone: "error", message: result.error.message });
   };
 
   const team = view.team;
   const membership = team?.members.find((member) => member.user_id === currentUserId) ?? null;
+
+  /**
+   * Every team workspace this human belongs to.
+   *
+   * The page is called "تیم‌ها و همکاری" but listed no teams: it showed the
+   * active one's members, or -- from an individual workspace -- nothing at
+   * all, so someone who owned two teams saw only invitations. The set is
+   * already in `/me`; no second authorization question needs asking.
+   */
+  /**
+   * An invitation that has been accepted, declined or expired is history, not
+   * an inbox item. Listing all of them together under "دعوت‌های دریافتی" left
+   * a settled invitation sitting at the top with no action, looking like
+   * something still waiting on the human.
+   */
+  const openInvitations = view.incomingInvitations.filter((invitation) =>
+    ["sent", "viewed"].includes(invitation.state),
+  );
+  const settledInvitations = view.incomingInvitations.filter(
+    (invitation) => !["sent", "viewed"].includes(invitation.state),
+  );
+  const openSentInvitations = view.sentInvitations.filter((invitation) =>
+    ["sent", "viewed"].includes(invitation.state),
+  );
+  const openIncomingRequests = view.incomingRequests.filter(
+    (request) => request.state === "requested",
+  );
+  const openOwnRequests = view.ownRequests.filter((request) => request.state === "requested");
+  const sentInvitationsAvailable = teamFamilyAvailable(view, "sentInvitations");
+  const incomingInvitationsAvailable = teamFamilyAvailable(view, "incomingInvitations");
+  const incomingRequestsAvailable = teamFamilyAvailable(view, "requests");
+  const ownRequestsAvailable = teamFamilyAvailable(view, "ownRequests");
+
+  const activeWorkspaceId = runtime.me?.active_context?.workspace_id ?? null;
+  const myTeams = (runtime.me?.workspaces ?? [])
+    .filter((workspace) => workspace.kind === "team")
+    .map((workspace) => ({
+      id: workspace.id,
+      name: workspace.name,
+      role: runtime.me?.memberships.find(
+        (item) => item.workspace_id === workspace.id && item.state === "active",
+      )?.role,
+      active: workspace.id === activeWorkspaceId,
+    }));
   const permission = (action: Parameters<typeof decideTeamPermission>[0]) =>
     team && membership
       ? decideTeamPermission(action, { role: membership.role, policy: team.policy }).allowed
       : false;
 
+  const createTeam = async () => {
+    setPending(true);
+    setNotice(null);
+    try {
+      const result = await gateways!.team.create({
+        name: teamName.trim(),
+        teamKind,
+        joinMode: "invite-only",
+      });
+      if (!result.ok) {
+        setPending(false);
+        setNotice({ tone: "error", message: result.error.message });
+        return;
+      }
+      const refreshed = await runtime.refreshMe();
+      if (!refreshed) {
+        setPending(false);
+        setNotice({
+          tone: "error",
+          message:
+            "تیم ساخته شد، اما فهرست فضاهای کاری تازه نشد. صفحه را بازخوانی کنید؛ نیازی به ساخت دوباره نیست.",
+        });
+        return;
+      }
+      const error = await runtime.switchWorkspace(result.data.entity_id);
+      if (error) {
+        setPending(false);
+        setNotice({
+          tone: "error",
+          message: `تیم ساخته شد، اما ورود به فضای آن انجام نشد: ${error.message}`,
+        });
+        return;
+      }
+      router.push("/app/solver/dashboard");
+    } catch {
+      setPending(false);
+      setNotice({
+        tone: "error",
+        message:
+          "ارتباط با سرویس ساخت تیم قطع شد. دوباره تلاش کنید؛ اطلاعات حساب شخصی شما محفوظ است.",
+      });
+    }
+  };
+
   return (
-    <>
+    <div className="rh-connected-teams-page">
       {notice && (
-        <div className="rh-profile-toast" role="status">
-          <Icon name="check" />
-          <span>{notice}</span>
-          <button type="button" onClick={() => setNotice("")} aria-label="بستن پیام">
+        <div
+          className={`rh-profile-toast ${notice.tone === "error" ? "is-error" : ""}`}
+          role={notice.tone === "error" ? "alert" : "status"}
+        >
+          <Icon name={notice.tone === "error" ? "notification" : "check"} />
+          <span>{notice.message}</span>
+          <button type="button" onClick={() => setNotice(null)} aria-label="بستن پیام">
             <Icon name="close" />
           </button>
         </div>
       )}
-      {view.failures.map((failure) => (
+      {view.failures.filter(teamFailureNeedsAttention).map((failure) => (
         <ConnectedFamilyError key={failure.family} error={failure.error} label="بخشی از داده تیم">
           <button type="button" onClick={connected.refresh}>
             تلاش دوباره
@@ -119,103 +287,140 @@ export function ConnectedTeamsExperience() {
 
       {team && membership ? (
         <>
-          <header className="rh-profile-heading">
-            <div>
-              <small>
-                <bdi dir="ltr">{team.workspace_id}</bdi> · {TEAM_ROLE_LABELS[membership.role]}
-              </small>
-              <h1>{team.name}</h1>
-              <p>
-                وضعیت {teamStatusLabels[team.status]} · نسخه {team.version.toLocaleString("fa-IR")}
-              </p>
+          <header className="rh-card rh-team-management-hero">
+            <div className="rh-team-management-hero__main">
+              <span className="rh-team-management-hero__icon">
+                <Icon name="people" />
+              </span>
+              <div>
+                <small>مدیریت فضای کاری تیم</small>
+                <h1>{team.name}</h1>
+                <p>اعضا، دعوت‌ها و درخواست‌های ورود این فضای کاری را از همین صفحه مدیریت کنید.</p>
+                <div className="rh-team-management-hero__badges" aria-label="وضعیت تیم">
+                  <span>{teamStatusLabels[team.status]}</span>
+                  <span>{TEAM_ROLE_LABELS[membership.role]}</span>
+                  <span>{teamKindLabels[team.team_kind]}</span>
+                </div>
+              </div>
+            </div>
+            <dl className="rh-team-management-hero__stats">
+              <div>
+                <dt>اعضای ثبت‌شده</dt>
+                <dd>{team.members.length.toLocaleString("fa-IR")}</dd>
+              </div>
+              {sentInvitationsAvailable && (
+                <div>
+                  <dt>دعوت باز</dt>
+                  <dd>{openSentInvitations.length.toLocaleString("fa-IR")}</dd>
+                </div>
+              )}
+              {incomingRequestsAvailable && (
+                <div>
+                  <dt>درخواست تازه</dt>
+                  <dd>{openIncomingRequests.length.toLocaleString("fa-IR")}</dd>
+                </div>
+              )}
+            </dl>
+            <div className="rh-team-workspace-identity">
+              <div>
+                <small>شناسه فنی فضای کاری</small>
+                <p>برای پشتیبانی یا هماهنگی فنی، این شناسه را کپی کنید.</p>
+              </div>
+              <RecordId value={team.workspace_id} label="شناسه فضای کاری تیم" />
             </div>
           </header>
 
-          <section className="rh-card rh-membership-list" aria-label="اعضای تیم">
-            <header>
+          <section className="rh-card rh-team-section rh-team-members" aria-label="اعضای تیم">
+            <header className="rh-team-section__head">
+              <span className="rh-team-section__icon">
+                <Icon name="people" />
+              </span>
               <div>
                 <h2>اعضا</h2>
-                <p>{team.members.length.toLocaleString("fa-IR")} عضو ثبت‌شده</p>
+                <p>نقش و وضعیت {team.members.length.toLocaleString("fa-IR")} عضو ثبت‌شده</p>
               </div>
             </header>
-            {team.members.map((member) => (
-              <article key={member.id}>
-                <div>
-                  <small>
-                    <bdi dir="ltr">{member.id}</bdi>
-                  </small>
-                  <h3>{member.display_name}</h3>
-                  <p>
-                    {TEAM_ROLE_LABELS[member.role]} · {membershipStateLabels[member.state]}
-                  </p>
-                </div>
-                {permission("change-member-role") && member.role !== teamRole.owner && (
-                  <div className="rh-profile-actions">
-                    <label>
-                      <span className="sr-only">تغییر نقش {member.display_name}</span>
-                      <select
+            <div className="rh-team-section__body rh-team-member-list">
+              {team.members.map((member) => (
+                <article key={member.id} className="rh-team-member-row">
+                  <span className="rh-team-member-row__avatar" aria-hidden="true">
+                    {member.display_name.trim().charAt(0) || "؟"}
+                  </span>
+                  <div className="rh-team-member-row__identity">
+                    <h3>{member.display_name}</h3>
+                    <p>
+                      {TEAM_ROLE_LABELS[member.role]} · {membershipStateLabels[member.state]}
+                    </p>
+                    <RecordId value={member.id} label="شناسه عضویت" />
+                  </div>
+                  {permission("change-member-role") && member.role !== teamRole.owner && (
+                    <div className="rh-team-row-actions">
+                      <label>
+                        <span className="sr-only">تغییر نقش {member.display_name}</span>
+                        <select
+                          disabled={pending}
+                          value={member.role}
+                          onChange={(event) =>
+                            void run(
+                              () =>
+                                gateways!.team.changeMemberRole(member.id, {
+                                  expectedVersion: member.version,
+                                  role: event.target.value,
+                                  reason: "تغییر نقش از صفحه مدیریت تیم",
+                                }),
+                              "نقش عضو تغییر کرد",
+                            )
+                          }
+                        >
+                          {nonOwnerRoles.map((value) => (
+                            <option key={value} value={value}>
+                              {TEAM_ROLE_LABELS[value]}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <button
+                        type="button"
                         disabled={pending}
-                        value={member.role}
-                        onChange={(event) =>
+                        onClick={() =>
                           void run(
                             () =>
-                              gateways!.team.changeMemberRole(member.id, {
-                                expectedVersion: member.version,
-                                role: event.target.value,
-                                reason: "تغییر نقش از صفحه مدیریت تیم",
-                              }),
-                            "نقش عضو تغییر کرد",
+                              member.state === "suspended"
+                                ? gateways!.team.restoreMember(member.id, {
+                                    expectedVersion: member.version,
+                                    reason: "بازگرداندن عضو",
+                                  })
+                                : gateways!.team.suspendMember(member.id, {
+                                    expectedVersion: member.version,
+                                    reason: "تعلیق موقت عضو",
+                                  }),
+                            member.state === "suspended" ? "عضو بازگردانده شد" : "عضو تعلیق شد",
                           )
                         }
                       >
-                        {nonOwnerRoles.map((value) => (
-                          <option key={value} value={value}>
-                            {TEAM_ROLE_LABELS[value]}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <button
-                      type="button"
-                      disabled={pending}
-                      onClick={() =>
-                        void run(
-                          () =>
-                            member.state === "suspended"
-                              ? gateways!.team.restoreMember(member.id, {
-                                  expectedVersion: member.version,
-                                  reason: "بازگرداندن عضو",
-                                })
-                              : gateways!.team.suspendMember(member.id, {
-                                  expectedVersion: member.version,
-                                  reason: "تعلیق موقت عضو",
-                                }),
-                          member.state === "suspended" ? "عضو بازگردانده شد" : "عضو تعلیق شد",
-                        )
-                      }
-                    >
-                      {member.state === "suspended" ? "بازگرداندن" : "تعلیق"}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={pending}
-                      onClick={() =>
-                        void run(
-                          () =>
-                            gateways!.team.removeMember(member.id, {
-                              expectedVersion: member.version,
-                              reason: "حذف عضو از تیم",
-                            }),
-                          "دسترسی عضو لغو شد",
-                        )
-                      }
-                    >
-                      حذف
-                    </button>
-                  </div>
-                )}
-              </article>
-            ))}
+                        {member.state === "suspended" ? "بازگرداندن" : "تعلیق"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={pending}
+                        onClick={() =>
+                          void run(
+                            () =>
+                              gateways!.team.removeMember(member.id, {
+                                expectedVersion: member.version,
+                                reason: "حذف عضو از تیم",
+                              }),
+                            "دسترسی عضو لغو شد",
+                          )
+                        }
+                      >
+                        حذف
+                      </button>
+                    </div>
+                  )}
+                </article>
+              ))}
+            </div>
           </section>
 
           {permission("invite-member") && (
@@ -230,318 +435,555 @@ export function ConnectedTeamsExperience() {
             />
           )}
 
-          <section className="rh-card rh-membership-list" aria-label="دعوت‌های ارسال‌شده">
-            <header>
-              <div>
-                <h2>دعوت‌های ارسال‌شده</h2>
-                <p>{view.sentInvitations.length.toLocaleString("fa-IR")} مورد</p>
-              </div>
-            </header>
-            {view.sentInvitations.map((invitation) => (
-              <article key={invitation.id}>
-                <div>
-                  <small>
-                    <bdi dir="ltr">{invitation.recipient_email}</bdi>
-                  </small>
-                  <h3>{TEAM_ROLE_LABELS[invitation.proposed_role]}</h3>
-                  <p>
-                    {teamInvitationStateLabels[invitation.state]} · تا{" "}
-                    {formatDate(invitation.expires_at)}
-                  </p>
-                </div>
-                {["sent", "viewed"].includes(invitation.state) && permission("invite-member") && (
-                  <button
-                    type="button"
-                    disabled={pending}
-                    onClick={() =>
-                      void run(
-                        () =>
-                          gateways!.team.revokeInvitation(invitation.id, {
-                            expectedVersion: invitation.version,
-                            reason: "لغو دعوت از صفحه تیم",
-                          }),
-                        "دعوت لغو شد",
-                      )
-                    }
-                  >
-                    لغو دعوت
-                  </button>
-                )}
-              </article>
-            ))}
-            {!view.sentInvitations.length && <p>هنوز دعوتی ارسال نشده است.</p>}
-          </section>
-
-          <section className="rh-card rh-membership-list" aria-label="درخواست‌های عضویت">
-            <header>
-              <div>
-                <h2>درخواست‌های عضویت</h2>
-                <p>{view.incomingRequests.length.toLocaleString("fa-IR")} مورد</p>
-              </div>
-            </header>
-            {view.incomingRequests.map((request) => (
-              <article key={request.id}>
-                <div>
-                  <small>
-                    <bdi dir="ltr">{request.id}</bdi>
-                  </small>
-                  <h3>{TEAM_ROLE_LABELS[request.requested_role]}</h3>
-                  <p>
-                    {teamMembershipRequestStateLabels[request.state]} · {request.introduction}
-                  </p>
-                </div>
-                {request.state === "requested" && permission("review-membership-request") && (
-                  <div className="rh-profile-actions">
-                    <button
-                      type="button"
-                      disabled={pending}
-                      onClick={() =>
-                        void run(
-                          () =>
-                            gateways!.team.decideRequest(request.id, {
-                              expectedVersion: request.version,
-                              decision: "accept",
-                              assignedRole: request.requested_role,
-                              reason: "پذیرش از صفحه تیم",
-                            }),
-                          "عضویت پذیرفته شد",
-                        )
-                      }
-                    >
-                      پذیرش
-                    </button>
-                    <button
-                      type="button"
-                      disabled={pending}
-                      onClick={() =>
-                        void run(
-                          () =>
-                            gateways!.team.decideRequest(request.id, {
-                              expectedVersion: request.version,
-                              decision: "reject",
-                              reason: "رد از صفحه تیم",
-                            }),
-                          "درخواست رد شد",
-                        )
-                      }
-                    >
-                      رد
-                    </button>
+          {(sentInvitationsAvailable || incomingRequestsAvailable) && (
+            <div className="rh-team-inbox-grid">
+              {sentInvitationsAvailable && (
+                <section className="rh-card rh-team-section" aria-label="دعوت‌های ارسال‌شده">
+                  <header className="rh-team-section__head">
+                    <span className="rh-team-section__icon is-mail">
+                      <Icon name="mail" />
+                    </span>
+                    <div>
+                      <h2>دعوت‌های ارسال‌شده</h2>
+                      <p>
+                        {view.sentInvitations.length.toLocaleString("fa-IR")} دعوت در تاریخچه تیم
+                      </p>
+                    </div>
+                  </header>
+                  <div className="rh-team-section__body rh-team-activity-list">
+                    {view.sentInvitations.map((invitation) => (
+                      <article key={invitation.id}>
+                        <div>
+                          <small>
+                            <bdi dir="ltr">{invitation.recipient_email}</bdi>
+                          </small>
+                          <h3>{TEAM_ROLE_LABELS[invitation.proposed_role]}</h3>
+                          <p>
+                            {teamInvitationStateLabels[invitation.state]} · تا{" "}
+                            {formatDate(invitation.expires_at)}
+                          </p>
+                        </div>
+                        {["sent", "viewed"].includes(invitation.state) &&
+                          permission("invite-member") && (
+                            <button
+                              className="rh-team-text-action is-danger"
+                              type="button"
+                              disabled={pending}
+                              onClick={() =>
+                                void run(
+                                  () =>
+                                    gateways!.team.revokeInvitation(invitation.id, {
+                                      expectedVersion: invitation.version,
+                                      reason: "لغو دعوت از صفحه تیم",
+                                    }),
+                                  "دعوت لغو شد",
+                                )
+                              }
+                            >
+                              لغو دعوت
+                            </button>
+                          )}
+                      </article>
+                    ))}
+                    {!view.sentInvitations.length && (
+                      <TeamEmptyState
+                        icon="mail"
+                        title="هنوز دعوتی ارسال نشده"
+                        description="پس از ارسال دعوت، وضعیت پاسخ آن در همین بخش دیده می‌شود."
+                      />
+                    )}
                   </div>
-                )}
-              </article>
-            ))}
-            {!view.incomingRequests.length && <p>درخواستی در انتظار بررسی نیست.</p>}
-          </section>
+                </section>
+              )}
 
-          <section className="rh-card rh-profile-actions" aria-label="اقدام‌های تیم">
-            <button
-              type="button"
-              disabled={pending}
-              onClick={() =>
-                void run(
-                  () =>
-                    gateways!.team.leave({
-                      expectedVersion: membership.version,
-                      reason: "خروج از تیم",
-                    }),
-                  "از تیم خارج شدید",
-                )
-              }
-            >
-              خروج از تیم
-            </button>
-            {permission("archive-team") && (
+              {incomingRequestsAvailable && (
+                <section className="rh-card rh-team-section" aria-label="درخواست‌های عضویت">
+                  <header className="rh-team-section__head">
+                    <span className="rh-team-section__icon is-amber">
+                      <Icon name="notification" />
+                    </span>
+                    <div>
+                      <h2>درخواست‌های عضویت</h2>
+                      <p>
+                        {openIncomingRequests.length.toLocaleString("fa-IR")} درخواست نیازمند بررسی
+                      </p>
+                    </div>
+                  </header>
+                  <div className="rh-team-section__body rh-team-activity-list">
+                    {view.incomingRequests.map((request) => (
+                      <article key={request.id}>
+                        <div>
+                          <h3>{TEAM_ROLE_LABELS[request.requested_role]}</h3>
+                          <p>
+                            {teamMembershipRequestStateLabels[request.state]} ·{" "}
+                            {request.introduction}
+                          </p>
+                        </div>
+                        {request.state === "requested" &&
+                          permission("review-membership-request") && (
+                            <div className="rh-team-row-actions">
+                              <button
+                                className="is-primary"
+                                type="button"
+                                disabled={pending}
+                                onClick={() =>
+                                  void run(
+                                    () =>
+                                      gateways!.team.decideRequest(request.id, {
+                                        expectedVersion: request.version,
+                                        decision: "accept",
+                                        assignedRole: request.requested_role,
+                                        reason: "پذیرش از صفحه تیم",
+                                      }),
+                                    "عضویت پذیرفته شد",
+                                  )
+                                }
+                              >
+                                پذیرش
+                              </button>
+                              <button
+                                type="button"
+                                disabled={pending}
+                                onClick={() =>
+                                  void run(
+                                    () =>
+                                      gateways!.team.decideRequest(request.id, {
+                                        expectedVersion: request.version,
+                                        decision: "reject",
+                                        reason: "رد از صفحه تیم",
+                                      }),
+                                    "درخواست رد شد",
+                                  )
+                                }
+                              >
+                                رد
+                              </button>
+                            </div>
+                          )}
+                      </article>
+                    ))}
+                    {!view.incomingRequests.length && (
+                      <TeamEmptyState
+                        icon="people"
+                        title="درخواستی منتظر شما نیست"
+                        description="درخواست‌های ورود به این تیم برای بررسی اینجا قرار می‌گیرند."
+                      />
+                    )}
+                  </div>
+                </section>
+              )}
+            </div>
+          )}
+
+          <section className="rh-card rh-team-danger-zone" aria-label="اقدام‌های تیم">
+            <div>
+              <span>
+                <Icon name="lock" />
+              </span>
+              <div>
+                <h2>مدیریت وضعیت تیم</h2>
+                <p>این اقدام‌ها دسترسی یا وضعیت فضای کاری را تغییر می‌دهند.</p>
+              </div>
+            </div>
+            <div className="rh-team-row-actions">
               <button
                 type="button"
                 disabled={pending}
                 onClick={() =>
                   void run(
                     () =>
-                      gateways!.team.archive({
-                        expectedVersion: team.version,
-                        reason: "بایگانی تیم",
+                      gateways!.team.leave({
+                        expectedVersion: membership.version,
+                        reason: "خروج از تیم",
                       }),
-                    "تیم بایگانی شد",
+                    "از تیم خارج شدید",
+                    { leavesActiveWorkspace: true },
                   )
                 }
               >
-                بایگانی تیم
+                خروج از تیم
               </button>
-            )}
+              {permission("archive-team") && (
+                <button
+                  className="is-danger"
+                  type="button"
+                  disabled={pending}
+                  onClick={() =>
+                    void run(
+                      () =>
+                        gateways!.team.archive({
+                          expectedVersion: team.version,
+                          reason: "بایگانی تیم",
+                        }),
+                      "تیم بایگانی شد",
+                      { leavesActiveWorkspace: true },
+                    )
+                  }
+                >
+                  بایگانی تیم
+                </button>
+              )}
+            </div>
           </section>
         </>
       ) : (
         <>
-          <header className="rh-profile-heading">
-            <div>
-              <h1>تیم‌ها و همکاری</h1>
-              <p>
-                تیم حساب جداگانه ندارد؛ با همین هویت یک فضای تیمی بسازید و سپس اعضا و پیشنهادهای آن
-                را مدیریت کنید.
-              </p>
+          <header className="rh-card rh-team-directory-hero">
+            <div className="rh-team-directory-hero__copy">
+              <span className="rh-team-directory-hero__icon">
+                <Icon name="people" />
+              </span>
+              <div>
+                <small>همکاری با همان هویت شخصی</small>
+                <h1>تیم‌ها و همکاری</h1>
+                <p>
+                  فضای تیمی خود را بسازید یا دعوت‌های همکاری را پاسخ دهید. هر تیم اعضا، پروفایل و
+                  پیشنهادهای مستقل خودش را دارد.
+                </p>
+              </div>
             </div>
-            <button
-              className="rh-profile-primary"
-              type="button"
-              onClick={() => setCreating((value) => !value)}
-            >
-              <Icon name="plus" /> {creating ? "بستن فرم" : "ساخت تیم"}
-            </button>
+            <div className="rh-team-directory-hero__side">
+              <dl>
+                <div>
+                  <dt>تیم‌های من</dt>
+                  <dd>{myTeams.length.toLocaleString("fa-IR")}</dd>
+                </div>
+                {incomingInvitationsAvailable && (
+                  <div>
+                    <dt>دعوت باز</dt>
+                    <dd>{openInvitations.length.toLocaleString("fa-IR")}</dd>
+                  </div>
+                )}
+              </dl>
+              <button
+                className="rh-profile-primary"
+                type="button"
+                aria-expanded={creating}
+                aria-controls="connected-team-create"
+                onClick={() => {
+                  setCreating((value) => !value);
+                  setNotice(null);
+                }}
+              >
+                <Icon name={creating ? "close" : "plus"} /> {creating ? "بستن فرم" : "ساخت تیم"}
+              </button>
+            </div>
           </header>
           {creating && (
             <form
-              className="rh-card rh-profile-filters"
+              className="rh-card rh-team-create-card"
+              id="connected-team-create"
               onSubmit={(event) => {
                 event.preventDefault();
-                setPending(true);
-                setNotice("");
-                void gateways!.team
-                  .create({ name: teamName.trim(), teamKind, joinMode: "invite-only" })
-                  .then(async (result) => {
-                    setPending(false);
-                    if (!result.ok) {
-                      setNotice(result.error.message);
-                      return;
-                    }
-                    setNotice(`تیم ساخته شد · شناسه همبستگی ${result.meta.correlation_id}`);
-                    await runtime.refreshMe();
-                    const error = await runtime.switchWorkspace(result.data.entity_id);
-                    if (!error) router.push("/app/solver/dashboard");
-                    else setNotice(error.message);
-                  });
+                void createTeam();
               }}
             >
-              <h2>ساخت فضای کاری تیم</h2>
-              <label>
-                <span>نام تیم</span>
-                <input
-                  required
-                  minLength={3}
-                  value={teamName}
-                  onChange={(event) => setTeamName(event.target.value)}
-                />
-              </label>
-              <label>
-                <span>نوع تیم</span>
-                <select value={teamKind} onChange={(event) => setTeamKind(event.target.value)}>
-                  <option value="expert-team">تیم تخصصی</option>
-                  <option value="academic-group">گروه دانشگاهی</option>
-                  <option value="lab">آزمایشگاه</option>
-                </select>
-              </label>
-              <button type="submit" disabled={pending || teamName.trim().length < 3}>
-                {pending ? "در حال ساخت…" : "ساخت تیم و ورود به آن"}
-              </button>
+              <header className="rh-team-create-card__head">
+                <span>
+                  <Icon name="people" />
+                </span>
+                <div>
+                  <small>مرحله بعد از فعال‌سازی شخصی</small>
+                  <h2>ساخت فضای کاری تیم</h2>
+                  <p>
+                    یک نام و نوع برای تیم انتخاب کنید. شما مالک نخست تیم می‌شوید و بعداً اعضا را با
+                    نقش مشخص دعوت می‌کنید.
+                  </p>
+                </div>
+              </header>
+
+              <ol className="rh-team-create-steps" aria-label="مسیر شروع تیم">
+                <li className="is-complete">
+                  <Icon name="check" />
+                  <span>
+                    <strong>هویت شخصی</strong>
+                    <small>فعال و محفوظ</small>
+                  </span>
+                </li>
+                <li className="is-active">
+                  <span>۲</span>
+                  <span>
+                    <strong>ساخت تیم</strong>
+                    <small>نام و نوع تیم</small>
+                  </span>
+                </li>
+                <li>
+                  <span>۳</span>
+                  <span>
+                    <strong>تکمیل پروفایل</strong>
+                    <small>پس از ورود به تیم</small>
+                  </span>
+                </li>
+              </ol>
+
+              <div className="rh-team-create-fields">
+                <label>
+                  <span>نام تیم</span>
+                  <input
+                    required
+                    minLength={3}
+                    maxLength={120}
+                    autoFocus
+                    autoComplete="organization"
+                    value={teamName}
+                    onChange={(event) => {
+                      setTeamName(event.target.value);
+                      setNotice(null);
+                    }}
+                    placeholder="مثلاً تیم بهینه‌سازی انرژی"
+                  />
+                  <small>نامی روشن انتخاب کنید که حوزه یا هویت تیم را نشان دهد.</small>
+                </label>
+                <label>
+                  <span>نوع تیم</span>
+                  <select
+                    value={teamKind}
+                    onChange={(event) => setTeamKind(event.target.value as TeamKind)}
+                  >
+                    <option value="expert-team">تیم مستقل</option>
+                    <option value="company">شرکت رسمی</option>
+                    <option value="academic-group">گروه دانشگاهی</option>
+                    <option value="lab">آزمایشگاه</option>
+                  </select>
+                  <small>این انتخاب برای معرفی درست تیم در فرصت‌ها استفاده می‌شود.</small>
+                </label>
+              </div>
+
+              <div className="rh-team-create-policy">
+                <Icon name="lock" />
+                <div>
+                  <strong>عضویت اولیه فقط با دعوت</strong>
+                  <p>
+                    پس از ساخت، می‌توانید اعضا را دعوت و برای هر نفر نقش و دامنه‌ی همکاری تعیین
+                    کنید.
+                  </p>
+                </div>
+              </div>
+
+              <footer className="rh-team-create-actions">
+                <button
+                  type="button"
+                  className="is-secondary"
+                  disabled={pending}
+                  onClick={() => setCreating(false)}
+                >
+                  فعلاً نه
+                </button>
+                <button type="submit" disabled={pending || teamName.trim().length < 3}>
+                  {pending ? "در حال ساخت فضای تیم…" : "ساخت تیم و ورود به آن"}
+                  {!pending && <Icon name="arrow" />}
+                </button>
+              </footer>
             </form>
           )}
         </>
       )}
 
-      <section className="rh-card rh-membership-list" aria-label="دعوت‌های دریافتی من">
-        <header>
-          <div>
-            <h2>دعوت‌های دریافتی</h2>
-            <p>{view.incomingInvitations.length.toLocaleString("fa-IR")} مورد</p>
-          </div>
-        </header>
-        {view.incomingInvitations.map((invitation) => (
-          <article key={invitation.id}>
+      {myTeams.length > 0 && (
+        <section className="rh-card rh-team-section rh-team-spaces" aria-label="تیم‌های من">
+          <header className="rh-team-section__head">
+            <span className="rh-team-section__icon">
+              <Icon name="grid" />
+            </span>
             <div>
-              <small>
-                <bdi dir="ltr">{invitation.id}</bdi>
-              </small>
-              <h3>{invitation.team_name}</h3>
-              <p>
-                {TEAM_ROLE_LABELS[invitation.proposed_role]} ·{" "}
-                {teamInvitationStateLabels[invitation.state]} · تا{" "}
-                {formatDate(invitation.expires_at)}
-              </p>
+              <h2>تیم‌های من</h2>
+              <p>{myTeams.length.toLocaleString("fa-IR")} فضای تیمی در دسترس شما</p>
             </div>
-            {["sent", "viewed"].includes(invitation.state) && (
-              <div className="rh-profile-actions">
-                <button
-                  type="button"
-                  disabled={pending}
-                  onClick={() =>
-                    void run(
-                      () =>
-                        gateways!.team.respondToInvitation(invitation.id, {
-                          expectedVersion: invitation.version,
-                          decision: "accept",
-                        }),
-                      "دعوت پذیرفته شد",
-                    )
-                  }
-                >
-                  پذیرش دعوت
-                </button>
-                <button
-                  type="button"
-                  disabled={pending}
-                  onClick={() =>
-                    void run(
-                      () =>
-                        gateways!.team.respondToInvitation(invitation.id, {
-                          expectedVersion: invitation.version,
-                          decision: "decline",
-                          reason: "رد دعوت",
-                        }),
-                      "دعوت رد شد",
-                    )
-                  }
-                >
-                  رد دعوت
-                </button>
-              </div>
-            )}
-          </article>
-        ))}
-        {!view.incomingInvitations.length && <p>دعوتی دریافت نکرده‌اید.</p>}
-      </section>
+          </header>
+          <div className="rh-team-space-grid">
+            {myTeams.map((entry) => (
+              <article key={entry.id} className={entry.active ? "is-active" : undefined}>
+                <div className="rh-team-space-card__title">
+                  <span>
+                    <Icon name="people" />
+                  </span>
+                  <div>
+                    <h3>{entry.name}</h3>
+                    <p>
+                      {(entry.role && entry.role in TEAM_ROLE_LABELS
+                        ? TEAM_ROLE_LABELS[entry.role as keyof typeof TEAM_ROLE_LABELS]
+                        : "عضو تیم") ?? "عضو تیم"}
+                    </p>
+                  </div>
+                </div>
+                <RecordId value={entry.id} label="شناسه فضای کاری تیم" />
+                <footer>
+                  {entry.active ? (
+                    <span className="rh-team-active-label">
+                      <Icon name="check" /> فضای کاری فعال
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={pending}
+                      // Switching is a server command, so the whole page -- members,
+                      // invitations, requests -- re-reads for the new workspace
+                      // rather than this list changing under a stale body.
+                      onClick={() => void runtime.switchWorkspace(entry.id)}
+                    >
+                      ورود و مدیریت <Icon name="arrow" />
+                    </button>
+                  )}
+                </footer>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
 
-      <section className="rh-card rh-membership-list" aria-label="درخواست‌های من">
-        <header>
-          <div>
-            <h2>درخواست‌های عضویت من</h2>
-            <p>{view.ownRequests.length.toLocaleString("fa-IR")} مورد</p>
-          </div>
-        </header>
-        {view.ownRequests.map((request) => (
-          <article key={request.id}>
+      {(incomingInvitationsAvailable || ownRequestsAvailable) && (
+        <div className="rh-team-collaboration-grid">
+          {incomingInvitationsAvailable && (
+            <section className="rh-card rh-team-section" aria-label="دعوت‌های دریافتی من">
+              <header className="rh-team-section__head">
+                <span className="rh-team-section__icon is-mail">
+                  <Icon name="mail" />
+                </span>
+                <div>
+                  <h2>دعوت‌های در انتظار پاسخ</h2>
+                  <p>{openInvitations.length.toLocaleString("fa-IR")} دعوت برای هویت شما</p>
+                </div>
+              </header>
+              <div className="rh-team-section__body rh-team-activity-list">
+                {openInvitations.map((invitation) => (
+                  <article key={invitation.id}>
+                    <div>
+                      <h3>{invitation.team_name}</h3>
+                      <p>
+                        {TEAM_ROLE_LABELS[invitation.proposed_role]} ·{" "}
+                        {teamInvitationStateLabels[invitation.state]} · تا{" "}
+                        {formatDate(invitation.expires_at)}
+                      </p>
+                    </div>
+                    <div className="rh-team-row-actions">
+                      <button
+                        className="is-primary"
+                        type="button"
+                        disabled={pending}
+                        onClick={() =>
+                          void run(
+                            () =>
+                              gateways!.team.respondToInvitation(invitation.id, {
+                                expectedVersion: invitation.version,
+                                decision: "accept",
+                              }),
+                            "دعوت پذیرفته شد",
+                          )
+                        }
+                      >
+                        پذیرش دعوت
+                      </button>
+                      <button
+                        type="button"
+                        disabled={pending}
+                        onClick={() =>
+                          void run(
+                            () =>
+                              gateways!.team.respondToInvitation(invitation.id, {
+                                expectedVersion: invitation.version,
+                                decision: "decline",
+                                reason: "رد دعوت",
+                              }),
+                            "دعوت رد شد",
+                          )
+                        }
+                      >
+                        رد دعوت
+                      </button>
+                    </div>
+                  </article>
+                ))}
+                {!openInvitations.length && (
+                  <TeamEmptyState
+                    icon="mail"
+                    title="دعوت بی‌پاسخی ندارید"
+                    description="هر دعوت تازه همراه با نقش و مهلت پاسخ در این بخش نمایش داده می‌شود."
+                  />
+                )}
+              </div>
+            </section>
+          )}
+
+          {ownRequestsAvailable && (
+            <section className="rh-card rh-team-section" aria-label="درخواست‌های من">
+              <header className="rh-team-section__head">
+                <span className="rh-team-section__icon is-soft">
+                  <Icon name="history" />
+                </span>
+                <div>
+                  <h2>درخواست‌های عضویت من</h2>
+                  <p>{openOwnRequests.length.toLocaleString("fa-IR")} درخواست در انتظار پاسخ</p>
+                </div>
+              </header>
+              <div className="rh-team-section__body rh-team-activity-list">
+                {view.ownRequests.map((request) => (
+                  <article key={request.id}>
+                    <div>
+                      <h3>{request.team_name}</h3>
+                      <p>
+                        {TEAM_ROLE_LABELS[request.requested_role]} ·{" "}
+                        {teamMembershipRequestStateLabels[request.state]}
+                      </p>
+                    </div>
+                    {request.state === "requested" && (
+                      <button
+                        className="rh-team-text-action is-danger"
+                        type="button"
+                        disabled={pending}
+                        onClick={() =>
+                          void run(
+                            () =>
+                              gateways!.team.withdrawRequest(request.id, {
+                                expectedVersion: request.version,
+                                reason: "انصراف از درخواست",
+                              }),
+                            "درخواست پس گرفته شد",
+                          )
+                        }
+                      >
+                        انصراف
+                      </button>
+                    )}
+                  </article>
+                ))}
+                {!view.ownRequests.length && (
+                  <TeamEmptyState
+                    icon="history"
+                    title="درخواستی ثبت نکرده‌اید"
+                    description="اگر برای عضویت در تیمی درخواست بدهید، وضعیت آن اینجا پیگیری می‌شود."
+                  />
+                )}
+              </div>
+            </section>
+          )}
+        </div>
+      )}
+
+      {incomingInvitationsAvailable && settledInvitations.length > 0 && (
+        <section className="rh-card rh-team-section rh-team-history" aria-label="دعوت‌های بسته‌شده">
+          <header className="rh-team-section__head">
+            <span className="rh-team-section__icon is-soft">
+              <Icon name="history" />
+            </span>
             <div>
-              <small>
-                <bdi dir="ltr">{request.id}</bdi>
-              </small>
-              <h3>{request.team_name}</h3>
-              <p>
-                {TEAM_ROLE_LABELS[request.requested_role]} ·{" "}
-                {teamMembershipRequestStateLabels[request.state]}
-              </p>
+              <h2>دعوت‌های پاسخ‌داده‌شده</h2>
+              <p>{settledInvitations.length.toLocaleString("fa-IR")} مورد در تاریخچه همکاری</p>
             </div>
-            {request.state === "requested" && (
-              <button
-                type="button"
-                disabled={pending}
-                onClick={() =>
-                  void run(
-                    () =>
-                      gateways!.team.withdrawRequest(request.id, {
-                        expectedVersion: request.version,
-                        reason: "انصراف از درخواست",
-                      }),
-                    "درخواست پس گرفته شد",
-                  )
-                }
-              >
-                انصراف
-              </button>
-            )}
-          </article>
-        ))}
-        {!view.ownRequests.length && <p>درخواستی ثبت نکرده‌اید.</p>}
-      </section>
-    </>
+          </header>
+          <div className="rh-team-section__body rh-team-activity-list">
+            {settledInvitations.map((invitation) => (
+              <article key={invitation.id}>
+                <h3>{invitation.team_name}</h3>
+                <p>
+                  {TEAM_ROLE_LABELS[invitation.proposed_role]} ·{" "}
+                  {teamInvitationStateLabels[invitation.state]}
+                </p>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
   );
 }
 
@@ -565,7 +1007,7 @@ function TeamInviteForm({
   const [message, setMessage] = useState("");
   return (
     <form
-      className="rh-card rh-profile-filters"
+      className="rh-card rh-team-invite-form"
       onSubmit={(event) => {
         event.preventDefault();
         onSubmit({
@@ -581,38 +1023,68 @@ function TeamInviteForm({
         setMessage("");
       }}
     >
-      <h2>دعوت عضو تازه</h2>
-      <label>
-        <span>رایانامه گیرنده</span>
-        <input
-          type="email"
-          required
-          dir="ltr"
-          value={recipientEmail}
-          onChange={(event) => setRecipientEmail(event.target.value)}
-        />
-      </label>
-      <label>
-        <span>نقش پیشنهادی</span>
-        <select value={proposedRole} onChange={(event) => setProposedRole(event.target.value)}>
-          {nonOwnerRoles.map((value) => (
-            <option key={value} value={value}>
-              {TEAM_ROLE_LABELS[value]}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        <span>دامنه همکاری</span>
-        <input required value={scope} onChange={(event) => setScope(event.target.value)} />
-      </label>
-      <label>
-        <span>پیام</span>
-        <input required value={message} onChange={(event) => setMessage(event.target.value)} />
-      </label>
-      <button type="submit" disabled={disabled}>
-        ارسال دعوت
-      </button>
+      <header className="rh-team-invite-form__head">
+        <span>
+          <Icon name="plus" />
+        </span>
+        <div>
+          <small>افزودن همکار</small>
+          <h2>دعوت عضو تازه</h2>
+          <p>نقش و محدوده همکاری را پیش از ارسال برای عضو آینده روشن کنید.</p>
+        </div>
+      </header>
+      <div className="rh-team-invite-form__fields">
+        <label className="rh-connected-field">
+          <span>رایانامه گیرنده</span>
+          <input
+            type="email"
+            required
+            dir="ltr"
+            autoComplete="email"
+            placeholder="name@example.com"
+            value={recipientEmail}
+            onChange={(event) => setRecipientEmail(event.target.value)}
+          />
+        </label>
+        <label className="rh-connected-field">
+          <span>نقش پیشنهادی</span>
+          <select value={proposedRole} onChange={(event) => setProposedRole(event.target.value)}>
+            {nonOwnerRoles.map((value) => (
+              <option key={value} value={value}>
+                {TEAM_ROLE_LABELS[value]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="rh-connected-field is-wide">
+          <span>دامنه همکاری</span>
+          <input
+            required
+            value={scope}
+            onChange={(event) => setScope(event.target.value)}
+            placeholder="مثلاً تحلیل داده و تدوین بخش فنی پیشنهاد"
+          />
+          <small>به‌طور کوتاه مشخص کنید این عضو در چه کاری مشارکت می‌کند.</small>
+        </label>
+        <label className="rh-connected-field is-wide">
+          <span>پیام دعوت</span>
+          <textarea
+            required
+            rows={3}
+            value={message}
+            onChange={(event) => setMessage(event.target.value)}
+            placeholder="هدف همکاری و انتظار تیم را برای مخاطب بنویسید."
+          />
+        </label>
+      </div>
+      <footer className="rh-team-invite-form__actions">
+        <p>
+          <Icon name="lock" /> دعوت فقط برای همین فضای تیمی صادر می‌شود.
+        </p>
+        <button type="submit" disabled={disabled}>
+          <Icon name="mail" /> {disabled ? "در حال ارسال…" : "ارسال دعوت"}
+        </button>
+      </footer>
     </form>
   );
 }

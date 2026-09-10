@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import zlib from "node:zlib";
 
 function walk(directory) {
   if (!fs.existsSync(directory)) return [];
@@ -8,6 +9,22 @@ function walk(directory) {
     const target = path.join(directory, entry.name);
     return entry.isDirectory() ? walk(target) : [target];
   });
+}
+
+/**
+ * What a browser actually downloads for one asset.
+ *
+ * Stylesheets are served compressed, and CSS compresses to roughly a sixth of
+ * its source size, so an uncompressed ceiling charges every rule about six
+ * times its real cost. That is what turned the CSS budgets into change
+ * detectors: ordinary styling consumed headroom six times faster than it
+ * consumed bandwidth, and the only available remedy was to edit the ceiling.
+ * gzip is the conservative choice -- every host does at least this, and brotli
+ * (which this build output compresses about 16% smaller again) only leaves
+ * more room.
+ */
+export function transferBytes(contents) {
+  return zlib.gzipSync(contents, { level: 9 }).length;
 }
 
 function attribute(tag, name) {
@@ -167,25 +184,47 @@ function run(runtime) {
       ...standalone.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g),
     ].reduce((total, match) => total + match[1].length, 0);
     check("standalone bytes", Buffer.byteLength(standalone), budgets.standalone.maxBytes);
-    check("standalone CSS characters", standaloneCss, budgets.standalone.maxCssCharacters);
     check(
       "standalone JavaScript characters",
       standaloneJavaScript,
       budgets.standalone.maxJavaScriptCharacters,
     );
+    // The standalone inliner replaces every `url()` with a data URL, so about
+    // four fifths of these characters are base64 fonts and images rather than
+    // stylesheet text. Gating on the sum made a font swap look like a styling
+    // regression and a styling regression look like noise; the whole-artifact
+    // ceiling above is the constraint that actually holds, because the file has
+    // to be openable from a disk.
+    const standaloneCssDelta = standaloneCss - budgets.standalone.cssReferenceCharacters;
+    console.log(
+      `${standaloneCssDelta > 0 ? "WARN" : "INFO"} standalone CSS characters: ${standaloneCss} ` +
+        `(reference ${budgets.standalone.cssReferenceCharacters}, delta ${standaloneCssDelta >= 0 ? "+" : ""}${standaloneCssDelta})`,
+    );
 
-    const cssSizes = staticFiles
+    const cssAssets = staticFiles
       .filter((file) => file.endsWith(".css"))
-      .map((file) => fs.statSync(file).size);
+      .map((file) => {
+        const contents = fs.readFileSync(file);
+        return { bytes: contents.length, transfer: transferBytes(contents) };
+      });
     check(
-      "demo static CSS bytes",
-      cssSizes.reduce((total, bytes) => total + bytes, 0),
-      budgets.staticAssets.maxCssBytes,
+      "demo CSS transfer bytes",
+      cssAssets.reduce((total, asset) => total + asset.transfer, 0),
+      budgets.staticAssets.maxCssTransferBytes,
     );
     check(
-      "demo largest CSS asset",
-      Math.max(0, ...cssSizes),
-      budgets.staticAssets.maxLargestCssBytes,
+      "demo largest CSS asset transfer bytes",
+      Math.max(0, ...cssAssets.map((asset) => asset.transfer)),
+      budgets.staticAssets.maxLargestCssTransferBytes,
+    );
+    // Uncompressed CSS stays visible for the same reason total emitted
+    // JavaScript does (DEC-2026-014): it says something about how much CSS was
+    // written, which is worth noticing, but it is not what anyone downloads.
+    const cssBytes = cssAssets.reduce((total, asset) => total + asset.bytes, 0);
+    const cssBytesDelta = cssBytes - budgets.staticAssets.cssReferenceBytes;
+    console.log(
+      `${cssBytesDelta > 0 ? "WARN" : "INFO"} demo uncompressed CSS bytes: ${cssBytes} ` +
+        `(reference ${budgets.staticAssets.cssReferenceBytes}, delta ${cssBytesDelta >= 0 ? "+" : ""}${cssBytesDelta})`,
     );
 
     // Authored CSS across `app/` is a sum of seven stylesheets, not what any

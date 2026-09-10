@@ -52,7 +52,7 @@ const individualNavigation: AppNavigationItem[] = [
   },
   {
     key: "received",
-    label: "پیشنهادهای دریافتی",
+    label: "دعوت‌های همکاری",
     href: "/app/solver/received-proposals?space=individual",
     matches: ["/app/solver/received-proposals"],
     icon: "notification",
@@ -86,9 +86,9 @@ const individualNavigation: AppNavigationItem[] = [
   },
   {
     key: "invitations",
-    label: "دعوت‌نامه‌های تیمی",
-    href: "/app/solver/invitations?space=individual",
-    matches: ["/app/solver/invitations", "/app/solver/teams"],
+    label: "تیم‌ها و همکاری",
+    href: "/app/solver/teams?space=individual",
+    matches: ["/app/solver/teams", "/app/solver/invitations"],
     icon: "people",
   },
   {
@@ -138,7 +138,7 @@ const teamNavigation: AppNavigationItem[] = [
   },
   {
     key: "received",
-    label: "پیشنهادهای دریافتی",
+    label: "دعوت‌های همکاری",
     href: "/app/solver/received-proposals?space=team",
     matches: ["/app/solver/received-proposals"],
     icon: "notification",
@@ -172,9 +172,9 @@ const teamNavigation: AppNavigationItem[] = [
   },
   {
     key: "invitations",
-    label: "درخواست‌های عضویت",
-    href: "/app/solver/invitations?space=team",
-    matches: ["/app/solver/invitations", "/app/solver/teams"],
+    label: "تیم‌ها و همکاری",
+    href: "/app/solver/teams?space=team",
+    matches: ["/app/solver/teams", "/app/solver/invitations"],
     icon: "people",
   },
   {
@@ -335,7 +335,16 @@ function ConnectedSolverWorkspaceShell({
   );
   const activeSpace = activeOption?.space ?? "individual";
   const navigation = (activeSpace === "team" ? teamNavigation : individualNavigation)
-    .map((item) => ({ ...item, href: item.href.split("?")[0] }))
+    .map((item) => ({
+      ...item,
+      href: item.href.split("?")[0],
+      // The same badge the organization sidebar carries. Without it the solver
+      // had only the topbar dot, so the two personas disagreed about how loudly
+      // an unread notification is announced.
+      ...(item.key === "notifications" && connected.unreadCount > 0
+        ? { badge: connected.unreadCount.toLocaleString("fa-IR") }
+        : {}),
+    }))
     .filter((item) =>
       [
         "dashboard",

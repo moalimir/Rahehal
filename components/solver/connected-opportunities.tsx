@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
 
 import { Icon } from "@/components/icons";
 import { useWebRuntime } from "@/components/runtime-provider";
@@ -8,7 +9,7 @@ import {
   ConnectedFamilyError,
   ConnectedFamilyFallback,
 } from "@/components/solver/connected-family-state";
-import { useConnectedFamily } from "@/components/solver/use-connected";
+import { useActiveWorkspaceName, useConnectedFamily } from "@/components/solver/use-connected";
 import type { GatewayResult } from "@/lib/api/result";
 import type { DirectOfferResource, OfferResponseContentResource } from "@rahhal/contracts";
 import { majorAmountToMinor, minorAmountToMajor } from "@/lib/challenges/model";
@@ -143,15 +144,33 @@ export function ConnectedDirectOffersList() {
   const runtime = useWebRuntime();
   const connected = useConnectedFamily(readDirectOffers, directOffersScopeLost);
   const { run, pending, toast } = useCommandRunner(connected.refresh);
-  const [declineReason, setDeclineReason] = useState("");
+  const workspaceName = useActiveWorkspaceName();
+  const activeWorkspace = runtime.me?.workspaces.find(
+    (workspace) => workspace.id === runtime.me?.active_context?.workspace_id,
+  );
+  const [declineReasons, setDeclineReasons] = useState<Record<string, string>>({});
+  const [focusedOfferId, setFocusedOfferId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setFocusedOfferId(new URLSearchParams(window.location.search).get("offer"));
+  }, []);
 
   if (connected.state.kind !== "ready")
     return <ConnectedFamilyFallback state={connected.state} label="دعوت‌های مستقیم" />;
 
   const view = connected.state.data;
   const gateways = runtime.workspaceGateways;
+  const openStates = new Set(["received", "viewed", "response_draft"]);
+  const openCount = view.offers.filter((offer) => openStates.has(offer.state)).length;
+  const submittedCount = view.offers.filter((offer) => offer.state === "response_submitted").length;
+  const offers = focusedOfferId
+    ? [...view.offers].sort((left, right) =>
+        left.id === focusedOfferId ? -1 : right.id === focusedOfferId ? 1 : 0,
+      )
+    : view.offers;
+
   return (
-    <>
+    <div className="rh-connected-offers-page">
       {toast}
       {view.error && (
         <ConnectedFamilyError error={view.error} label="دعوت‌های مستقیم">
@@ -160,114 +179,190 @@ export function ConnectedDirectOffersList() {
           </button>
         </ConnectedFamilyError>
       )}
-      <header className="rh-profile-heading">
+
+      <header className="rh-profile-heading rh-connected-page-head rh-connected-offers-head">
         <div>
-          <h1>دعوت‌های مستقیم</h1>
-          <p>{view.offers.length.toLocaleString("fa-IR")} دعوت برای این فضای کاری</p>
+          <small>دعوت مستقیم سازمان‌ها</small>
+          <h1>پیشنهادهای همکاری دریافتی</h1>
+          <p>
+            این صفحه پیشنهادهای ارسالی شما نیست؛ دعوت‌هایی است که سازمان مستقیماً برای «
+            {workspaceName ?? "فضای کاری فعال"}» فرستاده است.
+          </p>
         </div>
+        <span className="rh-connected-page-head__badge">
+          <Icon name={activeWorkspace?.kind === "team" ? "people" : "user"} />
+          {activeWorkspace?.kind === "team" ? "فضای تیمی" : "فضای شخصی"}
+        </span>
       </header>
-      <section className="rh-saved-grid" aria-label="دعوت‌های دریافتی">
-        {view.offers.map((offer) => (
-          <article className="rh-card rh-saved-card" key={offer.id}>
-            <header>
-              <div>
-                <small>
-                  <bdi dir="ltr">{offer.id}</bdi>
-                </small>
-                <h2>{offer.title}</h2>
-                <p>
-                  {directOfferStateLabels[offer.state]} · مهلت پاسخ{" "}
-                  {formatDate(offer.response_deadline)}
-                </p>
+
+      <section className="rh-connected-offer-summary" aria-label="خلاصه دعوت‌های همکاری">
+        <div>
+          <span>همه دعوت‌ها</span>
+          <strong>{view.offers.length.toLocaleString("fa-IR")}</strong>
+        </div>
+        <div className={openCount > 0 ? "has-action" : ""}>
+          <span>نیازمند پاسخ</span>
+          <strong>{openCount.toLocaleString("fa-IR")}</strong>
+        </div>
+        <div>
+          <span>پاسخ ارسال‌شده</span>
+          <strong>{submittedCount.toLocaleString("fa-IR")}</strong>
+        </div>
+      </section>
+
+      <section className="rh-connected-offer-grid" aria-label="دعوت‌های همکاری دریافتی">
+        {offers.map((offer) => {
+          const declineReason = declineReasons[offer.id] ?? "";
+          return (
+            <article
+              className={
+                offer.id === focusedOfferId
+                  ? "rh-card rh-connected-offer-card is-focused"
+                  : "rh-card rh-connected-offer-card"
+              }
+              id={`offer-${offer.id}`}
+              key={offer.id}
+            >
+              <header className="rh-connected-offer-card__head">
+                <span>
+                  <Icon name="brief" />
+                </span>
+                <div>
+                  <small>
+                    <bdi dir="ltr">{offer.id}</bdi>
+                  </small>
+                  <h2>{offer.title}</h2>
+                </div>
+                <strong>{directOfferStateLabels[offer.state]}</strong>
+              </header>
+
+              <div className="rh-connected-offer-card__body">
+                <p>{offer.summary}</p>
+                <dl>
+                  <div>
+                    <dt>مهلت پاسخ</dt>
+                    <dd>{formatDate(offer.response_deadline)}</dd>
+                  </div>
+                  <div>
+                    <dt>نسخه دعوت</dt>
+                    <dd>{offer.version.toLocaleString("fa-IR")}</dd>
+                  </div>
+                </dl>
+                {offer.invitation_reasons.length > 0 && (
+                  <div className="rh-connected-offer-card__reasons">
+                    <strong>دلیل انتخاب این فضا</strong>
+                    <ul>
+                      {offer.invitation_reasons.map((reason) => (
+                        <li key={reason}>{reason}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {offer.requested_documents.length > 0 && (
+                  <p className="rh-connected-offer-card__documents">
+                    <Icon name="lock" />
+                    {offer.requested_documents.length.toLocaleString("fa-IR")} مدرک در ادامه فرایند
+                    درخواست شده است.
+                  </p>
+                )}
               </div>
-            </header>
-            <p>{offer.summary}</p>
-            {offer.invitation_reasons.length > 0 && (
-              <ul>
-                {offer.invitation_reasons.map((reason) => (
-                  <li key={reason}>{reason}</li>
-                ))}
-              </ul>
-            )}
-            <div className="rh-profile-actions">
-              {offer.state === "received" && (
-                <button
-                  type="button"
-                  disabled={pending}
-                  onClick={() =>
-                    void run(
-                      () => gateways!.directOffers.view(offer.id, offer.version),
-                      "دعوت باز شد",
-                    )
-                  }
-                >
-                  مشاهده دعوت
-                </button>
-              )}
-              {offer.state === "viewed" && (
-                <button
-                  type="button"
-                  disabled={pending}
-                  onClick={() =>
-                    void run(
-                      () => gateways!.directOffers.startResponse(offer.id, offer.version),
-                      "پیش‌نویس پاسخ ساخته شد",
-                    )
-                  }
-                >
-                  شروع پاسخ
-                </button>
-              )}
-              {["received", "viewed", "response_draft"].includes(offer.state) && (
-                <>
-                  <label>
-                    <span className="sr-only">دلیل رد دعوت</span>
-                    <input
-                      value={declineReason}
-                      onChange={(event) => setDeclineReason(event.target.value)}
-                      placeholder="دلیل رد"
-                    />
-                  </label>
+
+              <footer className="rh-connected-offer-card__actions">
+                {offer.state === "received" && (
                   <button
+                    className="rh-profile-primary"
                     type="button"
-                    disabled={pending || !declineReason.trim()}
+                    disabled={pending}
                     onClick={() =>
                       void run(
-                        () =>
-                          gateways!.directOffers.decline(offer.id, {
-                            expectedVersion: offer.version,
-                            reason: declineReason.trim(),
-                          }),
-                        "دعوت رد شد",
+                        () => gateways!.directOffers.view(offer.id, offer.version),
+                        "دعوت باز شد",
                       )
                     }
                   >
-                    رد دعوت
+                    مشاهده و بازکردن دعوت
                   </button>
-                </>
+                )}
+                {offer.state === "viewed" && (
+                  <button
+                    className="rh-profile-primary"
+                    type="button"
+                    disabled={pending}
+                    onClick={() =>
+                      void run(
+                        () => gateways!.directOffers.startResponse(offer.id, offer.version),
+                        "پیش‌نویس پاسخ ساخته شد",
+                      )
+                    }
+                  >
+                    شروع تدوین پاسخ
+                  </button>
+                )}
+                {openStates.has(offer.state) && (
+                  <>
+                    <label>
+                      <span>در صورت رد، دلیل کوتاه بنویسید</span>
+                      <input
+                        value={declineReason}
+                        onChange={(event) =>
+                          setDeclineReasons((current) => ({
+                            ...current,
+                            [offer.id]: event.target.value,
+                          }))
+                        }
+                        placeholder="دلیل رد دعوت"
+                      />
+                    </label>
+                    <button
+                      className="rh-profile-outline"
+                      type="button"
+                      disabled={pending || !declineReason.trim()}
+                      onClick={() =>
+                        void run(
+                          () =>
+                            gateways!.directOffers.decline(offer.id, {
+                              expectedVersion: offer.version,
+                              reason: declineReason.trim(),
+                            }),
+                          "دعوت رد شد",
+                        )
+                      }
+                    >
+                      رد دعوت
+                    </button>
+                  </>
+                )}
+              </footer>
+
+              {offer.response?.state === "draft" && (
+                <ConnectedOfferResponseForm
+                  key={`${offer.id}:${offer.response.version}`}
+                  offer={offer}
+                  pending={pending}
+                  run={run}
+                />
               )}
-            </div>
-            {offer.response?.state === "draft" && (
-              <ConnectedOfferResponseForm
-                key={`${offer.id}:${offer.response.version}`}
-                offer={offer}
-                pending={pending}
-                run={run}
-              />
-            )}
-          </article>
-        ))}
+            </article>
+          );
+        })}
+
         {!view.offers.length && !view.error && (
-          <div className="rh-profile-empty">
-            <Icon name="search" />
-            <h2>دعوت مستقیمی دریافت نکرده‌اید</h2>
+          <div className="rh-card rh-profile-empty rh-connected-offer-empty">
+            <span>
+              <Icon name="brief" />
+            </span>
+            <h2>برای این فضای کاری دعوت مستقیمی ثبت نشده است</h2>
+            <p>
+              دعوت‌های فضای شخصی و تیمی با هم ترکیب نمی‌شوند. اگر سازمان تیم شما را دعوت کرده، از
+              بالای صفحه همان تیم را به‌عنوان فضای فعال انتخاب کنید.
+            </p>
+            <Link href="/app/solver/opportunities">مشاهده فرصت‌های عمومی</Link>
           </div>
         )}
       </section>
-    </>
+    </div>
   );
 }
-
 function ConnectedOfferResponseForm({
   offer,
   pending,
@@ -287,7 +382,7 @@ function ConnectedOfferResponseForm({
 
   return (
     <form
-      className="rh-wizard-fields"
+      className="rh-connected-offer-response"
       onSubmit={(event) => {
         event.preventDefault();
         void run(
@@ -386,11 +481,12 @@ function ConnectedOfferResponseForm({
           ))}
         </ul>
       )}
-      <div className="rh-profile-actions">
-        <button type="submit" disabled={pending}>
+      <div className="rh-connected-offer-response__actions">
+        <button className="rh-profile-outline" type="submit" disabled={pending}>
           ذخیره پاسخ
         </button>
         <button
+          className="rh-profile-primary"
           type="button"
           disabled={pending || !response.readiness.ready}
           onClick={() =>
