@@ -2,6 +2,7 @@ import { challengeManagedStages, reviewStates } from "@rahhal/domain";
 
 import {
   apiRoutes,
+  decisionApiRoutes,
   reviewCoiApiRoutes,
   reviewComparisonApiRoutes,
   reviewScoringApiRoutes,
@@ -113,6 +114,13 @@ const directOfferIdParameter = {
   schema: { type: "string", pattern: "^dof_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$" },
 } as const;
 
+const caseIdParameter = {
+  in: "path",
+  name: "caseId",
+  required: true,
+  schema: { type: "string", pattern: "^case_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$" },
+} as const;
+
 const teamCommandOperation = (
   operationId: string,
   summary: string,
@@ -212,6 +220,8 @@ export const openApiDocument = {
     { name: "Proposal" },
     { name: "Opportunity" },
     { name: "Review" },
+    { name: "Decision" },
+    { name: "Case" },
   ],
   paths: {
     [apiRoutes.challengeEvaluation]: {
@@ -242,6 +252,89 @@ export const openApiDocument = {
             description:
               "Frozen-roster completeness; aggregate scores appear only after every proposal is complete.",
             content: jsonContent("ChallengeReviewComparisonSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [decisionApiRoutes.challengeDecision]: {
+      get: {
+        operationId: "getChallengeDecision",
+        tags: ["Decision"],
+        summary: "Read decision readiness, the current shortlist, final decision, and case",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, challengeIdParameter],
+        responses: {
+          "200": {
+            description: "The organization-scoped exact-version decision projection.",
+            content: jsonContent("ChallengeDecisionSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [decisionApiRoutes.decisionShortlist]: {
+      post: {
+        operationId: "saveDecisionShortlist",
+        tags: ["Decision"],
+        summary: "Append an exact-version shortlist before the final decision",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, challengeIdParameter],
+        requestBody: { required: true, content: jsonContent("SaveDecisionShortlistBody") },
+        responses: {
+          "200": {
+            description: "The atomic shortlist version, audit, outbox, and mutation receipt.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [decisionApiRoutes.recordDecision]: {
+      post: {
+        operationId: "recordChallengeDecision",
+        tags: ["Decision"],
+        summary: "Record one stepped-up final decision and atomically create a selected case",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, challengeIdParameter],
+        requestBody: { required: true, content: jsonContent("RecordChallengeDecisionBody") },
+        responses: {
+          "200": {
+            description: "The immutable decision and optional selected-case receipt.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [decisionApiRoutes.proposalOutcome]: {
+      get: {
+        operationId: "getProposalOutcome",
+        tags: ["Decision"],
+        summary: "Read only the active solver workspace's own proposal outcome and feedback",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, proposalIdParameter],
+        responses: {
+          "200": {
+            description:
+              "The scoped proposal outcome without other proposals or decision rationale.",
+            content: jsonContent("ProposalOutcomeSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [decisionApiRoutes.case]: {
+      get: {
+        operationId: "getCase",
+        tags: ["Case"],
+        summary: "Read a case as its owning organization or actively granted solver workspace",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, caseIdParameter],
+        responses: {
+          "200": {
+            description: "The exact immutable case continuity links.",
+            content: jsonContent("CaseSuccessEnvelope"),
           },
           ...protectedCommandErrors,
         },

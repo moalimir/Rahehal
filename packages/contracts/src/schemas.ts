@@ -40,6 +40,9 @@ import {
   solverStartIntents,
   evaluationReadinessBlockers,
   evaluationRosterProposalStates,
+  decisionOutcomes,
+  decisionReasonCodes,
+  proposalDecisionOutcomes,
 } from "@rahhal/domain";
 
 import { apiErrorCodes } from "./envelopes.js";
@@ -2273,6 +2276,164 @@ const challengeReviewComparisonResourceSchema = {
   },
 } as const;
 
+const decisionProposalReferenceSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["proposal_id", "proposal_version_id"],
+  properties: {
+    proposal_id: idSchema("prp"),
+    proposal_version_id: idSchema("prv"),
+  },
+} as const;
+const decisionProposalResourceSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "proposal_id",
+    "proposal_version_id",
+    "tracking_code",
+    "locked_review_count",
+    "shortlisted",
+    "outcome",
+    "feedback",
+  ],
+  properties: {
+    ...decisionProposalReferenceSchema.properties,
+    tracking_code: { type: "string", pattern: "^PRP-[0-9]{4}-[0-9]{3,6}$" },
+    locked_review_count: { type: "integer", minimum: 0, maximum: 2 },
+    shortlisted: { type: "boolean" },
+    outcome: {
+      oneOf: [{ type: "string", enum: proposalDecisionOutcomes }, { type: "null" }],
+    },
+    feedback: { oneOf: [{ type: "string", minLength: 1, maxLength: 4_000 }, { type: "null" }] },
+  },
+} as const;
+const decisionShortlistResourceSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["id", "version_number", "proposal_versions", "rationale", "recorded_at"],
+  properties: {
+    id: idSchema("dsv"),
+    version_number: { type: "integer", minimum: 1 },
+    proposal_versions: {
+      type: "array",
+      minItems: 1,
+      maxItems: 500,
+      uniqueItems: true,
+      items: decisionProposalReferenceSchema,
+    },
+    rationale: { type: "string", minLength: 1, maxLength: 10_000 },
+    recorded_at: dateTimeSchema,
+  },
+} as const;
+const finalDecisionResourceSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "outcome",
+    "selected_proposal_id",
+    "selected_proposal_version_id",
+    "reason_code",
+    "rationale",
+    "decided_at",
+  ],
+  properties: {
+    id: idSchema("dec"),
+    outcome: { type: "string", enum: decisionOutcomes },
+    selected_proposal_id: { oneOf: [idSchema("prp"), { type: "null" }] },
+    selected_proposal_version_id: { oneOf: [idSchema("prv"), { type: "null" }] },
+    reason_code: { type: "string", enum: decisionReasonCodes },
+    rationale: { type: "string", minLength: 1, maxLength: 10_000 },
+    decided_at: dateTimeSchema,
+  },
+} as const;
+const caseResourceSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "id",
+    "challenge_id",
+    "challenge_version_id",
+    "proposal_id",
+    "proposal_version_id",
+    "decision_id",
+    "state",
+    "created_at",
+  ],
+  properties: {
+    id: idSchema("case"),
+    challenge_id: idSchema("chl"),
+    challenge_version_id: idSchema("chv"),
+    proposal_id: idSchema("prp"),
+    proposal_version_id: idSchema("prv"),
+    decision_id: idSchema("dec"),
+    state: { const: "created" },
+    created_at: dateTimeSchema,
+  },
+} as const;
+const challengeDecisionResourceSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "challenge_id",
+    "challenge_version_id",
+    "rubric_version_id",
+    "stage",
+    "review_complete",
+    "proposals",
+    "shortlist",
+    "decision",
+    "case",
+    "version",
+  ],
+  properties: {
+    challenge_id: idSchema("chl"),
+    challenge_version_id: idSchema("chv"),
+    rubric_version_id: idSchema("rbv"),
+    stage: { type: "string", enum: challengeStages },
+    review_complete: { type: "boolean" },
+    proposals: { type: "array", maxItems: 500, items: decisionProposalResourceSchema },
+    shortlist: { oneOf: [decisionShortlistResourceSchema, { type: "null" }] },
+    decision: { oneOf: [finalDecisionResourceSchema, { type: "null" }] },
+    case: { oneOf: [caseResourceSchema, { type: "null" }] },
+    version: { type: "integer", minimum: 1 },
+  },
+} as const;
+const proposalDecisionFeedbackSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["proposal_id", "proposal_version_id", "feedback"],
+  properties: {
+    ...decisionProposalReferenceSchema.properties,
+    feedback: { type: "string", minLength: 1, maxLength: 4_000 },
+  },
+} as const;
+const proposalOutcomeResourceSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "proposal_id",
+    "proposal_version_id",
+    "tracking_code",
+    "status",
+    "feedback",
+    "decided_at",
+    "case_id",
+    "version",
+  ],
+  properties: {
+    proposal_id: idSchema("prp"),
+    proposal_version_id: idSchema("prv"),
+    tracking_code: { type: "string", pattern: "^PRP-[0-9]{4}-[0-9]{3,6}$" },
+    status: { type: "string", enum: ["pending", ...proposalDecisionOutcomes] },
+    feedback: { oneOf: [{ type: "string", minLength: 1, maxLength: 4_000 }, { type: "null" }] },
+    decided_at: nullableDateTimeSchema,
+    case_id: { oneOf: [idSchema("case"), { type: "null" }] },
+    version: { type: "integer", minimum: 1 },
+  },
+} as const;
+
 export const apiSchemas = {
   EvaluationRosterProposal: evaluationRosterProposalSchema,
   ChallengeEvaluation: challengeEvaluationResourceSchema,
@@ -2285,6 +2446,92 @@ export const apiSchemas = {
     challengeReviewComparisonResourceSchema,
     true,
   ),
+  DecisionProposalReference: decisionProposalReferenceSchema,
+  DecisionProposal: decisionProposalResourceSchema,
+  DecisionShortlist: decisionShortlistResourceSchema,
+  FinalDecision: finalDecisionResourceSchema,
+  Case: caseResourceSchema,
+  CaseSuccessEnvelope: successEnvelopeFor(caseResourceSchema, true),
+  ChallengeDecision: challengeDecisionResourceSchema,
+  ChallengeDecisionSuccessEnvelope: successEnvelopeFor(challengeDecisionResourceSchema, true),
+  SaveDecisionShortlistBody: {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "expected_version",
+      "challenge_version_id",
+      "rubric_version_id",
+      "proposal_versions",
+      "rationale",
+    ],
+    properties: {
+      expected_version: { type: "integer", minimum: 1 },
+      challenge_version_id: idSchema("chv"),
+      rubric_version_id: idSchema("rbv"),
+      proposal_versions: {
+        type: "array",
+        minItems: 1,
+        maxItems: 500,
+        uniqueItems: true,
+        items: decisionProposalReferenceSchema,
+      },
+      rationale: { type: "string", minLength: 1, maxLength: 10_000 },
+    },
+  },
+  RecordChallengeDecisionBody: {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "expected_version",
+      "challenge_version_id",
+      "rubric_version_id",
+      "shortlist_version_id",
+      "outcome",
+      "selected_proposal_id",
+      "selected_proposal_version_id",
+      "reason_code",
+      "rationale",
+      "proposal_feedback",
+    ],
+    properties: {
+      expected_version: { type: "integer", minimum: 1 },
+      challenge_version_id: idSchema("chv"),
+      rubric_version_id: idSchema("rbv"),
+      shortlist_version_id: { oneOf: [idSchema("dsv"), { type: "null" }] },
+      outcome: { type: "string", enum: decisionOutcomes },
+      selected_proposal_id: { oneOf: [idSchema("prp"), { type: "null" }] },
+      selected_proposal_version_id: { oneOf: [idSchema("prv"), { type: "null" }] },
+      reason_code: { type: "string", enum: decisionReasonCodes },
+      rationale: { type: "string", minLength: 1, maxLength: 10_000 },
+      proposal_feedback: {
+        type: "array",
+        maxItems: 500,
+        uniqueItems: true,
+        items: proposalDecisionFeedbackSchema,
+      },
+      step_up_token: { type: "string", minLength: 32, maxLength: 4_096 },
+    },
+  },
+  BrowserDecisionStepUpStartBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["expected_version"],
+    properties: { expected_version: { type: "integer", minimum: 1 } },
+  },
+  BrowserDecisionStepUpStartSuccessEnvelope: successEnvelopeFor(
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["authorization_url", "expires_at"],
+      properties: {
+        authorization_url: { type: "string", format: "uri", maxLength: 4_096 },
+        expires_at: dateTimeSchema,
+      },
+    },
+    true,
+  ),
+  ProposalOutcome: proposalOutcomeResourceSchema,
+  ProposalOutcomeSuccessEnvelope: successEnvelopeFor(proposalOutcomeResourceSchema, true),
   OpenChallengeEvaluationBody: {
     type: "object",
     additionalProperties: false,
@@ -3197,6 +3444,12 @@ export const apiSchemas = {
     additionalProperties: false,
     required: ["proposalId"],
     properties: { proposalId: idSchema("prp") },
+  },
+  CaseParams: {
+    type: "object",
+    additionalProperties: false,
+    required: ["caseId"],
+    properties: { caseId: idSchema("case") },
   },
   SavedOpportunity: savedOpportunitySchema,
   SavedOpportunityList: savedOpportunityListSchema,

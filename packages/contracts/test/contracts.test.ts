@@ -3,6 +3,7 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   apiErrorCodes,
   apiRoutes,
+  decisionApiRoutes,
   reviewCoiApiRoutes,
   reviewComparisonApiRoutes,
   reviewScoringApiRoutes,
@@ -85,6 +86,9 @@ describe("authoritative API contracts", () => {
     expect(apiSchemas.SubmitReviewBody.required).toContain("expected_version");
     expect(apiSchemas.LockReviewBody.required).toContain("expected_version");
     expect(apiSchemas.InvalidateReviewBody.required).toContain("expected_version");
+    expect(apiSchemas.SaveDecisionShortlistBody.required).toContain("expected_version");
+    expect(apiSchemas.RecordChallengeDecisionBody.required).toContain("expected_version");
+    expect(apiSchemas.BrowserDecisionStepUpStartBody.required).toContain("expected_version");
 
     expectTypeOf<CreateChallengeBody["expected_version"]>().toEqualTypeOf<0>();
     expectTypeOf<PatchChallengeBody["expected_version"]>().toEqualTypeOf<number>();
@@ -711,5 +715,43 @@ describe("D7 blind comparison contracts", () => {
       score: apiSchemas.ReviewComparisonScoreSummary,
     });
     expect(serialized).not.toMatch(/reviewer|rationale|solver|workspace|user_id/);
+  });
+});
+
+describe("D8-D9 decision and case contracts", () => {
+  it("publishes the exact-version shortlist, decision, solver outcome, and case boundary", () => {
+    expect(openApiDocument.paths[decisionApiRoutes.challengeDecision].get.operationId).toBe(
+      "getChallengeDecision",
+    );
+    expect(openApiDocument.paths[decisionApiRoutes.decisionShortlist].post.operationId).toBe(
+      "saveDecisionShortlist",
+    );
+    expect(openApiDocument.paths[decisionApiRoutes.recordDecision].post.operationId).toBe(
+      "recordChallengeDecision",
+    );
+    expect(openApiDocument.paths[decisionApiRoutes.proposalOutcome].get.operationId).toBe(
+      "getProposalOutcome",
+    );
+    expect(openApiDocument.paths[decisionApiRoutes.case].get.operationId).toBe("getCase");
+  });
+
+  it("requires exact evidence and keeps solver feedback structurally narrow", () => {
+    expect(apiSchemas.RecordChallengeDecisionBody.required).toEqual([
+      "expected_version",
+      "challenge_version_id",
+      "rubric_version_id",
+      "shortlist_version_id",
+      "outcome",
+      "selected_proposal_id",
+      "selected_proposal_version_id",
+      "reason_code",
+      "rationale",
+      "proposal_feedback",
+    ]);
+    expect(apiSchemas.SaveDecisionShortlistBody.properties.proposal_versions.minItems).toBe(1);
+    expect(apiSchemas.ProposalOutcome.properties).not.toHaveProperty("rationale");
+    expect(apiSchemas.ProposalOutcome.properties).not.toHaveProperty("other_proposals");
+    expect(apiSchemas.Case.properties).not.toHaveProperty("solver_tenant_id");
+    expect(apiSchemas.Case.properties).not.toHaveProperty("solver_workspace_id");
   });
 });

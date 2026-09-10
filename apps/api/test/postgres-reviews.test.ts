@@ -11,6 +11,7 @@ import {
 import {
   parseCorrelationId,
   parseMembershipId,
+  parseSessionId,
   parseTenantId,
   parseUserId,
   parseWorkspaceId,
@@ -22,9 +23,11 @@ import { createPostgresApiComposition } from "../src/postgres-composition.js";
 import { runMigrations } from "../src/postgres/migrations.js";
 import { PostgresReviewAdapter } from "../src/postgres/reviews.js";
 import { PostgresEvaluationAdapter } from "../src/postgres/evaluations.js";
+import { PostgresDecisionAdapter } from "../src/postgres/decisions.js";
 import { seedSyntheticData } from "../src/postgres/seeds.js";
 import { PostgresUnitOfWork } from "../src/postgres/unit-of-work.js";
-import { RandomIdFactory } from "../src/primitives.js";
+import { commandFingerprint, RandomIdFactory } from "../src/primitives.js";
+import { HmacStepUpCredentialIssuer } from "../src/session-credentials.js";
 import { testDatabaseAdminUrl } from "./support/database.js";
 import {
   LocalTestOidcAuthorizationAdapter,
@@ -43,6 +46,8 @@ let created = false;
 let app: ReturnType<typeof buildApi> | undefined;
 let reviews: PostgresReviewAdapter;
 let evaluations: PostgresEvaluationAdapter;
+let decisions: PostgresDecisionAdapter;
+const stepUpSecret = "d8-decision-step-up-secret-with-more-than-thirty-two-bytes";
 const scope = (suffix: string): ReviewerScope => ({
   tenantId: parseTenantId("ten_platform"),
   workspaceId: parseWorkspaceId("wsp_platform_main"),
@@ -87,6 +92,7 @@ async function createApp() {
       SOLVER_CONTACT_VERIFICATION_PROVIDER: "development",
       SOLVER_OTP_DEVELOPMENT_CODE: "12345",
       SOLVER_OTP_FLOW_SECRET: "d1-reviewer-test-contact-secret-000000001",
+      SESSION_CREDENTIAL_SECRET: stepUpSecret,
     },
   });
   return buildApi(composition.ports);
@@ -201,6 +207,7 @@ beforeAll(async () => {
   created = true;
   database = new Pool({ connectionString: databaseUrl.toString(), max: 1 });
   await runMigrations(database, "up");
+  expect((await runMigrations(database, "down")).applied).toEqual(["0028_d8_d9_decision_case"]);
   expect((await runMigrations(database, "down")).applied).toEqual(["0027_d6_review_scoring"]);
   expect((await runMigrations(database, "down")).applied).toEqual(["0026_d5_review_coi"]);
   expect((await runMigrations(database, "down")).applied).toEqual(["0025_d4_review_assignments"]);
@@ -214,6 +221,7 @@ beforeAll(async () => {
     "0025_d4_review_assignments",
     "0026_d5_review_coi",
     "0027_d6_review_scoring",
+    "0028_d8_d9_decision_case",
   ]);
   await seedSyntheticData(database);
   reviews = new PostgresReviewAdapter(new PostgresUnitOfWork(database), new RandomIdFactory());
@@ -221,6 +229,7 @@ beforeAll(async () => {
     new PostgresUnitOfWork(database),
     new RandomIdFactory(),
   );
+  decisions = new PostgresDecisionAdapter(new PostgresUnitOfWork(database), new RandomIdFactory());
   expect(await reviews.list(scope("alpha"), {})).toEqual({ items: [] });
   // Synthetic publication/submission setup; these are D1 database-boundary tests,
   // not a claim that the browser or publication command was exercised here.
@@ -382,6 +391,7 @@ describe("D1 PostgreSQL review foundation", () => {
       "DELETE FROM rubric_version WHERE id = 'rbv_d1_alpha_001'",
     ])
       await expect(database.query(sql)).rejects.toMatchObject({ code: "55000" });
+    expect((await runMigrations(database, "down")).applied).toEqual(["0028_d8_d9_decision_case"]);
     expect((await runMigrations(database, "down")).applied).toEqual(["0027_d6_review_scoring"]);
     expect((await runMigrations(database, "down")).applied).toEqual(["0026_d5_review_coi"]);
     await expect(runMigrations(database, "down")).rejects.toThrow(
@@ -390,6 +400,7 @@ describe("D1 PostgreSQL review foundation", () => {
     expect((await runMigrations(database, "up")).applied).toEqual([
       "0026_d5_review_coi",
       "0027_d6_review_scoring",
+      "0028_d8_d9_decision_case",
     ]);
   });
   it("keeps assignment reads durable across API recreation and audits non-enumerating denial", async () => {
@@ -569,11 +580,15 @@ describe("D1 PostgreSQL review foundation", () => {
         "UPDATE coi_declaration SET reason = 'tampered' WHERE assignment_id = 'rva_d1_beta'",
       ),
     ).rejects.toMatchObject({ code: "55000" });
+    expect((await runMigrations(database, "down")).applied).toEqual(["0028_d8_d9_decision_case"]);
     expect((await runMigrations(database, "down")).applied).toEqual(["0027_d6_review_scoring"]);
     await expect(runMigrations(database, "down")).rejects.toThrow(
       "cannot remove D5 while COI or acceptance evidence exists",
     );
-    expect((await runMigrations(database, "up")).applied).toEqual(["0027_d6_review_scoring"]);
+    expect((await runMigrations(database, "up")).applied).toEqual([
+      "0027_d6_review_scoring",
+      "0028_d8_d9_decision_case",
+    ]);
     const evidence = (
       await database.query(
         `SELECT
@@ -1146,5 +1161,235 @@ describe("D1 PostgreSQL review foundation", () => {
         "chl_synthetic_alpha",
       ),
     ).rejects.toMatchObject({ statusCode: 404, code: "NOT_FOUND" });
+  });
+});
+
+describe("D8-D9 PostgreSQL decision and case activation", () => {
+  it("atomically binds shortlist, fresh session proof, final outcomes, and one case", async () => {
+    const organization = {
+      tenantId: parseTenantId("ten_org_alpha"),
+      workspaceId: parseWorkspaceId("wsp_org_alpha"),
+      actorUserId: parseUserId("usr_owner_alpha"),
+      role: "org:owner" as const,
+    };
+    const currentVersion = Number(
+      (
+        await database.query<{ lock_version: string }>(
+          "SELECT lock_version::text FROM challenge WHERE id = 'chl_synthetic_alpha'",
+        )
+      ).rows[0]!.lock_version,
+    );
+    const shortlist = await decisions.saveShortlist(
+      "chl_synthetic_alpha",
+      {
+        expected_version: currentVersion,
+        challenge_version_id: "chv_synthetic_alpha_v1" as never,
+        rubric_version_id: "rbv_d1_alpha_001" as never,
+        proposal_versions: [
+          {
+            proposal_id: "prp_foundation_alpha" as never,
+            proposal_version_id: "prv_foundation_alpha_v2" as never,
+          },
+        ],
+        rationale: "امتیازهای آزادشده و شواهد اجرای پیشنهاد بررسی شد.",
+      },
+      {
+        ...organization,
+        idempotencyKey: "d8_shortlist_alpha_001",
+        correlationId: parseCorrelationId("cor_d8_shortlist_alpha_001"),
+      },
+    );
+    expect(shortlist).toMatchObject({
+      entityVersion: currentVersion + 1,
+      receipt: { next_actions: ["reauthenticate_decision"] },
+    });
+    const shortlistReplay = await decisions.saveShortlist(
+      "chl_synthetic_alpha",
+      {
+        expected_version: currentVersion,
+        challenge_version_id: "chv_synthetic_alpha_v1" as never,
+        rubric_version_id: "rbv_d1_alpha_001" as never,
+        proposal_versions: [
+          {
+            proposal_id: "prp_foundation_alpha" as never,
+            proposal_version_id: "prv_foundation_alpha_v2" as never,
+          },
+        ],
+        rationale: "امتیازهای آزادشده و شواهد اجرای پیشنهاد بررسی شد.",
+      },
+      {
+        ...organization,
+        idempotencyKey: "d8_shortlist_alpha_001",
+        correlationId: parseCorrelationId("cor_d8_shortlist_alpha_001"),
+      },
+    );
+    expect(shortlistReplay.receipt).toEqual({ ...shortlist.receipt, idempotent: true });
+
+    const proofIssuer = new HmacStepUpCredentialIssuer(stepUpSecret);
+    const sessionId = parseSessionId("ses_owner_alpha");
+    const attemptId = "sup_d8_owner_alpha_001";
+    const proofToken = proofIssuer.issue(attemptId, sessionId, 1);
+    await database.query("BEGIN");
+    try {
+      await database.query(
+        `INSERT INTO step_up_attempt (
+           id, oidc_state_digest, session_id, session_version, user_id, tenant_id,
+           workspace_id, action, target_type, target_id, return_to, created_at, expires_at
+         ) VALUES (
+           $1,$2,$3,1,'usr_owner_alpha','ten_org_alpha','wsp_org_alpha',
+           'challenge.decision.record','challenge','chl_synthetic_alpha',
+           '/app/org/challenges/record/evaluation?id=chl_synthetic_alpha',
+           transaction_timestamp(),transaction_timestamp() + interval '5 minutes'
+         )`,
+        [attemptId, commandFingerprint("d8-owner-oidc-state"), sessionId],
+      );
+      await database.query(
+        `UPDATE step_up_attempt
+         SET status = 'verified', proof_digest = $2,
+             provider_issuer = 'https://oidc.synthetic.invalid',
+             provider_subject = 'owner-alpha', authenticated_at = transaction_timestamp(),
+             verified_at = transaction_timestamp(), expires_at = transaction_timestamp() + interval '5 minutes'
+         WHERE id = $1`,
+        [attemptId, commandFingerprint(proofToken)],
+      );
+      await database.query("COMMIT");
+    } catch (error) {
+      await database.query("ROLLBACK");
+      throw error;
+    }
+
+    const decisionBody = {
+      expected_version: shortlist.entityVersion,
+      challenge_version_id: "chv_synthetic_alpha_v1" as never,
+      rubric_version_id: "rbv_d1_alpha_001" as never,
+      shortlist_version_id: (
+        await database.query<{ id: string }>(
+          "SELECT id FROM decision_shortlist_version WHERE challenge_id = 'chl_synthetic_alpha'",
+        )
+      ).rows[0]!.id as never,
+      outcome: "selected" as const,
+      selected_proposal_id: "prp_foundation_alpha" as never,
+      selected_proposal_version_id: "prv_foundation_alpha_v2" as never,
+      reason_code: "best_overall_fit" as const,
+      rationale: "پیشنهاد منتخب بهترین تناسب کلی با معیارهای مصوب دارد.",
+      proposal_feedback: [
+        {
+          proposal_id: "prp_foundation_alpha" as never,
+          proposal_version_id: "prv_foundation_alpha_v2" as never,
+          feedback: "راهکار فنی روشن است و برای ادامه وارد پرونده همکاری شد.",
+        },
+      ],
+    };
+    const context = {
+      ...organization,
+      sessionId,
+      sessionVersion: 1,
+      stepUpToken: proofToken,
+      idempotencyKey: "d8_final_decision_alpha_001",
+      correlationId: parseCorrelationId("cor_d8_final_decision_alpha_001"),
+    };
+    await expect(
+      decisions.record("chl_synthetic_alpha", decisionBody, {
+        ...context,
+        sessionVersion: 2,
+        idempotencyKey: "d8_wrong_session_version_001",
+        correlationId: parseCorrelationId("cor_d8_wrong_session_version_001"),
+      }),
+    ).rejects.toMatchObject({ statusCode: 403, code: "NO_ACCESS" });
+
+    const recorded = await decisions.record("chl_synthetic_alpha", decisionBody, context);
+    expect(recorded).toMatchObject({
+      entityVersion: shortlist.entityVersion + 1,
+      receipt: { idempotent: false, next_actions: ["open_case"] },
+    });
+    const replay = await decisions.record("chl_synthetic_alpha", decisionBody, context);
+    expect(replay.receipt).toEqual({ ...recorded.receipt, idempotent: true });
+
+    const projection = await decisions.get(organization, "chl_synthetic_alpha");
+    expect(projection).toMatchObject({
+      stage: "decided",
+      decision: {
+        outcome: "selected",
+        selected_proposal_id: "prp_foundation_alpha",
+        selected_proposal_version_id: "prv_foundation_alpha_v2",
+      },
+      proposals: [
+        {
+          proposal_id: "prp_foundation_alpha",
+          outcome: "selected",
+          feedback: "راهکار فنی روشن است و برای ادامه وارد پرونده همکاری شد.",
+        },
+      ],
+      case: {
+        proposal_id: "prp_foundation_alpha",
+        proposal_version_id: "prv_foundation_alpha_v2",
+      },
+    });
+    const solver = {
+      tenantId: parseTenantId("ten_solver_alpha"),
+      workspaceId: parseWorkspaceId("wsp_team_alpha"),
+      actorUserId: parseUserId("usr_solver_alpha"),
+      role: "team:owner" as const,
+    };
+    const ownOutcome = await decisions.proposalOutcome(solver, "prp_foundation_alpha");
+    expect(ownOutcome).toMatchObject({
+      status: "selected",
+      feedback: "راهکار فنی روشن است و برای ادامه وارد پرونده همکاری شد.",
+      case_id: projection!.case!.id,
+    });
+    expect(JSON.stringify(ownOutcome)).not.toContain("پیشنهاد منتخب بهترین تناسب کلی");
+    expect(await decisions.case(solver, projection!.case!.id)).toEqual(projection!.case);
+    expect(
+      await decisions.case(
+        {
+          ...solver,
+          tenantId: parseTenantId("ten_org_beta"),
+          workspaceId: parseWorkspaceId("wsp_org_beta"),
+          role: "org:owner",
+        },
+        projection!.case!.id,
+      ),
+    ).toBeNull();
+
+    const evidence = (
+      await database.query(
+        `SELECT
+           (SELECT stage FROM challenge WHERE id = 'chl_synthetic_alpha') AS stage,
+           (SELECT state FROM proposal WHERE id = 'prp_foundation_alpha') AS proposal_state,
+           (SELECT status FROM step_up_attempt WHERE id = $1) AS proof_state,
+           (SELECT count(*) FROM decision_review_evidence) AS review_evidence,
+           (SELECT count(*) FROM decision_proposal_outcome) AS proposal_outcomes,
+           (SELECT count(*) FROM case_record) AS cases,
+           (SELECT count(*) FROM access_grant
+             WHERE resource_type = 'case' AND capability = 'collaborate' AND state = 'active') AS grants,
+           (SELECT bool_or(payload ? 'rationale' OR payload ? 'feedback') FROM outbox_event
+             WHERE event_type IN ('challenge.decision.recorded','proposal.selected','case.created'))
+             AS sensitive_event_payload`,
+        [attemptId],
+      )
+    ).rows[0];
+    expect(evidence).toEqual({
+      stage: "decided",
+      proposal_state: "selected",
+      proof_state: "consumed",
+      review_evidence: "2",
+      proposal_outcomes: "1",
+      cases: "1",
+      grants: "1",
+      sensitive_event_payload: false,
+    });
+    await expect(
+      database.query(
+        `UPDATE review_scorecard SET invalidated_by_user_id = 'usr_platform_ops',
+          invalidation_reason = 'late mutation', invalidated_at = transaction_timestamp(),
+          updated_at = transaction_timestamp()
+         WHERE assignment_id = (
+           SELECT assignment_id FROM decision_review_evidence LIMIT 1
+         )`,
+      ),
+    ).rejects.toMatchObject({ code: "55000" });
+    await expect(runMigrations(database, "down")).rejects.toThrow(
+      "cannot remove D8-D9 while step-up, shortlist, decision, or case evidence exists",
+    );
   });
 });

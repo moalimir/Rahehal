@@ -1,6 +1,7 @@
 import type { OutboxEvent } from "@rahhal/contracts";
 import {
   opportunityOutboxEventTypes,
+  decisionOutboxEventTypes,
   parsePrefixedId,
   proposalOutboxEventTypes,
   reviewOutboxEventTypes,
@@ -52,6 +53,12 @@ describe("idempotent outbox consumer", () => {
 
   it("accepts rubric and review-assignment events through the worker boundary", () => {
     for (const eventType of reviewOutboxEventTypes) {
+      expect(isSupportedOutboxEventType(eventType)).toBe(true);
+    }
+  });
+
+  it("accepts shortlist, final-decision, proposal-outcome, and case events", () => {
+    for (const eventType of decisionOutboxEventTypes) {
       expect(isSupportedOutboxEventType(eventType)).toBe(true);
     }
   });

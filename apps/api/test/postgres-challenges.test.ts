@@ -1918,6 +1918,8 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
     // activation), 0018 (C6 opportunities/offers), 0017 (C5
     // clarification/revision), 0016 (C4 submission), 0015 (C2 teams), 0014 (C1
     // solver profile/eligibility), 0013 (proposal foundation), then 0012.
+    expect((await runMigrations(database, "down")).applied).toEqual(["0028_d8_d9_decision_case"]);
+    expect((await runMigrations(database, "down")).applied).toEqual(["0027_d6_review_scoring"]);
     expect((await runMigrations(database, "down")).applied).toEqual(["0026_d5_review_coi"]);
     expect((await runMigrations(database, "down")).applied).toEqual(["0025_d4_review_assignments"]);
     expect((await runMigrations(database, "down")).applied).toEqual(["0024_d3_open_evaluation"]);
@@ -1966,6 +1968,8 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
       "0024_d3_open_evaluation",
       "0025_d4_review_assignments",
       "0026_d5_review_coi",
+      "0027_d6_review_scoring",
+      "0028_d8_d9_decision_case",
     ]);
 
     const restored = await database.query<{

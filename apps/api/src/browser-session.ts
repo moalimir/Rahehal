@@ -16,6 +16,8 @@ export type BrowserAuthorizationFlow = {
 
 export const browserCookieNames = {
   flow: "rahhal-oidc-flow",
+  stepUpFlow: "rahhal-step-up-flow",
+  stepUp: "rahhal-step-up",
   access: "rahhal-access",
   refresh: "rahhal-refresh",
 } as const;
@@ -140,6 +142,28 @@ export function authorizationFlowCookie(
   );
 }
 
+export function stepUpAuthorizationFlowCookie(
+  flow: BrowserAuthorizationFlow,
+  settings: BrowserSessionRuntimeSettings,
+  now: Date,
+): string {
+  return cookie(
+    browserCookieNames.stepUpFlow,
+    encodeBrowserAuthorizationFlow(flow),
+    settings,
+    lifetimeSeconds(flow.expiresAt, now),
+  );
+}
+
+export function stepUpProofCookie(
+  token: string,
+  expiresAt: string,
+  settings: BrowserSessionRuntimeSettings,
+  now: Date,
+): string {
+  return cookie(browserCookieNames.stepUp, token, settings, lifetimeSeconds(expiresAt, now));
+}
+
 export function sessionCookies(
   tokens: SessionTokenSet,
   settings: BrowserSessionRuntimeSettings,
@@ -166,6 +190,8 @@ export function clearBrowserSessionCookies(
 ): readonly string[] {
   return [
     cookie(browserCookieNames.flow, "", settings, 0),
+    cookie(browserCookieNames.stepUpFlow, "", settings, 0),
+    cookie(browserCookieNames.stepUp, "", settings, 0),
     cookie(browserCookieNames.access, "", settings, 0),
     cookie(browserCookieNames.refresh, "", settings, 0),
   ];
@@ -175,4 +201,12 @@ export function clearBrowserAuthorizationFlowCookie(
   settings: BrowserSessionRuntimeSettings,
 ): string {
   return cookie(browserCookieNames.flow, "", settings, 0);
+}
+
+export function clearBrowserStepUpFlowCookie(settings: BrowserSessionRuntimeSettings): string {
+  return cookie(browserCookieNames.stepUpFlow, "", settings, 0);
+}
+
+export function clearBrowserStepUpCookie(settings: BrowserSessionRuntimeSettings): string {
+  return cookie(browserCookieNames.stepUp, "", settings, 0);
 }

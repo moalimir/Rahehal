@@ -11,3 +11,4 @@ export * from "./workspace.js";
 export * from "./review.js";
 export * from "./rubric.js";
 export * from "./evaluation.js";
+export * from "./decision.js";

@@ -68,9 +68,13 @@ beforeAll(async () => {
     "0024_d3_open_evaluation",
     "0025_d4_review_assignments",
     "0026_d5_review_coi",
+    "0027_d6_review_scoring",
+    "0028_d8_d9_decision_case",
   ]);
 
   // Newest first.
+  expect((await runMigrations(database, "down")).applied).toEqual(["0028_d8_d9_decision_case"]);
+  expect((await runMigrations(database, "down")).applied).toEqual(["0027_d6_review_scoring"]);
   expect((await runMigrations(database, "down")).applied).toEqual(["0026_d5_review_coi"]);
   expect((await runMigrations(database, "down")).applied).toEqual(["0025_d4_review_assignments"]);
   expect((await runMigrations(database, "down")).applied).toEqual(["0024_d3_open_evaluation"]);
@@ -156,6 +160,8 @@ beforeAll(async () => {
     "0024_d3_open_evaluation",
     "0025_d4_review_assignments",
     "0026_d5_review_coi",
+    "0027_d6_review_scoring",
+    "0028_d8_d9_decision_case",
   ]);
   const noOpUp = await runMigrations(database, "up");
   expect(noOpUp.applied).toEqual([]);
@@ -316,6 +322,8 @@ describe("A1a PostgreSQL foundation", () => {
       { id: "0024_d3_open_evaluation", checksum: expect.stringMatching(/^[0-9a-f]{64}$/) },
       { id: "0025_d4_review_assignments", checksum: expect.stringMatching(/^[0-9a-f]{64}$/) },
       { id: "0026_d5_review_coi", checksum: expect.stringMatching(/^[0-9a-f]{64}$/) },
+      { id: "0027_d6_review_scoring", checksum: expect.stringMatching(/^[0-9a-f]{64}$/) },
+      { id: "0028_d8_d9_decision_case", checksum: expect.stringMatching(/^[0-9a-f]{64}$/) },
     ]);
   });
 
@@ -596,6 +604,8 @@ describe("A1a PostgreSQL foundation", () => {
   });
 
   it("fails the A1b migration atomically for an orphaned existing session", async () => {
+    expect((await runMigrations(database, "down")).applied).toEqual(["0028_d8_d9_decision_case"]);
+    expect((await runMigrations(database, "down")).applied).toEqual(["0027_d6_review_scoring"]);
     expect((await runMigrations(database, "down")).applied).toEqual(["0026_d5_review_coi"]);
     expect((await runMigrations(database, "down")).applied).toEqual(["0025_d4_review_assignments"]);
     expect((await runMigrations(database, "down")).applied).toEqual(["0024_d3_open_evaluation"]);
@@ -708,6 +718,8 @@ describe("A1a PostgreSQL foundation", () => {
       "0024_d3_open_evaluation",
       "0025_d4_review_assignments",
       "0026_d5_review_coi",
+      "0027_d6_review_scoring",
+      "0028_d8_d9_decision_case",
     ]);
   });
 });

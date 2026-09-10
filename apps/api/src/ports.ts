@@ -180,7 +180,11 @@ export type IdFactory = {
       | "act"
       | "otp"
       | "rva"
-      | "rev",
+      | "rev"
+      | "sup"
+      | "dsv"
+      | "dec"
+      | "case",
   ): string;
 };
 
@@ -203,10 +207,14 @@ export type OidcIdentity = {
   readonly issuer: string;
   readonly subject: string;
   readonly verifiedEmail: string;
+  readonly authenticatedAt?: string;
 };
 
 export interface OidcExchangePort {
-  exchange(body: SessionExchangeBody): Promise<OidcIdentity | null>;
+  exchange(
+    body: SessionExchangeBody,
+    options?: { readonly maxAgeSeconds?: number },
+  ): Promise<OidcIdentity | null>;
   consume(identity: OidcIdentity): Promise<void>;
 }
 
@@ -214,6 +222,7 @@ export interface OidcAuthorizationPort {
   start(
     body: OidcAuthorizationStartBody,
     command: SessionCommand,
+    options?: { readonly forceReauthentication?: boolean },
   ): Promise<OidcAuthorizationStartResult>;
 }
 
@@ -817,6 +826,8 @@ export type ApiPorts = {
   readonly evaluations: import("./evaluation-port.js").EvaluationPort;
   readonly rubrics: import("./rubric-port.js").RubricPort;
   readonly reviews: ReviewPort;
+  readonly stepUp: import("./step-up-port.js").StepUpPort;
+  readonly decisions: import("./decision-port.js").DecisionPort;
   readonly oidcAuthorization: OidcAuthorizationPort;
   readonly contactVerification: ContactVerificationProviderPort;
   readonly sessions: SessionPort;

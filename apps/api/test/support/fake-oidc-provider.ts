@@ -39,6 +39,7 @@ function idToken(
     aud: record.clientId,
     exp: now + 300,
     iat: now,
+    auth_time: now,
     nonce: options.nonceOverride ?? record.nonce,
     email: "owner-alpha@synthetic.invalid",
     email_verified: options.emailVerified ?? true,

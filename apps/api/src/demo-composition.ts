@@ -1,6 +1,8 @@
 import { UnavailableRubricAdapter } from "./rubric-port.js";
 import { InMemoryReviewAdapter } from "./in-memory-reviews.js";
 import { UnavailableEvaluationAdapter } from "./evaluation-port.js";
+import { UnavailableDecisionAdapter } from "./decision-port.js";
+import { UnavailableStepUpAdapter } from "./step-up-port.js";
 import type { ChallengePublicProjectionResource, ChallengeResource } from "@rahhal/contracts";
 import {
   parseChallengeId,
@@ -701,6 +703,8 @@ export function createDemoApiComposition(options: {
     solverActivation,
     ports: {
       evaluations: new UnavailableEvaluationAdapter(),
+      decisions: new UnavailableDecisionAdapter(),
+      stepUp: new UnavailableStepUpAdapter(),
       reviews: new InMemoryReviewAdapter(),
       rubrics: new UnavailableRubricAdapter(),
       oidcAuthorization: {

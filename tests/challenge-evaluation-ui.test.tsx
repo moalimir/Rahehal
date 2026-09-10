@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   ChallengeEvaluationMutationSuccessEnvelope,
   ChallengeEvaluationSuccessEnvelope,
+  ChallengeDecisionSuccessEnvelope,
   ChallengeReviewComparisonSuccessEnvelope,
 } from "@rahhal/contracts";
 import { parseCorrelationId, parsePrefixedId } from "@rahhal/domain";
@@ -88,6 +89,42 @@ const mutationEnvelope: ChallengeEvaluationMutationSuccessEnvelope = {
   },
 };
 
+function decisionEnvelope(
+  overrides: Partial<ChallengeDecisionSuccessEnvelope["data"]> = {},
+): ChallengeDecisionSuccessEnvelope {
+  return {
+    ok: true,
+    data: {
+      challenge_id: challengeId,
+      challenge_version_id: versionId,
+      rubric_version_id: rubricVersionId,
+      stage: "evaluating",
+      review_complete: true,
+      proposals: [
+        {
+          proposal_id: proposalId,
+          proposal_version_id: proposalVersionId,
+          tracking_code: "PRP-1405-101",
+          locked_review_count: 2,
+          shortlisted: false,
+          outcome: null,
+          feedback: null,
+        },
+      ],
+      shortlist: null,
+      decision: null,
+      case: null,
+      version: 8,
+      ...overrides,
+    },
+    meta: {
+      entity_version: overrides.version ?? 8,
+      server_time: "2026-09-08T06:02:00.000Z",
+      correlation_id: parseCorrelationId("cor_evaluation_ui_decision"),
+    },
+  };
+}
+
 function comparisonEnvelope(
   overrides: Partial<ChallengeReviewComparisonSuccessEnvelope["data"]> = {},
 ): ChallengeReviewComparisonSuccessEnvelope {
@@ -165,6 +202,7 @@ describe("connected challenge evaluation", () => {
         return mutationEnvelope;
       }
       if (path.includes("review-comparison")) return comparisonEnvelope();
+      if (path.endsWith("/decision")) return decisionEnvelope();
       return opened
         ? envelope({ stage: "evaluating", opened_at: "2026-09-08T06:01:00.000Z", version: 8 })
         : envelope();
@@ -219,6 +257,7 @@ describe("connected challenge evaluation", () => {
           ],
         });
       }
+      if (path.endsWith("/decision")) return decisionEnvelope({ review_complete: false });
       return envelope({
         stage: "evaluating",
         opened_at: "2026-09-08T06:01:00.000Z",
@@ -233,5 +272,44 @@ describe("connected challenge evaluation", () => {
     expect(screen.getByText("امتیاز این پیشنهاد تا تکمیل کل فهرست منتشر نمی‌شود.")).toBeVisible();
     expect(screen.queryByText(/میانگین کل/)).toBeNull();
     expect(screen.getByText("داوری باطل‌شده").parentElement).toHaveTextContent("۱");
+  });
+
+  it("records a shortlist from the exact frozen proposal version", async () => {
+    testState.requestApi.mockImplementation(async (path: string, init: RequestInit = {}) => {
+      if (init.method === "POST") return mutationEnvelope;
+      if (path.includes("review-comparison")) return comparisonEnvelope();
+      if (path.endsWith("/decision")) return decisionEnvelope();
+      return envelope({
+        stage: "evaluating",
+        opened_at: "2026-09-08T06:01:00.000Z",
+        version: 8,
+      });
+    });
+    const { ChallengeEvaluationPage } = await import("@/components/challenge-flow/evaluation-page");
+    render(<ChallengeEvaluationPage id={challengeId} />);
+
+    expect(await screen.findByRole("heading", { name: "کوتاه‌فهرست و تصمیم نهایی" })).toBeVisible();
+    fireEvent.click(screen.getByRole("checkbox", { name: /PRP-1405-101/ }));
+    fireEvent.change(screen.getByLabelText("دلیل کوتاه‌فهرست"), {
+      target: { value: "جمع‌بندی مستند امتیازها و امکان اجرای پایلوت." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "ثبت نسخه کوتاه‌فهرست" }));
+
+    await waitFor(() =>
+      expect(testState.requestApi).toHaveBeenCalledWith(
+        expect.stringContaining("decision-shortlist-versions"),
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    const call = testState.requestApi.mock.calls.find(([path, init]) =>
+      String(path).includes("decision-shortlist-versions") && init?.method === "POST",
+    );
+    expect(JSON.parse(call?.[1]?.body as string)).toEqual({
+      expected_version: 8,
+      challenge_version_id: versionId,
+      rubric_version_id: rubricVersionId,
+      proposal_versions: [{ proposal_id: proposalId, proposal_version_id: proposalVersionId }],
+      rationale: "جمع‌بندی مستند امتیازها و امکان اجرای پایلوت.",
+    });
   });
 });

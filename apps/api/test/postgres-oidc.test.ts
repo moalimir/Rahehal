@@ -1,5 +1,7 @@
 import { PostgresRubricAdapter } from "../src/postgres/rubrics.js";
 import { PostgresReviewAdapter } from "../src/postgres/reviews.js";
+import { PostgresDecisionAdapter } from "../src/postgres/decisions.js";
+import { PostgresStepUpAdapter } from "../src/postgres/step-up.js";
 import { PostgresEvaluationAdapter } from "../src/postgres/evaluations.js";
 import { Client, Pool } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -22,7 +24,10 @@ import { PostgresNotificationAdapter } from "../src/postgres/notifications.js";
 import { PostgresUnitOfWork } from "../src/postgres/unit-of-work.js";
 import { PostgresOpportunityAdapter } from "../src/postgres/opportunities.js";
 import { commandFingerprint, MonotonicIdFactory, RandomIdFactory } from "../src/primitives.js";
-import { HmacSessionCredentialIssuer } from "../src/session-credentials.js";
+import {
+  HmacSessionCredentialIssuer,
+  HmacStepUpCredentialIssuer,
+} from "../src/session-credentials.js";
 import { DevelopmentContactVerificationAdapter } from "../src/development-contact-verification.js";
 import { PostgresSolverActivationAdapter } from "../src/postgres/solver-activation.js";
 import { FakeOidcProvider } from "./support/fake-oidc-provider.js";
@@ -149,9 +154,16 @@ beforeAll(async () => {
   app = buildApi(
     {
       evaluations: new PostgresEvaluationAdapter(unitOfWork, ids),
+      decisions: new PostgresDecisionAdapter(unitOfWork, ids),
       reviews: new PostgresReviewAdapter(unitOfWork, ids),
       rubrics: new PostgresRubricAdapter(unitOfWork, ids),
       oidcAuthorization: oidc,
+      stepUp: new PostgresStepUpAdapter(
+        unitOfWork,
+        oidc,
+        new HmacStepUpCredentialIssuer(credentialSecret),
+        ids,
+      ),
       contactVerification,
       sessions: identity,
       solverActivation,
@@ -241,6 +253,20 @@ describe("A2 PostgreSQL OIDC authorization", () => {
       payload: { expected_version: 0, redirect_uri: `${redirectUri}#credential-fragment` },
     });
     expect(malformedRedirect.statusCode).toBe(403);
+  });
+
+  it("asks the provider for an immediate fresh authentication during decision step-up", async () => {
+    const started = await oidc.start(
+      { expected_version: 0, redirect_uri: browserRedirectUri },
+      {
+        idempotencyKey: "d8-provider-step-up-start-001",
+        correlationId: parseCorrelationId("cor_d8_provider_step_up_start_001"),
+      },
+      { forceReauthentication: true },
+    );
+    const authorizationUrl = new URL(started.authorization_url);
+    expect(authorizationUrl.searchParams.get("prompt")).toBe("login");
+    expect(authorizationUrl.searchParams.get("max_age")).toBe("0");
   });
 
   it("validates a signed provider response against issuer, audience, nonce, and PKCE", async () => {

@@ -1,6 +1,8 @@
 import { PostgresRubricAdapter } from "./postgres/rubrics.js";
 import { PostgresEvaluationAdapter } from "./postgres/evaluations.js";
 import { PostgresReviewAdapter } from "./postgres/reviews.js";
+import { PostgresDecisionAdapter } from "./postgres/decisions.js";
+import { PostgresStepUpAdapter } from "./postgres/step-up.js";
 import { Pool } from "pg";
 
 import { RandomIdFactory, systemClock } from "./primitives.js";
@@ -16,6 +18,7 @@ import type {
   OidcAuthorizationPort,
   SessionCredentialIssuerPort,
 } from "./ports.js";
+import type { StepUpCredentialIssuerPort } from "./step-up-port.js";
 import { PostgresAccessDecisionAudit } from "./postgres/access-decision-audit.js";
 import { PostgresChallengeAdapter } from "./postgres/challenges.js";
 import { databasePoolConfig } from "./postgres/config.js";
@@ -32,10 +35,10 @@ import {
 } from "./postgres/oidc-authorization.js";
 import { PostgresNotificationAdapter } from "./postgres/notifications.js";
 import { PostgresUnitOfWork } from "./postgres/unit-of-work.js";
-import { HmacSessionCredentialIssuer } from "./session-credentials.js";
+import { HmacSessionCredentialIssuer, HmacStepUpCredentialIssuer } from "./session-credentials.js";
 
-// D1 review reads require the complete review foundation schema.
-const requiredMigration = "0026_d5_review_coi";
+// D8-D9 activation requires the complete Phase 4 decision and case schema.
+const requiredMigration = "0028_d8_d9_decision_case";
 
 type OidcAdapter = OidcExchangePort & OidcAuthorizationPort;
 
@@ -60,6 +63,7 @@ export async function createPostgresApiComposition(
     readonly ids?: IdFactory;
     readonly oidc?: OidcAdapter;
     readonly credentials?: SessionCredentialIssuerPort;
+    readonly stepUpCredentials?: StepUpCredentialIssuerPort;
     readonly beforeCommit?: () => void | Promise<void>;
   } = {},
 ): Promise<PostgresApiComposition> {
@@ -74,9 +78,13 @@ export async function createPostgresApiComposition(
   const ids = options.ids ?? new RandomIdFactory();
   const settings = options.oidc ? undefined : oidcRuntimeSettings(environment);
   const contactVerificationSettings = developmentContactVerificationSettings(environment);
-  const credentials =
-    options.credentials ??
-    new HmacSessionCredentialIssuer(required(environment, "SESSION_CREDENTIAL_SECRET"));
+  const credentialSecret =
+    options.credentials && options.stepUpCredentials
+      ? undefined
+      : required(environment, "SESSION_CREDENTIAL_SECRET");
+  const credentials = options.credentials ?? new HmacSessionCredentialIssuer(credentialSecret!);
+  const stepUpCredentials =
+    options.stepUpCredentials ?? new HmacStepUpCredentialIssuer(credentialSecret!);
   const pool = options.pool ?? new Pool(databasePoolConfig(environment));
 
   try {
@@ -135,9 +143,11 @@ export async function createPostgresApiComposition(
     unitOfWork,
     ports: {
       evaluations: new PostgresEvaluationAdapter(unitOfWork, ids),
+      decisions: new PostgresDecisionAdapter(unitOfWork, ids),
       reviews: new PostgresReviewAdapter(unitOfWork, ids),
       rubrics: new PostgresRubricAdapter(unitOfWork, ids),
       oidcAuthorization: oidc,
+      stepUp: new PostgresStepUpAdapter(unitOfWork, oidc, stepUpCredentials, ids),
       contactVerification,
       sessions: identity,
       solverActivation,

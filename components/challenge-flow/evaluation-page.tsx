@@ -4,16 +4,20 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   apiRoutes,
+  decisionApiRoutes,
   reviewComparisonApiRoutes,
   type ChallengeEvaluationMutationSuccessEnvelope,
   type ChallengeEvaluationResource,
   type ChallengeEvaluationSuccessEnvelope,
+  type ChallengeDecisionResource,
+  type ChallengeDecisionSuccessEnvelope,
   type ChallengeReviewComparisonResource,
   type ChallengeReviewComparisonSuccessEnvelope,
   type OpenChallengeEvaluationBody,
 } from "@rahhal/contracts";
 import type { EvaluationReadinessBlocker } from "@rahhal/domain";
 
+import { DecisionPanel } from "@/components/challenge-flow/decision-panel";
 import { Toast } from "@/components/challenge-flow/fields";
 import { ChallengeShell } from "@/components/challenge-flow/shell";
 import { useWebRuntime } from "@/components/runtime-provider";
@@ -161,6 +165,8 @@ export function ChallengeEvaluationPage({ id }: { id: string }) {
   const [comparison, setComparison] = useState<ChallengeReviewComparisonResource | null>(null);
   const [comparisonLoading, setComparisonLoading] = useState(false);
   const [comparisonError, setComparisonError] = useState("");
+  const [decision, setDecision] = useState<ChallengeDecisionResource | null>(null);
+  const [decisionError, setDecisionError] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -188,25 +194,39 @@ export function ChallengeEvaluationPage({ id }: { id: string }) {
     if (result.data.opened_at === null) {
       setComparison(null);
       setComparisonError("");
+      setDecision(null);
+      setDecisionError("");
       setComparisonLoading(false);
       return;
     }
     setComparisonLoading(true);
     setComparisonError("");
-    const comparisonResult = await requestApi<ChallengeReviewComparisonSuccessEnvelope>(
-      reviewComparisonApiRoutes.challengeReviewComparison.replace(
-        "{challengeId}",
-        encodeURIComponent(id),
+    setDecisionError("");
+    const [comparisonResult, decisionResult] = await Promise.all([
+      requestApi<ChallengeReviewComparisonSuccessEnvelope>(
+        reviewComparisonApiRoutes.challengeReviewComparison.replace(
+          "{challengeId}",
+          encodeURIComponent(id),
+        ),
+        { headers: { "X-Workspace-Id": workspaceId } },
       ),
-      { headers: { "X-Workspace-Id": workspaceId } },
-    );
+      requestApi<ChallengeDecisionSuccessEnvelope>(
+        decisionApiRoutes.challengeDecision.replace("{challengeId}", encodeURIComponent(id)),
+        { headers: { "X-Workspace-Id": workspaceId } },
+      ),
+    ]);
     if (!comparisonResult.ok) {
       setComparison(null);
       setComparisonError(comparisonResult.error.message);
-      setComparisonLoading(false);
-      return;
+    } else {
+      setComparison(comparisonResult.data);
     }
-    setComparison(comparisonResult.data);
+    if (!decisionResult.ok) {
+      setDecision(null);
+      setDecisionError(decisionResult.error.message);
+    } else {
+      setDecision(decisionResult.data);
+    }
     setComparisonLoading(false);
   }, [id, workspaceId]);
 
@@ -393,6 +413,26 @@ export function ChallengeEvaluationPage({ id }: { id: string }) {
               </section>
             ) : comparison ? (
               <ReviewComparison comparison={comparison} />
+            ) : null}
+            {decisionError ? (
+              <section className="challenge-empty-state" role="alert">
+                <h3>مسیر تصمیم دریافت نشد</h3>
+                <p>{decisionError}</p>
+                <button
+                  type="button"
+                  className="challenge-button challenge-button--secondary"
+                  onClick={() => void load()}
+                >
+                  تلاش دوباره
+                </button>
+              </section>
+            ) : decision ? (
+              <DecisionPanel
+                key={`${decision.version}:${decision.decision?.id ?? "pending"}`}
+                decision={decision}
+                workspaceId={workspaceId}
+                onUpdated={load}
+              />
             ) : null}
           </>
         ) : (

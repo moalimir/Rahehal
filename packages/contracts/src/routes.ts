@@ -120,6 +120,16 @@ export const reviewComparisonApiRoutes = {
   challengeReviewComparison: "/api/v1/challenges/{challengeId}/review-comparison",
 } as const;
 
+/** Connected D8-D9 decision, step-up, outcome, and case routes. */
+export const decisionApiRoutes = {
+  challengeDecision: "/api/v1/challenges/{challengeId}/decision",
+  decisionShortlist: "/api/v1/challenges/{challengeId}/decision-shortlist-versions",
+  recordDecision: "/api/v1/challenges/{challengeId}/decision:record",
+  browserDecisionStepUpStart: "/auth/browser/challenges/{challengeId}/decision-step-up:start",
+  proposalOutcome: "/api/v1/proposals/{proposalId}/outcome",
+  case: "/api/v1/cases/{caseId}",
+} as const;
+
 /**
  * Same-origin browser transport owned by the web runtime. These routes are
  * intentionally separate from the bearer-token OpenAPI surface: they adapt

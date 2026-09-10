@@ -191,6 +191,7 @@ export class PostgresOidcAuthorizationAdapter implements OidcAuthorizationPort, 
   async start(
     body: OidcAuthorizationStartBody,
     command: SessionCommand,
+    options: { readonly forceReauthentication?: boolean } = {},
   ): Promise<OidcAuthorizationStartResult> {
     let redirectUri: string;
     try {
@@ -205,6 +206,7 @@ export class PostgresOidcAuthorizationAdapter implements OidcAuthorizationPort, 
       action: "oidc.authorization.start",
       expectedVersion: body.expected_version,
       redirectUri,
+      forceReauthentication: options.forceReauthentication === true,
     });
     const derivationInput = `${command.idempotencyKey}\0${requestHash}`;
     const state = this.secretValue("state", derivationInput);
@@ -277,6 +279,7 @@ export class PostgresOidcAuthorizationAdapter implements OidcAuthorizationPort, 
       nonce,
       code_challenge: codeChallenge,
       code_challenge_method: "S256",
+      ...(options.forceReauthentication ? { prompt: "login", max_age: "0" } : {}),
     });
     return {
       authorization_url: authorizationUrl.toString(),
@@ -286,7 +289,10 @@ export class PostgresOidcAuthorizationAdapter implements OidcAuthorizationPort, 
     };
   }
 
-  async exchange(body: SessionExchangeBody): Promise<OidcIdentity | null> {
+  async exchange(
+    body: SessionExchangeBody,
+    options: { readonly maxAgeSeconds?: number } = {},
+  ): Promise<OidcIdentity | null> {
     let redirectUri: string;
     try {
       redirectUri = exactRedirect(body.redirect_uri, this.settings.allowInsecureHttp);
@@ -338,6 +344,7 @@ export class PostgresOidcAuthorizationAdapter implements OidcAuthorizationPort, 
           expectedNonce: this.nonce(body.state),
           pkceCodeVerifier: body.code_verifier,
           idTokenExpected: true,
+          ...(options.maxAgeSeconds === undefined ? {} : { maxAge: options.maxAgeSeconds }),
         });
       } catch (error) {
         if (
@@ -375,6 +382,9 @@ export class PostgresOidcAuthorizationAdapter implements OidcAuthorizationPort, 
         issuer: attempt.issuer,
         subject: claims.sub,
         verifiedEmail,
+        ...(typeof claims.auth_time === "number"
+          ? { authenticatedAt: new Date(claims.auth_time * 1_000).toISOString() }
+          : {}),
       };
     });
   }
