@@ -33,6 +33,19 @@ const testDatabaseUrl = new URL(adminUrl);
 testDatabaseUrl.pathname = `/${testDatabaseName}`;
 
 const clock = { now: () => new Date("2026-09-03T09:00:00.000Z") };
+
+/**
+ * A revision deadline expressed against the clock that actually judges it.
+ *
+ * `resubmit` compares the deadline to `transaction_timestamp()` -- the database
+ * clock, as the C4 submission path does -- while `clock` above only drives the
+ * application's own evidence timestamps. An absolute date here therefore agreed
+ * with neither: `2026-09-10T09:00:00.000Z` sat in the future when it was
+ * written and became a past deadline on the morning of 2026-09-10, failing the
+ * suite for a reason nobody had changed.
+ */
+const revisionDeadline = (daysFromNow: number): string =>
+  new Date(Date.now() + daysFromNow * 24 * 60 * 60 * 1000).toISOString();
 const challengeId = parseChallengeId("chl_synthetic_alpha");
 const verificationChallengeId = parseChallengeId("chl_c4_verification_required");
 const verificationChallengeVersionId = parsePrefixedId("chv_c4_verification_required_v1", "chv");
@@ -1195,7 +1208,7 @@ describe("C5 PostgreSQL proposal clarification and revision", () => {
       {
         expected_version: 7,
         scope: "Update the title while preserving the baseline explanation.",
-        revision_deadline: "2099-09-10T09:00:00.000Z",
+        revision_deadline: revisionDeadline(14),
       },
       organizationCommand("c5-pg-request-revision-0001"),
     );
@@ -1296,7 +1309,7 @@ describe("C5 PostgreSQL proposal clarification and revision", () => {
         {
           expected_version: 2,
           scope: "Expired request must not persist.",
-          revision_deadline: "2026-09-03T08:59:59.000Z",
+          revision_deadline: revisionDeadline(-1),
         },
         organizationCommand("c5-pg-invalid-state-revision-0001"),
       ),

@@ -20,6 +20,22 @@ export type EligibilityResult = {
   actions: Array<{ label: string; href: string }>;
 };
 
+/**
+ * A demo deadline that never falls into the past.
+ *
+ * These fixtures carried absolute dates, so the demo aged into a state nobody
+ * authored: every call quietly closed as its date went by, and the two tests
+ * that lean on `CH-1405-022` began failing on 2026-09-09 for no reason anyone
+ * had changed. The authoritative path reads `eligibility_rule` from PostgreSQL
+ * and is unaffected; this is the static export's own data, so it is expressed
+ * as a distance from whenever the demo is being read.
+ */
+function demoDeadline(days: number): string {
+  const at = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+  at.setUTCHours(20, 30, 0, 0);
+  return at.toISOString();
+}
+
 export const challengeEligibilityRules: Record<string, EligibilityRule> = {
   "CH-1405-021": {
     challengeId: "CH-1405-021",
@@ -30,7 +46,7 @@ export const challengeEligibilityRules: Record<string, EligibilityRule> = {
     geography: ["ایران"],
     ndaRequired: true,
     documentGate: true,
-    deadline: "2026-09-15T20:30:00.000Z",
+    deadline: demoDeadline(12),
     state: "open",
   },
   "CH-1405-022": {
@@ -42,7 +58,7 @@ export const challengeEligibilityRules: Record<string, EligibilityRule> = {
     geography: ["ایران"],
     ndaRequired: false,
     documentGate: false,
-    deadline: "2026-09-08T20:30:00.000Z",
+    deadline: demoDeadline(5),
     state: "open",
   },
   "CH-1405-024": {
@@ -53,7 +69,7 @@ export const challengeEligibilityRules: Record<string, EligibilityRule> = {
     requiredExpertise: ["اتوماسیون صنعتی", "پایش صنعتی"],
     ndaRequired: false,
     documentGate: false,
-    deadline: "2026-09-20T20:30:00.000Z",
+    deadline: demoDeadline(17),
     state: "open",
   },
   "CH-1405-028": {
@@ -64,7 +80,7 @@ export const challengeEligibilityRules: Record<string, EligibilityRule> = {
     requiredExpertise: ["شیمی آب", "سنجش محیطی"],
     ndaRequired: true,
     documentGate: true,
-    deadline: "2026-10-01T20:30:00.000Z",
+    deadline: demoDeadline(28),
     state: "open",
   },
 };
