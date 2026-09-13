@@ -352,6 +352,49 @@ Avoid calling component tests “E2E” when they do not run a real browser and 
 
 ## 8. CI pipeline
 
+### GitHub authority and Hamgit verification
+
+GitHub is the merge authority. `.github/workflows/ci.yml` checks pull requests and
+main; `.gitlab-ci.yml` runs the same five current command groups on Hamgit main
+pushes (or a manual main pipeline): source, PostgreSQL integration, build/static,
+browser behavior, and dependency audit. These are the current executable gates,
+not proof that every planned gate below is implemented. Browser CI currently
+runs the demo behavior suite; connected B7/Phase 4 acceptance and human security
+review remain separate gates. Green CI does not waive known merge blockers.
+
+Hamgit prerequisites: enable CI/CD and an active Linux Docker-executor runner
+that accepts untagged jobs, can run service containers, and can download the
+Node 22, PostgreSQL 16, npm and Playwright dependencies. Jobs need root inside
+their isolated container for package installation, not a privileged Docker
+executor or a host Docker socket. The Node image is checked against `.nvmrc`.
+The database job forwards job-local loopback port 5432 to its ephemeral service
+using `socat`, preserving the testkit's non-loopback database refusal. Never
+provide production database URLs, provider secrets or repository write
+credentials to these jobs. Runner availability and Hamgit-side CI Lint/pipeline
+execution must be verified on Hamgit before claiming its CI is operational.
+
+Synchronization order approved by the owner:
+
+1. Clear review blockers, obtain required approvals, merge on GitHub, and wait
+   for successful **main** CI on the resulting commit (PR CI alone is insufficient).
+2. Fetch main from both explicit remote URLs. Record the approved GitHub main
+   SHA, check that Hamgit main is its ancestor, and stop on divergence. Do not
+   independently merge on Hamgit or force-push.
+3. Push only that exact SHA to Hamgit `refs/heads/main`, using Hamgit's explicit
+   URL. Do not use `git push origin`: this repository has two origin push URLs.
+   Recheck that GitHub main still equals the recorded SHA; if it advanced, the
+   newer commit needs its own successful main CI before another sync.
+4. Verify both advertised main refs equal the approved SHA and Hamgit's pipeline
+   on that **same SHA** passes all five jobs. Pending, skipped or failed pipelines
+   are not successful synchronization verification. Preserve history and other
+   branches; no mirror deletion is part of this workflow.
+
+There is no automatic cross-host push or deployment in either CI configuration.
+If Hamgit CI fails after synchronization, keep the evidence, diagnose the failed
+job, and make any correction through a GitHub PR; do not rewrite main to hide
+the failure. The CI-only change has no schema/runtime migration. Roll it back
+through a reviewed GitHub revert and repeat the same successful-main/sync order.
+
 ### Pull request jobs
 
 1. **Install/metadata:** clean lockfile install on the pinned runtime; dependency/license/security scan.
