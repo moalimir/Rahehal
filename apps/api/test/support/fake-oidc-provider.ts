@@ -13,6 +13,7 @@ type AuthorizationRecord = {
 export type FakeOidcProviderOptions = {
   readonly emailVerified?: boolean;
   readonly nonceOverride?: string;
+  readonly omitAuthTime?: boolean;
 };
 
 function base64UrlJson(value: unknown): string {
@@ -39,7 +40,7 @@ function idToken(
     aud: record.clientId,
     exp: now + 300,
     iat: now,
-    auth_time: now,
+    ...(options.omitAuthTime ? {} : { auth_time: now }),
     nonce: options.nonceOverride ?? record.nonce,
     email: "owner-alpha@synthetic.invalid",
     email_verified: options.emailVerified ?? true,

@@ -3,11 +3,21 @@ import type {
   OidcAuthorizationStartResult,
   SessionExchangeBody,
 } from "@rahhal/contracts";
-import { parseSessionId } from "@rahhal/domain";
+import {
+  parseChallengeId,
+  parseSessionId,
+  parseTenantId,
+  parseWorkspaceId,
+  type ChallengeId,
+  type TenantId,
+  type WorkspaceId,
+} from "@rahhal/domain";
 
 import { ApiProblem, forbidden, notFound, staleVersion } from "../errors.js";
 import type {
+  AccessDecisionAuditPort,
   AuthenticatedSession,
+  Clock,
   IdFactory,
   OidcAuthorizationPort,
   OidcExchangePort,
@@ -16,6 +26,7 @@ import { commandFingerprint } from "../primitives.js";
 import type {
   CompletedStepUp,
   StepUpCommandContext,
+  StepUpCompletionContext,
   StepUpCredentialIssuerPort,
   StepUpPort,
 } from "../step-up-port.js";
@@ -39,6 +50,7 @@ type StepUpRow = {
   readonly proof_digest: string | null;
   readonly created_at: Date;
   readonly expires_at: Date;
+  readonly correlation_id: string | null;
 };
 
 function persistedVersion(value: string): number {
@@ -57,6 +69,8 @@ export class PostgresStepUpAdapter implements StepUpPort {
     private readonly oidc: OidcAuthorizationPort & OidcExchangePort,
     private readonly credentials: StepUpCredentialIssuerPort,
     private readonly ids: IdFactory,
+    private readonly audit: AccessDecisionAuditPort,
+    private readonly clock: Clock,
   ) {}
 
   async start(
@@ -64,7 +78,7 @@ export class PostgresStepUpAdapter implements StepUpPort {
     body: BrowserDecisionStepUpStartBody,
     redirectUri: string,
     context: StepUpCommandContext,
-  ): Promise<OidcAuthorizationStartResult> {
+  ): Promise<OidcAuthorizationStartResult & { readonly returnTo: string }> {
     authorize(context);
     return this.unitOfWork.run(async () => {
       const client = this.unitOfWork.currentClient();
@@ -104,8 +118,9 @@ export class PostgresStepUpAdapter implements StepUpPort {
       await client.query(
         `INSERT INTO step_up_attempt (
            id, oidc_state_digest, session_id, session_version, user_id, tenant_id,
-           workspace_id, action, target_type, target_id, return_to, created_at, expires_at
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,'challenge.decision.record','challenge',$8,$9,$10,$11)
+           workspace_id, action, target_type, target_id, return_to, created_at, expires_at,
+           correlation_id
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,'challenge.decision.record','challenge',$8,$9,$10,$11,$12)
          ON CONFLICT (oidc_state_digest) DO NOTHING`,
         [
           this.ids.next("sup"),
@@ -119,6 +134,7 @@ export class PostgresStepUpAdapter implements StepUpPort {
           returnTo,
           now,
           result.expires_at,
+          context.correlationId,
         ],
       );
       const persisted = await client.query<StepUpRow>(
@@ -144,81 +160,130 @@ export class PostgresStepUpAdapter implements StepUpPort {
       ) {
         throw new Error("Persisted step-up attempt does not match its command context");
       }
-      return result;
+      return { ...result, returnTo };
     });
   }
 
   async complete(
     body: SessionExchangeBody,
     session: AuthenticatedSession,
+    context: StepUpCompletionContext,
   ): Promise<CompletedStepUp> {
-    return this.unitOfWork.run(async () => {
-      const client = this.unitOfWork.currentClient();
-      const result = await client.query<StepUpRow>(
-        `SELECT id, session_id, session_version, user_id, tenant_id, workspace_id, action,
-                target_id, return_to, status, proof_digest, created_at, expires_at
+    let auditTarget:
+      | {
+          readonly tenantId: TenantId;
+          readonly workspaceId: WorkspaceId;
+          readonly targetId: ChallengeId;
+        }
+      | undefined;
+    try {
+      return await this.unitOfWork.run(async () => {
+        const client = this.unitOfWork.currentClient();
+        const result = await client.query<StepUpRow>(
+          `SELECT id, session_id, session_version, user_id, tenant_id, workspace_id, action,
+                target_id, return_to, status, proof_digest, created_at, expires_at, correlation_id
          FROM step_up_attempt WHERE oidc_state_digest = $1 FOR UPDATE`,
-        [commandFingerprint(body.state)],
-      );
-      const attempt = result.rows[0];
-      const now = (await client.query<{ now: Date }>("SELECT transaction_timestamp() AS now"))
-        .rows[0]!.now;
-      if (
-        !attempt ||
-        attempt.status !== "pending" ||
-        attempt.session_id !== session.id ||
-        persistedVersion(attempt.session_version) !== session.version ||
-        attempt.user_id !== session.userId ||
-        attempt.expires_at.getTime() <= now.getTime()
-      ) {
-        throw forbidden("step_up_attempt_unavailable");
-      }
-      const identity = await this.oidc.exchange(body, { maxAgeSeconds: 0 });
-      if (!identity?.authenticatedAt) throw forbidden("step_up_fresh_authentication_missing");
-      const authenticatedAt = new Date(identity.authenticatedAt);
-      if (
-        !Number.isFinite(authenticatedAt.getTime()) ||
-        authenticatedAt.getTime() < attempt.created_at.getTime() - clockSkewMs ||
-        authenticatedAt.getTime() > now.getTime() + clockSkewMs
-      ) {
-        throw forbidden("step_up_authentication_not_fresh");
-      }
-      const linked = await client.query<{ user_id: string }>(
-        `SELECT link.user_id FROM identity_link link
+          [commandFingerprint(body.state)],
+        );
+        const attempt = result.rows[0];
+        if (attempt) {
+          auditTarget = {
+            tenantId: parseTenantId(attempt.tenant_id),
+            workspaceId: parseWorkspaceId(attempt.workspace_id),
+            targetId: parseChallengeId(attempt.target_id),
+          };
+        }
+        const now = (await client.query<{ now: Date }>("SELECT transaction_timestamp() AS now"))
+          .rows[0]!.now;
+        if (
+          !attempt ||
+          attempt.status !== "pending" ||
+          attempt.session_id !== session.id ||
+          persistedVersion(attempt.session_version) !== session.version ||
+          attempt.user_id !== session.userId ||
+          attempt.expires_at.getTime() <= now.getTime()
+        ) {
+          throw forbidden("step_up_attempt_unavailable");
+        }
+        const identity = await this.oidc.exchange(body, { maxAgeSeconds: 0 });
+        if (!identity?.authenticatedAt) throw forbidden("step_up_fresh_authentication_missing");
+        const authenticatedAt = new Date(identity.authenticatedAt);
+        if (
+          !Number.isFinite(authenticatedAt.getTime()) ||
+          authenticatedAt.getTime() < attempt.created_at.getTime() - clockSkewMs ||
+          authenticatedAt.getTime() > now.getTime() + clockSkewMs
+        ) {
+          throw forbidden("step_up_authentication_not_fresh");
+        }
+        const linked = await client.query<{ user_id: string }>(
+          `SELECT link.user_id FROM identity_link link
          JOIN app_user user_row ON user_row.id = link.user_id
          WHERE link.issuer = $1 AND link.subject = $2
            AND user_row.primary_email = $3 AND user_row.email_verified = true`,
-        [identity.issuer, identity.subject, identity.verifiedEmail],
-      );
-      if (linked.rows[0]?.user_id !== session.userId) {
-        throw forbidden("step_up_identity_mismatch");
-      }
-      const token = this.credentials.issue(
-        attempt.id,
-        parseSessionId(attempt.session_id),
-        session.version,
-      );
-      const expiresAt = new Date(
-        Math.min(attempt.expires_at.getTime(), now.getTime() + verifiedLifetimeMs),
-      );
-      const updated = await client.query(
-        `UPDATE step_up_attempt
+          [identity.issuer, identity.subject, identity.verifiedEmail],
+        );
+        if (linked.rows[0]?.user_id !== session.userId) {
+          throw forbidden("step_up_identity_mismatch");
+        }
+        const token = this.credentials.issue(
+          attempt.id,
+          parseSessionId(attempt.session_id),
+          session.version,
+        );
+        const expiresAt = new Date(
+          Math.min(attempt.expires_at.getTime(), now.getTime() + verifiedLifetimeMs),
+        );
+        const updated = await client.query(
+          `UPDATE step_up_attempt
          SET status = 'verified', proof_digest = $2, provider_issuer = $3,
              provider_subject = $4, authenticated_at = $5, verified_at = $6, expires_at = $7
          WHERE id = $1 AND status = 'pending'`,
-        [
-          attempt.id,
-          commandFingerprint(token),
-          identity.issuer,
-          identity.subject,
-          authenticatedAt,
-          now,
-          expiresAt,
-        ],
-      );
-      if (updated.rowCount !== 1) throw forbidden("step_up_attempt_unavailable");
-      await this.oidc.consume(identity);
-      return { token, expiresAt: expiresAt.toISOString(), returnTo: attempt.return_to };
-    });
+          [
+            attempt.id,
+            commandFingerprint(token),
+            identity.issuer,
+            identity.subject,
+            authenticatedAt,
+            now,
+            expiresAt,
+          ],
+        );
+        if (updated.rowCount !== 1) throw forbidden("step_up_attempt_unavailable");
+        await this.oidc.consume(identity);
+        await this.audit.record({
+          outcome: "success",
+          actorUserId: session.userId,
+          tenantId: parseTenantId(attempt.tenant_id),
+          workspaceId: parseWorkspaceId(attempt.workspace_id),
+          action: "challenge:decision-step-up:complete",
+          entityType: "challenge",
+          entityId: parseChallengeId(attempt.target_id),
+          correlationId: context.correlationId,
+          occurredAt: now.toISOString(),
+        });
+        return { token, expiresAt: expiresAt.toISOString(), returnTo: attempt.return_to };
+      });
+    } catch (error) {
+      await this.audit.record({
+        outcome: "denied",
+        actorUserId: session.userId,
+        ...(auditTarget
+          ? {
+              tenantId: auditTarget.tenantId,
+              workspaceId: auditTarget.workspaceId,
+              entityType: "challenge",
+              entityId: auditTarget.targetId,
+            }
+          : {}),
+        action: "challenge:decision-step-up:complete",
+        reason:
+          error instanceof ApiProblem
+            ? (error.options.auditReason ?? "step_up_completion_denied")
+            : "step_up_completion_failed",
+        correlationId: context.correlationId,
+        occurredAt: this.clock.now().toISOString(),
+      });
+      throw error;
+    }
   }
 }

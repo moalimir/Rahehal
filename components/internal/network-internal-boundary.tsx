@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { lazy, Suspense, useCallback, useState } from "react";
 import dynamic from "next/dynamic";
 
-import { PermissionDenied, RouteResolving } from "@/components/route-fallbacks";
+import { PermissionDenied, ProductNotFound, RouteResolving } from "@/components/route-fallbacks";
 import { useWebRuntime } from "@/components/runtime-provider";
 import { ConfiguredRoleShell } from "@/components/role-shells";
 import type { InternalRoute } from "@/data/internal-routes";
@@ -83,6 +83,13 @@ export function NetworkInternalBoundary({
     },
     [runtime],
   );
+
+  // Connected assignments are exact server resources on the authoritative
+  // queue. Legacy fixture-ID pages use browser COI and demo scoring, so never
+  // render them as a fallback for a connected reviewer deep link.
+  if (route.role === "reviewer" && route.path.startsWith("/app/reviewer/assignments/")) {
+    return <ProductNotFound requestedPath={route.path} />;
+  }
 
   if (route.path === "/app/ops/publication") {
     return (

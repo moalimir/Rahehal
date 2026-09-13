@@ -127,6 +127,7 @@ beforeEach(() => {
       state: "decision-step-up-state-0000000000000001",
       code_verifier: "decision-step-up-verifier-000000000000000000000000",
       expires_at: "2099-09-10T08:05:00.000Z",
+      returnTo: `/app/org/challenges/record/evaluation?id=${demoPublishedChallengeId}`,
     })),
     complete: vi.fn(async () => ({
       token: "decision-step-up-proof-0000000000000001",
@@ -196,6 +197,14 @@ describe("D8-D9 decision and case HTTP boundary", () => {
     expect(flowCookie).toContain("HttpOnly");
     expect(start.body).not.toContain("code_verifier");
     expect(start.body).not.toContain("state");
+    expect(composition.decisionAudit.snapshot()).toContainEqual(
+      expect.objectContaining({
+        action: "challenge:decision-step-up",
+        outcome: "success",
+        entityType: "challenge",
+        entityId: demoPublishedChallengeId,
+      }),
+    );
 
     const callback = await app.inject({
       url: "/auth/browser/callback?code=fresh-login-code&state=decision-step-up-state-0000000000000001",
@@ -208,6 +217,11 @@ describe("D8-D9 decision and case HTTP boundary", () => {
     expect(JSON.stringify(proofCookies)).toContain("rahhal-step-up=");
     expect(JSON.stringify(proofCookies)).toContain("HttpOnly");
     expect(callback.headers.location).toContain("stepUp=ready");
+    expect(stepUp.complete).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ id: demoApiCredentials.owner.sessionId }),
+      expect.objectContaining({ correlationId: expect.stringMatching(/^cor_/) }),
+    );
 
     const response = await app.inject({
       method: "POST",
@@ -249,6 +263,39 @@ describe("D8-D9 decision and case HTTP boundary", () => {
         stepUpToken: "decision-step-up-proof-0000000000000001",
       }),
     );
+  });
+
+  it("returns a failed step-up callback to the exact decision page", async () => {
+    const start = await app.inject({
+      method: "POST",
+      url: decisionApiRoutes.browserDecisionStepUpStart.replace(
+        "{challengeId}",
+        demoPublishedChallengeId,
+      ),
+      headers: {
+        cookie: `rahhal-access=${demoApiCredentials.owner.accessToken}`,
+        origin: "http://localhost:3000",
+        "sec-fetch-site": "same-origin",
+        "x-workspace-id": demoApiCredentials.owner.workspaceId,
+        "idempotency-key": "decision-step-up-start-failure-001",
+      },
+      payload: { expected_version: 9 },
+    });
+    const flowCookie = String(start.headers["set-cookie"]);
+    vi.mocked(stepUp.complete).mockRejectedValueOnce(new Error("synthetic provider failure"));
+
+    const callback = await app.inject({
+      url: "/auth/browser/callback?code=failed-login-code&state=decision-step-up-state-0000000000000001",
+      headers: {
+        cookie: `${flowCookie.split(";", 1)[0]}; rahhal-access=${demoApiCredentials.owner.accessToken}`,
+      },
+    });
+
+    expect(callback.statusCode).toBe(303);
+    expect(callback.headers.location).toBe(
+      `/app/org/challenges/record/evaluation?id=${demoPublishedChallengeId}&stepUp=failed`,
+    );
+    expect(JSON.stringify(callback.headers["set-cookie"])).toContain("rahhal-step-up-flow=;");
   });
 
   it("returns only an owned solver outcome and its granted case", async () => {

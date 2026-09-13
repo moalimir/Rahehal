@@ -108,6 +108,7 @@ async function createApp(options: { readonly beforeCommit?: () => void } = {}) {
       SOLVER_CONTACT_VERIFICATION_PROVIDER: "development",
       SOLVER_OTP_DEVELOPMENT_CODE: "12345",
       SOLVER_OTP_FLOW_SECRET: "d3-evaluation-test-contact-secret-000001",
+      SESSION_CREDENTIAL_SECRET: "d3-evaluation-test-session-secret-0000001",
     },
   });
   return buildApi(composition.ports);

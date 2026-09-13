@@ -3,7 +3,7 @@ import type {
   OidcAuthorizationStartResult,
   SessionExchangeBody,
 } from "@rahhal/contracts";
-import type { SessionId } from "@rahhal/domain";
+import type { CorrelationId, SessionId } from "@rahhal/domain";
 
 import { ApiProblem } from "./errors.js";
 import type { AuthenticatedSession, WorkspaceCommandContext } from "./ports.js";
@@ -19,6 +19,14 @@ export type CompletedStepUp = {
   readonly returnTo: string;
 };
 
+export type StartedStepUp = OidcAuthorizationStartResult & {
+  readonly returnTo: string;
+};
+
+export type StepUpCompletionContext = {
+  readonly correlationId: CorrelationId;
+};
+
 export interface StepUpCredentialIssuerPort {
   issue(attemptId: string, sessionId: SessionId, sessionVersion: number): string;
 }
@@ -29,8 +37,12 @@ export interface StepUpPort {
     body: BrowserDecisionStepUpStartBody,
     redirectUri: string,
     context: StepUpCommandContext,
-  ): Promise<OidcAuthorizationStartResult>;
-  complete(body: SessionExchangeBody, session: AuthenticatedSession): Promise<CompletedStepUp>;
+  ): Promise<StartedStepUp>;
+  complete(
+    body: SessionExchangeBody,
+    session: AuthenticatedSession,
+    context: StepUpCompletionContext,
+  ): Promise<CompletedStepUp>;
 }
 
 export class UnavailableStepUpAdapter implements StepUpPort {

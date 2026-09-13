@@ -34,6 +34,14 @@ vi.mock("@/lib/api/http", () => ({
 }));
 
 const baseChallenge = buildChallengeResource();
+
+function deferred<Value>() {
+  let resolve!: (value: Value) => void;
+  const promise = new Promise<Value>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}
 const challengeEnvelope: ChallengeSuccessEnvelope = {
   ok: true,
   data: {
@@ -77,6 +85,7 @@ const mutationEnvelope: RubricMutationSuccessEnvelope = {
 beforeEach(() => {
   testState.requestApi.mockReset();
   testState.idempotencyKey.mockClear();
+  testState.workspaceId = "wsp_rubric_ui_workspace";
   testState.requestApi.mockImplementation(async (path: string, init: RequestInit = {}) => {
     if (init.method === "POST") return mutationEnvelope;
     if (path.endsWith("/rubric")) return emptyRubricEnvelope;
@@ -141,5 +150,57 @@ describe("connected challenge rubric", () => {
     );
     expect(testState.idempotencyKey).not.toHaveBeenCalled();
     expect(testState.requestApi.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+  });
+
+  it("ignores an older workspace load after the active workspace changes", async () => {
+    const firstChallenge = deferred<ChallengeSuccessEnvelope>();
+    const firstRubric = deferred<RubricSuccessEnvelope>();
+    const secondChallenge = deferred<ChallengeSuccessEnvelope>();
+    const secondRubric = deferred<RubricSuccessEnvelope>();
+    testState.requestApi.mockImplementation((path: string, init: RequestInit = {}) => {
+      const workspace = (init.headers as Record<string, string>)["X-Workspace-Id"];
+      if (workspace === "wsp_rubric_ui_second") {
+        return path.endsWith("/rubric") ? secondRubric.promise : secondChallenge.promise;
+      }
+      return path.endsWith("/rubric") ? firstRubric.promise : firstChallenge.promise;
+    });
+    const { ChallengeRubricPage } = await import("@/components/challenge-flow/rubric-page");
+    const view = render(<ChallengeRubricPage id={baseChallenge.id} />);
+
+    await waitFor(() => expect(testState.requestApi).toHaveBeenCalledTimes(2));
+    testState.workspaceId = "wsp_rubric_ui_second";
+    view.rerender(<ChallengeRubricPage id={baseChallenge.id} />);
+    await waitFor(() => expect(testState.requestApi).toHaveBeenCalledTimes(4));
+
+    secondChallenge.resolve(challengeEnvelope);
+    secondRubric.resolve({
+      ...emptyRubricEnvelope,
+      data: {
+        id: parsePrefixedId("rub_rubric_ui_second", "rub"),
+        version_id: parsePrefixedId("rbv_rubric_ui_second", "rbv"),
+        version: 2,
+        challenge_id: baseChallenge.id,
+        challenge_version_id: baseChallenge.current_version_id,
+        criteria: [{ id: "second", label: "معیار فضای دوم", weight: 100, min: 0, max: 5 }],
+        created_at: "2026-09-10T08:00:00.000Z",
+      },
+    });
+    expect(await screen.findByDisplayValue("معیار فضای دوم")).toBeVisible();
+
+    firstChallenge.resolve(challengeEnvelope);
+    firstRubric.resolve({
+      ...emptyRubricEnvelope,
+      data: {
+        id: parsePrefixedId("rub_rubric_ui_stale", "rub"),
+        version_id: parsePrefixedId("rbv_rubric_ui_stale", "rbv"),
+        version: 9,
+        challenge_id: baseChallenge.id,
+        challenge_version_id: baseChallenge.current_version_id,
+        criteria: [{ id: "stale", label: "معیار فضای قدیمی", weight: 100, min: 0, max: 5 }],
+        created_at: "2026-09-10T07:00:00.000Z",
+      },
+    });
+    await waitFor(() => expect(screen.queryByDisplayValue("معیار فضای قدیمی")).toBeNull());
+    expect(screen.getByDisplayValue("معیار فضای دوم")).toBeVisible();
   });
 });

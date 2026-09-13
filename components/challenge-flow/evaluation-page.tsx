@@ -173,8 +173,10 @@ export function ChallengeEvaluationPage({ id }: { id: string }) {
   const [commandError, setCommandError] = useState("");
   const [toast, setToast] = useState("");
   const retry = useRef<{ fingerprint: string; key: string } | null>(null);
+  const loadGeneration = useRef(0);
 
   const load = useCallback(async () => {
+    const generation = ++loadGeneration.current;
     if (!workspaceId) return;
     setLoading(true);
     setLoadError("");
@@ -182,6 +184,7 @@ export function ChallengeEvaluationPage({ id }: { id: string }) {
       apiRoutes.challengeEvaluation.replace("{challengeId}", encodeURIComponent(id)),
       { headers: { "X-Workspace-Id": workspaceId } },
     );
+    if (generation !== loadGeneration.current) return;
     if (!result.ok) {
       setLoadError(result.error.message);
       setLoading(false);
@@ -215,6 +218,7 @@ export function ChallengeEvaluationPage({ id }: { id: string }) {
         { headers: { "X-Workspace-Id": workspaceId } },
       ),
     ]);
+    if (generation !== loadGeneration.current) return;
     if (!comparisonResult.ok) {
       setComparison(null);
       setComparisonError(comparisonResult.error.message);
@@ -232,6 +236,9 @@ export function ChallengeEvaluationPage({ id }: { id: string }) {
 
   useEffect(() => {
     void load();
+    return () => {
+      loadGeneration.current += 1;
+    };
   }, [load]);
 
   if (!workspaceId) {
@@ -431,7 +438,10 @@ export function ChallengeEvaluationPage({ id }: { id: string }) {
                 key={`${decision.version}:${decision.decision?.id ?? "pending"}`}
                 decision={decision}
                 workspaceId={workspaceId}
-                onUpdated={load}
+                onUpdated={async (message) => {
+                  await load();
+                  if (message) setToast(message);
+                }}
               />
             ) : null}
           </>

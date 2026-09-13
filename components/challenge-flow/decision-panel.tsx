@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   decisionApiRoutes,
   type BrowserDecisionStepUpStartSuccessEnvelope,
@@ -42,6 +42,24 @@ const reasonsByOutcome: Record<DecisionOutcome, readonly DecisionReasonCode[]> =
   ],
 };
 
+const stepUpMessageType = "rahhal:decision-step-up";
+
+type StepUpMessage = {
+  readonly type: typeof stepUpMessageType;
+  readonly challengeId: string;
+  readonly status: "ready" | "failed";
+};
+
+function isStepUpMessage(value: unknown): value is StepUpMessage {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    candidate.type === stepUpMessageType &&
+    typeof candidate.challengeId === "string" &&
+    (candidate.status === "ready" || candidate.status === "failed")
+  );
+}
+
 function tehranDate(value: string): string {
   return new Intl.DateTimeFormat("fa-IR", {
     dateStyle: "medium",
@@ -57,7 +75,7 @@ export function DecisionPanel({
 }: {
   decision: ChallengeDecisionResource;
   workspaceId: string;
-  onUpdated(): Promise<void>;
+  onUpdated(message?: string): Promise<void>;
 }) {
   const [selectedShortlist, setSelectedShortlist] = useState(
     () => new Set(decision.shortlist?.proposal_versions.map((item) => item.proposal_id) ?? []),
@@ -77,7 +95,64 @@ export function DecisionPanel({
   const [busy, setBusy] = useState<"shortlist" | "step-up" | "decision" | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [stepUpReady, setStepUpReady] = useState(false);
   const retry = useRef<{ fingerprint: string; key: string } | null>(null);
+  const stepUpWindow = useRef<Window | null>(null);
+
+  useEffect(() => {
+    const status = new URLSearchParams(window.location.search).get("stepUp");
+    if (status !== "ready" && status !== "failed") return;
+    if (window.opener) {
+      window.opener.postMessage(
+        {
+          type: stepUpMessageType,
+          challengeId: decision.challenge_id,
+          status,
+        } satisfies StepUpMessage,
+        window.location.origin,
+      );
+      window.close();
+      return;
+    }
+    setStepUpReady(status === "ready");
+    if (status === "ready") setNotice("ورود تازه تأیید شد؛ تصمیم را در همین صفحه ثبت کنید.");
+    else setError("ورود تازه کامل نشد؛ دوباره تلاش کنید.");
+  }, [decision.challenge_id]);
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent<unknown>) => {
+      if (
+        event.origin !== window.location.origin ||
+        event.source !== stepUpWindow.current ||
+        !isStepUpMessage(event.data) ||
+        event.data.challengeId !== decision.challenge_id
+      ) {
+        return;
+      }
+      stepUpWindow.current = null;
+      setBusy(null);
+      setStepUpReady(event.data.status === "ready");
+      if (event.data.status === "ready") {
+        setError("");
+        setNotice("ورود تازه تأیید شد؛ اطلاعات فرم حفظ شده است.");
+      } else {
+        setError("ورود تازه کامل نشد؛ اطلاعات فرم حفظ شد و می‌توانید دوباره تلاش کنید.");
+      }
+    };
+    const closedWindowMonitor = window.setInterval(() => {
+      if (stepUpWindow.current?.closed) {
+        stepUpWindow.current = null;
+        setBusy(null);
+      }
+    }, 500);
+    window.addEventListener("message", onMessage);
+    return () => {
+      window.clearInterval(closedWindowMonitor);
+      window.removeEventListener("message", onMessage);
+      stepUpWindow.current?.close();
+      stepUpWindow.current = null;
+    };
+  }, [decision.challenge_id]);
 
   const commandKey = (kind: string, body: object) => {
     const fingerprint = `${kind}:${JSON.stringify(body)}`;
@@ -205,8 +280,7 @@ export function DecisionPanel({
                 return;
               }
               retry.current = null;
-              setNotice("نسخه تازه کوتاه‌فهرست ثبت شد.");
-              await onUpdated();
+              await onUpdated("نسخه تازه کوتاه‌فهرست ثبت شد.");
             });
           }}
         >
@@ -265,7 +339,7 @@ export function DecisionPanel({
         className="challenge-decision__form challenge-decision__form--final"
         onSubmit={(event) => {
           event.preventDefault();
-          if (!canRecord || busy) return;
+          if (!canRecord || !stepUpReady || busy) return;
           const body: RecordChallengeDecisionBody = {
             expected_version: decision.version,
             challenge_version_id: decision.challenge_version_id,
@@ -301,12 +375,12 @@ export function DecisionPanel({
           ).then(async (result) => {
             setBusy(null);
             if (!result.ok) {
+              if (result.error.code === "STEP_UP_REQUIRED") setStepUpReady(false);
               setError(result.error.message);
               return;
             }
             retry.current = null;
-            setNotice("تصمیم نهایی و نتیجه همه پیشنهادها ثبت شد.");
-            await onUpdated();
+            await onUpdated("تصمیم نهایی و نتیجه همه پیشنهادها ثبت شد.");
           });
         }}
       >
@@ -384,8 +458,18 @@ export function DecisionPanel({
           <button
             type="button"
             className="challenge-button challenge-button--secondary"
-            disabled={!decision.review_complete || busy !== null}
+            disabled={!decision.review_complete || stepUpReady || busy !== null}
             onClick={() => {
+              const popup = window.open(
+                "about:blank",
+                `rahhal-step-up-${decision.challenge_id}`,
+                "popup,width=520,height=720",
+              );
+              if (!popup) {
+                setError("پنجره ورود تازه باز نشد؛ اجازه نمایش پنجره را فعال و دوباره تلاش کنید.");
+                return;
+              }
+              stepUpWindow.current = popup;
               const body = { expected_version: decision.version };
               setBusy("step-up");
               setError("");
@@ -404,26 +488,33 @@ export function DecisionPanel({
                 },
               ).then((result) => {
                 if (!result.ok) {
+                  popup.close();
+                  stepUpWindow.current = null;
                   setBusy(null);
                   setError(result.error.message);
                   return;
                 }
-                window.location.assign(result.data.authorization_url);
+                popup.location.assign(result.data.authorization_url);
               });
             }}
           >
-            {busy === "step-up" ? "در حال انتقال…" : "ورود تازه برای تصمیم"}
+            {busy === "step-up"
+              ? "در انتظار ورود تازه…"
+              : stepUpReady
+                ? "ورود تازه تأیید شد"
+                : "ورود تازه برای تصمیم"}
           </button>
           <button
             type="submit"
             className="challenge-button challenge-button--primary"
-            disabled={!canRecord || busy !== null}
+            disabled={!canRecord || !stepUpReady || busy !== null}
           >
             {busy === "decision" ? "در حال ثبت نهایی…" : "ثبت تصمیم نهایی"}
           </button>
         </div>
         <p className="challenge-decision__hint">
-          پس از «ورود تازه» پنج دقیقه فرصت دارید همین تصمیم را ثبت کنید.
+          ورود تازه در یک پنجره جدا انجام می‌شود تا متن تصمیم و بازخوردها حفظ شود. پس از تأیید پنج
+          دقیقه فرصت دارید همین تصمیم را ثبت کنید.
         </p>
         {error ? (
           <p className="challenge-rubric-error" role="alert">

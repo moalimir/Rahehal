@@ -89,18 +89,23 @@ function ConnectedProposalOutcome({ proposalId }: { proposalId: string }) {
   const workspaceId = useWebRuntime().me?.active_context?.workspace_id;
   const [outcome, setOutcome] = useState<ProposalOutcomeResource | null>(null);
   const [caseRecord, setCaseRecord] = useState<CaseResource | null>(null);
-  const [error, setError] = useState("");
+  const [outcomeError, setOutcomeError] = useState("");
+  const [caseError, setCaseError] = useState("");
 
   useEffect(() => {
     if (!workspaceId) return;
     let active = true;
+    setOutcome(null);
+    setCaseRecord(null);
+    setOutcomeError("");
+    setCaseError("");
     void requestApi<ProposalOutcomeSuccessEnvelope>(
       decisionApiRoutes.proposalOutcome.replace("{proposalId}", encodeURIComponent(proposalId)),
       { headers: { "X-Workspace-Id": workspaceId } },
     ).then(async (result) => {
       if (!active) return;
       if (!result.ok) {
-        setError(result.error.message);
+        setOutcomeError(result.error.message);
         return;
       }
       setOutcome(result.data);
@@ -111,7 +116,7 @@ function ConnectedProposalOutcome({ proposalId }: { proposalId: string }) {
       );
       if (!active) return;
       if (!caseResult.ok) {
-        setError(caseResult.error.message);
+        setCaseError(caseResult.error.message);
         return;
       }
       setCaseRecord(caseResult.data);
@@ -121,11 +126,11 @@ function ConnectedProposalOutcome({ proposalId }: { proposalId: string }) {
     };
   }, [proposalId, workspaceId]);
 
-  if (error) {
+  if (outcomeError) {
     return (
       <section className="rh-card rh-solver-flow-card" role="alert">
         <h2>نتیجه تصمیم دریافت نشد</h2>
-        <p>{error}</p>
+        <p>{outcomeError}</p>
       </section>
     );
   }
@@ -137,6 +142,11 @@ function ConnectedProposalOutcome({ proposalId }: { proposalId: string }) {
         {outcome.status === "selected" ? "پیشنهاد شما انتخاب شد" : "نتیجه پیشنهاد ثبت شد"}
       </h2>
       <p>{outcome.feedback}</p>
+      {caseError ? (
+        <p className="rh-alert rh-alert--warning" role="alert">
+          نتیجه تصمیم دریافت شد، اما پرونده همکاری اکنون در دسترس نیست: {caseError}
+        </p>
+      ) : null}
       <dl className="rh-proposal-content-group">
         <div>
           <dt>نتیجه</dt>

@@ -31,7 +31,14 @@ import {
 } from "@rahhal/domain";
 
 import type { DecisionCommandContext, DecisionPort } from "../decision-port.js";
-import { ApiProblem, forbidden, idempotencyConflict, notFound, staleVersion } from "../errors.js";
+import {
+  ApiProblem,
+  forbidden,
+  idempotencyConflict,
+  notFound,
+  staleVersion,
+  stepUpRequired,
+} from "../errors.js";
 import type {
   IdFactory,
   MutationOutcome,
@@ -621,10 +628,7 @@ export class PostgresDecisionAdapter implements DecisionPort {
       if (replay) return cachedOutcome(replay, ["open_case", "decision_complete"] as const);
       const stepUpToken = context.stepUpToken ?? body.step_up_token;
       if (!stepUpToken) {
-        throw new ApiProblem(403, "NO_ACCESS", "Fresh authentication is required", {
-          recovery: "reauthenticate_decision",
-          auditReason: "step_up_missing",
-        });
+        throw stepUpRequired("step_up_missing");
       }
       const currentVersion = version(challenge.lock_version);
       if (body.expected_version !== currentVersion) throw staleVersion(currentVersion);
@@ -733,10 +737,7 @@ export class PostgresDecisionAdapter implements DecisionPort {
       );
       const proofId = proof.rows[0]?.id;
       if (!proofId) {
-        throw new ApiProblem(403, "NO_ACCESS", "Fresh authentication is missing or expired", {
-          recovery: "reauthenticate_decision",
-          auditReason: "step_up_unavailable",
-        });
+        throw stepUpRequired("step_up_unavailable");
       }
       const entityVersion = currentVersion + 1;
       const decisionId = parseDecisionId(this.ids.next("dec"));
@@ -810,7 +811,7 @@ export class PostgresDecisionAdapter implements DecisionPort {
           `INSERT INTO access_grant (
              id,grantor_tenant_id,grantor_workspace_id,grantee_tenant_id,grantee_workspace_id,
              resource_type,resource_id,capability,state,valid_from,expires_at,created_by_user_id,created_at
-           ) VALUES ($1,$2,$3,$4,$5,'case',$6,'collaborate','active',$7,$8,$9,$7)`,
+           ) VALUES ($1,$2,$3,$4,$5,'case',$6,'collaborate','active',$7,'infinity'::timestamptz,$8,$7)`,
           [
             this.ids.next("agr"),
             context.tenantId,
@@ -819,7 +820,6 @@ export class PostgresDecisionAdapter implements DecisionPort {
             selected.proposal.solver_workspace_id,
             caseId,
             now,
-            new Date(now.getTime() + 365 * 24 * 60 * 60_000),
             context.actorUserId,
           ],
         );

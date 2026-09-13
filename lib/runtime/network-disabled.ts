@@ -118,6 +118,11 @@ export function ChallengeEvaluationPage(): never {
   return unreachable("ChallengeEvaluationPage");
 }
 
+/** Stands in for `@/components/solver/connected-proposal-record`. */
+export function ConnectedProposalRecord(): never {
+  return unreachable("ConnectedProposalRecord");
+}
+
 /** Stands in for `@/components/internal/network-internal-boundary`. */
 export function NetworkInternalBoundary(): never {
   return unreachable("NetworkInternalBoundary");

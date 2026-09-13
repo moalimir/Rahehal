@@ -191,7 +191,11 @@ Offer mutations require `expected_version` and tenant-scoped idempotency and com
 
 **D7 executable read projection:** D7 adds no table or migration. `PostgresEvaluationAdapter.comparison` starts from the tenant/workspace-scoped challenge and its immutable `challenge_evaluation`/`evaluation_proposal` rows, joins only exact-version/rubric assignments, and counts active, locked, cancelled and invalidated evidence. Only `locked` assignments with a locked, non-invalidated scorecard count; distinct reviewer-user count must match. Aggregate scores are calculated in application memory only after every roster row has exactly two valid reviews, and each stored total is recalculated against the immutable rubric first. No reviewer or solver identity leaves the adapter.
 
-The SQL below is a consolidated target sketch, not the executable shape of the delivered D1-D6 tables or a claim that decision writes exist. D8-D9 supply decision commands. Conflicts cannot be overridden into material access.
+**D8-D9 executable decision/case evidence:** migration `0028_d8_d9_decision_case` adds provider-bound `step_up_attempt`, append-only `decision_shortlist_version`, final `decision`, exact `decision_review_evidence`, `decision_proposal_outcome`, and `case_record`. Database guards repeat the active organization actor, exact evaluation/rubric/proposal version, full two-review roster, outcome/reason, selected-shortlist, proof-context, one-decision, and one-case invariants. The application holds the challenge row lock and atomically consumes the single-use proof, freezes every counting review reference, updates all roster proposals and the challenge, creates the selected case and solver grant when applicable, and writes receipt/audit/outbox/idempotency evidence. Down migration refuses once decision, case, shortlist, or completed step-up evidence exists.
+
+**D8-D9 remediation:** migration `0029_d8_d9_review_remediation` adds a required-on-new-attempt correlation ID so step-up starts and completion decisions are reconstructable, and changes new case grants from an arbitrary 365-day deadline to PostgreSQL `infinity`. Case access remains state-revocable and terminal rows stay immutable; `infinity` means the grant follows the active case relationship instead of expiring silently. The down migration refuses correlated attempts or infinite case grants, preserving evidence.
+
+The SQL below is a historical consolidated sketch, not the executable shape of the delivered D1-D9 tables. The migrations above are authoritative. Conflicts cannot be overridden into material access.
 
 ```sql
 CREATE TABLE rubric (
@@ -257,7 +261,9 @@ CREATE TABLE decision (
 );
 ```
 
-## 7. Case & execution (slice 2 — schema stubs for continuity)
+## 7. Case & execution
+
+D9 supplies the minimal authoritative `case_record` continuity link and selected-solver access grant described above. Contract, pilot, deliverable, payment, ledger, and impact persistence remains Slice 2; the names below are still schema stubs for that later work.
 
 `case`, `contract_version`, `pilot`, `milestone`, `task`, `deliverable`, `payment`, `ledger_entry`, `impact_record`. States mirror the canonical machines: `ContractState` (7), `PilotState` (6), `PaymentState` (8). Key money/gate columns:
 

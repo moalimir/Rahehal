@@ -34,6 +34,14 @@ const proposalId = parsePrefixedId("prp_evaluation_ui", "prp");
 const proposalVersionId = parsePrefixedId("prv_evaluation_ui", "prv");
 const rubricVersionId = parsePrefixedId("rbv_evaluation_ui", "rbv");
 
+function deferred<Value>() {
+  let resolve!: (value: Value) => void;
+  const promise = new Promise<Value>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}
+
 function envelope(
   overrides: Partial<ChallengeEvaluationSuccessEnvelope["data"]> = {},
 ): ChallengeEvaluationSuccessEnvelope {
@@ -169,6 +177,7 @@ function comparisonEnvelope(
 beforeEach(() => {
   testState.requestApi.mockReset();
   testState.idempotencyKey.mockClear();
+  testState.workspaceId = "wsp_evaluation_ui_workspace";
 });
 
 afterEach(cleanup);
@@ -301,8 +310,9 @@ describe("connected challenge evaluation", () => {
         expect.objectContaining({ method: "POST" }),
       ),
     );
-    const call = testState.requestApi.mock.calls.find(([path, init]) =>
-      String(path).includes("decision-shortlist-versions") && init?.method === "POST",
+    const call = testState.requestApi.mock.calls.find(
+      ([path, init]) =>
+        String(path).includes("decision-shortlist-versions") && init?.method === "POST",
     );
     expect(JSON.parse(call?.[1]?.body as string)).toEqual({
       expected_version: 8,
@@ -311,5 +321,145 @@ describe("connected challenge evaluation", () => {
       proposal_versions: [{ proposal_id: proposalId, proposal_version_id: proposalVersionId }],
       rationale: "جمع‌بندی مستند امتیازها و امکان اجرای پایلوت.",
     });
+    expect(await screen.findByText("نسخه تازه کوتاه‌فهرست ثبت شد.")).toBeVisible();
+  });
+
+  it("ignores an older workspace response after the active workspace changes", async () => {
+    const first = deferred<ChallengeEvaluationSuccessEnvelope>();
+    const second = deferred<ChallengeEvaluationSuccessEnvelope>();
+    testState.requestApi
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise);
+    const { ChallengeEvaluationPage } = await import("@/components/challenge-flow/evaluation-page");
+    const view = render(<ChallengeEvaluationPage id={challengeId} />);
+
+    await waitFor(() => expect(testState.requestApi).toHaveBeenCalledTimes(1));
+    testState.workspaceId = "wsp_evaluation_ui_second";
+    view.rerender(<ChallengeEvaluationPage id={challengeId} />);
+    await waitFor(() => expect(testState.requestApi).toHaveBeenCalledTimes(2));
+
+    second.resolve(
+      envelope({
+        roster: [
+          {
+            proposal_id: proposalId,
+            proposal_version_id: proposalVersionId,
+            tracking_code: "PRP-SECOND-WORKSPACE",
+            source_state: "eligible",
+          },
+        ],
+      }),
+    );
+    expect(await screen.findByText("PRP-SECOND-WORKSPACE")).toBeVisible();
+
+    first.resolve(
+      envelope({
+        roster: [
+          {
+            proposal_id: proposalId,
+            proposal_version_id: proposalVersionId,
+            tracking_code: "PRP-STALE-WORKSPACE",
+            source_state: "eligible",
+          },
+        ],
+      }),
+    );
+    await waitFor(() => expect(screen.queryByText("PRP-STALE-WORKSPACE")).toBeNull());
+    expect(screen.getByText("PRP-SECOND-WORKSPACE")).toBeVisible();
+  });
+
+  it("preserves final-decision fields while fresh authentication completes in a popup", async () => {
+    const popup = {
+      closed: false,
+      close: vi.fn(),
+      location: { assign: vi.fn() },
+    } as unknown as Window;
+    vi.spyOn(window, "open").mockReturnValue(popup);
+    testState.requestApi.mockImplementation(async (path: string, init: RequestInit = {}) => {
+      if (init.method === "POST" && path.includes("decision-step-up:start")) {
+        return {
+          ok: true,
+          data: {
+            authorization_url: "https://identity.example.test/authorize",
+            expires_at: "2026-09-10T08:10:00.000Z",
+          },
+          meta: {
+            entity_version: 8,
+            server_time: "2026-09-10T08:05:00.000Z",
+            correlation_id: parseCorrelationId("cor_evaluation_ui_step_up"),
+          },
+        };
+      }
+      if (init.method === "POST") return mutationEnvelope;
+      if (path.includes("review-comparison")) return comparisonEnvelope();
+      if (path.endsWith("/decision")) {
+        return decisionEnvelope({
+          shortlist: {
+            id: parsePrefixedId("dsv_evaluation_ui", "dsv"),
+            version_number: 1,
+            proposal_versions: [
+              { proposal_id: proposalId, proposal_version_id: proposalVersionId },
+            ],
+            rationale: "فهرست نهایی برای تصمیم",
+            recorded_at: "2026-09-10T08:00:00.000Z",
+          },
+          proposals: [
+            {
+              ...decisionEnvelope().data.proposals[0]!,
+              shortlisted: true,
+            },
+          ],
+        });
+      }
+      return envelope({
+        stage: "evaluating",
+        opened_at: "2026-09-08T06:01:00.000Z",
+        version: 8,
+      });
+    });
+    const { ChallengeEvaluationPage } = await import("@/components/challenge-flow/evaluation-page");
+    render(<ChallengeEvaluationPage id={challengeId} />);
+
+    fireEvent.change(await screen.findByLabelText("استدلال نهایی"), {
+      target: { value: "استدلالی که نباید هنگام ورود تازه از بین برود." },
+    });
+    fireEvent.change(screen.getByLabelText(/بازخورد برای/), {
+      target: { value: "بازخورد اختصاصی حفظ‌شده برای پیشنهاد." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "ورود تازه برای تصمیم" }));
+    await waitFor(() =>
+      expect(
+        (popup.location as unknown as { assign: ReturnType<typeof vi.fn> }).assign,
+      ).toHaveBeenCalledWith("https://identity.example.test/authorize"),
+    );
+
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        origin: window.location.origin,
+        source: popup,
+        data: {
+          type: "rahhal:decision-step-up",
+          challengeId,
+          status: "ready",
+        },
+      }),
+    );
+
+    expect(await screen.findByText("ورود تازه تأیید شد؛ اطلاعات فرم حفظ شده است.")).toBeVisible();
+    expect(screen.getByLabelText("استدلال نهایی")).toHaveValue(
+      "استدلالی که نباید هنگام ورود تازه از بین برود.",
+    );
+    expect(screen.getByLabelText(/بازخورد برای/)).toHaveValue(
+      "بازخورد اختصاصی حفظ‌شده برای پیشنهاد.",
+    );
+    const submit = screen.getByRole("button", { name: "ثبت تصمیم نهایی" });
+    expect(submit).toBeEnabled();
+    fireEvent.click(submit);
+    await waitFor(() =>
+      expect(testState.requestApi).toHaveBeenCalledWith(
+        expect.stringContaining("decision:record"),
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
   });
 });

@@ -18,7 +18,10 @@ import { PostgresSolverWorkspaceAdapter } from "../src/postgres/solver-workspace
 import { PostgresTeamAdapter } from "../src/postgres/teams.js";
 import { PostgresIdentityWorkspaceAdapter } from "../src/postgres/identity-workspace.js";
 import { runMigrations } from "../src/postgres/migrations.js";
-import { PostgresOidcAuthorizationAdapter } from "../src/postgres/oidc-authorization.js";
+import {
+  oidcRuntimeSettings,
+  PostgresOidcAuthorizationAdapter,
+} from "../src/postgres/oidc-authorization.js";
 import { seedSyntheticData } from "../src/postgres/seeds.js";
 import { PostgresNotificationAdapter } from "../src/postgres/notifications.js";
 import { PostgresUnitOfWork } from "../src/postgres/unit-of-work.js";
@@ -163,6 +166,8 @@ beforeAll(async () => {
         oidc,
         new HmacStepUpCredentialIssuer(credentialSecret),
         ids,
+        audit,
+        clock,
       ),
       contactVerification,
       sessions: identity,
@@ -267,6 +272,88 @@ describe("A2 PostgreSQL OIDC authorization", () => {
     const authorizationUrl = new URL(started.authorization_url);
     expect(authorizationUrl.searchParams.get("prompt")).toBe("login");
     expect(authorizationUrl.searchParams.get("max_age")).toBe("0");
+  });
+
+  it("limits the signed issued-at step-up fallback to explicit loopback development", async () => {
+    expect(() =>
+      oidcRuntimeSettings({
+        NODE_ENV: "production",
+        OIDC_ISSUER_URL: "https://identity.example.test",
+        OIDC_CLIENT_ID: "rahhal-production-web",
+        OIDC_ALLOWED_REDIRECT_URIS: "https://app.example.test/auth/browser/callback",
+        OIDC_ALLOW_INSECURE_HTTP: "false",
+        OIDC_ALLOW_LOCAL_ISSUED_AT_STEP_UP: "true",
+        OIDC_FLOW_SECRET: flowSecret,
+      }),
+    ).toThrow("limited to an explicit loopback development provider");
+
+    const providerWithoutAuthTime = new FakeOidcProvider({ omitAuthTime: true });
+    await providerWithoutAuthTime.start();
+    try {
+      const unitOfWork = new PostgresUnitOfWork(database);
+      const settings = {
+        issuer: new URL(providerWithoutAuthTime.issuer),
+        clientId: "rahhal-local-step-up-test",
+        allowedRedirectUris: new Set([browserRedirectUri]),
+        flowSecret,
+        allowInsecureHttp: true,
+      } as const;
+      const localAdapter = new PostgresOidcAuthorizationAdapter(
+        unitOfWork,
+        { ...settings, allowLocalIssuedAtStepUp: true },
+        { now: () => new Date() },
+        new RandomIdFactory(),
+      );
+      const localStart = await localAdapter.start(
+        { expected_version: 0, redirect_uri: browserRedirectUri },
+        {
+          idempotencyKey: "d8-local-issued-at-fallback-start",
+          correlationId: parseCorrelationId("cor_d8_local_issued_at_fallback"),
+        },
+        { forceReauthentication: true },
+      );
+      const localCallback = await authorizationCallback(localStart.authorization_url);
+      await expect(
+        localAdapter.exchange(
+          buildSessionExchangeBody({
+            authorization_code: localCallback.searchParams.get("code") ?? "",
+            code_verifier: localStart.code_verifier,
+            redirect_uri: browserRedirectUri,
+            state: localCallback.searchParams.get("state") ?? "",
+          }),
+          { maxAgeSeconds: 0 },
+        ),
+      ).resolves.toMatchObject({ authenticatedAt: expect.any(String) });
+
+      const strictAdapter = new PostgresOidcAuthorizationAdapter(
+        unitOfWork,
+        settings,
+        { now: () => new Date() },
+        new RandomIdFactory(),
+      );
+      const strictStart = await strictAdapter.start(
+        { expected_version: 0, redirect_uri: browserRedirectUri },
+        {
+          idempotencyKey: "d8-strict-auth-time-start",
+          correlationId: parseCorrelationId("cor_d8_strict_auth_time"),
+        },
+        { forceReauthentication: true },
+      );
+      const strictCallback = await authorizationCallback(strictStart.authorization_url);
+      await expect(
+        strictAdapter.exchange(
+          buildSessionExchangeBody({
+            authorization_code: strictCallback.searchParams.get("code") ?? "",
+            code_verifier: strictStart.code_verifier,
+            redirect_uri: browserRedirectUri,
+            state: strictCallback.searchParams.get("state") ?? "",
+          }),
+          { maxAgeSeconds: 0 },
+        ),
+      ).rejects.toMatchObject({ statusCode: 403, code: "NO_ACCESS" });
+    } finally {
+      await providerWithoutAuthTime.close();
+    }
   });
 
   it("validates a signed provider response against issuer, audience, nonce, and PKCE", async () => {

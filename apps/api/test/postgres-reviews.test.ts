@@ -24,6 +24,8 @@ import { runMigrations } from "../src/postgres/migrations.js";
 import { PostgresReviewAdapter } from "../src/postgres/reviews.js";
 import { PostgresEvaluationAdapter } from "../src/postgres/evaluations.js";
 import { PostgresDecisionAdapter } from "../src/postgres/decisions.js";
+import { PostgresStepUpAdapter } from "../src/postgres/step-up.js";
+import { PostgresAccessDecisionAudit } from "../src/postgres/access-decision-audit.js";
 import { seedSyntheticData } from "../src/postgres/seeds.js";
 import { PostgresUnitOfWork } from "../src/postgres/unit-of-work.js";
 import { commandFingerprint, RandomIdFactory } from "../src/primitives.js";
@@ -205,8 +207,11 @@ beforeAll(async () => {
   if (!/^[a-z0-9_]+$/.test(name)) throw new Error("Unsafe test database name");
   await admin.query(`CREATE DATABASE "${name}"`);
   created = true;
-  database = new Pool({ connectionString: databaseUrl.toString(), max: 1 });
+  database = new Pool({ connectionString: databaseUrl.toString(), max: 4 });
   await runMigrations(database, "up");
+  expect((await runMigrations(database, "down")).applied).toEqual([
+    "0029_d8_d9_review_remediation",
+  ]);
   expect((await runMigrations(database, "down")).applied).toEqual(["0028_d8_d9_decision_case"]);
   expect((await runMigrations(database, "down")).applied).toEqual(["0027_d6_review_scoring"]);
   expect((await runMigrations(database, "down")).applied).toEqual(["0026_d5_review_coi"]);
@@ -222,6 +227,7 @@ beforeAll(async () => {
     "0026_d5_review_coi",
     "0027_d6_review_scoring",
     "0028_d8_d9_decision_case",
+    "0029_d8_d9_review_remediation",
   ]);
   await seedSyntheticData(database);
   reviews = new PostgresReviewAdapter(new PostgresUnitOfWork(database), new RandomIdFactory());
@@ -391,6 +397,9 @@ describe("D1 PostgreSQL review foundation", () => {
       "DELETE FROM rubric_version WHERE id = 'rbv_d1_alpha_001'",
     ])
       await expect(database.query(sql)).rejects.toMatchObject({ code: "55000" });
+    expect((await runMigrations(database, "down")).applied).toEqual([
+      "0029_d8_d9_review_remediation",
+    ]);
     expect((await runMigrations(database, "down")).applied).toEqual(["0028_d8_d9_decision_case"]);
     expect((await runMigrations(database, "down")).applied).toEqual(["0027_d6_review_scoring"]);
     expect((await runMigrations(database, "down")).applied).toEqual(["0026_d5_review_coi"]);
@@ -401,6 +410,7 @@ describe("D1 PostgreSQL review foundation", () => {
       "0026_d5_review_coi",
       "0027_d6_review_scoring",
       "0028_d8_d9_decision_case",
+      "0029_d8_d9_review_remediation",
     ]);
   });
   it("keeps assignment reads durable across API recreation and audits non-enumerating denial", async () => {
@@ -580,6 +590,9 @@ describe("D1 PostgreSQL review foundation", () => {
         "UPDATE coi_declaration SET reason = 'tampered' WHERE assignment_id = 'rva_d1_beta'",
       ),
     ).rejects.toMatchObject({ code: "55000" });
+    expect((await runMigrations(database, "down")).applied).toEqual([
+      "0029_d8_d9_review_remediation",
+    ]);
     expect((await runMigrations(database, "down")).applied).toEqual(["0028_d8_d9_decision_case"]);
     expect((await runMigrations(database, "down")).applied).toEqual(["0027_d6_review_scoring"]);
     await expect(runMigrations(database, "down")).rejects.toThrow(
@@ -588,6 +601,7 @@ describe("D1 PostgreSQL review foundation", () => {
     expect((await runMigrations(database, "up")).applied).toEqual([
       "0027_d6_review_scoring",
       "0028_d8_d9_decision_case",
+      "0029_d8_d9_review_remediation",
     ]);
     const evidence = (
       await database.query(
@@ -1030,9 +1044,17 @@ describe("D1 PostgreSQL review foundation", () => {
       ]),
     );
     expect(operations.evaluation_proposals[0]?.active_assignment_count).toBe(2);
+    expect((await runMigrations(database, "down")).applied).toEqual([
+      "0029_d8_d9_review_remediation",
+    ]);
+    expect((await runMigrations(database, "down")).applied).toEqual(["0028_d8_d9_decision_case"]);
     await expect(runMigrations(database, "down")).rejects.toThrow(
       "cannot remove D6 while scoring evidence exists",
     );
+    expect((await runMigrations(database, "up")).applied).toEqual([
+      "0028_d8_d9_decision_case",
+      "0029_d8_d9_review_remediation",
+    ]);
   });
 
   it("withholds every aggregate until the full roster has two valid locked reviews", async () => {
@@ -1165,12 +1187,156 @@ describe("D1 PostgreSQL review foundation", () => {
 });
 
 describe("D8-D9 PostgreSQL decision and case activation", () => {
+  beforeAll(async () => {
+    const activeAssignments = await database.query<{
+      id: string;
+      reviewer_membership_id: string;
+      reviewer_user_id: string;
+      state: "coi-gate" | "accepted" | "draft" | "submitted" | "locked";
+      lock_version: string;
+    }>(
+      `SELECT id, reviewer_membership_id, reviewer_user_id, state, lock_version::text
+       FROM review_assignment
+       WHERE challenge_id = 'chl_synthetic_alpha'
+         AND state IN ('coi-gate','accepted','draft','submitted','locked')
+       ORDER BY reviewer_user_id`,
+    );
+    expect(activeAssignments.rows).toHaveLength(2);
+    const operations = (key: string) => ({
+      tenantId: parseTenantId("ten_platform"),
+      workspaceId: parseWorkspaceId("wsp_platform_main"),
+      actorUserId: parseUserId("usr_platform_ops"),
+      role: "platform:ops" as const,
+      idempotencyKey: key,
+      correlationId: parseCorrelationId(`cor_${key}`),
+    });
+    for (const row of activeAssignments.rows) {
+      let state = row.state;
+      let expectedVersion = Number(row.lock_version);
+      const reviewer = {
+        tenantId: parseTenantId("ten_platform"),
+        workspaceId: parseWorkspaceId("wsp_platform_main"),
+        actorUserId: parseUserId(row.reviewer_user_id),
+        membershipId: parseMembershipId(row.reviewer_membership_id),
+        role: "platform:reviewer" as const,
+      };
+      const key = row.id.replace(/[^A-Za-z0-9_]/g, "");
+      if (state === "coi-gate") {
+        const declared = await reviews.declareCoi(
+          row.id,
+          {
+            expected_version: expectedVersion,
+            status: "clear",
+            relationship_categories: [],
+            reason: null,
+            attestation: true,
+          },
+          {
+            ...reviewer,
+            idempotencyKey: `d8_${key}_clear`,
+            correlationId: parseCorrelationId(`cor_d8_${key}_clear`),
+          },
+        );
+        expectedVersion = declared.entityVersion;
+        state = "accepted";
+      }
+      if (state === "accepted" || state === "draft") {
+        const drafted = await reviews.saveDraft(
+          row.id,
+          {
+            expected_version: expectedVersion,
+            scores: [
+              {
+                criterion_id: "quality",
+                value: 4,
+                rationale: "شواهد مستقل برای تصمیم نهایی کامل و نسخه‌مند است.",
+              },
+            ],
+          },
+          {
+            ...reviewer,
+            idempotencyKey: `d8_${key}_draft`,
+            correlationId: parseCorrelationId(`cor_d8_${key}_draft`),
+          },
+        );
+        expectedVersion = drafted.entityVersion;
+        const submitted = await reviews.submit(
+          row.id,
+          { expected_version: expectedVersion },
+          {
+            ...reviewer,
+            idempotencyKey: `d8_${key}_submit`,
+            correlationId: parseCorrelationId(`cor_d8_${key}_submit`),
+          },
+        );
+        expectedVersion = submitted.entityVersion;
+        state = "submitted";
+      }
+      if (state === "submitted") {
+        await reviews.lock(
+          row.id,
+          { expected_version: expectedVersion, reason: "کامل بودن شواهد تصمیم بررسی شد." },
+          operations(`d8_${key}_lock`),
+        );
+      }
+    }
+  });
+
   it("atomically binds shortlist, fresh session proof, final outcomes, and one case", async () => {
     const organization = {
       tenantId: parseTenantId("ten_org_alpha"),
       workspaceId: parseWorkspaceId("wsp_org_alpha"),
       actorUserId: parseUserId("usr_owner_alpha"),
       role: "org:owner" as const,
+    };
+    const proofIssuer = new HmacStepUpCredentialIssuer(stepUpSecret);
+    const sessionId = parseSessionId("ses_owner_alpha");
+    const insertVerifiedProof = async (
+      attemptId: string,
+      targetChallengeId: string,
+      correlationId: string,
+      expired = false,
+    ) => {
+      const token = proofIssuer.issue(attemptId, sessionId, 1);
+      await database.query("BEGIN");
+      try {
+        await database.query(
+          `INSERT INTO step_up_attempt (
+             id, oidc_state_digest, session_id, session_version, user_id, tenant_id,
+             workspace_id, action, target_type, target_id, return_to, created_at, expires_at,
+             correlation_id
+           ) VALUES (
+             $1,$2,$3,1,'usr_owner_alpha','ten_org_alpha','wsp_org_alpha',
+             'challenge.decision.record','challenge',$4,
+             '/app/org/challenges/record/evaluation?id=' || $4,
+             transaction_timestamp() - CASE WHEN $6::boolean THEN interval '10 minutes' ELSE interval '0 minutes' END,
+             transaction_timestamp() + CASE WHEN $6::boolean THEN interval '-5 minutes' ELSE interval '5 minutes' END,
+             $5
+           )`,
+          [
+            attemptId,
+            commandFingerprint(`${attemptId}-oidc-state`),
+            sessionId,
+            targetChallengeId,
+            parseCorrelationId(correlationId),
+            expired,
+          ],
+        );
+        await database.query(
+          `UPDATE step_up_attempt
+           SET status = 'verified', proof_digest = $2,
+               provider_issuer = 'https://oidc.synthetic.invalid',
+               provider_subject = 'owner-alpha', authenticated_at = created_at,
+               verified_at = created_at
+           WHERE id = $1`,
+          [attemptId, commandFingerprint(token)],
+        );
+        await database.query("COMMIT");
+      } catch (error) {
+        await database.query("ROLLBACK");
+        throw error;
+      }
+      return token;
     };
     const currentVersion = Number(
       (
@@ -1225,38 +1391,118 @@ describe("D8-D9 PostgreSQL decision and case activation", () => {
     );
     expect(shortlistReplay.receipt).toEqual({ ...shortlist.receipt, idempotent: true });
 
-    const proofIssuer = new HmacStepUpCredentialIssuer(stepUpSecret);
-    const sessionId = parseSessionId("ses_owner_alpha");
-    const attemptId = "sup_d8_owner_alpha_001";
-    const proofToken = proofIssuer.issue(attemptId, sessionId, 1);
-    await database.query("BEGIN");
-    try {
-      await database.query(
-        `INSERT INTO step_up_attempt (
-           id, oidc_state_digest, session_id, session_version, user_id, tenant_id,
-           workspace_id, action, target_type, target_id, return_to, created_at, expires_at
-         ) VALUES (
-           $1,$2,$3,1,'usr_owner_alpha','ten_org_alpha','wsp_org_alpha',
-           'challenge.decision.record','challenge','chl_synthetic_alpha',
-           '/app/org/challenges/record/evaluation?id=chl_synthetic_alpha',
-           transaction_timestamp(),transaction_timestamp() + interval '5 minutes'
-         )`,
-        [attemptId, commandFingerprint("d8-owner-oidc-state"), sessionId],
-      );
-      await database.query(
-        `UPDATE step_up_attempt
-         SET status = 'verified', proof_digest = $2,
-             provider_issuer = 'https://oidc.synthetic.invalid',
-             provider_subject = 'owner-alpha', authenticated_at = transaction_timestamp(),
-             verified_at = transaction_timestamp(), expires_at = transaction_timestamp() + interval '5 minutes'
-         WHERE id = $1`,
-        [attemptId, commandFingerprint(proofToken)],
-      );
-      await database.query("COMMIT");
-    } catch (error) {
-      await database.query("ROLLBACK");
-      throw error;
-    }
+    const stepUpState = "d8-owner-step-up-state-0000000000000000001";
+    const stepUpVerifier = "d8-owner-step-up-verifier-0000000000000000000000001";
+    const stepUpIssuer = "https://step-up.synthetic.invalid";
+    const ownerIdentity = (
+      await database.query<{ primary_email: string }>(
+        "SELECT primary_email FROM app_user WHERE id = 'usr_owner_alpha'",
+      )
+    ).rows[0]!;
+    await database.query(
+      `INSERT INTO identity_link (id, user_id, issuer, subject)
+       VALUES ('idl_d8_owner_step_up','usr_owner_alpha',$1,'owner-alpha')`,
+      [stepUpIssuer],
+    );
+    let providerConsumed = false;
+    const stepUpOidc = {
+      async start(
+        _body: unknown,
+        _command: unknown,
+        options?: { readonly forceReauthentication?: boolean },
+      ) {
+        expect(options).toEqual({ forceReauthentication: true });
+        return {
+          authorization_url: `${stepUpIssuer}/authorize`,
+          state: stepUpState,
+          code_verifier: stepUpVerifier,
+          expires_at: new Date(Date.now() + 5 * 60_000).toISOString(),
+        };
+      },
+      async exchange(_body: unknown, options?: { readonly maxAgeSeconds?: number }) {
+        expect(options).toEqual({ maxAgeSeconds: 0 });
+        return {
+          authorizationAttemptId: "oat_d8_owner_step_up_001",
+          issuer: stepUpIssuer,
+          subject: "owner-alpha",
+          verifiedEmail: ownerIdentity.primary_email,
+          authenticatedAt: new Date().toISOString(),
+        };
+      },
+      async consume() {
+        providerConsumed = true;
+      },
+    };
+    const stepUpUnitOfWork = new PostgresUnitOfWork(database);
+    const stepUpIds = new RandomIdFactory();
+    const stepUpAdapter = new PostgresStepUpAdapter(
+      stepUpUnitOfWork,
+      stepUpOidc,
+      proofIssuer,
+      stepUpIds,
+      new PostgresAccessDecisionAudit(stepUpUnitOfWork, stepUpIds),
+      { now: () => new Date() },
+    );
+    const stepUpStartCorrelation = parseCorrelationId("cor_d8_step_up_attempt_001");
+    const startedStepUp = await stepUpAdapter.start(
+      "chl_synthetic_alpha",
+      { expected_version: shortlist.entityVersion },
+      "http://localhost:3000/auth/browser/callback",
+      {
+        ...organization,
+        sessionId,
+        sessionVersion: 1,
+        idempotencyKey: "d8_step_up_start_001",
+        correlationId: stepUpStartCorrelation,
+      },
+    );
+    expect(startedStepUp.returnTo).toBe(
+      "/app/org/challenges/record/evaluation?id=chl_synthetic_alpha",
+    );
+    const stepUpCompleteCorrelation = parseCorrelationId("cor_d8_step_up_complete_001");
+    const completedStepUp = await stepUpAdapter.complete(
+      {
+        expected_version: 0,
+        authorization_code: "d8-owner-fresh-code",
+        code_verifier: stepUpVerifier,
+        redirect_uri: "http://localhost:3000/auth/browser/callback",
+        state: stepUpState,
+      },
+      {
+        id: sessionId,
+        userId: organization.actorUserId,
+        version: 1,
+        expiresAt: "2099-09-10T08:00:00.000Z",
+        activeWorkspaceId: organization.workspaceId,
+        credentialFingerprint: "d8-owner-session-fingerprint",
+      },
+      { correlationId: stepUpCompleteCorrelation },
+    );
+    const proofToken = completedStepUp.token;
+    const persistedStepUp = await database.query<{
+      id: string;
+      correlation_id: string;
+      audit_count: string;
+    }>(
+      `SELECT attempt.id, attempt.correlation_id,
+              (SELECT count(*) FROM audit_event
+               WHERE correlation_id = $2
+                 AND action = 'challenge:decision-step-up:complete'
+                 AND outcome = 'success') AS audit_count
+       FROM step_up_attempt attempt WHERE oidc_state_digest = $1`,
+      [commandFingerprint(stepUpState), stepUpCompleteCorrelation],
+    );
+    expect(persistedStepUp.rows[0]).toMatchObject({
+      correlation_id: stepUpStartCorrelation,
+      audit_count: "1",
+    });
+    const attemptId = persistedStepUp.rows[0]!.id;
+    expect(providerConsumed).toBe(true);
+    const wrongTargetToken = await insertVerifiedProof(
+      "sup_d8_wrong_target_001",
+      "chl_synthetic_alpha",
+      "cor_d8_wrong_target_proof_001",
+    );
 
     const decisionBody = {
       expected_version: shortlist.entityVersion,
@@ -1291,19 +1537,74 @@ describe("D8-D9 PostgreSQL decision and case activation", () => {
     await expect(
       decisions.record("chl_synthetic_alpha", decisionBody, {
         ...context,
+        stepUpToken: undefined,
+        idempotencyKey: "d8_missing_step_up_001",
+        correlationId: parseCorrelationId("cor_d8_missing_step_up_001"),
+      }),
+    ).rejects.toMatchObject({ statusCode: 403, code: "STEP_UP_REQUIRED" });
+    await expect(
+      decisions.record("chl_synthetic_alpha", decisionBody, {
+        ...context,
         sessionVersion: 2,
         idempotencyKey: "d8_wrong_session_version_001",
         correlationId: parseCorrelationId("cor_d8_wrong_session_version_001"),
       }),
-    ).rejects.toMatchObject({ statusCode: 403, code: "NO_ACCESS" });
+    ).rejects.toMatchObject({ statusCode: 403, code: "STEP_UP_REQUIRED" });
 
-    const recorded = await decisions.record("chl_synthetic_alpha", decisionBody, context);
+    const failedAdapter = new PostgresDecisionAdapter(
+      new PostgresUnitOfWork(database, () => {
+        throw new Error("synthetic decision commit failure");
+      }),
+      new RandomIdFactory(),
+    );
+    await expect(
+      failedAdapter.record("chl_synthetic_alpha", decisionBody, {
+        ...context,
+        idempotencyKey: "d8_case_rollback_001",
+        correlationId: parseCorrelationId("cor_d8_case_rollback_001"),
+      }),
+    ).rejects.toThrow("synthetic decision commit failure");
+    expect(
+      (
+        await database.query(
+          `SELECT
+             (SELECT count(*) FROM decision) AS decisions,
+             (SELECT count(*) FROM case_record) AS cases,
+             (SELECT status FROM step_up_attempt WHERE id = $1) AS proof_state`,
+          [attemptId],
+        )
+      ).rows[0],
+    ).toEqual({ decisions: "0", cases: "0", proof_state: "verified" });
+
+    const competingContext = {
+      ...context,
+      idempotencyKey: "d8_final_decision_alpha_competing_001",
+      correlationId: parseCorrelationId("cor_d8_final_decision_alpha_competing_001"),
+    };
+    const competing = await Promise.allSettled([
+      decisions.record("chl_synthetic_alpha", decisionBody, context),
+      decisions.record("chl_synthetic_alpha", decisionBody, competingContext),
+    ]);
+    expect(competing.filter(({ status }) => status === "fulfilled")).toHaveLength(1);
+    expect(competing.filter(({ status }) => status === "rejected")).toHaveLength(1);
+    const winnerIndex = competing.findIndex(({ status }) => status === "fulfilled");
+    const winner = competing[winnerIndex];
+    if (!winner || winner.status !== "fulfilled") throw new Error("Decision race had no winner");
+    const recorded = winner.value;
+    const winnerContext = winnerIndex === 0 ? context : competingContext;
     expect(recorded).toMatchObject({
       entityVersion: shortlist.entityVersion + 1,
       receipt: { idempotent: false, next_actions: ["open_case"] },
     });
-    const replay = await decisions.record("chl_synthetic_alpha", decisionBody, context);
+    const replay = await decisions.record("chl_synthetic_alpha", decisionBody, winnerContext);
     expect(replay.receipt).toEqual({ ...recorded.receipt, idempotent: true });
+    await expect(
+      decisions.record(
+        "chl_synthetic_alpha",
+        { ...decisionBody, rationale: "A conflicting reuse of the winning key." },
+        winnerContext,
+      ),
+    ).rejects.toMatchObject({ statusCode: 409, code: "CONFLICT" });
 
     const projection = await decisions.get(organization, "chl_synthetic_alpha");
     expect(projection).toMatchObject({
@@ -1362,6 +1663,9 @@ describe("D8-D9 PostgreSQL decision and case activation", () => {
            (SELECT count(*) FROM case_record) AS cases,
            (SELECT count(*) FROM access_grant
              WHERE resource_type = 'case' AND capability = 'collaborate' AND state = 'active') AS grants,
+           (SELECT bool_and(expires_at = 'infinity'::timestamptz) FROM access_grant
+             WHERE resource_type = 'case' AND capability = 'collaborate' AND state = 'active')
+             AS lifetime_grants,
            (SELECT bool_or(payload ? 'rationale' OR payload ? 'feedback') FROM outbox_event
              WHERE event_type IN ('challenge.decision.recorded','proposal.selected','case.created'))
              AS sensitive_event_payload`,
@@ -1376,6 +1680,7 @@ describe("D8-D9 PostgreSQL decision and case activation", () => {
       proposal_outcomes: "1",
       cases: "1",
       grants: "1",
+      lifetime_grants: true,
       sensitive_event_payload: false,
     });
     await expect(
@@ -1388,8 +1693,170 @@ describe("D8-D9 PostgreSQL decision and case activation", () => {
          )`,
       ),
     ).rejects.toMatchObject({ code: "55000" });
+
+    await database.query("BEGIN");
+    try {
+      await database.query("SET CONSTRAINTS ALL DEFERRED");
+      await database.query(`
+        INSERT INTO challenge (
+          id, tenant_id, tenant_kind, workspace_id, workspace_kind, stage,
+          current_version_id, published_version_id, lock_version, created_by_user_id,
+          created_at, updated_at, publication_state, proposal_deadline_at
+        ) VALUES (
+          'chl_d8_no_award','ten_org_alpha','organization','wsp_org_alpha','org','approvals',
+          'chv_d8_no_award_v1',NULL,3,'usr_owner_alpha',
+          transaction_timestamp() - interval '2 days', transaction_timestamp(),
+          NULL, NULL
+        )
+      `);
+      await database.query(`
+        INSERT INTO challenge_version (
+          id, challenge_id, version_number, content, created_by_user_id,
+          created_at, locked_at, lock_reason
+        )
+        SELECT 'chv_d8_no_award_v1','chl_d8_no_award',1,content,'usr_owner_alpha',
+               transaction_timestamp() - interval '2 days',
+               transaction_timestamp() - interval '1 day','published'
+        FROM challenge_version WHERE id = 'chv_synthetic_alpha_v1'
+      `);
+      await database.query(`
+        INSERT INTO eligibility_rule (
+          id, tenant_id, workspace_id, challenge_id, challenge_version_id,
+          allowed_applicant_types, verification_required, nda_required,
+          document_gate_required, proposal_deadline, state, created_at
+        )
+        SELECT 'elr_d8_no_award','ten_org_alpha','wsp_org_alpha','chl_d8_no_award',
+               'chv_d8_no_award_v1',allowed_applicant_types,verification_required,
+               nda_required,document_gate_required,'2099-09-10T09:00:00.000Z','closed',
+               transaction_timestamp()
+        FROM eligibility_rule WHERE challenge_id = 'chl_synthetic_alpha' LIMIT 1
+      `);
+      await database.query(`
+        INSERT INTO challenge_approval (
+          id, tenant_id, workspace_id, challenge_id, challenge_version_id,
+          gate, decision, reason, recorded_by_user_id, recorded_by_role, recorded_at
+        ) VALUES
+          ('cap_d8_no_award_technical','ten_org_alpha','wsp_org_alpha','chl_d8_no_award',
+           'chv_d8_no_award_v1','technical','approved','Technical approval.',
+           'usr_owner_alpha','org:approver_technical',transaction_timestamp()),
+          ('cap_d8_no_award_legal','ten_org_alpha','wsp_org_alpha','chl_d8_no_award',
+           'chv_d8_no_award_v1','legal','approved','Legal approval.',
+           'usr_reviewer_alpha','platform:legal',transaction_timestamp()),
+          ('cap_d8_no_award_finance','ten_org_alpha','wsp_org_alpha','chl_d8_no_award',
+           'chv_d8_no_award_v1','finance','approved','Finance approval.',
+           'usr_reviewer_beta','platform:finance',transaction_timestamp()),
+          ('cap_d8_no_award_quality','ten_org_alpha','wsp_org_alpha','chl_d8_no_award',
+           'chv_d8_no_award_v1','quality','approved','Quality approval.',
+           'usr_platform_ops','platform:ops',transaction_timestamp())
+      `);
+      await database.query(`
+        UPDATE challenge
+        SET stage = 'published', published_version_id = 'chv_d8_no_award_v1',
+            publication_state = 'closed',
+            proposal_deadline_at = '2099-09-10T09:00:00.000Z',
+            updated_at = transaction_timestamp()
+        WHERE id = 'chl_d8_no_award'
+      `);
+      await database.query(`
+        INSERT INTO rubric (id, tenant_id, challenge_id, challenge_version_id)
+        VALUES ('rub_d8_no_award','ten_org_alpha','chl_d8_no_award','chv_d8_no_award_v1')
+      `);
+      await database.query(`
+        INSERT INTO rubric_version (
+          id, rubric_id, version_number, criteria, created_by_user_id, created_at
+        ) VALUES (
+          'rbv_d8_no_award_v1','rub_d8_no_award',1,
+          '[{"id":"quality","label":"Quality","weight":100,"min":0,"max":5}]'::jsonb,
+          'usr_owner_alpha',transaction_timestamp()
+        )
+      `);
+      await database.query(`
+        INSERT INTO challenge_evaluation (
+          challenge_id, tenant_id, workspace_id, challenge_version_id, rubric_version_id,
+          required_reviews, challenge_lock_version, opened_by_user_id, opened_at
+        ) VALUES (
+          'chl_d8_no_award','ten_org_alpha','wsp_org_alpha','chv_d8_no_award_v1',
+          'rbv_d8_no_award_v1',2,4,'usr_owner_alpha',transaction_timestamp()
+        )
+      `);
+      await database.query(`
+        UPDATE challenge
+        SET stage = 'evaluating', lock_version = 4, updated_at = transaction_timestamp()
+        WHERE id = 'chl_d8_no_award'
+      `);
+      await database.query("COMMIT");
+    } catch (error) {
+      await database.query("ROLLBACK");
+      throw error;
+    }
+
+    const noAwardBody = {
+      expected_version: 4,
+      challenge_version_id: "chv_d8_no_award_v1" as never,
+      rubric_version_id: "rbv_d8_no_award_v1" as never,
+      shortlist_version_id: null,
+      outcome: "no_award" as const,
+      selected_proposal_id: null,
+      selected_proposal_version_id: null,
+      reason_code: "no_qualifying_proposal" as const,
+      rationale: "هیچ پیشنهاد واجد شرایطی در فهرست دقیق ارزیابی وجود ندارد.",
+      proposal_feedback: [],
+    };
+    await expect(
+      decisions.record("chl_d8_no_award", noAwardBody, {
+        ...organization,
+        sessionId,
+        sessionVersion: 1,
+        stepUpToken: wrongTargetToken,
+        idempotencyKey: "d8_no_award_wrong_target_001",
+        correlationId: parseCorrelationId("cor_d8_no_award_wrong_target_001"),
+      }),
+    ).rejects.toMatchObject({ statusCode: 403, code: "STEP_UP_REQUIRED" });
+    const expiredToken = await insertVerifiedProof(
+      "sup_d8_expired_no_award_001",
+      "chl_d8_no_award",
+      "cor_d8_expired_no_award_001",
+      true,
+    );
+    await expect(
+      decisions.record("chl_d8_no_award", noAwardBody, {
+        ...organization,
+        sessionId,
+        sessionVersion: 1,
+        stepUpToken: expiredToken,
+        idempotencyKey: "d8_no_award_expired_001",
+        correlationId: parseCorrelationId("cor_d8_no_award_expired_001"),
+      }),
+    ).rejects.toMatchObject({ statusCode: 403, code: "STEP_UP_REQUIRED" });
+    const noAwardToken = await insertVerifiedProof(
+      "sup_d8_no_award_001",
+      "chl_d8_no_award",
+      "cor_d8_no_award_step_up_001",
+    );
+    const noAward = await decisions.record("chl_d8_no_award", noAwardBody, {
+      ...organization,
+      sessionId,
+      sessionVersion: 1,
+      stepUpToken: noAwardToken,
+      idempotencyKey: "d8_no_award_record_001",
+      correlationId: parseCorrelationId("cor_d8_no_award_record_001"),
+    });
+    expect(noAward.receipt.next_actions).toEqual(["decision_complete"]);
+    expect(await decisions.get(organization, "chl_d8_no_award")).toMatchObject({
+      stage: "decided",
+      decision: { outcome: "no_award", selected_proposal_id: null },
+      proposals: [],
+      case: null,
+    });
+    expect(
+      (
+        await database.query(
+          "SELECT count(*) AS total FROM case_record WHERE challenge_id = 'chl_d8_no_award'",
+        )
+      ).rows[0],
+    ).toEqual({ total: "0" });
     await expect(runMigrations(database, "down")).rejects.toThrow(
-      "cannot remove D8-D9 while step-up, shortlist, decision, or case evidence exists",
+      "cannot remove D8-D9 remediation while correlated step-up or lifetime case access evidence exists",
     );
   });
 });

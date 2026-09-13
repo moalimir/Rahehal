@@ -1095,12 +1095,13 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
                   state: result.state,
                   codeVerifier: result.code_verifier,
                   expiresAt: result.expires_at,
+                  returnTo: result.returnTo,
                 },
                 settings,
                 ports.clock.now(),
               ),
             );
-            return versionedSuccess(
+            const response = versionedSuccess(
               {
                 authorization_url: result.authorization_url,
                 expires_at: result.expires_at,
@@ -1109,6 +1110,12 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
               ports,
               request.body.expected_version,
             );
+            await recordWorkspaceAccessSuccess(request, ports, session, access, {
+              action: "challenge:decision-step-up",
+              entityType: "challenge",
+              entityId: request.params.challengeId,
+            });
+            return response;
           },
         );
       },
@@ -1132,15 +1139,15 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
       async (request, reply) => {
         const cookies = parseCookies(request.headers.cookie);
         const stepUpFlowValue = cookies.get(browserCookieNames.stepUpFlow);
-        const stepUpFlow = stepUpFlowValue
-          ? decodeBrowserAuthorizationFlow(stepUpFlowValue)
-          : null;
+        const stepUpFlow = stepUpFlowValue ? decodeBrowserAuthorizationFlow(stepUpFlowValue) : null;
         if (stepUpFlow?.state === request.query.state) {
           const failStepUp = () => {
+            const returnTo = stepUpFlow.returnTo ?? "/app";
+            const separator = returnTo.includes("?") ? "&" : "?";
             void reply
               .code(303)
               .header("set-cookie", clearBrowserStepUpFlowCookie(settings))
-              .header("location", "/app?stepUp=failed")
+              .header("location", `${returnTo}${separator}stepUp=failed`)
               .send();
           };
           if (Date.parse(stepUpFlow.expiresAt) <= ports.clock.now().getTime()) {
@@ -1162,6 +1169,7 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
                 state: request.query.state,
               },
               session,
+              { correlationId: correlationId(request) },
             );
             const separator = outcome.returnTo.includes("?") ? "&" : "?";
             void reply

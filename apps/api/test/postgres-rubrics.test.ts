@@ -52,6 +52,7 @@ async function createApp(options: { readonly beforeCommit?: () => void } = {}) {
       SOLVER_CONTACT_VERIFICATION_PROVIDER: "development",
       SOLVER_OTP_DEVELOPMENT_CODE: "12345",
       SOLVER_OTP_FLOW_SECRET: "d2-rubric-test-contact-secret-000000001",
+      SESSION_CREDENTIAL_SECRET: "d2-rubric-test-session-secret-0000000001",
     },
   });
   return buildApi(composition.ports);

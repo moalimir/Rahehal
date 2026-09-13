@@ -207,4 +207,37 @@ describe("connected proposal record", () => {
     expect(screen.getByText("این بازخورد فقط برای پیشنهاد خود حل‌گر است.")).toBeVisible();
     expect(screen.getByText(caseId)).toBeVisible();
   });
+
+  it("keeps the decision outcome visible when the granted case read fails", async () => {
+    const caseId = "case_c0ffee0000004a1b8000000000000002";
+    testState.requestApi
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          proposal_id: proposalId,
+          proposal_version_id: "prv_c0ffee0000004a1b8000000000000009",
+          tracking_code: "PRP-2026-951",
+          status: "selected",
+          feedback: "نتیجه قطعی باید حتی با خطای پرونده دیده شود.",
+          decided_at: "2026-09-10T08:05:00.000Z",
+          case_id: caseId,
+          version: 4,
+        },
+        meta: { ...meta, entity_version: 4 },
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        error: { code: "NO_ACCESS", message: "دسترسی پرونده موقتاً در دسترس نیست." },
+        meta,
+      });
+
+    render(<ConnectedProposalRecord />);
+
+    expect(await screen.findByText("پیشنهاد شما انتخاب شد")).toBeVisible();
+    expect(screen.getByText("نتیجه قطعی باید حتی با خطای پرونده دیده شود.")).toBeVisible();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "نتیجه تصمیم دریافت شد، اما پرونده همکاری اکنون در دسترس نیست",
+    );
+    expect(screen.queryByText("نتیجه تصمیم دریافت نشد")).toBeNull();
+  });
 });

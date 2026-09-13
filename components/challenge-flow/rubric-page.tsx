@@ -80,8 +80,10 @@ export function ChallengeRubricPage({ id }: { id: string }) {
   const [formError, setFormError] = useState("");
   const [toast, setToast] = useState("");
   const retry = useRef<{ fingerprint: string; key: string } | null>(null);
+  const loadGeneration = useRef(0);
 
   const load = useCallback(async () => {
+    const generation = ++loadGeneration.current;
     if (!workspaceId) return;
     setLoading(true);
     setLoadError("");
@@ -92,6 +94,7 @@ export function ChallengeRubricPage({ id }: { id: string }) {
       requestApi<ChallengeSuccessEnvelope>(challengePath, { headers }),
       requestApi<RubricSuccessEnvelope>(rubricPath, { headers }),
     ]);
+    if (generation !== loadGeneration.current) return;
     if (!challenge.ok) {
       setLoadError(challenge.error.message);
       setLoading(false);
@@ -118,6 +121,9 @@ export function ChallengeRubricPage({ id }: { id: string }) {
 
   useEffect(() => {
     void load();
+    return () => {
+      loadGeneration.current += 1;
+    };
   }, [load]);
 
   const weightTotal = useMemo(

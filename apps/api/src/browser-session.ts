@@ -12,7 +12,11 @@ export type BrowserAuthorizationFlow = {
   readonly state: string;
   readonly codeVerifier: string;
   readonly expiresAt: string;
+  readonly returnTo?: string;
 };
+
+const decisionReturnToPattern =
+  /^\/app\/org\/challenges\/record\/evaluation\?id=chl_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$/;
 
 export const browserCookieNames = {
   flow: "rahhal-oidc-flow",
@@ -111,7 +115,9 @@ export function decodeBrowserAuthorizationFlow(value: string): BrowserAuthorizat
       typeof parsed.codeVerifier !== "string" ||
       parsed.codeVerifier.length < 43 ||
       typeof parsed.expiresAt !== "string" ||
-      !Number.isFinite(Date.parse(parsed.expiresAt))
+      !Number.isFinite(Date.parse(parsed.expiresAt)) ||
+      (parsed.returnTo !== undefined &&
+        (typeof parsed.returnTo !== "string" || !decisionReturnToPattern.test(parsed.returnTo)))
     ) {
       return null;
     }
@@ -119,6 +125,7 @@ export function decodeBrowserAuthorizationFlow(value: string): BrowserAuthorizat
       state: parsed.state,
       codeVerifier: parsed.codeVerifier,
       expiresAt: parsed.expiresAt,
+      ...(typeof parsed.returnTo === "string" ? { returnTo: parsed.returnTo } : {}),
     };
   } catch {
     return null;

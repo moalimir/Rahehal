@@ -70,9 +70,13 @@ beforeAll(async () => {
     "0026_d5_review_coi",
     "0027_d6_review_scoring",
     "0028_d8_d9_decision_case",
+    "0029_d8_d9_review_remediation",
   ]);
 
   // Newest first.
+  expect((await runMigrations(database, "down")).applied).toEqual([
+    "0029_d8_d9_review_remediation",
+  ]);
   expect((await runMigrations(database, "down")).applied).toEqual(["0028_d8_d9_decision_case"]);
   expect((await runMigrations(database, "down")).applied).toEqual(["0027_d6_review_scoring"]);
   expect((await runMigrations(database, "down")).applied).toEqual(["0026_d5_review_coi"]);
@@ -162,6 +166,7 @@ beforeAll(async () => {
     "0026_d5_review_coi",
     "0027_d6_review_scoring",
     "0028_d8_d9_decision_case",
+    "0029_d8_d9_review_remediation",
   ]);
   const noOpUp = await runMigrations(database, "up");
   expect(noOpUp.applied).toEqual([]);
@@ -190,6 +195,7 @@ describe("A1a PostgreSQL foundation", () => {
       "app_session",
       "app_user",
       "audit_event",
+      "case_record",
       "challenge",
       "challenge_approval",
       "challenge_evaluation",
@@ -197,6 +203,10 @@ describe("A1a PostgreSQL foundation", () => {
       "challenge_version",
       "coi_declaration",
       "contact_verification_consumption",
+      "decision",
+      "decision_proposal_outcome",
+      "decision_review_evidence",
+      "decision_shortlist_version",
       "direct_offer",
       "eligibility_gate_acceptance",
       "eligibility_rule",
@@ -215,12 +225,15 @@ describe("A1a PostgreSQL foundation", () => {
       "proposal_revision_request",
       "proposal_version",
       "review_assignment",
+      "review_assignment_packet",
+      "review_scorecard",
       "rubric",
       "rubric_version",
       "saved_opportunity",
       "schema_migration",
       "solver_activation",
       "solver_workspace_profile",
+      "step_up_attempt",
       "team_invitation",
       "team_membership_request",
       "team_workspace",
@@ -324,6 +337,7 @@ describe("A1a PostgreSQL foundation", () => {
       { id: "0026_d5_review_coi", checksum: expect.stringMatching(/^[0-9a-f]{64}$/) },
       { id: "0027_d6_review_scoring", checksum: expect.stringMatching(/^[0-9a-f]{64}$/) },
       { id: "0028_d8_d9_decision_case", checksum: expect.stringMatching(/^[0-9a-f]{64}$/) },
+      { id: "0029_d8_d9_review_remediation", checksum: expect.stringMatching(/^[0-9a-f]{64}$/) },
     ]);
   });
 
@@ -366,6 +380,25 @@ describe("A1a PostgreSQL foundation", () => {
       outbox_events: "1",
       mutation_receipts: "1",
     });
+    const solverOtpIdentity = await database.query<{
+      user_id: string;
+      individual_workspace_id: string;
+      individual_membership_id: string;
+    }>(
+      `SELECT link.user_id, activation.individual_workspace_id, activation.individual_membership_id
+       FROM identity_link link
+       JOIN solver_activation activation ON activation.user_id=link.user_id
+         AND activation.provider_issuer=link.issuer AND activation.provider_subject=link.subject
+       WHERE link.issuer='urn:rahhal:identity:development-otp'
+         AND link.subject='contact:email:c1a7de9082ba019c38cd4f1bdbdeabd47370ae2b51d4d27441ebade6dfc2f80d'`,
+    );
+    expect(solverOtpIdentity.rows).toEqual([
+      {
+        user_id: "usr_solver_alpha",
+        individual_workspace_id: "wsp_individual_alpha",
+        individual_membership_id: "mem_individual_alpha",
+      },
+    ]);
   });
 
   it("enforces tenant/workspace and membership compatibility", async () => {
@@ -604,6 +637,9 @@ describe("A1a PostgreSQL foundation", () => {
   });
 
   it("fails the A1b migration atomically for an orphaned existing session", async () => {
+    expect((await runMigrations(database, "down")).applied).toEqual([
+      "0029_d8_d9_review_remediation",
+    ]);
     expect((await runMigrations(database, "down")).applied).toEqual(["0028_d8_d9_decision_case"]);
     expect((await runMigrations(database, "down")).applied).toEqual(["0027_d6_review_scoring"]);
     expect((await runMigrations(database, "down")).applied).toEqual(["0026_d5_review_coi"]);
@@ -720,6 +756,7 @@ describe("A1a PostgreSQL foundation", () => {
       "0026_d5_review_coi",
       "0027_d6_review_scoring",
       "0028_d8_d9_decision_case",
+      "0029_d8_d9_review_remediation",
     ]);
   });
 });

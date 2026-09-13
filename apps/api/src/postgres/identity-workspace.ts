@@ -1340,29 +1340,26 @@ export class PostgresIdentityWorkspaceAdapter
       });
     } catch (error) {
       if (!(error instanceof TransactionDenial)) {
-        // Denials raised inside the authorized transaction are re-recorded
-        // here, outside it. A route that audits its own denial before
-        // throwing writes that row on this transaction's client, and the
-        // throw rolls it straight back -- so 403s were reaching the caller
-        // with no `audit_event` at all, against 70_SECURITY_AND_AUTHZ.md's
-        // rule that every decision, allow and deny, emits one.
-        if (
-          authorization.deferSuccess &&
-          authorizedAccess &&
-          error instanceof ApiProblem &&
-          (error.statusCode === 404 || error.statusCode === 403)
-        ) {
+        // The deferred authorization decision is recorded outside the rolled-back
+        // operation: 403/404 is a denial, while later validation/conflict failures
+        // still mean that authorization itself succeeded.
+        if (authorization.deferSuccess && authorizedAccess && error instanceof ApiProblem) {
+          const denied = error.statusCode === 404 || error.statusCode === 403;
           await this.decisionAudit.record({
-            outcome: "denied",
+            outcome: denied ? "denied" : "success",
             actorUserId: session.userId,
             tenantId: authorizedAccess.tenantId,
             workspaceId: authorizedAccess.workspaceId,
             action: authorization.action,
             entityType: authorization.entityType,
             entityId: authorization.entityId,
-            reason:
-              error.options.auditReason ??
-              (error.statusCode === 404 ? "record_unreachable" : "command_denied"),
+            ...(denied
+              ? {
+                  reason:
+                    error.options.auditReason ??
+                    (error.statusCode === 404 ? "record_unreachable" : "command_denied"),
+                }
+              : {}),
             correlationId: authorization.correlationId,
             occurredAt: this.clock.now().toISOString(),
           });
@@ -1439,29 +1436,26 @@ export class PostgresIdentityWorkspaceAdapter
       });
     } catch (error) {
       if (!(error instanceof TransactionDenial)) {
-        // Denials raised inside the authorized transaction are re-recorded
-        // here, outside it. A route that audits its own denial before
-        // throwing writes that row on this transaction's client, and the
-        // throw rolls it straight back -- so 403s were reaching the caller
-        // with no `audit_event` at all, against 70_SECURITY_AND_AUTHZ.md's
-        // rule that every decision, allow and deny, emits one.
-        if (
-          authorization.deferSuccess &&
-          authorizedAccess &&
-          error instanceof ApiProblem &&
-          (error.statusCode === 404 || error.statusCode === 403)
-        ) {
+        // The deferred authorization decision is recorded outside the rolled-back
+        // operation: 403/404 is a denial, while later validation/conflict failures
+        // still mean that authorization itself succeeded.
+        if (authorization.deferSuccess && authorizedAccess && error instanceof ApiProblem) {
+          const denied = error.statusCode === 404 || error.statusCode === 403;
           await this.decisionAudit.record({
-            outcome: "denied",
+            outcome: denied ? "denied" : "success",
             actorUserId: session.userId,
             tenantId: authorizedAccess.tenantId,
             workspaceId: authorizedAccess.workspaceId,
             action: authorization.action,
             entityType: authorization.entityType,
             entityId: authorization.entityId,
-            reason:
-              error.options.auditReason ??
-              (error.statusCode === 404 ? "record_unreachable" : "command_denied"),
+            ...(denied
+              ? {
+                  reason:
+                    error.options.auditReason ??
+                    (error.statusCode === 404 ? "record_unreachable" : "command_denied"),
+                }
+              : {}),
             correlationId: authorization.correlationId,
             occurredAt: this.clock.now().toISOString(),
           });
