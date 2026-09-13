@@ -66,10 +66,14 @@ async function signIn(page: Page, email: string) {
   await page.goto("/auth/organization/login");
   await page.getByRole("button", { name: /ادامه برای ورود امن سازمانی/ }).click();
   await page.waitForURL(/\/dex\/auth/);
-  await page.locator("#login").fill(email);
+  const login = page.locator("#login");
+  const connector = page.getByRole("link", { name: "Log in with Email" });
+  await expect(login.or(connector)).toBeVisible();
+  if (await connector.isVisible()) await connector.click();
+  await login.fill(email);
   await page.locator("#password").fill(password);
   await page.locator("#submit-login").click();
-  await page.waitForURL(/localhost:3000/);
+  await page.waitForURL(/\/app\/(?:\?|$)/);
 }
 
 /**

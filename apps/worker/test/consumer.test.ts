@@ -1,8 +1,10 @@
 import type { OutboxEvent } from "@rahhal/contracts";
 import {
   opportunityOutboxEventTypes,
+  decisionOutboxEventTypes,
   parsePrefixedId,
   proposalOutboxEventTypes,
+  reviewOutboxEventTypes,
   solverActivationOutboxEventTypes,
   teamOutboxEventTypes,
 } from "@rahhal/domain";
@@ -45,6 +47,18 @@ describe("idempotent outbox consumer", () => {
 
   it("accepts C7 activation and contact-session events through the worker boundary", () => {
     for (const eventType of solverActivationOutboxEventTypes) {
+      expect(isSupportedOutboxEventType(eventType)).toBe(true);
+    }
+  });
+
+  it("accepts rubric and review-assignment events through the worker boundary", () => {
+    for (const eventType of reviewOutboxEventTypes) {
+      expect(isSupportedOutboxEventType(eventType)).toBe(true);
+    }
+  });
+
+  it("accepts shortlist, final-decision, proposal-outcome, and case events", () => {
+    for (const eventType of decisionOutboxEventTypes) {
       expect(isSupportedOutboxEventType(eventType)).toBe(true);
     }
   });

@@ -1,5 +1,7 @@
 # Phase 3 Connected MVP — Frontend Audit & Synchronization Plan
 
+**Current status: Phase 3 C1-C10 is complete and owner-accepted (2026-09-07).** Section 10 records closure; the earlier audit matrix is retained as the regression baseline. Phase 4 is the next implementation phase.
+
 **Added 2026-09-01.** This plan is the route-level companion to [80_DELIVERY_ROADMAP](80_DELIVERY_ROADMAP.md) Phase 3 C7–C10. It owns frontend/backend synchronization, session-aware public chrome, live workspace data, truthful navigation, and real-browser certification. AGENTS.md's Persian/RTL and accessibility code-review rules supply the visual/accessibility criteria; they do not replace the authority audit here.
 
 ## 1. Exit outcome
@@ -15,7 +17,7 @@ The connected local MVP (`RAHHAL_WEB_RUNTIME=network`) must support this complet
 
 The default static export remains a clearly labeled fixture/offline demo under DEC-2026-006. “Live demo” in this plan means the connected local MVP backed by API/PostgreSQL, never the static export.
 
-## 2. Audit evidence — current tree on 2026-09-01
+## 2. Historical audit evidence — current tree on 2026-09-01
 
 - The rendered landing page shows organization and solver signup/login calls to action to anonymous visitors. The worktree contains a partial session-aware desktop-header change, but the home solver actions, mobile drawer, footer, authenticated redirects, and `/app` destination are not yet a complete session contract; `/app` is not a registered route.
 - The rendered solver login still offers “individual account/team account” tabs, email/mobile plus password, and a separate OTP button. Team has no credential in the canonical model, so the tabs and password-first interaction are misleading.
@@ -28,6 +30,8 @@ The default static export remains a clearly labeled fixture/offline demo under D
 - Solver notifications and organization notifications are fixture/browser-repository projections. The worker is demo-only; there is no authoritative in-app notification read model or read/unread API.
 - C9 stages 1-3 have since converted session chrome, `/app` resolution, the solver dashboard, the proposal list and record, teams, saved opportunities and direct offers, the organization proposal inbox and record, and notifications on both sides to server authority in network mode. The static export keeps its local projections. Still on browser authority: the six-step proposal builder. Still fixture surfaces, classified `preview`: the organization dashboard, profile, settings, access, and experts.
 - Anonymous protected-route handling already preserves `returnTo` and renders an explicit session-required state. Phase 3 must retain this behavior and add authenticated-route redirects, expiry recovery, and workspace selection.
+
+The baseline observations above and the issue columns in section 5 describe the implementation starting point, not outstanding work. Current completion is recorded in section 10.
 
 ## 3. Product and authority rules
 
@@ -51,7 +55,7 @@ The default static export remains a clearly labeled fixture/offline demo under D
 
 ### 5.1 Shared public chrome and session routing
 
-| Surface                                                                                                | Current issue                                                                                                                                   | Required Phase-3 behavior                                                                                                                                                                                                                           | Milestone |
+| Surface                                                                                                | Baseline issue                                                                                                                                  | Required Phase-3 behavior                                                                                                                                                                                                                           | Milestone |
 | ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
 | `/`, `/challenges`, public challenge detail, `/organizations`, `/universities`, marketing/trust/guides | public header/footer continue to advertise signup/login after authentication; current partial change does not cover every desktop/mobile action | anonymous visitors see signup/login; authenticated users see a compact role-appropriate panel entry and sign-out, without person/workspace names in marketing chrome. Workspace identity and switching stay inside authenticated application chrome | C9        |
 | `/app`                                                                                                 | referenced as a fallback but no route is registered                                                                                             | add one authenticated workspace resolver: one reachable workspace enters it; multiple reachable workspaces show an explicit chooser; no workspace gives a useful next action; `returnTo` is honored only when authorized                            | C9        |
@@ -60,7 +64,7 @@ The default static export remains a clearly labeled fixture/offline demo under D
 
 ### 5.2 Solver authentication and onboarding
 
-| Surface                                               | Current issue                                                                            | Required Phase-3 behavior                                                                                                                                                                                                                                    | Milestone |
+| Surface                                               | Baseline issue                                                                           | Required Phase-3 behavior                                                                                                                                                                                                                                    | Milestone |
 | ----------------------------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------- |
 | `/auth/login`                                         | individual/team credential tabs and password-first form conflict with one-human identity | one mobile/email OTP login form; no team-account tab or team password; explain that workspace selection follows login; preserve recovery, expiry, resend, throttling, non-enumerating errors, and safe `returnTo`                                            | C7/C9     |
 | `/auth/otp`, `/auth/recovery`, `/auth/verify-contact` | demo code and browser session creation                                                   | provider-adapter states for start/verify/resend/expired/locked/retry; development synthetic code is configuration-gated; success exchanges a server session and clears sensitive form state                                                                  | C7        |
@@ -71,7 +75,7 @@ The default static export remains a clearly labeled fixture/offline demo under D
 
 ### 5.3 Solver workspace
 
-| Surface                                                              | Current issue                                                                                                                           | Required Phase-3 behavior                                                                                                                                                                                             | Milestone |
+| Surface                                                              | Baseline issue                                                                                                                          | Required Phase-3 behavior                                                                                                                                                                                             | Milestone |
 | -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
 | `/app/solver/dashboard`                                              | fixture/browser counts, actions, user and workspace                                                                                     | live active-workspace identity, profile readiness, verification status, saved/draft/submitted counts, nearest deadline, unread notifications, and resumable next actions                                              | C8/C9     |
 | `/app/solver/opportunities` and connected record detail              | discovery can read the public projection, but workspace eligibility/context remains browser-owned and the detail path is fixture-shaped | live public projection plus C1 eligibility for the active personal/team workspace; stable connected record path by opaque server ID; save/start actions retain challenge/workspace context                            | C1/C6/C9  |
@@ -84,7 +88,7 @@ The default static export remains a clearly labeled fixture/offline demo under D
 
 ### 5.4 Organization workspace
 
-| Surface                                                               | Current issue                                                          | Required Phase-3 behavior                                                                                                                                                                                         | Milestone |
+| Surface                                                               | Baseline issue                                                         | Required Phase-3 behavior                                                                                                                                                                                         | Milestone |
 | --------------------------------------------------------------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
 | Phase-2 challenge list/create/edit/governance/live-call/public detail | already connected but separately tested                                | remain live; share the final session-aware shell; regression pass proves publication becomes discoverable and selectable by the new solver journey                                                                | C9/C10    |
 | `/app/org/dashboard`                                                  | only greeting is session-backed; counts/actions/proposals are fixtures | compose a bounded live MVP summary from challenges, received proposals, deadlines, and notifications; no fake KPI or action completion                                                                            | C8/C9     |
@@ -125,7 +129,7 @@ Minimum UI/API behavior: bounded list, unread count, mark one/all read, restart 
 4. **Negative/security:** ID swap, wrong workspace/role, revoked membership/grant/session, stale version, duplicate idempotency key, OTP replay/expiry/resend/rate limit, team-bootstrap retry, notification deep-link denial, deadline race, API outage, and browser-storage poisoning fail closed with no fixture fallback.
 5. **Truthfulness:** route-registry crawl in network mode classifies every route as live, preview, unavailable, or redirect; every route reachable from connected MVP navigation is live and every later-phase route is explicitly bounded.
 
-Minimum final commands are the full frontend release bundle from AGENTS.md plus connected API/PostgreSQL integration, migration down/up/compatibility, focused provider/notification tests, and a new opt-in C10 browser suite against rebuilt Docker images.
+The regression command contract is the full frontend release bundle from AGENTS.md plus connected API/PostgreSQL integration, migration down/up/compatibility, focused provider/notification tests, and connected browser scenarios against rebuilt Docker images. Phase-4 D11 owns the next full-journey automated certification; no additional C10 suite execution is asserted by the owner acceptance in section 10.
 
 ## 9. Out of scope for Phase 3
 
@@ -137,32 +141,29 @@ Minimum final commands are the full frontend release bundle from AGENTS.md plus 
 
 ## 10. Status
 
-**2026-09-07 — C9 complete through stage 5; C10 walked by the owner.** This section is the audit's own ledger and is kept current; the narrative of each stage lives in [80](80_DELIVERY_ROADMAP.md).
+**2026-09-07 - Phase 3 complete; C1-C10 owner-accepted.** The owner explicitly confirmed completion and requested this ledger update. This closes the local Phase-3 delivery gate, including C9 frontend synchronization and C10 browser acceptance. The dated implementation and review evidence remains in [80_DELIVERY_ROADMAP](80_DELIVERY_ROADMAP.md) section 17; this update records acceptance without claiming a new automated test run or independent certification.
 
-Closed since the 2026-09-05 baseline:
+Delivered:
 
-- **Every MVP-core page family is converted.** The route classification the baseline locked at 12 live paths now holds **25**: the solver dashboard, opportunities and record, proposal list, record, preview and versions, saved, received offers, teams, profile, verification, settings and notifications; the organization dashboard, challenges, experts, invitations, proposal inbox and record, notifications, profile, settings and access. Later-phase families (`/app/reviewer`, `/app/ops`, organization contracts/pilots/reports/decisions/cases, solver contracts/payments) remain deliberately unavailable, locked by the same behavior.
-- **No page family reads fixtures.** The 33 files the baseline counted are down to 18, and none of them is a page family: they are the demo runtime itself, the session-cookie layer, and per-viewer UI preferences.
-- **`/app` resolves and the chrome is live.** Connected sign-in through the development OTP provider, real identity in the shell for every persona, workspace switching, and sign-out for every signed-in role.
-- **Both parties read the same submission.** The organization record renders the whole proposal content in the same groups the solver wrote it in, including the declarations the eligibility rule required.
+- All connected MVP-core organization/solver page families use server authority, including profile/team, proposals and exact-version content, opportunities/offers, notifications, and workspace facts.
+- Connected sign-in, live identity/chrome, workspace switching and sign-out operate through the authoritative session boundary.
+- The organization and solver read the same submitted proposal content and required declarations; notification links reauthorize at their destination.
+- The connected proposal editor is authoritative. The six-step browser wizard and default static export remain explicitly demo-only.
 
-Still open, and honest about why:
+| Item                                     | Status                                      |
+| ---------------------------------------- | ------------------------------------------- |
+| Audit baseline and route matrix          | `done`                                      |
+| C1 solver facts/eligibility              | `done`                                      |
+| C2 team backend                          | `done`                                      |
+| C3 proposal draft backend                | `done`                                      |
+| C4 submission and organization reads     | `done`                                      |
+| C5 clarification and revision            | `done`                                      |
+| C6 saved opportunities and direct offers | `done`                                      |
+| C7 activation/OTP scheme                 | `done`                                      |
+| C8 summaries/notifications               | `done`                                      |
+| C9 frontend synchronization              | `done` - five stages landed; owner-accepted |
+| C10 browser acceptance                   | `done` - owner-accepted local journey       |
 
-- **RTL, accessibility and responsive behavior need owner visual review.** AGENTS.md forbids self-certifying visual snapshots, so this gate stays open independently of implementation progress. It is the only C9 acceptance criterion no amount of testing can close from here.
-- **The six-step proposal builder still writes through the browser repository** in demo mode. The connected editor beside it is authoritative and state-aware; the wizard is the demo path and is not claimed as live.
-- **Three findings are recorded rather than fixed**, because each is the owner's call: the organization's challenge list labels every published call `منتشرشده` whether it is open, paused or closed; the OTP session exchange answers `select_workspace` where the OIDC path answers `continue`; and the solver dashboard shows two counts under near-identical Persian wording for two deliberately different sets.
-- **C10 is walked but not certified.** The owner reports the journey works; the recorded scenarios in section 8 have not each been executed and attested, and the Phase-4 reviewer leg of the MVP E2E cannot run at all until a `platform:reviewer` actor exists — none is seeded anywhere today.
+The section 8 scenarios remain the regression contract. The full organization/solver/reviewer/ops journey through decision and case belongs to Phase 4 D11; a missing reviewer implementation does not reopen C10.
 
-| Item                            | Status                                            |
-| ------------------------------- | ------------------------------------------------- |
-| Audit baseline and route matrix | `done`                                            |
-| C1 solver facts/eligibility     | `verification`                                    |
-| C2 team backend                 | `verification`                                    |
-| C3 proposal draft backend       | `verification`                                    |
-| C4–C6 proposal/offers backend   | `verification`                                    |
-| C7 activation/OTP scheme        | `verification`                                    |
-| C8 summaries/notifications      | `verification`                                    |
-| C9 frontend synchronization     | `verification` — five stages landed               |
-| C10 browser certification       | `in-progress` — walked by the owner, not attested |
-
-Every C-milestone sits at `verification`, which this roadmap defines as _built; evidence/review pending_. Moving any of them to `done` is an owner acceptance, not something this document can assert.
+Previously recorded product choices (live-call labels, OTP next-action wording, dashboard count labels, and solver identity disclosure) remain non-blocking follow-ups or explicit Phase-4 policy dependencies. Owner acceptance closes the local phase; it does not manufacture a visual Golden Master, an independent accessibility/security certificate, or a managed production-provider approval. Those retained release requirements remain separate from Phase-3 completion.

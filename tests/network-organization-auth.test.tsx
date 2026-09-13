@@ -39,6 +39,22 @@ describe("ورود و شروع همکاری سازمان در runtime متصل",
     await waitFor(() => expect(startOrganizationLogin).toHaveBeenCalledOnce());
   });
 
+  it("برای داور و عملیات همان ورود OIDC را با قاب‌بندی نقش درست نشان می‌دهد", async () => {
+    window.history.replaceState({}, "", "/auth/organization/login?role=reviewer");
+    const { unmount } = render(<NetworkOrganizationLogin />);
+
+    expect(await screen.findByRole("heading", { name: "ورود داور" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ادامه برای ورود امن داور" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "شروع همکاری برای سازمان جدید" })).toBeNull();
+
+    unmount();
+    window.history.replaceState({}, "", "/auth/organization/login?role=ops");
+    render(<NetworkOrganizationLogin />);
+
+    expect(await screen.findByRole("heading", { name: "ورود عملیات" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ادامه برای ورود امن عملیات" })).toBeInTheDocument();
+  });
+
   it("در connected mode فرم ثبت‌نام نمایشی را با onboarding کنترل‌شده جایگزین می‌کند", () => {
     render(<NetworkOrganizationRegistration />);
 

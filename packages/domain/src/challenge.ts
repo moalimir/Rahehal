@@ -107,9 +107,9 @@ export const challengeTransitions = [
   {
     from: "published",
     to: "evaluating",
-    roles: ["org:member"],
-    preconditions: ["submission-window-closed"],
-    sideEffects: ["freeze-submissions"],
+    roles: ["org:owner", "org:member"],
+    preconditions: ["submission-window-closed", "rubric-version-locked", "proposal-roster-ready"],
+    sideEffects: ["freeze-submissions", "snapshot-evaluation-roster"],
     notification: "داوران",
     audit: "challenge.evaluation.started",
     retry: "idempotent",
@@ -117,7 +117,7 @@ export const challengeTransitions = [
   {
     from: "evaluating",
     to: "decided",
-    roles: ["org:member"],
+    roles: ["org:owner", "org:member"],
     preconditions: ["reviews-complete", "decision-rationale"],
     sideEffects: ["lock-decision", "notify-solvers"],
     notification: "ارسال‌کنندگان پیشنهاد",
@@ -437,6 +437,7 @@ export const challengeOutboxEventTypes = [
   "challenge.resumed",
   "challenge.closed",
   "challenge.cancelled",
+  "challenge.evaluation.started",
 ] as const;
 export type ChallengeOutboxEventType = (typeof challengeOutboxEventTypes)[number];
 

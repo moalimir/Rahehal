@@ -10,6 +10,11 @@ web:
 
 oauth2:
   skipApprovalScreen: true
+  # Stable Dex 2.45 has no browser SSO session or `auth_time` claim. Keep the
+  # local provider's credential screen explicit for every authorization; the
+  # API's loopback-only development step-up fallback binds the signed ID-token
+  # issuance time to the server-side attempt.
+  alwaysShowLoginScreen: true
 
 enablePasswordDB: true
 
@@ -53,3 +58,11 @@ staticPasswords:
     hash: $2y$12$8Slc7htGDKSPQU9UTXDEVOCw8KIAXk0lO7ZRufTPnRNKW6frPWP7q
     username: local-solver-alpha
     userID: solver-alpha
+  - email: reviewer-alpha@synthetic.invalid
+    hash: $2y$12$8Slc7htGDKSPQU9UTXDEVOCw8KIAXk0lO7ZRufTPnRNKW6frPWP7q
+    username: local-reviewer-alpha
+    userID: reviewer-alpha
+  - email: reviewer-beta@synthetic.invalid
+    hash: $2y$12$8Slc7htGDKSPQU9UTXDEVOCw8KIAXk0lO7ZRufTPnRNKW6frPWP7q
+    username: local-reviewer-beta
+    userID: reviewer-beta

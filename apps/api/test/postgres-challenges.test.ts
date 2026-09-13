@@ -1914,10 +1914,17 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
     // The suite normally migrates an empty database, so the backfill path --
     // and the ordering bug where the pairing constraint was added before it --
     // is invisible without this.
-    // Nine migrations sit above 0010: 0020 (C8 notifications), 0019 (C7
-    // activation), 0018 (C6 opportunities/offers), 0017 (C5
-    // clarification/revision), 0016 (C4 submission), 0015 (C2 teams), 0014 (C1
-    // solver profile/eligibility), 0013 (proposal foundation), then 0012.
+    // Migrations above 0010 include Phases 3 and 4 plus the 0012 review closure.
+    expect((await runMigrations(database, "down")).applied).toEqual([
+      "0029_d8_d9_review_remediation",
+    ]);
+    expect((await runMigrations(database, "down")).applied).toEqual(["0028_d8_d9_decision_case"]);
+    expect((await runMigrations(database, "down")).applied).toEqual(["0027_d6_review_scoring"]);
+    expect((await runMigrations(database, "down")).applied).toEqual(["0026_d5_review_coi"]);
+    expect((await runMigrations(database, "down")).applied).toEqual(["0025_d4_review_assignments"]);
+    expect((await runMigrations(database, "down")).applied).toEqual(["0024_d3_open_evaluation"]);
+    expect((await runMigrations(database, "down")).applied).toEqual(["0023_d2_rubric_authoring"]);
+    expect((await runMigrations(database, "down")).applied).toEqual(["0022_d1_review_foundation"]);
     const offerClockDown = await runMigrations(database, "down");
     expect(offerClockDown.applied).toEqual(["0021_c6_offer_deadline_single_clock"]);
     const c8Down = await runMigrations(database, "down");
@@ -1956,6 +1963,14 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
       "0019_c7_solver_activation",
       "0020_c8_notifications",
       "0021_c6_offer_deadline_single_clock",
+      "0022_d1_review_foundation",
+      "0023_d2_rubric_authoring",
+      "0024_d3_open_evaluation",
+      "0025_d4_review_assignments",
+      "0026_d5_review_coi",
+      "0027_d6_review_scoring",
+      "0028_d8_d9_decision_case",
+      "0029_d8_d9_review_remediation",
     ]);
 
     const restored = await database.query<{
@@ -2076,7 +2091,7 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
     });
     await thirdApi.close();
     await thirdComposition.close();
-  });
+  }, 20_000);
 
   it("authorizes a cross-tenant platform gate through the unit of work and denies a revoked session", async () => {
     const platformToken = "local-b2-access-platform-ops";

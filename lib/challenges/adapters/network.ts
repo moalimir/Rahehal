@@ -52,6 +52,7 @@ export function challengeResourceToRecord(resource: ChallengeResource): Challeng
   return {
     ...emptyChallenge(resource.id, resource.created_at),
     id: resource.id,
+    lifecycleStage: resource.stage,
     status,
     title: content.title,
     summary: content.summary,
@@ -117,6 +118,7 @@ export function challengeListItemToRecord(item: ChallengeListItemResource): Chal
   return {
     ...emptyChallenge(item.id, item.created_at),
     id: item.id,
+    lifecycleStage: item.stage,
     status,
     title: item.title,
     category: item.category,

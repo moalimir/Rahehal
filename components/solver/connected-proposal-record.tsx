@@ -2,11 +2,20 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import {
+  decisionApiRoutes,
+  type CaseResource,
+  type CaseSuccessEnvelope,
+  type ProposalOutcomeResource,
+  type ProposalOutcomeSuccessEnvelope,
+} from "@rahhal/contracts";
 
 import { Icon } from "@/components/icons";
 import { ConnectedFamilyFallback } from "@/components/solver/connected-family-state";
 import { ConnectedProposalDetail } from "@/components/solver/connected-proposal-detail";
 import { useConnectedFamily } from "@/components/solver/use-connected";
+import { useWebRuntime } from "@/components/runtime-provider";
+import { requestApi } from "@/lib/api/http";
 import { readProposalRecordId } from "@/lib/workspace/proposal-navigation";
 import { proposalRecordScopeLost, readProposalRecord } from "@/lib/workspace/proposal-record";
 
@@ -68,5 +77,102 @@ function ConnectedProposalRecordDetail({ proposalId }: { proposalId: string }) {
   if (connected.state.kind !== "ready")
     return <ConnectedFamilyFallback state={connected.state} label="این پیشنهاد" />;
 
-  return <ConnectedProposalDetail view={connected.state.data} />;
+  return (
+    <>
+      <ConnectedProposalDetail view={connected.state.data} />
+      <ConnectedProposalOutcome proposalId={proposalId} />
+    </>
+  );
+}
+
+function ConnectedProposalOutcome({ proposalId }: { proposalId: string }) {
+  const workspaceId = useWebRuntime().me?.active_context?.workspace_id;
+  const [outcome, setOutcome] = useState<ProposalOutcomeResource | null>(null);
+  const [caseRecord, setCaseRecord] = useState<CaseResource | null>(null);
+  const [outcomeError, setOutcomeError] = useState("");
+  const [caseError, setCaseError] = useState("");
+
+  useEffect(() => {
+    if (!workspaceId) return;
+    let active = true;
+    setOutcome(null);
+    setCaseRecord(null);
+    setOutcomeError("");
+    setCaseError("");
+    void requestApi<ProposalOutcomeSuccessEnvelope>(
+      decisionApiRoutes.proposalOutcome.replace("{proposalId}", encodeURIComponent(proposalId)),
+      { headers: { "X-Workspace-Id": workspaceId } },
+    ).then(async (result) => {
+      if (!active) return;
+      if (!result.ok) {
+        setOutcomeError(result.error.message);
+        return;
+      }
+      setOutcome(result.data);
+      if (!result.data.case_id) return;
+      const caseResult = await requestApi<CaseSuccessEnvelope>(
+        decisionApiRoutes.case.replace("{caseId}", encodeURIComponent(result.data.case_id)),
+        { headers: { "X-Workspace-Id": workspaceId } },
+      );
+      if (!active) return;
+      if (!caseResult.ok) {
+        setCaseError(caseResult.error.message);
+        return;
+      }
+      setCaseRecord(caseResult.data);
+    });
+    return () => {
+      active = false;
+    };
+  }, [proposalId, workspaceId]);
+
+  if (outcomeError) {
+    return (
+      <section className="rh-card rh-solver-flow-card" role="alert">
+        <h2>نتیجه تصمیم دریافت نشد</h2>
+        <p>{outcomeError}</p>
+      </section>
+    );
+  }
+  if (!outcome || outcome.status === "pending") return null;
+
+  return (
+    <section className="rh-card rh-solver-flow-card" aria-labelledby="proposal-outcome-title">
+      <h2 id="proposal-outcome-title">
+        {outcome.status === "selected" ? "پیشنهاد شما انتخاب شد" : "نتیجه پیشنهاد ثبت شد"}
+      </h2>
+      <p>{outcome.feedback}</p>
+      {caseError ? (
+        <p className="rh-alert rh-alert--warning" role="alert">
+          نتیجه تصمیم دریافت شد، اما پرونده همکاری اکنون در دسترس نیست: {caseError}
+        </p>
+      ) : null}
+      <dl className="rh-proposal-content-group">
+        <div>
+          <dt>نتیجه</dt>
+          <dd>{outcome.status === "selected" ? "منتخب" : "انتخاب نشد"}</dd>
+        </div>
+        <div>
+          <dt>زمان تصمیم</dt>
+          <dd>
+            {outcome.decided_at
+              ? new Intl.DateTimeFormat("fa-IR", {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                  timeZone: "Asia/Tehran",
+                }).format(new Date(outcome.decided_at))
+              : "—"}
+          </dd>
+        </div>
+        {caseRecord ? (
+          <div>
+            <dt>پرونده همکاری فعال</dt>
+            <dd>
+              <bdi dir="ltr">{caseRecord.id}</bdi> · وضعیت ایجادشده
+            </dd>
+          </div>
+        ) : null}
+      </dl>
+    </section>
+  );
 }

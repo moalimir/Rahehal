@@ -9,7 +9,11 @@ export type ChallengeRecordView =
   // B7: publication gates and the publish command. Server-backed only -- the
   // demo has no attributed-gate model, so this view renders an explicit
   // unavailable state there rather than simulating one.
-  | "governance";
+  | "governance"
+  // D2: versioned rubric authoring is connected-only server authority.
+  | "rubric"
+  // D3: readiness and the exact evaluation roster are connected-only authority.
+  | "evaluation";
 
 export type ChallengeFlowRoute =
   | { kind: "list"; path: string }
@@ -61,6 +65,8 @@ const connectedRecordPaths = [
   `${CONNECTED_RECORD_PATH}/preview`,
   `${CONNECTED_RECORD_PATH}/submitted`,
   `${CONNECTED_RECORD_PATH}/governance`,
+  `${CONNECTED_RECORD_PATH}/rubric`,
+  `${CONNECTED_RECORD_PATH}/evaluation`,
 ];
 
 export const challengeFlowStaticPaths = [
@@ -73,7 +79,14 @@ export const challengeFlowStaticPaths = [
 
 function recordView(segment: string | undefined): ChallengeRecordView {
   if (segment === "studio" || segment === "edit") return "edit";
-  if (segment === "preview" || segment === "submitted" || segment === "governance") return segment;
+  if (
+    segment === "preview" ||
+    segment === "submitted" ||
+    segment === "governance" ||
+    segment === "rubric" ||
+    segment === "evaluation"
+  )
+    return segment;
   return "detail";
 }
 
@@ -88,7 +101,7 @@ export function getChallengeFlowRoute(path: string, search = ""): ChallengeFlowR
 
   const record = normalized.match(
     new RegExp(
-      `^${CONNECTED_RECORD_PATH}(?:/(overview|edit|studio|preview|submitted|governance))?$`.replaceAll(
+      `^${CONNECTED_RECORD_PATH}(?:/(overview|edit|studio|preview|submitted|governance|rubric|evaluation))?$`.replaceAll(
         "/",
         "\\/",
       ),
@@ -116,7 +129,7 @@ export function getChallengeFlowRoute(path: string, search = ""): ChallengeFlowR
   }
 
   const match = normalized.match(
-    /^\/app\/org\/challenges\/([^/]+)(?:\/(overview|edit|studio|preview|submitted|governance))?$/,
+    /^\/app\/org\/challenges\/([^/]+)(?:\/(overview|edit|studio|preview|submitted|governance|rubric|evaluation))?$/,
   );
   if (!match || !CHALLENGE_ROUTE_IDS.includes(match[1])) return undefined;
   return { kind: recordView(match[2]), path: normalized, id: match[1] };
@@ -137,8 +150,12 @@ export function challengeFlowMetadata(route: ChallengeFlowRoute) {
               ? "رسید ارسال پرونده"
               : kind === "governance"
                 ? "دروازه‌های انتشار"
-                : kind === "redirect"
-                  ? "انتقال به مسیر جدید"
-                  : "نمای پرونده";
+                : kind === "rubric"
+                  ? "معیارهای ارزیابی"
+                  : kind === "evaluation"
+                    ? "پرونده ارزیابی"
+                    : kind === "redirect"
+                      ? "انتقال به مسیر جدید"
+                      : "نمای پرونده";
   return { title, summary: "مدیریت ثبت، تکمیل و ارسال مسئله سازمانی برای بررسی پلتفرم." };
 }

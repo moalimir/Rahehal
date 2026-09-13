@@ -1,15 +1,28 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useCallback, useState } from "react";
+import { lazy, Suspense, useCallback, useState } from "react";
+import dynamic from "next/dynamic";
 
-import { PlatformApprovalQueue } from "@/components/platform-approval-queue";
-import { PermissionDenied } from "@/components/route-fallbacks";
+import { PermissionDenied, ProductNotFound, RouteResolving } from "@/components/route-fallbacks";
 import { useWebRuntime } from "@/components/runtime-provider";
 import { ConfiguredRoleShell } from "@/components/role-shells";
 import type { InternalRoute } from "@/data/internal-routes";
 import { networkInternalSession, workspacesForPersona } from "@/lib/auth/network-session";
 import type { DemoSession } from "@/lib/auth/session";
+
+const ConnectedReviewAssignments = dynamic(
+  () =>
+    import("@/components/internal/connected-review-assignments").then(
+      (module) => module.ConnectedReviewAssignments,
+    ),
+  { loading: RouteResolving },
+);
+const PlatformApprovalQueue = lazy(() =>
+  import("@/components/platform-approval-queue").then((module) => ({
+    default: module.PlatformApprovalQueue,
+  })),
+);
 
 function WorkspaceActivationRequired({
   workspaces,
@@ -71,10 +84,19 @@ export function NetworkInternalBoundary({
     [runtime],
   );
 
+  // Connected assignments are exact server resources on the authoritative
+  // queue. Legacy fixture-ID pages use browser COI and demo scoring, so never
+  // render them as a fallback for a connected reviewer deep link.
+  if (route.role === "reviewer" && route.path.startsWith("/app/reviewer/assignments/")) {
+    return <ProductNotFound requestedPath={route.path} />;
+  }
+
   if (route.path === "/app/ops/publication") {
     return (
       <ConfiguredRoleShell role="ops" currentPath={route.path}>
-        <PlatformApprovalQueue />
+        <Suspense fallback={<RouteResolving />}>
+          <PlatformApprovalQueue />
+        </Suspense>
       </ConfiguredRoleShell>
     );
   }
@@ -93,6 +115,21 @@ export function NetworkInternalBoundary({
         />
       );
     }
+  }
+
+  if (networkSession?.persona === "reviewer" && route.path === "/app/reviewer/assignments") {
+    return (
+      <ConfiguredRoleShell role="reviewer" currentPath={route.path}>
+        <ConnectedReviewAssignments view="reviewer" />
+      </ConfiguredRoleShell>
+    );
+  }
+  if (networkSession?.role === "platform:ops" && route.path === "/app/ops/reviews") {
+    return (
+      <ConfiguredRoleShell role="ops" currentPath={route.path}>
+        <ConnectedReviewAssignments view="operations" />
+      </ConfiguredRoleShell>
+    );
   }
 
   return children(

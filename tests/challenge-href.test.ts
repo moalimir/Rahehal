@@ -12,7 +12,17 @@ import { connectedChallengeHref } from "@/lib/challenges/navigation";
 describe("connected challenge links", () => {
   it("rewrites every record view a list or record page links to", () => {
     const id = "chl_4c6aabe8f0a24d2f9d4b1a0f2e6c7d81";
-    for (const view of ["", "overview", "edit", "studio", "preview", "submitted", "governance"]) {
+    for (const view of [
+      "",
+      "overview",
+      "edit",
+      "studio",
+      "preview",
+      "submitted",
+      "governance",
+      "rubric",
+      "evaluation",
+    ]) {
       const canonical = `/app/org/challenges/${id}${view ? `/${view}` : ""}`;
       expect(connectedChallengeHref(canonical)).toBe(
         `/app/org/challenges/record${view ? `/${view}` : ""}/?id=${id}`,

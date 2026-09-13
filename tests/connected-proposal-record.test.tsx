@@ -12,9 +12,11 @@ import type { GatewayResult } from "@/lib/api/result";
 const testState = vi.hoisted(() => {
   const get = vi.fn();
   const publicChallenge = vi.fn();
+  const requestApi = vi.fn();
   return {
     get,
     publicChallenge,
+    requestApi,
     runtime: {
       mode: "network",
       sessionStatus: "authenticated",
@@ -36,6 +38,8 @@ vi.mock("@/components/runtime-provider", () => ({
 vi.mock("@/lib/challenges/adapters/network-public-challenges", () => ({
   readPublicChallenge: testState.publicChallenge,
 }));
+
+vi.mock("@/lib/api/http", () => ({ requestApi: testState.requestApi }));
 
 const meta = { server_time: "2026-09-06T00:00:00.000Z", correlation_id: "cor_test_record" };
 const proposalId = "prp_c0ffee0000004a1b8000000000000001";
@@ -101,6 +105,7 @@ describe("connected proposal record", () => {
     window.history.replaceState({}, "", `/app/solver/proposals/record/?id=${proposalId}`);
     testState.get.mockReset();
     testState.publicChallenge.mockReset();
+    testState.requestApi.mockReset();
     testState.publicChallenge.mockResolvedValue({ ok: false });
     testState.get.mockImplementation(
       async (): Promise<GatewayResult<ReturnType<typeof serverProposal>>> => ({
@@ -109,6 +114,20 @@ describe("connected proposal record", () => {
         meta,
       }),
     );
+    testState.requestApi.mockResolvedValue({
+      ok: true,
+      data: {
+        proposal_id: proposalId,
+        proposal_version_id: "prv_c0ffee0000004a1b8000000000000009",
+        tracking_code: "PRP-2026-951",
+        status: "pending",
+        feedback: null,
+        decided_at: null,
+        case_id: null,
+        version: 3,
+      },
+      meta: { ...meta, entity_version: 3 },
+    });
   });
 
   it("reads the record from the server rather than the demo repository", async () => {
@@ -148,5 +167,77 @@ describe("connected proposal record", () => {
 
     expect(await screen.findByText("شناسه پرونده مشخص نیست")).toBeInTheDocument();
     expect(testState.get).not.toHaveBeenCalled();
+  });
+
+  it("shows only the solver's own decision feedback and granted case", async () => {
+    const caseId = "case_c0ffee0000004a1b8000000000000001";
+    testState.requestApi
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          proposal_id: proposalId,
+          proposal_version_id: "prv_c0ffee0000004a1b8000000000000009",
+          tracking_code: "PRP-2026-951",
+          status: "selected",
+          feedback: "این بازخورد فقط برای پیشنهاد خود حل‌گر است.",
+          decided_at: "2026-09-10T08:05:00.000Z",
+          case_id: caseId,
+          version: 4,
+        },
+        meta: { ...meta, entity_version: 4 },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          id: caseId,
+          challenge_id: "chl_c0ffee0000004a1b8000000000000002",
+          challenge_version_id: "chv_c0ffee0000004a1b8000000000000002",
+          proposal_id: proposalId,
+          proposal_version_id: "prv_c0ffee0000004a1b8000000000000009",
+          decision_id: "dec_c0ffee0000004a1b8000000000000001",
+          state: "created",
+          created_at: "2026-09-10T08:05:00.000Z",
+        },
+        meta: { ...meta, entity_version: 1 },
+      });
+
+    render(<ConnectedProposalRecord />);
+
+    expect(await screen.findByText("پیشنهاد شما انتخاب شد")).toBeVisible();
+    expect(screen.getByText("این بازخورد فقط برای پیشنهاد خود حل‌گر است.")).toBeVisible();
+    expect(screen.getByText(caseId)).toBeVisible();
+  });
+
+  it("keeps the decision outcome visible when the granted case read fails", async () => {
+    const caseId = "case_c0ffee0000004a1b8000000000000002";
+    testState.requestApi
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          proposal_id: proposalId,
+          proposal_version_id: "prv_c0ffee0000004a1b8000000000000009",
+          tracking_code: "PRP-2026-951",
+          status: "selected",
+          feedback: "نتیجه قطعی باید حتی با خطای پرونده دیده شود.",
+          decided_at: "2026-09-10T08:05:00.000Z",
+          case_id: caseId,
+          version: 4,
+        },
+        meta: { ...meta, entity_version: 4 },
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        error: { code: "NO_ACCESS", message: "دسترسی پرونده موقتاً در دسترس نیست." },
+        meta,
+      });
+
+    render(<ConnectedProposalRecord />);
+
+    expect(await screen.findByText("پیشنهاد شما انتخاب شد")).toBeVisible();
+    expect(screen.getByText("نتیجه قطعی باید حتی با خطای پرونده دیده شود.")).toBeVisible();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "نتیجه تصمیم دریافت شد، اما پرونده همکاری اکنون در دسترس نیست",
+    );
+    expect(screen.queryByText("نتیجه تصمیم دریافت نشد")).toBeNull();
   });
 });

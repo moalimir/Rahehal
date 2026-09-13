@@ -151,6 +151,7 @@ services:
       OIDC_CLIENT_ID: rahhal-local-web
       OIDC_ALLOWED_REDIRECT_URIS: http://localhost:3000/auth/browser/callback
       OIDC_ALLOW_INSECURE_HTTP: "true"
+      OIDC_ALLOW_LOCAL_ISSUED_AT_STEP_UP: "true"
       RAHHAL_BROWSER_ORIGIN: http://localhost:3000
       OIDC_FLOW_SECRET: ${RAHHAL_OIDC_FLOW_SECRET:?run npm run docker:env:init}
       SESSION_CREDENTIAL_SECRET: ${RAHHAL_SESSION_CREDENTIAL_SECRET:?run npm run docker:env:init}

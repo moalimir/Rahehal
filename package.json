@@ -86,6 +86,7 @@
     "test:browser:connected": "PLAYWRIGHT_SKIP_WEBSERVER=1 playwright test playwright/connected.pw.ts --project=desktop-1280x800",
     "test:browser:b7": "PLAYWRIGHT_SKIP_WEBSERVER=1 playwright test playwright/b7.pw.ts --project=desktop-1280x800",
     "test:browser:c1": "PLAYWRIGHT_SKIP_WEBSERVER=1 playwright test playwright/c1.pw.ts --project=desktop-1280x800",
+    "test:browser:phase4": "PLAYWRIGHT_SKIP_WEBSERVER=1 node --env-file-if-exists=.env node_modules/playwright/cli.js test playwright/phase4.pw.ts --project=desktop-1280x800",
     "seed:demo": "PLAYWRIGHT_SKIP_WEBSERVER=1 playwright test playwright/seed-demo.pw.ts --project=desktop-1280x800 --reporter=list"
   },
   "dependencies": {
@@ -94,7 +95,7 @@
     "react-dom": "19.1.1"
   },
   "devDependencies": {
-    "@next/bundle-analyzer": "16.3.1",
+    "@next/bundle-analyzer": "16.3.4",
     "@playwright/test": "1.62.1",
     "@testing-library/jest-dom": "6.8.0",
     "@testing-library/react": "16.3.0",
@@ -105,7 +106,7 @@
     "autoprefixer": "10.4.21",
     "axe-core": "4.12.1",
     "eslint": "9.35.0",
-    "eslint-config-next": "16.3.1",
+    "eslint-config-next": "16.3.4",
     "jsdom": "^27.4.0",
     "postcss": "^8.5.26",
     "prettier": "3.6.2",
@@ -113,6 +114,6 @@
     "serve": "14.2.6",
     "tailwindcss": "3.4.17",
     "typescript": "5.9.2",
-    "vitest": "4.1.10"
+    "vitest": "4.1.11"
   }
 }

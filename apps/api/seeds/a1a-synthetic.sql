@@ -450,10 +450,33 @@ INSERT INTO identity_link (id, user_id, issuer, subject, created_at, last_authen
   -- solver-scoped route is evaluated against, but had no Dex link, so no
   -- connected browser could sign in as a solver at all.
   ('idl_solver_alpha_local_oidc', 'usr_solver_alpha',
-   'http://dex.localhost:5556/dex', 'Cgxzb2x2ZXItYWxwaGESBWxvY2Fs', '2026-01-01T00:00:00Z', NULL)
+   'http://dex.localhost:5556/dex', 'Cgxzb2x2ZXItYWxwaGESBWxvY2Fs', '2026-01-01T00:00:00Z', NULL),
+  -- The connected solver browser uses the development OTP provider rather
+  -- than Dex. Bind its deterministic provider subject to the same human so a
+  -- returning synthetic solver reaches the existing individual/team
+  -- workspaces instead of being misclassified as a first activation.
+  ('idl_solver_alpha_local_otp', 'usr_solver_alpha',
+   'urn:rahhal:identity:development-otp',
+   'contact:email:c1a7de9082ba019c38cd4f1bdbdeabd47370ae2b51d4d27441ebade6dfc2f80d',
+   '2026-01-01T00:00:00Z', NULL)
 ON CONFLICT (id) DO UPDATE
 SET issuer = EXCLUDED.issuer,
     subject = EXCLUDED.subject;
+
+-- Existing pre-C7 synthetic humans need the same permanent activation binding
+-- required by returning OTP sign-in. This is local fixture evidence only;
+-- production never links an unrecognized provider assertion by email.
+INSERT INTO solver_activation (
+  id, user_id, tenant_id, individual_workspace_id, individual_membership_id,
+  provider_issuer, provider_subject, contact_channel, start_intent, activated_at
+) VALUES (
+  'act_solver_alpha_local_otp', 'usr_solver_alpha', 'ten_solver_alpha',
+  'wsp_individual_alpha', 'mem_individual_alpha',
+  'urn:rahhal:identity:development-otp',
+  'contact:email:c1a7de9082ba019c38cd4f1bdbdeabd47370ae2b51d4d27441ebade6dfc2f80d',
+  'email', 'individual', '2026-01-01T00:00:00Z'
+)
+ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO membership (
   id, tenant_id, workspace_id, workspace_kind, user_id, role, state, created_at, updated_at

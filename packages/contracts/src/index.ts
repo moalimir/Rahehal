@@ -12,3 +12,7 @@ export * from "./session.js";
 export * from "./proposal.js";
 export * from "./solver-profile.js";
 export * from "./team.js";
+export * from "./review.js";
+export * from "./rubric.js";
+export * from "./evaluation.js";
+export * from "./decision.js";

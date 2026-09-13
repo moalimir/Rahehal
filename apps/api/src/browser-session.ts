@@ -12,10 +12,16 @@ export type BrowserAuthorizationFlow = {
   readonly state: string;
   readonly codeVerifier: string;
   readonly expiresAt: string;
+  readonly returnTo?: string;
 };
+
+const decisionReturnToPattern =
+  /^\/app\/org\/challenges\/record\/evaluation\?id=chl_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$/;
 
 export const browserCookieNames = {
   flow: "rahhal-oidc-flow",
+  stepUpFlow: "rahhal-step-up-flow",
+  stepUp: "rahhal-step-up",
   access: "rahhal-access",
   refresh: "rahhal-refresh",
 } as const;
@@ -109,7 +115,9 @@ export function decodeBrowserAuthorizationFlow(value: string): BrowserAuthorizat
       typeof parsed.codeVerifier !== "string" ||
       parsed.codeVerifier.length < 43 ||
       typeof parsed.expiresAt !== "string" ||
-      !Number.isFinite(Date.parse(parsed.expiresAt))
+      !Number.isFinite(Date.parse(parsed.expiresAt)) ||
+      (parsed.returnTo !== undefined &&
+        (typeof parsed.returnTo !== "string" || !decisionReturnToPattern.test(parsed.returnTo)))
     ) {
       return null;
     }
@@ -117,6 +125,7 @@ export function decodeBrowserAuthorizationFlow(value: string): BrowserAuthorizat
       state: parsed.state,
       codeVerifier: parsed.codeVerifier,
       expiresAt: parsed.expiresAt,
+      ...(typeof parsed.returnTo === "string" ? { returnTo: parsed.returnTo } : {}),
     };
   } catch {
     return null;
@@ -138,6 +147,28 @@ export function authorizationFlowCookie(
     settings,
     lifetimeSeconds(flow.expiresAt, now),
   );
+}
+
+export function stepUpAuthorizationFlowCookie(
+  flow: BrowserAuthorizationFlow,
+  settings: BrowserSessionRuntimeSettings,
+  now: Date,
+): string {
+  return cookie(
+    browserCookieNames.stepUpFlow,
+    encodeBrowserAuthorizationFlow(flow),
+    settings,
+    lifetimeSeconds(flow.expiresAt, now),
+  );
+}
+
+export function stepUpProofCookie(
+  token: string,
+  expiresAt: string,
+  settings: BrowserSessionRuntimeSettings,
+  now: Date,
+): string {
+  return cookie(browserCookieNames.stepUp, token, settings, lifetimeSeconds(expiresAt, now));
 }
 
 export function sessionCookies(
@@ -166,6 +197,8 @@ export function clearBrowserSessionCookies(
 ): readonly string[] {
   return [
     cookie(browserCookieNames.flow, "", settings, 0),
+    cookie(browserCookieNames.stepUpFlow, "", settings, 0),
+    cookie(browserCookieNames.stepUp, "", settings, 0),
     cookie(browserCookieNames.access, "", settings, 0),
     cookie(browserCookieNames.refresh, "", settings, 0),
   ];
@@ -175,4 +208,12 @@ export function clearBrowserAuthorizationFlowCookie(
   settings: BrowserSessionRuntimeSettings,
 ): string {
   return cookie(browserCookieNames.flow, "", settings, 0);
+}
+
+export function clearBrowserStepUpFlowCookie(settings: BrowserSessionRuntimeSettings): string {
+  return cookie(browserCookieNames.stepUpFlow, "", settings, 0);
+}
+
+export function clearBrowserStepUpCookie(settings: BrowserSessionRuntimeSettings): string {
+  return cookie(browserCookieNames.stepUp, "", settings, 0);
 }

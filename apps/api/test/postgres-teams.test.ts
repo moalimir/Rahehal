@@ -27,7 +27,10 @@ let teams: PostgresTeamAdapter;
 // Rows here take the database's `clock_timestamp()`, so a frozen literal date
 // puts every `updated_at` this adapter writes behind its own `created_at` the
 // moment the wall clock passes it, and `membership_check1` rejects the write.
-// The adapter clock has to track the same real time the database does.
+// The adapter clock has to track the same real time the database does. Raw
+// membership fixtures that are immediately updated are also backdated one
+// second because PostgreSQL keeps microseconds while JavaScript Date keeps
+// milliseconds; otherwise an update in the same millisecond can be earlier.
 const clock = { now: () => new Date() };
 
 function quotedIdentifier(value: string): string {
@@ -302,8 +305,13 @@ describe("C2 PostgreSQL team lifecycle", () => {
     const workspaceId = await createTeam("c2-pg-row-lock-0001");
     await database.query(
       `INSERT INTO membership (
-         id, tenant_id, workspace_id, workspace_kind, user_id, role, state, lock_version
-       ) VALUES ('mem_c2_race_admin','ten_solver_alpha',$1,'team','usr_team_admin_alpha','team:admin','active',1)`,
+         id, tenant_id, workspace_id, workspace_kind, user_id, role, state, lock_version,
+         created_at, updated_at
+       ) VALUES (
+         'mem_c2_race_admin','ten_solver_alpha',$1,'team','usr_team_admin_alpha',
+         'team:admin','active',1,clock_timestamp() - interval '1 second',
+         clock_timestamp() - interval '1 second'
+       )`,
       [workspaceId],
     );
     const target = parseMembershipId("mem_c2_race_admin");
@@ -444,8 +452,13 @@ describe("C2 PostgreSQL team lifecycle", () => {
     const workspaceId = await createTeam("c2-pg-transfer-0001");
     await database.query(
       `INSERT INTO membership (
-         id, tenant_id, workspace_id, workspace_kind, user_id, role, state, lock_version
-       ) VALUES ('mem_c2_successor','ten_solver_alpha',$1,'team','usr_team_admin_alpha','team:admin','active',1)`,
+         id, tenant_id, workspace_id, workspace_kind, user_id, role, state, lock_version,
+         created_at, updated_at
+       ) VALUES (
+         'mem_c2_successor','ten_solver_alpha',$1,'team','usr_team_admin_alpha',
+         'team:admin','active',1,clock_timestamp() - interval '1 second',
+         clock_timestamp() - interval '1 second'
+       )`,
       [workspaceId],
     );
     const current = await teams.get(context(workspaceId, "c2-pg-transfer-read"));

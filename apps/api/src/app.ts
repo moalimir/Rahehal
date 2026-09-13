@@ -1,3 +1,33 @@
+import type {
+  CreateRubricVersionBody,
+  ChallengeEvaluationSuccessEnvelope,
+  ChallengeReviewComparisonSuccessEnvelope,
+  OpenChallengeEvaluationBody,
+  ReviewAssignmentListQuery,
+  ReviewAssignmentListSuccessEnvelope,
+  ReviewAssignmentSuccessEnvelope,
+  ReviewMaterialsSuccessEnvelope,
+  ReviewSuccessEnvelope,
+  DeclareReviewCoiBody,
+  SaveReviewDraftBody,
+  SubmitReviewBody,
+  LockReviewBody,
+  InvalidateReviewBody,
+  OperationsReviewConflictListSuccessEnvelope,
+  OperationsReviewAssignmentListQuery,
+  OperationsReviewAssignmentListSuccessEnvelope,
+  CreateReviewAssignmentBody,
+  CancelReviewAssignmentBody,
+  ReplaceReviewAssignmentBody,
+  ReviewAssignmentNextAction,
+  BrowserDecisionStepUpStartBody,
+  BrowserDecisionStepUpStartSuccessEnvelope,
+  CaseSuccessEnvelope,
+  ChallengeDecisionSuccessEnvelope,
+  ProposalOutcomeSuccessEnvelope,
+  RecordChallengeDecisionBody,
+  SaveDecisionShortlistBody,
+} from "@rahhal/contracts";
 import Fastify, {
   type FastifyInstance,
   type FastifyRequest,
@@ -7,6 +37,10 @@ import {
   apiRoutes,
   apiSchemas,
   browserSessionRoutes,
+  decisionApiRoutes,
+  reviewCoiApiRoutes,
+  reviewComparisonApiRoutes,
+  reviewScoringApiRoutes,
   type BrowserOidcAuthorizationStartBody,
   type BrowserOidcAuthorizationStartSuccessEnvelope,
   openApiDocument,
@@ -100,6 +134,7 @@ import {
   type ChallengeId,
   type CorrelationId,
   type DirectOfferId,
+  type ReviewAssignmentId,
   type WorkspaceRole,
   type EligibilityGateKind,
   type TeamAction,
@@ -109,10 +144,14 @@ import {
   authorizationFlowCookie,
   browserCookieNames,
   clearBrowserAuthorizationFlowCookie,
+  clearBrowserStepUpCookie,
+  clearBrowserStepUpFlowCookie,
   clearBrowserSessionCookies,
   decodeBrowserAuthorizationFlow,
   parseCookies,
   sessionCookies,
+  stepUpAuthorizationFlowCookie,
+  stepUpProofCookie,
   type BrowserSessionRuntimeSettings,
 } from "./browser-session.js";
 import { ApiProblem, errorEnvelope, forbidden, notFound } from "./errors.js";
@@ -126,6 +165,7 @@ import type {
   ProposalScope,
   WorkspaceAccess,
   WorkspaceAuthorization,
+  WorkspaceCommandContext,
 } from "./ports.js";
 import {
   commandFingerprint,
@@ -156,6 +196,8 @@ type TeamMemberParams = { membershipId: string };
 type ProposalParams = { proposalId: string };
 type DirectOfferParams = { directOfferId: string };
 type ContactVerificationParams = { attemptId: string };
+type ReviewAssignmentParams = { assignmentId: string };
+type CaseParams = { caseId: string };
 
 type BrowserOidcCallbackQuery = {
   readonly code: string;
@@ -467,6 +509,9 @@ const fastifyDirectOfferPath = (path: string) =>
     "{directOfferId}",
     ":directOfferId(^dof_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$)",
   );
+
+const fastifyCasePath = (path: string) =>
+  fastifyLiteralPath(path).replace("{caseId}", ":caseId(^case_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$)");
 
 const fastifyContactVerificationPath = (path: string) =>
   fastifyLiteralPath(path).replace(
@@ -999,6 +1044,83 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
       },
     );
 
+    app.post<{ Params: ChallengeIdParams; Body: BrowserDecisionStepUpStartBody }>(
+      fastifyChallengeCommandPath(decisionApiRoutes.browserDecisionStepUpStart),
+      {
+        schema: {
+          params: challengeIdParamsSchema,
+          body: apiSchemas.BrowserDecisionStepUpStartBody,
+          response: {
+            200: apiSchemas.BrowserDecisionStepUpStartSuccessEnvelope,
+            ...apiErrorResponses,
+          },
+        },
+      },
+      async (request, reply): Promise<BrowserDecisionStepUpStartSuccessEnvelope> => {
+        requireBrowserOrigin(request, settings);
+        const session = await requireSession(
+          request,
+          ports.sessions,
+          ports.decisionAudit,
+          ports.clock,
+        );
+        const command = idempotencyCommand(request);
+        return runAuthorizedWorkspace(
+          request,
+          ports,
+          session,
+          {
+            action: "challenge:decision-step-up",
+            entityType: "challenge",
+            entityId: request.params.challengeId,
+            allows: canEditChallenge,
+            deferSuccess: true,
+          },
+          async (access) => {
+            const result = await ports.stepUp.start(
+              request.params.challengeId,
+              request.body,
+              settings.redirectUri,
+              {
+                ...challengeScope(session, access),
+                ...command,
+                sessionId: session.id,
+                sessionVersion: session.version,
+              },
+            );
+            void reply.header(
+              "set-cookie",
+              stepUpAuthorizationFlowCookie(
+                {
+                  state: result.state,
+                  codeVerifier: result.code_verifier,
+                  expiresAt: result.expires_at,
+                  returnTo: result.returnTo,
+                },
+                settings,
+                ports.clock.now(),
+              ),
+            );
+            const response = versionedSuccess(
+              {
+                authorization_url: result.authorization_url,
+                expires_at: result.expires_at,
+              },
+              request,
+              ports,
+              request.body.expected_version,
+            );
+            await recordWorkspaceAccessSuccess(request, ports, session, access, {
+              action: "challenge:decision-step-up",
+              entityType: "challenge",
+              entityId: request.params.challengeId,
+            });
+            return response;
+          },
+        );
+      },
+    );
+
     app.get<{ Querystring: BrowserOidcCallbackQuery }>(
       browserSessionRoutes.oidcCallback,
       {
@@ -1015,14 +1137,66 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
         },
       },
       async (request, reply) => {
+        const cookies = parseCookies(request.headers.cookie);
+        const stepUpFlowValue = cookies.get(browserCookieNames.stepUpFlow);
+        const stepUpFlow = stepUpFlowValue ? decodeBrowserAuthorizationFlow(stepUpFlowValue) : null;
+        if (stepUpFlow?.state === request.query.state) {
+          const failStepUp = () => {
+            const returnTo = stepUpFlow.returnTo ?? "/app";
+            const separator = returnTo.includes("?") ? "&" : "?";
+            void reply
+              .code(303)
+              .header("set-cookie", clearBrowserStepUpFlowCookie(settings))
+              .header("location", `${returnTo}${separator}stepUp=failed`)
+              .send();
+          };
+          if (Date.parse(stepUpFlow.expiresAt) <= ports.clock.now().getTime()) {
+            return failStepUp();
+          }
+          try {
+            const session = await requireSession(
+              request,
+              ports.sessions,
+              ports.decisionAudit,
+              ports.clock,
+            );
+            const outcome = await ports.stepUp.complete(
+              {
+                expected_version: 0,
+                authorization_code: request.query.code,
+                code_verifier: stepUpFlow.codeVerifier,
+                redirect_uri: settings.redirectUri,
+                state: request.query.state,
+              },
+              session,
+              { correlationId: correlationId(request) },
+            );
+            const separator = outcome.returnTo.includes("?") ? "&" : "?";
+            void reply
+              .code(303)
+              .header("set-cookie", [
+                stepUpProofCookie(outcome.token, outcome.expiresAt, settings, ports.clock.now()),
+                clearBrowserStepUpFlowCookie(settings),
+              ])
+              .header("location", `${outcome.returnTo}${separator}stepUp=ready`)
+              .send();
+            return;
+          } catch {
+            return failStepUp();
+          }
+        }
+
         const fail = () => {
           void reply
             .code(303)
-            .header("set-cookie", clearBrowserAuthorizationFlowCookie(settings))
+            .header("set-cookie", [
+              clearBrowserAuthorizationFlowCookie(settings),
+              clearBrowserStepUpFlowCookie(settings),
+            ])
             .header("location", "/auth/organization/login?authError=callback_failed")
             .send();
         };
-        const flowValue = parseCookies(request.headers.cookie).get(browserCookieNames.flow);
+        const flowValue = cookies.get(browserCookieNames.flow);
         const flow = flowValue ? decodeBrowserAuthorizationFlow(flowValue) : null;
         if (
           !flow ||
@@ -1054,6 +1228,7 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
             .header("set-cookie", [
               ...sessionCookies(outcome.tokens, settings, ports.clock.now()),
               clearBrowserAuthorizationFlowCookie(settings),
+              clearBrowserStepUpFlowCookie(settings),
             ])
             // `/app` resolves whichever workspace this human actually reaches.
             // Sending everyone to the organization's challenge form landed a
@@ -3708,6 +3883,916 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
             ...command,
           }),
       ),
+  );
+
+  app.get<{ Params: { challengeId: string } }>(
+    apiRoutes.challengeEvaluation.replace("{challengeId}", ":challengeId"),
+    {
+      schema: {
+        params: challengeIdParamsSchema,
+        response: {
+          200: apiSchemas.ChallengeEvaluationSuccessEnvelope,
+          ...apiErrorResponses,
+        },
+      },
+    },
+    async (request): Promise<ChallengeEvaluationSuccessEnvelope> => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "challenge:evaluation:read",
+          entityType: "challenge",
+          entityId: request.params.challengeId,
+          allows: canEditChallenge,
+          deferSuccess: true,
+        },
+        async (access) => {
+          const evaluation = await ports.evaluations.get(
+            challengeScope(session, access),
+            request.params.challengeId,
+          );
+          if (!evaluation) throw notFound();
+          await recordWorkspaceAccessSuccess(request, ports, session, access, {
+            action: "challenge:evaluation:read",
+            entityType: "challenge",
+            entityId: request.params.challengeId,
+          });
+          return versionedSuccess(evaluation, request, ports, evaluation.version);
+        },
+      );
+    },
+  );
+  app.get<{ Params: { challengeId: string } }>(
+    reviewComparisonApiRoutes.challengeReviewComparison.replace("{challengeId}", ":challengeId"),
+    {
+      schema: {
+        params: challengeIdParamsSchema,
+        response: {
+          200: apiSchemas.ChallengeReviewComparisonSuccessEnvelope,
+          ...apiErrorResponses,
+        },
+      },
+    },
+    async (request): Promise<ChallengeReviewComparisonSuccessEnvelope> => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "review-comparison:read",
+          entityType: "challenge",
+          entityId: request.params.challengeId,
+          allows: canEditChallenge,
+          deferSuccess: true,
+        },
+        async (access) => {
+          const comparison = await ports.evaluations.comparison(
+            challengeScope(session, access),
+            request.params.challengeId,
+          );
+          if (!comparison) throw notFound();
+          await recordWorkspaceAccessSuccess(request, ports, session, access, {
+            action: "review-comparison:read",
+            entityType: "challenge",
+            entityId: request.params.challengeId,
+          });
+          return versionedSuccess(comparison, request, ports, comparison.version);
+        },
+      );
+    },
+  );
+
+  app.get<{ Params: ChallengeIdParams }>(
+    decisionApiRoutes.challengeDecision.replace("{challengeId}", ":challengeId"),
+    {
+      schema: {
+        params: challengeIdParamsSchema,
+        response: { 200: apiSchemas.ChallengeDecisionSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request): Promise<ChallengeDecisionSuccessEnvelope> => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "challenge:decision:read",
+          entityType: "challenge",
+          entityId: request.params.challengeId,
+          allows: canEditChallenge,
+          deferSuccess: true,
+        },
+        async (access) => {
+          const decision = await ports.decisions.get(
+            challengeScope(session, access),
+            request.params.challengeId,
+          );
+          if (!decision) throw notFound();
+          await recordWorkspaceAccessSuccess(request, ports, session, access, {
+            action: "challenge:decision:read",
+            entityType: "challenge",
+            entityId: request.params.challengeId,
+          });
+          return versionedSuccess(decision, request, ports, decision.version);
+        },
+      );
+    },
+  );
+
+  app.post<{ Params: ChallengeIdParams; Body: SaveDecisionShortlistBody }>(
+    fastifyChallengeCommandPath(decisionApiRoutes.decisionShortlist),
+    {
+      schema: {
+        params: challengeIdParamsSchema,
+        body: apiSchemas.SaveDecisionShortlistBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "challenge:shortlist:record",
+          entityType: "challenge",
+          entityId: request.params.challengeId,
+          allows: canEditChallenge,
+          deferSuccess: true,
+        },
+        async (access) =>
+          mutationSuccess(
+            await ports.decisions.saveShortlist(request.params.challengeId, request.body, {
+              ...challengeScope(session, access),
+              ...command,
+            }),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.post<{ Params: ChallengeIdParams; Body: RecordChallengeDecisionBody }>(
+    fastifyChallengeCommandPath(decisionApiRoutes.recordDecision),
+    {
+      schema: {
+        params: challengeIdParamsSchema,
+        body: apiSchemas.RecordChallengeDecisionBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      const outcome = await runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "challenge:decision:record",
+          entityType: "challenge",
+          entityId: request.params.challengeId,
+          allows: canEditChallenge,
+          deferSuccess: true,
+        },
+        async (access) =>
+          ports.decisions.record(request.params.challengeId, request.body, {
+            ...challengeScope(session, access),
+            ...command,
+            sessionId: session.id,
+            sessionVersion: session.version,
+            stepUpToken:
+              parseCookies(request.headers.cookie).get(browserCookieNames.stepUp) ??
+              request.body.step_up_token,
+          }),
+      );
+      if (options.browserSession) {
+        void reply.header("set-cookie", clearBrowserStepUpCookie(options.browserSession));
+      }
+      return mutationSuccess(outcome, request, ports);
+    },
+  );
+
+  app.get<{ Params: ProposalParams }>(
+    fastifyProposalPath(decisionApiRoutes.proposalOutcome),
+    {
+      schema: {
+        params: apiSchemas.ProposalParams,
+        response: { 200: apiSchemas.ProposalOutcomeSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request): Promise<ProposalOutcomeSuccessEnvelope> => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runSolverActorAction(
+        request,
+        ports,
+        session,
+        "proposal:outcome:read",
+        "proposal",
+        request.params.proposalId,
+        async (access) => {
+          const outcome = await ports.decisions.proposalOutcome(
+            challengeScope(session, access),
+            request.params.proposalId,
+          );
+          if (!outcome) throw notFound();
+          return versionedSuccess(outcome, request, ports, outcome.version);
+        },
+      );
+    },
+  );
+
+  app.get<{ Params: CaseParams }>(
+    fastifyCasePath(decisionApiRoutes.case),
+    {
+      schema: {
+        params: apiSchemas.CaseParams,
+        response: { 200: apiSchemas.CaseSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request): Promise<CaseSuccessEnvelope> => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "case:read",
+          entityType: "case",
+          entityId: request.params.caseId,
+          allows: (access) => canEditChallenge(access) || canReadSolverWorkspace(access),
+          deferSuccess: true,
+        },
+        async (access) => {
+          const record = await ports.decisions.case(
+            challengeScope(session, access),
+            request.params.caseId,
+          );
+          if (!record) throw notFound();
+          await recordWorkspaceAccessSuccess(request, ports, session, access, {
+            action: "case:read",
+            entityType: "case",
+            entityId: request.params.caseId,
+          });
+          return versionedSuccess(record, request, ports, 1);
+        },
+      );
+    },
+  );
+
+  app.post<{ Params: { challengeId: string }; Body: OpenChallengeEvaluationBody }>(
+    fastifyChallengeCommandPath(apiRoutes.openChallengeEvaluation),
+    {
+      schema: {
+        params: challengeIdParamsSchema,
+        body: apiSchemas.OpenChallengeEvaluationBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "challenge:evaluation:open",
+          entityType: "challenge",
+          entityId: request.params.challengeId,
+          allows: canEditChallenge,
+          deferSuccess: true,
+        },
+        async (access) =>
+          mutationSuccess(
+            await ports.evaluations.open(request.params.challengeId, request.body, {
+              ...challengeScope(session, access),
+              ...command,
+            }),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.get<{ Params: { challengeId: string } }>(
+    apiRoutes.challengeRubric.replace("{challengeId}", ":challengeId"),
+    {
+      schema: {
+        params: challengeIdParamsSchema,
+        response: { 200: apiSchemas.RubricSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "rubric:read",
+          entityType: "challenge",
+          entityId: request.params.challengeId,
+          allows: canEditChallenge,
+          deferSuccess: true,
+        },
+        async (access) => {
+          const rubric = await ports.rubrics.get(
+            challengeScope(session, access),
+            request.params.challengeId,
+          );
+          await recordWorkspaceAccessSuccess(request, ports, session, access, {
+            action: "rubric:read",
+            entityType: "challenge",
+            entityId: request.params.challengeId,
+          });
+          return success(rubric, request, ports);
+        },
+      );
+    },
+  );
+  app.post<{ Params: { challengeId: string }; Body: CreateRubricVersionBody }>(
+    apiRoutes.createRubricVersion.replace("{challengeId}", ":challengeId"),
+    {
+      schema: {
+        params: challengeIdParamsSchema,
+        body: apiSchemas.CreateRubricVersionBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "rubric:author",
+          entityType: "challenge",
+          entityId: request.params.challengeId,
+          allows: canEditChallenge,
+          deferSuccess: true,
+        },
+        async (access) =>
+          mutationSuccess(
+            await ports.rubrics.createVersion(request.params.challengeId, request.body, {
+              ...challengeScope(session, access),
+              ...command,
+            }),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.get<{ Querystring: ReviewAssignmentListQuery }>(
+    apiRoutes.reviewAssignments,
+    {
+      schema: {
+        querystring: apiSchemas.ReviewAssignmentListQuery,
+        response: { 200: apiSchemas.ReviewAssignmentListSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request): Promise<ReviewAssignmentListSuccessEnvelope> => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "review-assignment:list",
+          entityType: "review_assignment",
+          allows: (access) =>
+            access.workspace.kind === "platform" && access.role === "platform:reviewer",
+        },
+        async (access) =>
+          success(
+            await ports.reviews.list(proposalScope(session, access), request.query),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+  app.get<{ Params: { assignmentId: string } }>(
+    apiRoutes.reviewAssignmentById.replace("{assignmentId}", ":assignmentId"),
+    {
+      schema: {
+        params: apiSchemas.ReviewAssignmentParams,
+        response: { 200: apiSchemas.ReviewAssignmentSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request): Promise<ReviewAssignmentSuccessEnvelope> => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const item = await runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "review-assignment:read",
+          entityType: "review_assignment",
+          entityId: request.params.assignmentId,
+          deferSuccess: true,
+          allows: (access) =>
+            access.workspace.kind === "platform" && access.role === "platform:reviewer",
+        },
+        async (access) => {
+          const item = await ports.reviews.get(
+            proposalScope(session, access),
+            request.params.assignmentId,
+          );
+          if (item) {
+            await recordWorkspaceAccessSuccess(request, ports, session, access, {
+              action: "review-assignment:read",
+              entityType: "review_assignment",
+              entityId: item.id,
+            });
+          } else {
+            // Return the absence so this read-only transaction commits its denial
+            // evidence in both runtimes before the HTTP NOT_FOUND is raised.
+            await ports.decisionAudit.record({
+              outcome: "denied",
+              actorUserId: session.userId,
+              tenantId: access.tenantId,
+              workspaceId: access.workspaceId,
+              action: "review-assignment:read",
+              entityType: "review_assignment",
+              entityId: request.params.assignmentId,
+              reason: "record_unreachable",
+              correlationId: correlationId(request),
+              occurredAt: ports.clock.now().toISOString(),
+            });
+          }
+          return item;
+        },
+      );
+      if (!item) throw notFound();
+      return success(item, request, ports);
+    },
+  );
+
+  const fastifyReviewAssignmentPath = (path: string) =>
+    fastifyLiteralPath(path).replace(
+      "{assignmentId}",
+      ":assignmentId(^rva_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$)",
+    );
+
+  app.get<{ Params: ReviewAssignmentParams }>(
+    fastifyReviewAssignmentPath(reviewCoiApiRoutes.reviewAssignmentMaterials),
+    {
+      schema: {
+        params: apiSchemas.ReviewAssignmentParams,
+        response: { 200: apiSchemas.ReviewMaterialsSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request): Promise<ReviewMaterialsSuccessEnvelope> => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const item = await runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "review-materials:read",
+          entityType: "review_assignment",
+          entityId: request.params.assignmentId,
+          deferSuccess: true,
+          allows: (access) =>
+            access.workspace.kind === "platform" && access.role === "platform:reviewer",
+        },
+        async (access) => {
+          const materials = await ports.reviews.materials(
+            proposalScope(session, access),
+            request.params.assignmentId,
+          );
+          await ports.decisionAudit.record({
+            outcome: materials ? "success" : "denied",
+            actorUserId: session.userId,
+            tenantId: access.tenantId,
+            workspaceId: access.workspaceId,
+            action: "review-materials:read",
+            entityType: "review_assignment",
+            entityId: request.params.assignmentId,
+            ...(!materials ? { reason: "record_unreachable" } : {}),
+            correlationId: correlationId(request),
+            occurredAt: ports.clock.now().toISOString(),
+          });
+          return materials;
+        },
+      );
+      if (!item) throw notFound();
+      return success(item, request, ports);
+    },
+  );
+
+  app.post<{ Params: ReviewAssignmentParams; Body: DeclareReviewCoiBody }>(
+    fastifyReviewAssignmentPath(reviewCoiApiRoutes.declareReviewCoi),
+    {
+      schema: {
+        params: apiSchemas.ReviewAssignmentParams,
+        body: apiSchemas.DeclareReviewCoiBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "review:coi-declare",
+          entityType: "review_assignment",
+          entityId: request.params.assignmentId,
+          allows: (access) =>
+            access.workspace.kind === "platform" && access.role === "platform:reviewer",
+          deferSuccess: true,
+        },
+        async (access) =>
+          mutationSuccess(
+            await ports.reviews.declareCoi(request.params.assignmentId, request.body, {
+              ...proposalScope(session, access),
+              ...command,
+            }),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.get<{ Params: ReviewAssignmentParams }>(
+    fastifyReviewAssignmentPath(reviewScoringApiRoutes.reviewAssignmentReview),
+    {
+      schema: {
+        params: apiSchemas.ReviewAssignmentParams,
+        response: { 200: apiSchemas.ReviewSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request): Promise<ReviewSuccessEnvelope> => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "review:read-own",
+          entityType: "review_assignment",
+          entityId: request.params.assignmentId,
+          allows: (access) =>
+            access.workspace.kind === "platform" && access.role === "platform:reviewer",
+        },
+        async (access) =>
+          success(
+            await ports.reviews.review(proposalScope(session, access), request.params.assignmentId),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  const registerReviewerScoreCommand = <Body extends { readonly expected_version: number }>(
+    route: string,
+    action: string,
+    schema: object,
+    command: (
+      id: string,
+      body: Body,
+      context: import("./ports.js").ReviewerCommandContext,
+    ) => Promise<MutationOutcome<ReviewAssignmentId, ReviewAssignmentNextAction>>,
+  ) =>
+    app.post<{ Params: ReviewAssignmentParams; Body: Body }>(
+      fastifyReviewAssignmentPath(route),
+      {
+        schema: {
+          params: apiSchemas.ReviewAssignmentParams,
+          body: schema,
+          response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+        },
+      },
+      async (request) => {
+        const session = await requireSession(
+          request,
+          ports.sessions,
+          ports.decisionAudit,
+          ports.clock,
+        );
+        const idempotency = idempotencyCommand(request);
+        return runAuthorizedWorkspace(
+          request,
+          ports,
+          session,
+          {
+            action,
+            entityType: "review_assignment",
+            entityId: request.params.assignmentId,
+            allows: (access) =>
+              access.workspace.kind === "platform" && access.role === "platform:reviewer",
+            deferSuccess: true,
+          },
+          async (access) =>
+            mutationSuccess(
+              await command(request.params.assignmentId, request.body as Body, {
+                ...proposalScope(session, access),
+                ...idempotency,
+              }),
+              request,
+              ports,
+            ),
+        );
+      },
+    );
+
+  registerReviewerScoreCommand<SaveReviewDraftBody>(
+    reviewScoringApiRoutes.saveReviewDraft,
+    "review:save-draft",
+    apiSchemas.SaveReviewDraftBody,
+    (id, body, context) => ports.reviews.saveDraft(id, body, context),
+  );
+  registerReviewerScoreCommand<SubmitReviewBody>(
+    reviewScoringApiRoutes.submitReview,
+    "review:submit",
+    apiSchemas.SubmitReviewBody,
+    (id, body, context) => ports.reviews.submit(id, body, context),
+  );
+
+  app.get<{ Querystring: OperationsReviewAssignmentListQuery }>(
+    apiRoutes.operationsReviewAssignments,
+    {
+      schema: {
+        querystring: apiSchemas.OperationsReviewAssignmentListQuery,
+        response: {
+          200: apiSchemas.OperationsReviewAssignmentListSuccessEnvelope,
+          ...apiErrorResponses,
+        },
+      },
+    },
+    async (request): Promise<OperationsReviewAssignmentListSuccessEnvelope> => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "review-assignment:list-operations",
+          entityType: "review_assignment",
+          allows: (access) =>
+            access.workspace.kind === "platform" && access.role === "platform:ops",
+        },
+        async (access) =>
+          success(
+            await ports.reviews.listOperations(challengeScope(session, access), request.query),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.get(
+    reviewCoiApiRoutes.operationsReviewConflicts,
+    {
+      schema: {
+        response: {
+          200: apiSchemas.OperationsReviewConflictListSuccessEnvelope,
+          ...apiErrorResponses,
+        },
+      },
+    },
+    async (request): Promise<OperationsReviewConflictListSuccessEnvelope> => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "review-conflict:list-operations",
+          entityType: "review_assignment",
+          allows: (access) =>
+            access.workspace.kind === "platform" && access.role === "platform:ops",
+        },
+        async (access) =>
+          success(
+            await ports.reviews.listConflicts(challengeScope(session, access)),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  app.post<{ Body: CreateReviewAssignmentBody }>(
+    apiRoutes.operationsReviewAssignments,
+    {
+      schema: {
+        body: apiSchemas.CreateReviewAssignmentBody,
+        response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+      },
+    },
+    async (request) => {
+      const session = await requireSession(
+        request,
+        ports.sessions,
+        ports.decisionAudit,
+        ports.clock,
+      );
+      const command = idempotencyCommand(request);
+      return runAuthorizedWorkspace(
+        request,
+        ports,
+        session,
+        {
+          action: "review-assignment:create",
+          entityType: "review_assignment",
+          allows: (access) =>
+            access.workspace.kind === "platform" && access.role === "platform:ops",
+          deferSuccess: true,
+        },
+        async (access) =>
+          mutationSuccess(
+            await ports.reviews.create(request.body, {
+              ...challengeScope(session, access),
+              ...command,
+            }),
+            request,
+            ports,
+          ),
+      );
+    },
+  );
+
+  const registerOperationsAssignmentCommand = <Body extends CancelReviewAssignmentBody>(
+    route: string,
+    action: string,
+    schema: object,
+    command: (
+      id: string,
+      body: Body,
+      context: WorkspaceCommandContext,
+    ) => Promise<MutationOutcome<ReviewAssignmentId, ReviewAssignmentNextAction>>,
+  ) =>
+    app.post<{ Params: ReviewAssignmentParams; Body: Body }>(
+      fastifyReviewAssignmentPath(route),
+      {
+        schema: {
+          params: apiSchemas.ReviewAssignmentParams,
+          body: schema,
+          response: { 200: apiSchemas.MutationSuccessEnvelope, ...apiErrorResponses },
+        },
+      },
+      async (request) => {
+        const session = await requireSession(
+          request,
+          ports.sessions,
+          ports.decisionAudit,
+          ports.clock,
+        );
+        const idempotency = idempotencyCommand(request);
+        return runAuthorizedWorkspace(
+          request,
+          ports,
+          session,
+          {
+            action,
+            entityType: "review_assignment",
+            entityId: request.params.assignmentId,
+            allows: (access) =>
+              access.workspace.kind === "platform" && access.role === "platform:ops",
+            deferSuccess: true,
+          },
+          async (access) =>
+            mutationSuccess(
+              await command(request.params.assignmentId, request.body as Body, {
+                ...challengeScope(session, access),
+                ...idempotency,
+              }),
+              request,
+              ports,
+            ),
+        );
+      },
+    );
+
+  registerOperationsAssignmentCommand<CancelReviewAssignmentBody>(
+    apiRoutes.cancelReviewAssignment,
+    "review-assignment:cancel",
+    apiSchemas.CancelReviewAssignmentBody,
+    (id, body, context) => ports.reviews.cancel(id, body, context),
+  );
+  registerOperationsAssignmentCommand<ReplaceReviewAssignmentBody>(
+    apiRoutes.replaceReviewAssignment,
+    "review-assignment:replace",
+    apiSchemas.ReplaceReviewAssignmentBody,
+    (id, body, context) => ports.reviews.replace(id, body, context),
+  );
+  registerOperationsAssignmentCommand<LockReviewBody>(
+    reviewScoringApiRoutes.lockReview,
+    "review:lock",
+    apiSchemas.LockReviewBody,
+    (id, body, context) => ports.reviews.lock(id, body, context),
+  );
+  registerOperationsAssignmentCommand<InvalidateReviewBody>(
+    reviewScoringApiRoutes.invalidateReview,
+    "review:invalidate",
+    apiSchemas.InvalidateReviewBody,
+    (id, body, context) => ports.reviews.invalidate(id, body, context),
   );
 
   // `fastifyLiteralPath` escapes the action suffix's colon; without it the

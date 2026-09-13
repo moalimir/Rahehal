@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useEffect, useState, type ReactNode } from "react";
 import { ChallengeDetailPage } from "@/components/challenge-flow/detail-page";
 import { ChallengeEditPage } from "@/components/challenge-flow/edit-page";
@@ -16,6 +17,15 @@ import { navigateChallenge, readStandalonePath } from "@/lib/challenges/navigati
 import { useWebRuntime } from "@/components/runtime-provider";
 import { ChallengeShell } from "@/components/challenge-flow/shell";
 import { isNetworkWebRuntime } from "@/lib/runtime/mode";
+
+const ChallengeRubricPage = dynamic(() =>
+  import("@/components/challenge-flow/rubric-page").then((module) => module.ChallengeRubricPage),
+);
+const ChallengeEvaluationPage = dynamic(() =>
+  import("@/components/challenge-flow/evaluation-page").then(
+    (module) => module.ChallengeEvaluationPage,
+  ),
+);
 
 function ConnectedChallengeBoundary({
   children,
@@ -200,6 +210,10 @@ export function ChallengeFlowApp({ route: initialRoute }: { route: ChallengeFlow
       <ChallengeSubmittedPage id={route.id} />
     ) : route.kind === "governance" ? (
       <ChallengeGovernancePage id={route.id} targetWorkspaceId={route.workspaceId} />
+    ) : route.kind === "rubric" ? (
+      <ChallengeRubricPage id={route.id} />
+    ) : route.kind === "evaluation" ? (
+      <ChallengeEvaluationPage id={route.id} />
     ) : (
       <ChallengeDetailPage id={route.id} />
     );

@@ -32,21 +32,36 @@ test.describe("A3 connected challenge slice", () => {
     await page.getByRole("button", { name: /ادامه برای ورود امن سازمانی/ }).click();
 
     await page.waitForURL(/\/dex\/auth/);
-    await page.locator("#login").fill(identity.email);
+    const login = page.locator("#login");
+    const connector = page.getByRole("link", { name: "Log in with Email" });
+    await expect(login.or(connector)).toBeVisible();
+    if (await connector.isVisible()) await connector.click();
+    await login.fill(identity.email);
     await page.locator("#password").fill(identity.password);
     await page.locator("#submit-login").click();
 
-    await page.waitForURL(/\/app\/org\/challenges\/new/);
+    await page.waitForURL(/\/app\/org\/challenges\/?(?:\?|$)/);
+    await page.goto("/app/org/challenges/new/");
   }
 
   async function activateWorkspace(page: import("@playwright/test").Page) {
-    // A freshly exchanged session has no active workspace: the server's receipt
-    // says the next action is `select_workspace`, and the UI must ask for it
-    // before any command is possible.
+    // `/app` activates a sole reachable workspace through the server command.
+    // Multiple choices still require the visible selector. Check the actual
+    // context instead of requiring a chooser after automatic activation.
+    const active = await page.evaluate(async () => {
+      const response = await fetch("/api/v1/me", { credentials: "same-origin" });
+      return (await response.json()).data.active_context?.workspace_id;
+    });
+    if (active === "wsp_org_alpha") return;
     const chooser = page.getByRole("heading", { name: "یک فضای سازمانی را فعال کنید" });
     await expect(chooser).toBeVisible();
     await page.locator("button.challenge-button--primary").first().click();
     await expect(chooser).toBeHidden();
+    const selected = await page.evaluate(async () => {
+      const response = await fetch("/api/v1/me", { credentials: "same-origin" });
+      return (await response.json()).data.active_context?.workspace_id;
+    });
+    expect(selected).toBe("wsp_org_alpha");
   }
 
   test("signs in, activates a workspace, and persists a draft in PostgreSQL", async ({

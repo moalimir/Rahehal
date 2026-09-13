@@ -5,14 +5,55 @@ import { useEffect, useState } from "react";
 import { Brand } from "@/components/brand";
 import { useWebRuntime } from "@/components/runtime-provider";
 import { workspacesForPersona } from "@/lib/auth/network-session";
+import type { AppPersona } from "@/domain/persona";
+
+const oidcLoginCopy: Readonly<
+  Record<
+    "org" | "reviewer" | "ops",
+    {
+      readonly badge: string;
+      readonly title: string;
+      readonly description: string;
+      readonly button: string;
+    }
+  >
+> = {
+  org: {
+    badge: "پنل سازمانی",
+    title: "ورود سازمان",
+    description:
+      "با هویت سازمانی خود وارد شوید تا چالش‌ها، اعضا و راه‌حل‌های دریافتی را در فضای کاری مجاز مدیریت کنید.",
+    button: "ادامه برای ورود امن سازمانی",
+  },
+  reviewer: {
+    badge: "پنل داوری",
+    title: "ورود داور",
+    description:
+      "با هویت حرفه‌ای خود وارد شوید تا فقط مأموریت‌های داوری تخصیص‌یافته و مجاز را مشاهده کنید.",
+    button: "ادامه برای ورود امن داور",
+  },
+  ops: {
+    badge: "پنل عملیات",
+    title: "ورود عملیات",
+    description: "با هویت عملیاتی خود وارد شوید تا صف‌های تخصیص و کنترل داوری مجاز را مدیریت کنید.",
+    button: "ادامه برای ورود امن عملیات",
+  },
+};
+
+function oidcPersona(value: string | null): "org" | "reviewer" | "ops" {
+  return value === "reviewer" || value === "ops" ? value : "org";
+}
 
 export function NetworkOrganizationLogin() {
   const runtime = useWebRuntime();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [persona, setPersona] = useState<"org" | "reviewer" | "ops">("org");
 
   useEffect(() => {
-    const authError = new URLSearchParams(window.location.search).get("authError");
+    const parameters = new URLSearchParams(window.location.search);
+    setPersona(oidcPersona(parameters.get("role")));
+    const authError = parameters.get("authError");
     if (authError) setError("ورود کامل نشد یا درخواست ورود منقضی شده است؛ دوباره تلاش کنید.");
   }, []);
 
@@ -26,13 +67,10 @@ export function NetworkOrganizationLogin() {
     }
   };
 
-  const organizationWorkspaces = workspacesForPersona(runtime.me, "org");
+  const availableWorkspaces = workspacesForPersona(runtime.me, persona as AppPersona);
+  const copy = oidcLoginCopy[persona];
   const loading = runtime.sessionStatus === "loading";
-  const buttonLabel = busy
-    ? "در حال انتقال…"
-    : loading
-      ? "در حال بررسی نشست…"
-      : "ادامه برای ورود امن سازمانی";
+  const buttonLabel = busy ? "در حال انتقال…" : loading ? "در حال بررسی نشست…" : copy.button;
 
   return (
     <div className="organization-auth-page organization-auth-page--login" data-runtime="network">
@@ -45,12 +83,9 @@ export function NetworkOrganizationLogin() {
       <main className="organization-auth-main" id="main-content">
         <section className="organization-auth-form-panel">
           <div className="organization-auth-card organization-auth-card--login">
-            <span className="organization-auth-badge">پنل سازمانی</span>
-            <h1>ورود سازمان</h1>
-            <p>
-              با هویت سازمانی خود وارد شوید تا چالش‌ها، اعضا و راه‌حل‌های دریافتی را در فضای کاری
-              مجاز مدیریت کنید.
-            </p>
+            <span className="organization-auth-badge">{copy.badge}</span>
+            <h1>{copy.title}</h1>
+            <p>{copy.description}</p>
 
             {error && (
               <p className="organization-auth-message is-error" role="alert">
@@ -62,15 +97,15 @@ export function NetworkOrganizationLogin() {
                 signed-in human can actually reach an organization workspace.
                 Offering it to a solver sent them to a page that refuses them,
                 which is the chrome promising what the session cannot do. */}
-            {runtime.sessionStatus === "authenticated" && organizationWorkspaces.length > 0 ? (
-              <Link className="organization-auth-submit" href="/app/org/challenges">
-                ورود به فضای سازمانی
+            {runtime.sessionStatus === "authenticated" && availableWorkspaces.length > 0 ? (
+              <Link className="organization-auth-submit" href="/app">
+                ورود به فضای کاری
               </Link>
             ) : runtime.sessionStatus === "authenticated" ? (
               <>
                 <p className="organization-auth-message" role="status">
-                  این نشست به هیچ فضای کاری سازمانی دسترسی ندارد. برای ورود سازمانی، ابتدا از نشست
-                  فعلی خارج شوید.
+                  این نشست به فضای کاری موردنیاز دسترسی ندارد. برای ورود با هویت مناسب، ابتدا از
+                  نشست فعلی خارج شوید.
                 </p>
                 <button
                   type="button"
@@ -103,12 +138,14 @@ export function NetworkOrganizationLogin() {
               نمی‌کند.
             </p>
 
-            <Link
-              className="organization-auth-secondary"
-              href="/auth/organization/register/representative"
-            >
-              شروع همکاری برای سازمان جدید
-            </Link>
+            {persona === "org" ? (
+              <Link
+                className="organization-auth-secondary"
+                href="/auth/organization/register/representative"
+              >
+                شروع همکاری برای سازمان جدید
+              </Link>
+            ) : null}
 
             <div className="organization-auth-dev-note">
               <strong>محیط توسعه محلی</strong>

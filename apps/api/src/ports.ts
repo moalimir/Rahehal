@@ -1,4 +1,23 @@
 import type {
+  ReviewAssignmentResource,
+  ReviewAssignmentListResource,
+  ReviewAssignmentListQuery,
+  OperationsReviewAssignmentListQuery,
+  OperationsReviewAssignmentListResource,
+  OperationsReviewConflictListResource,
+  CreateReviewAssignmentBody,
+  CancelReviewAssignmentBody,
+  DeclareReviewCoiBody,
+  SaveReviewDraftBody,
+  SubmitReviewBody,
+  LockReviewBody,
+  InvalidateReviewBody,
+  ReplaceReviewAssignmentBody,
+  ReviewAssignmentNextAction,
+  ReviewMaterialsResource,
+  ReviewResource,
+} from "@rahhal/contracts";
+import type {
   ChallengeApprovalBriefResource,
   ChallengeListQuery,
   ChallengePage,
@@ -136,6 +155,8 @@ export type IdFactory = {
       | "chl"
       | "chv"
       | "cap"
+      | "rub"
+      | "rbv"
       | "ver"
       | "ega"
       | "tiv"
@@ -157,7 +178,13 @@ export type IdFactory = {
       | "ntf"
       | "oat"
       | "act"
-      | "otp",
+      | "otp"
+      | "rva"
+      | "rev"
+      | "sup"
+      | "dsv"
+      | "dec"
+      | "case",
   ): string;
 };
 
@@ -180,10 +207,14 @@ export type OidcIdentity = {
   readonly issuer: string;
   readonly subject: string;
   readonly verifiedEmail: string;
+  readonly authenticatedAt?: string;
 };
 
 export interface OidcExchangePort {
-  exchange(body: SessionExchangeBody): Promise<OidcIdentity | null>;
+  exchange(
+    body: SessionExchangeBody,
+    options?: { readonly maxAgeSeconds?: number },
+  ): Promise<OidcIdentity | null>;
   consume(identity: OidcIdentity): Promise<void>;
 }
 
@@ -191,6 +222,7 @@ export interface OidcAuthorizationPort {
   start(
     body: OidcAuthorizationStartBody,
     command: SessionCommand,
+    options?: { readonly forceReauthentication?: boolean },
   ): Promise<OidcAuthorizationStartResult>;
 }
 
@@ -718,7 +750,84 @@ export interface AccessDecisionAuditPort {
   record(decision: AccessDecisionRecord): Promise<void>;
 }
 
+export type ReviewerScope = WorkspaceScope & { readonly membershipId: MembershipId };
+export type ReviewerCommandContext = WorkspaceCommandContext & ReviewerScope;
+export interface ReviewPort {
+  list(
+    scope: ReviewerScope,
+    query: ReviewAssignmentListQuery,
+  ): Promise<ReviewAssignmentListResource>;
+  get(scope: ReviewerScope, id: string): Promise<ReviewAssignmentResource | null>;
+  materials(scope: ReviewerScope, id: string): Promise<ReviewMaterialsResource | null>;
+  review(scope: ReviewerScope, id: string): Promise<ReviewResource | null>;
+  declareCoi(
+    id: string,
+    body: DeclareReviewCoiBody,
+    context: ReviewerCommandContext,
+  ): Promise<
+    MutationOutcome<import("@rahhal/domain").ReviewAssignmentId, ReviewAssignmentNextAction>
+  >;
+  saveDraft(
+    id: string,
+    body: SaveReviewDraftBody,
+    context: ReviewerCommandContext,
+  ): Promise<
+    MutationOutcome<import("@rahhal/domain").ReviewAssignmentId, ReviewAssignmentNextAction>
+  >;
+  submit(
+    id: string,
+    body: SubmitReviewBody,
+    context: ReviewerCommandContext,
+  ): Promise<
+    MutationOutcome<import("@rahhal/domain").ReviewAssignmentId, ReviewAssignmentNextAction>
+  >;
+  listConflicts(scope: WorkspaceScope): Promise<OperationsReviewConflictListResource>;
+  listOperations(
+    scope: WorkspaceScope,
+    query: OperationsReviewAssignmentListQuery,
+  ): Promise<OperationsReviewAssignmentListResource>;
+  create(
+    body: CreateReviewAssignmentBody,
+    context: WorkspaceCommandContext,
+  ): Promise<
+    MutationOutcome<import("@rahhal/domain").ReviewAssignmentId, ReviewAssignmentNextAction>
+  >;
+  cancel(
+    id: string,
+    body: CancelReviewAssignmentBody,
+    context: WorkspaceCommandContext,
+  ): Promise<
+    MutationOutcome<import("@rahhal/domain").ReviewAssignmentId, ReviewAssignmentNextAction>
+  >;
+  replace(
+    id: string,
+    body: ReplaceReviewAssignmentBody,
+    context: WorkspaceCommandContext,
+  ): Promise<
+    MutationOutcome<import("@rahhal/domain").ReviewAssignmentId, ReviewAssignmentNextAction>
+  >;
+  lock(
+    id: string,
+    body: LockReviewBody,
+    context: WorkspaceCommandContext,
+  ): Promise<
+    MutationOutcome<import("@rahhal/domain").ReviewAssignmentId, ReviewAssignmentNextAction>
+  >;
+  invalidate(
+    id: string,
+    body: InvalidateReviewBody,
+    context: WorkspaceCommandContext,
+  ): Promise<
+    MutationOutcome<import("@rahhal/domain").ReviewAssignmentId, ReviewAssignmentNextAction>
+  >;
+}
+
 export type ApiPorts = {
+  readonly evaluations: import("./evaluation-port.js").EvaluationPort;
+  readonly rubrics: import("./rubric-port.js").RubricPort;
+  readonly reviews: ReviewPort;
+  readonly stepUp: import("./step-up-port.js").StepUpPort;
+  readonly decisions: import("./decision-port.js").DecisionPort;
   readonly oidcAuthorization: OidcAuthorizationPort;
   readonly contactVerification: ContactVerificationProviderPort;
   readonly sessions: SessionPort;

@@ -23,8 +23,13 @@ import { isDraftStatus, type ChallengeRecord } from "@/domain/challenge";
 export function ConnectedRecordLinks({ record }: { record: ChallengeRecord }) {
   const governed = !isDraftStatus(record.status);
   const publiclyListed =
-    record.status === "published" &&
+    (record.lifecycleStage === "published" || record.status === "published") &&
     (record.visibility === "public" || record.visibility === "registered");
+  const evaluationAvailable =
+    record.lifecycleStage === "published" ||
+    record.lifecycleStage === "evaluating" ||
+    record.lifecycleStage === "decided" ||
+    record.status === "published";
 
   return (
     <>
@@ -37,11 +42,33 @@ export function ConnectedRecordLinks({ record }: { record: ChallengeRecord }) {
         </Link>
       ) : null}
       {publiclyListed ? (
+        <>
+          <Link
+            className="challenge-button challenge-button--secondary"
+            href={challengeHref(`/app/org/challenges/${record.id}/rubric`)}
+          >
+            معیارهای ارزیابی
+          </Link>
+          <Link
+            className="challenge-button challenge-button--secondary"
+            href={challengeHref(`/app/org/challenges/${record.id}/evaluation`)}
+          >
+            پرونده ارزیابی
+          </Link>
+          <Link
+            className="challenge-button challenge-button--secondary"
+            href={`/challenges/record/?id=${encodeURIComponent(record.id)}`}
+          >
+            نمای عمومی فراخوان
+          </Link>
+        </>
+      ) : null}
+      {evaluationAvailable && !publiclyListed ? (
         <Link
           className="challenge-button challenge-button--secondary"
-          href={`/challenges/record/?id=${encodeURIComponent(record.id)}`}
+          href={challengeHref(`/app/org/challenges/${record.id}/evaluation`)}
         >
-          نمای عمومی فراخوان
+          پرونده ارزیابی
         </Link>
       ) : null}
     </>

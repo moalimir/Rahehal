@@ -25,8 +25,11 @@ export const idPrefixes = {
   notification: "ntf",
   contactVerificationAttempt: "otp",
   reviewAssignment: "rva",
+  review: "rev",
   rubric: "rub",
   rubricVersion: "rbv",
+  decisionShortlistVersion: "dsv",
+  decision: "dec",
   case: "case",
   contract: "ctr",
   payment: "pay",
@@ -67,8 +70,11 @@ export type SolverActivationId = PrefixedId<"act">;
 export type NotificationId = PrefixedId<"ntf">;
 export type ContactVerificationAttemptId = PrefixedId<"otp">;
 export type ReviewAssignmentId = PrefixedId<"rva">;
+export type ReviewId = PrefixedId<"rev">;
 export type RubricId = PrefixedId<"rub">;
 export type RubricVersionId = PrefixedId<"rbv">;
+export type DecisionShortlistVersionId = PrefixedId<"dsv">;
+export type DecisionId = PrefixedId<"dec">;
 export type CaseId = PrefixedId<"case">;
 export type ContractId = PrefixedId<"ctr">;
 export type PaymentId = PrefixedId<"pay">;
@@ -103,8 +109,11 @@ export type EntityId =
   | NotificationId
   | ContactVerificationAttemptId
   | ReviewAssignmentId
+  | ReviewId
   | RubricId
   | RubricVersionId
+  | DecisionShortlistVersionId
+  | DecisionId
   | CaseId
   | ContractId
   | PaymentId
@@ -135,8 +144,11 @@ const entityIdPrefixes = [
   idPrefixes.solverActivation,
   idPrefixes.contactVerificationAttempt,
   idPrefixes.reviewAssignment,
+  idPrefixes.review,
   idPrefixes.rubric,
   idPrefixes.rubricVersion,
+  idPrefixes.decisionShortlistVersion,
+  idPrefixes.decision,
   idPrefixes.case,
   idPrefixes.contract,
   idPrefixes.payment,
@@ -243,3 +255,13 @@ export const parseContactVerificationAttemptId = createIdentifierParser(
 export const parseReceiptId = createIdentifierParser(idPrefixes.receipt);
 export const parseAuditEventId = createIdentifierParser(idPrefixes.auditEvent);
 export const parseCorrelationId = createIdentifierParser(idPrefixes.correlation);
+
+export const parseReviewAssignmentId = createIdentifierParser(idPrefixes.reviewAssignment);
+export const parseReviewId = createIdentifierParser(idPrefixes.review);
+export const parseRubricId = createIdentifierParser(idPrefixes.rubric);
+export const parseRubricVersionId = createIdentifierParser(idPrefixes.rubricVersion);
+export const parseDecisionShortlistVersionId = createIdentifierParser(
+  idPrefixes.decisionShortlistVersion,
+);
+export const parseDecisionId = createIdentifierParser(idPrefixes.decision);
+export const parseCaseId = createIdentifierParser(idPrefixes.case);

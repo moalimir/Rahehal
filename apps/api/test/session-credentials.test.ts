@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import { parseSessionId } from "@rahhal/domain";
 
-import { HmacSessionCredentialIssuer } from "../src/session-credentials.js";
+import {
+  HmacSessionCredentialIssuer,
+  HmacStepUpCredentialIssuer,
+} from "../src/session-credentials.js";
 
 describe("A2 session credential issuer", () => {
   it("reconstructs exact idempotent credentials while separating kind and version", () => {
@@ -21,5 +24,18 @@ describe("A2 session credential issuer", () => {
 
   it("refuses a weak credential secret", () => {
     expect(() => new HmacSessionCredentialIssuer("too-short")).toThrow("at least 32 bytes");
+  });
+
+  it("binds a step-up proof to its attempt, session, and session version", () => {
+    const issuer = new HmacStepUpCredentialIssuer(
+      "step-up-credential-test-secret-with-more-than-thirty-two-bytes",
+    );
+    const sessionId = parseSessionId("ses_credential_test_0001");
+    const proof = issuer.issue("sup_step_up_attempt_001", sessionId, 3);
+
+    expect(issuer.issue("sup_step_up_attempt_001", sessionId, 3)).toBe(proof);
+    expect(issuer.issue("sup_step_up_attempt_002", sessionId, 3)).not.toBe(proof);
+    expect(issuer.issue("sup_step_up_attempt_001", sessionId, 4)).not.toBe(proof);
+    expect(proof).toMatch(/^rahhal-su-[A-Za-z0-9_-]{43}$/);
   });
 });

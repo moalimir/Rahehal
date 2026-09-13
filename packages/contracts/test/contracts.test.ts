@@ -3,12 +3,17 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   apiErrorCodes,
   apiRoutes,
+  decisionApiRoutes,
+  reviewCoiApiRoutes,
+  reviewComparisonApiRoutes,
+  reviewScoringApiRoutes,
   apiSchemas,
   isOutboxEvent,
   openApiDocument,
   type ApiError,
   type ApiErrorCode,
   type CreateChallengeBody,
+  type CreateRubricVersionBody,
   type ErrorEnvelope,
   type PatchChallengeBody,
   type OutboxEvent,
@@ -73,6 +78,17 @@ describe("authoritative API contracts", () => {
     expect(apiSchemas.DeclineDirectOfferBody.required).toContain("expected_version");
     expect(apiSchemas.CancelDirectOfferBody.required).toContain("expected_version");
     expect(apiSchemas.StartDirectOfferNegotiationBody.required).toContain("expected_version");
+    expect(apiSchemas.CreateRubricVersionBody.required).toContain("expected_version");
+    expect(apiSchemas.CreateReviewAssignmentBody.required).toContain("expected_version");
+    expect(apiSchemas.CancelReviewAssignmentBody.required).toContain("expected_version");
+    expect(apiSchemas.ReplaceReviewAssignmentBody.required).toContain("expected_version");
+    expect(apiSchemas.SaveReviewDraftBody.required).toContain("expected_version");
+    expect(apiSchemas.SubmitReviewBody.required).toContain("expected_version");
+    expect(apiSchemas.LockReviewBody.required).toContain("expected_version");
+    expect(apiSchemas.InvalidateReviewBody.required).toContain("expected_version");
+    expect(apiSchemas.SaveDecisionShortlistBody.required).toContain("expected_version");
+    expect(apiSchemas.RecordChallengeDecisionBody.required).toContain("expected_version");
+    expect(apiSchemas.BrowserDecisionStepUpStartBody.required).toContain("expected_version");
 
     expectTypeOf<CreateChallengeBody["expected_version"]>().toEqualTypeOf<0>();
     expectTypeOf<PatchChallengeBody["expected_version"]>().toEqualTypeOf<number>();
@@ -82,6 +98,7 @@ describe("authoritative API contracts", () => {
     expectTypeOf<PatchProposalBody["expected_version"]>().toEqualTypeOf<number>();
     expectTypeOf<SubmitProposalBody["expected_version"]>().toEqualTypeOf<number>();
     expectTypeOf<ResubmitProposalBody["expected_version"]>().toEqualTypeOf<number>();
+    expectTypeOf<CreateRubricVersionBody["expected_version"]>().toEqualTypeOf<number>();
   });
 
   it("defines the complete canonical mutation receipt", () => {
@@ -403,5 +420,338 @@ describe("authoritative API contracts", () => {
     const candidate: unknown = valid;
     if (!isOutboxEvent(candidate)) throw new Error("valid event did not narrow");
     expectTypeOf(candidate).toEqualTypeOf<OutboxEvent>();
+  });
+});
+
+describe("D1 review read contracts", () => {
+  it("publishes only bookkeeping on both scoped reads", () => {
+    expect(Object.keys(apiSchemas.ReviewAssignment.properties).sort()).toEqual([
+      "coi_declaration",
+      "coi_status",
+      "due_at",
+      "id",
+      "overdue",
+      "pre_coi_packet",
+      "state",
+      "version",
+    ]);
+    expect(apiSchemas.ReviewAssignment.additionalProperties).toBe(false);
+    for (const path of [apiRoutes.reviewAssignments, apiRoutes.reviewAssignmentById]) {
+      const operation = openApiDocument.paths[path].get;
+      expect(operation.security).toEqual([{ bearerAuth: [] }]);
+      expect(operation.parameters).toContainEqual(
+        expect.objectContaining({ in: "header", name: "X-Workspace-Id", required: true }),
+      );
+      expect(operation.responses).toHaveProperty("404");
+    }
+    expect(apiSchemas.ReviewAssignmentListQuery.additionalProperties).toBe(false);
+    expect(apiSchemas.ReviewAssignmentListQuery.properties.limit.maximum).toBe(100);
+  });
+});
+
+describe("D2 rubric contracts", () => {
+  it("publishes a scoped read and idempotent version append", () => {
+    expect(openApiDocument.tags).toContainEqual({ name: "Review" });
+    expect(openApiDocument.paths[apiRoutes.challengeRubric].get.operationId).toBe(
+      "getChallengeRubric",
+    );
+    const create = openApiDocument.paths[apiRoutes.createRubricVersion].post;
+    expect(create.operationId).toBe("createRubricVersion");
+    expect(create.parameters.map((parameter) => parameter.name)).toEqual([
+      "X-Workspace-Id",
+      "Idempotency-Key",
+      "challengeId",
+    ]);
+    expect(create.responses).toHaveProperty("404");
+  });
+
+  it("keeps the MVP scale and exact criterion shape explicit", () => {
+    const schema = apiSchemas.CreateRubricVersionBody;
+    expect(schema.additionalProperties).toBe(false);
+    expect(schema.required).toEqual(["expected_version", "challenge_version_id", "criteria"]);
+    expect(schema.properties.expected_version.minimum).toBe(0);
+    expect(schema.properties.criteria).toMatchObject({ minItems: 1, maxItems: 20 });
+    expect(schema.properties.criteria.items).toMatchObject({
+      additionalProperties: false,
+      required: ["id", "label", "weight", "min", "max"],
+      properties: {
+        weight: { type: "integer", minimum: 1, maximum: 100 },
+        min: { type: "integer", const: 0 },
+        max: { type: "integer", const: 5 },
+      },
+    });
+  });
+});
+
+describe("D3 evaluation-opening contracts", () => {
+  it("publishes a scoped readiness read and idempotent roster-freeze command", () => {
+    const read = openApiDocument.paths[apiRoutes.challengeEvaluation].get;
+    expect(read.operationId).toBe("getChallengeEvaluation");
+    expect(read.parameters.map((parameter) => parameter.name)).toEqual([
+      "X-Workspace-Id",
+      "challengeId",
+    ]);
+    const open = openApiDocument.paths[apiRoutes.openChallengeEvaluation].post;
+    expect(open.operationId).toBe("openChallengeEvaluation");
+    expect(open.parameters.map((parameter) => parameter.name)).toEqual([
+      "X-Workspace-Id",
+      "Idempotency-Key",
+      "challengeId",
+    ]);
+    expect(open.responses).toHaveProperty("404");
+  });
+
+  it("keeps readiness non-confidential and pins the accepted two-review policy", () => {
+    expect(Object.keys(apiSchemas.EvaluationRosterProposal.properties).sort()).toEqual([
+      "proposal_id",
+      "proposal_version_id",
+      "source_state",
+      "tracking_code",
+    ]);
+    expect(apiSchemas.ChallengeEvaluation.properties.required_reviews.const).toBe(2);
+    expect(apiSchemas.ChallengeEvaluation.properties.blockers.uniqueItems).toBe(true);
+    expect(apiSchemas.OpenChallengeEvaluationBody).toMatchObject({
+      additionalProperties: false,
+      required: ["expected_version"],
+      properties: { expected_version: { type: "integer", minimum: 1 } },
+    });
+  });
+});
+
+describe("D4 reviewer-assignment contracts", () => {
+  it("publishes Operations-owned assignment commands with concurrency and idempotency", () => {
+    const collection = openApiDocument.paths[apiRoutes.operationsReviewAssignments];
+    expect(collection.get.operationId).toBe("listOperationsReviewAssignments");
+    expect(collection.post.operationId).toBe("createReviewAssignment");
+    expect(collection.post.parameters.map((parameter) => parameter.name)).toEqual([
+      "X-Workspace-Id",
+      "Idempotency-Key",
+    ]);
+    for (const path of [apiRoutes.cancelReviewAssignment, apiRoutes.replaceReviewAssignment]) {
+      const command = openApiDocument.paths[path].post;
+      expect(command.parameters.map((parameter) => parameter.name)).toEqual([
+        "X-Workspace-Id",
+        "Idempotency-Key",
+        "assignmentId",
+      ]);
+      expect(command.responses).toHaveProperty("404");
+    }
+  });
+
+  it("exposes frozen slots and workload counts without proposal content or solver identity", () => {
+    expect(apiSchemas.OperationsReviewAssignmentListSuccessEnvelope).toBeDefined();
+    expect(apiSchemas.OperationsEvaluationProposal.required).toEqual([
+      "challenge_id",
+      "proposal_id",
+      "proposal_version_id",
+      "proposal_tracking_code",
+      "rubric_version_id",
+      "evaluation_version",
+      "required_reviews",
+      "active_assignment_count",
+    ]);
+    expect(apiSchemas.OperationsEvaluationProposal.properties.required_reviews.const).toBe(2);
+    expect(apiSchemas.OperationsEvaluationProposal.properties).not.toHaveProperty("content");
+    expect(apiSchemas.OperationsEvaluationProposal.properties).not.toHaveProperty(
+      "solver_workspace_id",
+    );
+    expect(apiSchemas.CreateReviewAssignmentBody.required).toEqual([
+      "expected_version",
+      "challenge_id",
+      "proposal_id",
+      "reviewer_membership_id",
+      "due_at",
+    ]);
+    expect(apiSchemas.CancelReviewAssignmentBody.required).toEqual(["expected_version", "reason"]);
+  });
+});
+
+describe("D5 COI and reviewer-material contracts", () => {
+  it("publishes attested declaration, gated materials and a purpose-limited conflict queue", () => {
+    const declaration = openApiDocument.paths[reviewCoiApiRoutes.declareReviewCoi].post;
+    expect(declaration.operationId).toBe("declareReviewCoi");
+    expect(declaration.parameters.map((parameter) => parameter.name)).toEqual([
+      "X-Workspace-Id",
+      "Idempotency-Key",
+      "assignmentId",
+    ]);
+    expect(apiSchemas.DeclareReviewCoiBody.required).toEqual([
+      "expected_version",
+      "status",
+      "relationship_categories",
+      "attestation",
+    ]);
+    expect(apiSchemas.DeclareReviewCoiBody.properties.attestation.const).toBe(true);
+    expect(
+      openApiDocument.paths[reviewCoiApiRoutes.reviewAssignmentMaterials].get.operationId,
+    ).toBe("getReviewAssignmentMaterials");
+    expect(
+      openApiDocument.paths[reviewCoiApiRoutes.operationsReviewConflicts].get.operationId,
+    ).toBe("listOperationsReviewConflicts");
+  });
+
+  it("projects only technical and delivery fields into reviewer materials", () => {
+    expect(Object.keys(apiSchemas.ReviewProposalContent.properties).sort()).toEqual(
+      [
+        "title",
+        "problem_statement",
+        "value_proposition",
+        "maturity_level",
+        "prototype_weeks",
+        "technologies",
+        "technical_approach",
+        "architecture",
+        "data_needs",
+        "success_metrics",
+        "ip_status",
+        "duration_weeks",
+        "roadmap",
+        "dependencies",
+        "pilot_location",
+        "risks",
+        "mitigation",
+        "start_availability",
+        "team_availability",
+      ].sort(),
+    );
+    for (const hidden of [
+      "lead_name",
+      "team_summary",
+      "relevant_experience",
+      "budget_amount_minor",
+      "payment_model",
+      "budget_rationale",
+      "attachment_ids",
+    ]) {
+      expect(apiSchemas.ReviewProposalContent.properties).not.toHaveProperty(hidden);
+    }
+    expect(apiSchemas.ReviewMaterials.properties.proposal_content).toBe(
+      apiSchemas.ReviewProposalContent,
+    );
+  });
+});
+
+describe("D6 review scoring contracts", () => {
+  it("publishes own-review draft/submission and Operations lifecycle commands", () => {
+    expect(
+      openApiDocument.paths[reviewScoringApiRoutes.reviewAssignmentReview].get.operationId,
+    ).toBe("getOwnReview");
+    for (const path of [
+      reviewScoringApiRoutes.saveReviewDraft,
+      reviewScoringApiRoutes.submitReview,
+      reviewScoringApiRoutes.lockReview,
+      reviewScoringApiRoutes.invalidateReview,
+    ]) {
+      const command = openApiDocument.paths[path].post;
+      expect(command.parameters.map((parameter) => parameter.name)).toEqual([
+        "X-Workspace-Id",
+        "Idempotency-Key",
+        "assignmentId",
+      ]);
+      expect(command.responses).toHaveProperty("404");
+    }
+  });
+
+  it("keeps draft scores exact and review evidence versioned", () => {
+    expect(apiSchemas.SaveReviewDraftBody).toMatchObject({
+      additionalProperties: false,
+      required: ["expected_version", "scores"],
+      properties: {
+        scores: {
+          maxItems: 20,
+          items: {
+            additionalProperties: false,
+            required: ["criterion_id", "value", "rationale"],
+            properties: { value: { type: "integer", minimum: 0, maximum: 5 } },
+          },
+        },
+      },
+    });
+    expect(apiSchemas.Review.required).toEqual(
+      expect.arrayContaining([
+        "id",
+        "assignment_id",
+        "version",
+        "state",
+        "scores",
+        "weighted_score_tenths",
+      ]),
+    );
+    expect(apiSchemas.LockReviewBody.required).toEqual(["expected_version", "reason"]);
+    expect(apiSchemas.InvalidateReviewBody.required).toEqual(["expected_version", "reason"]);
+  });
+});
+
+describe("D7 blind comparison contracts", () => {
+  it("publishes one organization-scoped identity-free comparison read", () => {
+    const read = openApiDocument.paths[reviewComparisonApiRoutes.challengeReviewComparison].get;
+    expect(read.operationId).toBe("getChallengeReviewComparison");
+    expect(read.parameters.map((parameter) => parameter.name)).toEqual([
+      "X-Workspace-Id",
+      "challengeId",
+    ]);
+    expect(read.responses).toHaveProperty("404");
+  });
+
+  it("contains completeness and aggregates without identities or individual votes", () => {
+    expect(apiSchemas.ChallengeReviewComparison.properties.required_reviews.const).toBe(2);
+    expect(apiSchemas.ChallengeReviewComparison.required).toContain("scores_released");
+    expect(Object.keys(apiSchemas.ReviewComparisonProposal.properties).sort()).toEqual(
+      [
+        "proposal_id",
+        "proposal_version_id",
+        "tracking_code",
+        "status",
+        "active_assignment_count",
+        "locked_review_count",
+        "cancelled_assignment_count",
+        "invalidated_review_count",
+        "score_summary",
+      ].sort(),
+    );
+    const serialized = JSON.stringify({
+      resource: apiSchemas.ChallengeReviewComparison,
+      proposal: apiSchemas.ReviewComparisonProposal,
+      score: apiSchemas.ReviewComparisonScoreSummary,
+    });
+    expect(serialized).not.toMatch(/reviewer|rationale|solver|workspace|user_id/);
+  });
+});
+
+describe("D8-D9 decision and case contracts", () => {
+  it("publishes the exact-version shortlist, decision, solver outcome, and case boundary", () => {
+    expect(openApiDocument.paths[decisionApiRoutes.challengeDecision].get.operationId).toBe(
+      "getChallengeDecision",
+    );
+    expect(openApiDocument.paths[decisionApiRoutes.decisionShortlist].post.operationId).toBe(
+      "saveDecisionShortlist",
+    );
+    expect(openApiDocument.paths[decisionApiRoutes.recordDecision].post.operationId).toBe(
+      "recordChallengeDecision",
+    );
+    expect(openApiDocument.paths[decisionApiRoutes.proposalOutcome].get.operationId).toBe(
+      "getProposalOutcome",
+    );
+    expect(openApiDocument.paths[decisionApiRoutes.case].get.operationId).toBe("getCase");
+  });
+
+  it("requires exact evidence and keeps solver feedback structurally narrow", () => {
+    expect(apiSchemas.RecordChallengeDecisionBody.required).toEqual([
+      "expected_version",
+      "challenge_version_id",
+      "rubric_version_id",
+      "shortlist_version_id",
+      "outcome",
+      "selected_proposal_id",
+      "selected_proposal_version_id",
+      "reason_code",
+      "rationale",
+      "proposal_feedback",
+    ]);
+    expect(apiSchemas.SaveDecisionShortlistBody.properties.proposal_versions.minItems).toBe(1);
+    expect(apiSchemas.ProposalOutcome.properties).not.toHaveProperty("rationale");
+    expect(apiSchemas.ProposalOutcome.properties).not.toHaveProperty("other_proposals");
+    expect(apiSchemas.Case.properties).not.toHaveProperty("solver_tenant_id");
+    expect(apiSchemas.Case.properties).not.toHaveProperty("solver_workspace_id");
   });
 });

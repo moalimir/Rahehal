@@ -1,6 +1,12 @@
-import { challengeManagedStages } from "@rahhal/domain";
+import { challengeManagedStages, reviewStates } from "@rahhal/domain";
 
-import { apiRoutes } from "./routes.js";
+import {
+  apiRoutes,
+  decisionApiRoutes,
+  reviewCoiApiRoutes,
+  reviewComparisonApiRoutes,
+  reviewScoringApiRoutes,
+} from "./routes.js";
 import { apiSchemas, type ApiSchemaName } from "./schemas.js";
 
 const schemaRef = (name: ApiSchemaName) => ({
@@ -52,6 +58,13 @@ const challengeIdParameter = {
   schema: { type: "string", pattern: "^chl_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$" },
 } as const;
 
+const reviewAssignmentIdParameter = {
+  in: "path",
+  name: "assignmentId",
+  required: true,
+  schema: { type: "string", pattern: "^rva_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$" },
+} as const;
+
 const contactVerificationAttemptIdParameter = {
   in: "path",
   name: "attemptId",
@@ -99,6 +112,13 @@ const directOfferIdParameter = {
   name: "directOfferId",
   required: true,
   schema: { type: "string", pattern: "^dof_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$" },
+} as const;
+
+const caseIdParameter = {
+  in: "path",
+  name: "caseId",
+  required: true,
+  schema: { type: "string", pattern: "^case_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$" },
 } as const;
 
 const teamCommandOperation = (
@@ -199,8 +219,432 @@ export const openApiDocument = {
     { name: "Team" },
     { name: "Proposal" },
     { name: "Opportunity" },
+    { name: "Review" },
+    { name: "Decision" },
+    { name: "Case" },
   ],
   paths: {
+    [apiRoutes.challengeEvaluation]: {
+      get: {
+        operationId: "getChallengeEvaluation",
+        tags: ["Review"],
+        summary: "Read evaluation readiness or the frozen exact-version proposal roster",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, challengeIdParameter],
+        responses: {
+          "200": {
+            description: "Evaluation readiness and the exact roster visible to the organization.",
+            content: jsonContent("ChallengeEvaluationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [reviewComparisonApiRoutes.challengeReviewComparison]: {
+      get: {
+        operationId: "getChallengeReviewComparison",
+        tags: ["Review"],
+        summary: "Read identity-free review completeness and released aggregate scores",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, challengeIdParameter],
+        responses: {
+          "200": {
+            description:
+              "Frozen-roster completeness; aggregate scores appear only after every proposal is complete.",
+            content: jsonContent("ChallengeReviewComparisonSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [decisionApiRoutes.challengeDecision]: {
+      get: {
+        operationId: "getChallengeDecision",
+        tags: ["Decision"],
+        summary: "Read decision readiness, the current shortlist, final decision, and case",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, challengeIdParameter],
+        responses: {
+          "200": {
+            description: "The organization-scoped exact-version decision projection.",
+            content: jsonContent("ChallengeDecisionSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [decisionApiRoutes.decisionShortlist]: {
+      post: {
+        operationId: "saveDecisionShortlist",
+        tags: ["Decision"],
+        summary: "Append an exact-version shortlist before the final decision",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, challengeIdParameter],
+        requestBody: { required: true, content: jsonContent("SaveDecisionShortlistBody") },
+        responses: {
+          "200": {
+            description: "The atomic shortlist version, audit, outbox, and mutation receipt.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [decisionApiRoutes.recordDecision]: {
+      post: {
+        operationId: "recordChallengeDecision",
+        tags: ["Decision"],
+        summary: "Record one stepped-up final decision and atomically create a selected case",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, challengeIdParameter],
+        requestBody: { required: true, content: jsonContent("RecordChallengeDecisionBody") },
+        responses: {
+          "200": {
+            description: "The immutable decision and optional selected-case receipt.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [decisionApiRoutes.proposalOutcome]: {
+      get: {
+        operationId: "getProposalOutcome",
+        tags: ["Decision"],
+        summary: "Read only the active solver workspace's own proposal outcome and feedback",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, proposalIdParameter],
+        responses: {
+          "200": {
+            description:
+              "The scoped proposal outcome without other proposals or decision rationale.",
+            content: jsonContent("ProposalOutcomeSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [decisionApiRoutes.case]: {
+      get: {
+        operationId: "getCase",
+        tags: ["Case"],
+        summary: "Read a case as its owning organization or actively granted solver workspace",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, caseIdParameter],
+        responses: {
+          "200": {
+            description: "The exact immutable case continuity links.",
+            content: jsonContent("CaseSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.openChallengeEvaluation]: {
+      post: {
+        operationId: "openChallengeEvaluation",
+        tags: ["Review"],
+        summary: "Atomically close intake, freeze the exact proposal roster and enter evaluation",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, challengeIdParameter],
+        requestBody: { required: true, content: jsonContent("OpenChallengeEvaluationBody") },
+        responses: {
+          "200": {
+            description: "The atomic challenge version, audit and outbox receipt.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.challengeRubric]: {
+      get: {
+        operationId: "getChallengeRubric",
+        tags: ["Review"],
+        summary: "Read the latest rubric for the organization's published challenge version",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, challengeIdParameter],
+        responses: {
+          "200": {
+            description: "The latest immutable rubric version, or null before authoring.",
+            content: jsonContent("RubricSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.createRubricVersion]: {
+      post: {
+        operationId: "createRubricVersion",
+        tags: ["Review"],
+        summary:
+          "Append a rubric version before evaluation; weights total 100 and scores range from 0 to 5",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, challengeIdParameter],
+        requestBody: { required: true, content: jsonContent("CreateRubricVersionBody") },
+        responses: {
+          "200": {
+            description: "The atomic version, audit and outbox receipt.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.reviewAssignments]: {
+      get: {
+        operationId: "listReviewAssignments",
+        tags: ["Review"],
+        summary: "List only the active reviewer's assignment bookkeeping",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          workspaceHeader,
+          { in: "query", name: "limit", schema: { type: "integer", minimum: 1, maximum: 100 } },
+          {
+            in: "query",
+            name: "cursor",
+            schema: { type: "string", pattern: "^rva_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$" },
+          },
+          { in: "query", name: "state", schema: { type: "string", enum: reviewStates } },
+        ],
+        responses: {
+          "200": {
+            description: "A bounded own-assignment page with no protected materials.",
+            content: jsonContent("ReviewAssignmentListSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.reviewAssignmentById]: {
+      get: {
+        operationId: "getReviewAssignment",
+        tags: ["Review"],
+        summary: "Read one own assignment's bookkeeping without material access",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          workspaceHeader,
+          {
+            in: "path",
+            name: "assignmentId",
+            required: true,
+            schema: { type: "string", pattern: "^rva_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$" },
+          },
+        ],
+        responses: {
+          "200": {
+            description: "Own-assignment bookkeeping only.",
+            content: jsonContent("ReviewAssignmentSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [reviewCoiApiRoutes.reviewAssignmentMaterials]: {
+      get: {
+        operationId: "getReviewAssignmentMaterials",
+        tags: ["Review"],
+        summary: "Read exact frozen proposal and rubric material after clear COI",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, reviewAssignmentIdParameter],
+        responses: {
+          "200": {
+            description: "Exact assigned versions, available only to the active accepted reviewer.",
+            content: jsonContent("ReviewMaterialsSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [reviewCoiApiRoutes.declareReviewCoi]: {
+      post: {
+        operationId: "declareReviewCoi",
+        tags: ["Review"],
+        summary: "Record the assigned reviewer's one-time COI declaration",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, reviewAssignmentIdParameter],
+        requestBody: { required: true, content: jsonContent("DeclareReviewCoiBody") },
+        responses: {
+          "200": {
+            description: "The atomic COI, assignment, audit, outbox, and idempotency receipt.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [reviewScoringApiRoutes.reviewAssignmentReview]: {
+      get: {
+        operationId: "getOwnReview",
+        tags: ["Review"],
+        summary: "Read the assigned reviewer's own draft or final review",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, reviewAssignmentIdParameter],
+        responses: {
+          "200": {
+            description: "The assignment-scoped scorecard, or null before the first draft save.",
+            content: jsonContent("ReviewSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [reviewScoringApiRoutes.saveReviewDraft]: {
+      post: {
+        operationId: "saveReviewDraft",
+        tags: ["Review"],
+        summary: "Create or update a bounded score draft against the exact rubric version",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, reviewAssignmentIdParameter],
+        requestBody: { required: true, content: jsonContent("SaveReviewDraftBody") },
+        responses: {
+          "200": {
+            description: "The atomic draft, assignment, audit, outbox, and idempotency receipt.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [reviewScoringApiRoutes.submitReview]: {
+      post: {
+        operationId: "submitReview",
+        tags: ["Review"],
+        summary: "Validate and freeze a complete review scorecard",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, reviewAssignmentIdParameter],
+        requestBody: { required: true, content: jsonContent("SubmitReviewBody") },
+        responses: {
+          "200": {
+            description: "The atomic immutable submission receipt.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.operationsReviewAssignments]: {
+      get: {
+        operationId: "listOperationsReviewAssignments",
+        tags: ["Review"],
+        summary: "List assignment bookkeeping and eligible reviewer workload for Operations",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          workspaceHeader,
+          {
+            in: "query",
+            name: "challenge_id",
+            schema: { type: "string", pattern: "^chl_[A-Za-z0-9][A-Za-z0-9_-]{2,63}$" },
+          },
+        ],
+        responses: {
+          "200": {
+            description: "Operations assignment state without proposal content or solver identity.",
+            content: jsonContent("OperationsReviewAssignmentListSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+      post: {
+        operationId: "createReviewAssignment",
+        tags: ["Review"],
+        summary: "Assign an active platform reviewer to one frozen proposal and rubric version",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader],
+        requestBody: { required: true, content: jsonContent("CreateReviewAssignmentBody") },
+        responses: {
+          "200": {
+            description: "The atomic assignment, audit, outbox, and idempotency receipt.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [reviewCoiApiRoutes.operationsReviewConflicts]: {
+      get: {
+        operationId: "listOperationsReviewConflicts",
+        tags: ["Review"],
+        summary: "List declared reviewer conflicts for cancellation or replacement",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader],
+        responses: {
+          "200": {
+            description: "A purpose-limited conflict queue without proposal or solver identity.",
+            content: jsonContent("OperationsReviewConflictListSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.cancelReviewAssignment]: {
+      post: {
+        operationId: "cancelReviewAssignment",
+        tags: ["Review"],
+        summary: "Cancel a pre-scoring assignment while preserving its evidence",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, reviewAssignmentIdParameter],
+        requestBody: { required: true, content: jsonContent("CancelReviewAssignmentBody") },
+        responses: {
+          "200": {
+            description: "The immutable cancellation receipt.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [apiRoutes.replaceReviewAssignment]: {
+      post: {
+        operationId: "replaceReviewAssignment",
+        tags: ["Review"],
+        summary: "Cancel a pre-scoring assignment and append its replacement atomically",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, reviewAssignmentIdParameter],
+        requestBody: { required: true, content: jsonContent("ReplaceReviewAssignmentBody") },
+        responses: {
+          "200": {
+            description: "The replacement assignment receipt preserving the original evidence.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [reviewScoringApiRoutes.lockReview]: {
+      post: {
+        operationId: "lockReview",
+        tags: ["Review"],
+        summary: "Explicitly lock a submitted review as Operations",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, reviewAssignmentIdParameter],
+        requestBody: { required: true, content: jsonContent("LockReviewBody") },
+        responses: {
+          "200": {
+            description: "The atomic review lock receipt.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [reviewScoringApiRoutes.invalidateReview]: {
+      post: {
+        operationId: "invalidateReview",
+        tags: ["Review"],
+        summary: "Invalidate a locked review with a reason and distinct Operations actor",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader, reviewAssignmentIdParameter],
+        requestBody: { required: true, content: jsonContent("InvalidateReviewBody") },
+        responses: {
+          "200": {
+            description: "The immutable invalidation receipt; replacement remains explicit.",
+            content: jsonContent("MutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
     [apiRoutes.openApi]: {
       get: {
         operationId: "getOpenApiDocument",

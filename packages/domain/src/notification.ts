@@ -14,6 +14,8 @@ export const notificationKinds = [
   "proposal.clarification.submitted",
   "proposal.revision.requested",
   "proposal.resubmitted",
+  "proposal.selected",
+  "proposal.rejected",
   "team.invitation.sent",
   "team.invitation.accepted",
   "team.invitation.declined",
@@ -78,6 +80,8 @@ export const notificationProjections: Readonly<Record<string, NotificationProjec
     audience: "proposal-owner",
   },
   "proposal.resubmitted": { kind: "proposal.resubmitted", audience: "challenge-organization" },
+  "proposal.selected": { kind: "proposal.selected", audience: "proposal-owner" },
+  "proposal.rejected": { kind: "proposal.rejected", audience: "proposal-owner" },
   "team.invitation.sent": {
     kind: "team.invitation.sent",
     audience: "team-invitation-recipient",

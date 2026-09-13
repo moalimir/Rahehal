@@ -15,7 +15,7 @@ import {
   parseWorkspaceId,
 } from "@rahhal/domain";
 
-import { forbidden, notFound } from "../src/errors.js";
+import { ApiProblem, forbidden, notFound } from "../src/errors.js";
 import { MonotonicIdFactory } from "../src/primitives.js";
 import { PostgresAccessDecisionAudit } from "../src/postgres/access-decision-audit.js";
 import {
@@ -668,6 +668,36 @@ describe("A1b PostgreSQL identity, workspace, and transaction boundary", () => {
       );
       expect(recorded.rows).toEqual([{ outcome: "denied", reason_code: expectedReason }]);
     }
+  });
+
+  it("audits successful authorization when later command validation rejects", async () => {
+    const session = await adapter.authenticate(ownerAccessToken);
+    if (!session) throw new Error("seeded session was not authenticated");
+    const correlationId = parseCorrelationId("cor_a1b_authorized_conflict");
+
+    await expect(
+      adapter.runAuthorizedWorkspace(
+        session,
+        ownerWorkspaceId,
+        {
+          action: "challenge:decision-step-up",
+          entityType: "challenge",
+          entityId: "chl_synthetic_alpha",
+          correlationId,
+          deferSuccess: true,
+          allows: (access) => access.role === "org:owner",
+        },
+        async () => {
+          throw new ApiProblem(409, "INVALID_STATE", "Synthetic business-state rejection");
+        },
+      ),
+    ).rejects.toMatchObject({ statusCode: 409, code: "INVALID_STATE" });
+
+    const recorded = await database.query<{ reason_code: string; outcome: string }>(
+      `SELECT outcome, reason_code FROM audit_event WHERE correlation_id = $1`,
+      [correlationId],
+    );
+    expect(recorded.rows).toEqual([{ outcome: "success", reason_code: "ALLOWED" }]);
   });
 
   it("keeps all local identity helpers unavailable in production mode", () => {

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Brand } from "@/components/brand";
 import type { LegacyUnavailableResolution } from "@/data/legacy-redirects";
 import type { AppPersona } from "@/domain/persona";
+import { isNetworkWebRuntime } from "@/lib/runtime/mode";
 
 export function ProductNotFound({ requestedPath }: { requestedPath?: string }) {
   return (
@@ -67,7 +68,13 @@ export function RouteResolving() {
 }
 
 export function SessionRequired({ role, returnTo }: { role: AppPersona; returnTo: string }) {
-  const loginPath = role === "org" ? "/auth/organization/login" : "/auth/login";
+  // Reviewer and operations identities are OIDC-backed in the connected
+  // runtime. Sending them to the solver-only contact OTP page makes those
+  // workspaces impossible to enter from their own protected routes.
+  const loginPath =
+    role === "org" || (isNetworkWebRuntime && (role === "reviewer" || role === "ops"))
+      ? "/auth/organization/login"
+      : "/auth/login";
   const roleQuery = role === "solver" || role === "org" ? "" : `&role=${role}`;
   return (
     <main className="route-fallback" id="main-content">

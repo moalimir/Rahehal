@@ -72,6 +72,12 @@ export const unauthorized = () => new ApiProblem(403, "NO_ACCESS", "Authenticati
 export const forbidden = (auditReason?: string) =>
   new ApiProblem(403, "NO_ACCESS", "Action is not allowed", auditReason ? { auditReason } : {});
 
+export const stepUpRequired = (auditReason: string) =>
+  new ApiProblem(403, "STEP_UP_REQUIRED", "Fresh authentication is required", {
+    recovery: "reauthenticate_decision",
+    auditReason,
+  });
+
 export const notFound = () =>
   new ApiProblem(404, "NOT_FOUND", "The requested resource is unavailable");
 

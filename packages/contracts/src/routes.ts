@@ -1,4 +1,13 @@
 export const apiRoutes = {
+  challengeRubric: "/api/v1/challenges/{challengeId}/rubric",
+  createRubricVersion: "/api/v1/challenges/{challengeId}/rubric-versions",
+  challengeEvaluation: "/api/v1/challenges/{challengeId}/evaluation",
+  openChallengeEvaluation: "/api/v1/challenges/{challengeId}:open-evaluation",
+  reviewAssignments: "/api/v1/assignments",
+  reviewAssignmentById: "/api/v1/assignments/{assignmentId}",
+  operationsReviewAssignments: "/api/v1/operations/review-assignments",
+  cancelReviewAssignment: "/api/v1/operations/review-assignments/{assignmentId}:cancel",
+  replaceReviewAssignment: "/api/v1/operations/review-assignments/{assignmentId}:replace",
   openApi: "/api/v1/openapi.json",
   oidcAuthorizationStart: "/api/v1/auth/oidc:start",
   contactVerificationStart: "/api/v1/auth/contact-verification:start",
@@ -88,6 +97,37 @@ export const apiRoutes = {
   cancelDirectOffer: "/api/v1/organization/direct-offers/{directOfferId}:cancel",
   startDirectOfferNegotiation:
     "/api/v1/organization/direct-offers/{directOfferId}:start-negotiation",
+} as const;
+
+/** Connected D5 routes kept out of the static demo's shared transport chunk. */
+export const reviewCoiApiRoutes = {
+  reviewAssignmentMaterials: "/api/v1/assignments/{assignmentId}/materials",
+  declareReviewCoi: "/api/v1/assignments/{assignmentId}/coi:declare",
+  operationsReviewConflicts: "/api/v1/operations/review-conflicts",
+} as const;
+
+/** Connected D6 scoring routes kept out of the static demo's shared transport chunk. */
+export const reviewScoringApiRoutes = {
+  reviewAssignmentReview: "/api/v1/assignments/{assignmentId}/review",
+  saveReviewDraft: "/api/v1/assignments/{assignmentId}/review:save-draft",
+  submitReview: "/api/v1/assignments/{assignmentId}/review:submit",
+  lockReview: "/api/v1/operations/review-assignments/{assignmentId}:lock",
+  invalidateReview: "/api/v1/operations/review-assignments/{assignmentId}:invalidate",
+} as const;
+
+/** Connected D7 comparison route kept out of the static demo's shared transport chunk. */
+export const reviewComparisonApiRoutes = {
+  challengeReviewComparison: "/api/v1/challenges/{challengeId}/review-comparison",
+} as const;
+
+/** Connected D8-D9 decision, step-up, outcome, and case routes. */
+export const decisionApiRoutes = {
+  challengeDecision: "/api/v1/challenges/{challengeId}/decision",
+  decisionShortlist: "/api/v1/challenges/{challengeId}/decision-shortlist-versions",
+  recordDecision: "/api/v1/challenges/{challengeId}/decision:record",
+  browserDecisionStepUpStart: "/auth/browser/challenges/{challengeId}/decision-step-up:start",
+  proposalOutcome: "/api/v1/proposals/{proposalId}/outcome",
+  case: "/api/v1/cases/{caseId}",
 } as const;
 
 /**

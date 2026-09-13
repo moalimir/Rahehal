@@ -55,6 +55,7 @@ export type OidcRuntimeSettings = {
   readonly allowedRedirectUris: ReadonlySet<string>;
   readonly flowSecret: string;
   readonly allowInsecureHttp: boolean;
+  readonly allowLocalIssuedAtStepUp?: boolean;
 };
 
 function required(environment: NodeJS.ProcessEnv, name: string): string {
@@ -104,6 +105,19 @@ export function oidcRuntimeSettings(environment: NodeJS.ProcessEnv): OidcRuntime
     }
   }
 
+  const allowLocalIssuedAtStepUp = environment.OIDC_ALLOW_LOCAL_ISSUED_AT_STEP_UP === "true";
+  if (
+    allowLocalIssuedAtStepUp &&
+    (environment.NODE_ENV === "production" ||
+      !allowInsecureHttp ||
+      issuer.protocol !== "http:" ||
+      !isLoopbackHost(issuer.hostname))
+  ) {
+    throw new Error(
+      "OIDC issued-at step-up fallback is limited to an explicit loopback development provider",
+    );
+  }
+
   const flowSecret = required(environment, "OIDC_FLOW_SECRET");
   if (Buffer.byteLength(flowSecret, "utf8") < 32) {
     throw new Error("OIDC_FLOW_SECRET must contain at least 32 bytes");
@@ -124,6 +138,7 @@ export function oidcRuntimeSettings(environment: NodeJS.ProcessEnv): OidcRuntime
     allowedRedirectUris,
     flowSecret,
     allowInsecureHttp,
+    allowLocalIssuedAtStepUp,
   };
 }
 
@@ -191,6 +206,7 @@ export class PostgresOidcAuthorizationAdapter implements OidcAuthorizationPort, 
   async start(
     body: OidcAuthorizationStartBody,
     command: SessionCommand,
+    options: { readonly forceReauthentication?: boolean } = {},
   ): Promise<OidcAuthorizationStartResult> {
     let redirectUri: string;
     try {
@@ -205,6 +221,7 @@ export class PostgresOidcAuthorizationAdapter implements OidcAuthorizationPort, 
       action: "oidc.authorization.start",
       expectedVersion: body.expected_version,
       redirectUri,
+      forceReauthentication: options.forceReauthentication === true,
     });
     const derivationInput = `${command.idempotencyKey}\0${requestHash}`;
     const state = this.secretValue("state", derivationInput);
@@ -277,6 +294,7 @@ export class PostgresOidcAuthorizationAdapter implements OidcAuthorizationPort, 
       nonce,
       code_challenge: codeChallenge,
       code_challenge_method: "S256",
+      ...(options.forceReauthentication ? { prompt: "login", max_age: "0" } : {}),
     });
     return {
       authorization_url: authorizationUrl.toString(),
@@ -286,7 +304,10 @@ export class PostgresOidcAuthorizationAdapter implements OidcAuthorizationPort, 
     };
   }
 
-  async exchange(body: SessionExchangeBody): Promise<OidcIdentity | null> {
+  async exchange(
+    body: SessionExchangeBody,
+    options: { readonly maxAgeSeconds?: number } = {},
+  ): Promise<OidcIdentity | null> {
     let redirectUri: string;
     try {
       redirectUri = exactRedirect(body.redirect_uri, this.settings.allowInsecureHttp);
@@ -332,20 +353,33 @@ export class PostgresOidcAuthorizationAdapter implements OidcAuthorizationPort, 
       callbackUrl.searchParams.set("code", body.authorization_code);
       callbackUrl.searchParams.set("state", body.state);
       let tokens: Awaited<ReturnType<typeof authorizationCodeGrant>>;
+      const useLocalIssuedAtStepUp =
+        options.maxAgeSeconds === 0 && this.settings.allowLocalIssuedAtStepUp === true;
       try {
         tokens = await authorizationCodeGrant(configuration, callbackUrl, {
           expectedState: body.state,
           expectedNonce: this.nonce(body.state),
           pkceCodeVerifier: body.code_verifier,
           idTokenExpected: true,
+          ...(options.maxAgeSeconds === undefined || useLocalIssuedAtStepUp
+            ? {}
+            : { maxAge: options.maxAgeSeconds }),
         });
       } catch (error) {
-        if (
-          error instanceof ClientError ||
-          error instanceof AuthorizationResponseError ||
-          (error instanceof ResponseBodyError && error.error === "invalid_grant")
-        ) {
-          throw forbidden();
+        if (error instanceof ClientError) {
+          const reason =
+            error.code === "OAUTH_INVALID_RESPONSE"
+              ? "oidc_exchange_invalid_response"
+              : error.code === "OAUTH_JWT_TIMESTAMP_CHECK_FAILED"
+                ? "oidc_exchange_authentication_time_rejected"
+                : "oidc_exchange_client_rejected";
+          throw forbidden(reason);
+        }
+        if (error instanceof AuthorizationResponseError) {
+          throw forbidden("oidc_exchange_authorization_response_rejected");
+        }
+        if (error instanceof ResponseBodyError && error.error === "invalid_grant") {
+          throw forbidden("oidc_exchange_invalid_grant");
         }
         throw error;
       }
@@ -370,11 +404,18 @@ export class PostgresOidcAuthorizationAdapter implements OidcAuthorizationPort, 
         `,
         [attempt.id, claims.sub, verifiedEmail, validatedAt],
       );
+      const authenticatedAt =
+        typeof claims.auth_time === "number"
+          ? new Date(claims.auth_time * 1_000).toISOString()
+          : useLocalIssuedAtStepUp && typeof claims.iat === "number"
+            ? new Date(claims.iat * 1_000).toISOString()
+            : undefined;
       return {
         authorizationAttemptId: attempt.id,
         issuer: attempt.issuer,
         subject: claims.sub,
         verifiedEmail,
+        ...(authenticatedAt ? { authenticatedAt } : {}),
       };
     });
   }

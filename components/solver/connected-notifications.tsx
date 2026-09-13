@@ -36,6 +36,8 @@ const kindLabels: Record<NotificationKind, string> = {
   "proposal.clarification.submitted": "پاسخ شفاف‌سازی ثبت شد",
   "proposal.revision.requested": "اصلاح پیشنهاد درخواست شد",
   "proposal.resubmitted": "نسخه اصلاح‌شده ارسال شد",
+  "proposal.selected": "پیشنهاد شما انتخاب شد",
+  "proposal.rejected": "نتیجه پیشنهاد شما ثبت شد",
   "team.invitation.sent": "دعوت به تیم دریافت شد",
   "team.invitation.accepted": "دعوت تیم پذیرفته شد",
   "team.invitation.declined": "دعوت تیم رد شد",

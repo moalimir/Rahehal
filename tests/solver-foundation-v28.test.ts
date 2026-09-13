@@ -582,20 +582,27 @@ describe("Solver v28 foundation contracts", () => {
 
   it("eligibility بر داده ساخت‌یافته است و rule ناشناخته نیازمند بررسی می‌ماند", () => {
     const state = createCanonicalSolverState();
+    const evaluationTime = new Date("2026-09-01T00:00:00.000Z").getTime();
     expect(
-      evaluateEligibility(challengeEligibilityRules["CH-1405-022"], state, personal).status,
+      evaluateEligibility(challengeEligibilityRules["CH-1405-022"], state, personal, evaluationTime)
+        .status,
     ).toBe("eligible");
     expect(evaluateEligibility(undefined, state, personal).status).toBe("needs-review");
     expect(
       evaluateEligibility(challengeEligibilityRules["CH-1405-028"], state, personal).status,
     ).toBe("ineligible");
     expect(
-      evaluateEligibility(challengeEligibilityRules["CH-1405-022"], state, {
-        type: "team",
-        workspaceId: "WS-TEAM-MISSING",
-        teamId: "TEAM-MISSING",
-        membershipId: "MEM-MISSING",
-      }).status,
+      evaluateEligibility(
+        challengeEligibilityRules["CH-1405-022"],
+        state,
+        {
+          type: "team",
+          workspaceId: "WS-TEAM-MISSING",
+          teamId: "TEAM-MISSING",
+          membershipId: "MEM-MISSING",
+        },
+        evaluationTime,
+      ).status,
     ).toBe("ineligible");
   });
 

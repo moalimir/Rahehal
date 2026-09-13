@@ -106,30 +106,68 @@ async function signIn(page: Page, email: string) {
   await page.goto("/auth/organization/login");
   await page.getByRole("button", { name: /ادامه برای ورود امن سازمانی/ }).click();
   await page.waitForURL(/\/dex\/auth/);
-  await page.locator("#login").fill(email);
+  const login = page.locator("#login");
+  const connector = page.getByRole("link", { name: "Log in with Email" });
+  await expect(login.or(connector)).toBeVisible();
+  if (await connector.isVisible()) await connector.click();
+  await login.fill(email);
   await page.locator("#password").fill(password);
   await page.locator("#submit-login").click();
-  await page.waitForURL(/\/app\/org\/challenges\/new/);
+  await page.waitForURL(/\/app\//);
+  const me = await page.evaluate(async () => {
+    const response = await fetch("/api/v1/me", { credentials: "same-origin" });
+    return (await response.json()).data;
+  });
+  if (!me.active_context && me.workspaces.length > 1) {
+    const target = me.workspaces.find(
+      (workspace: { id: string }) => workspace.id === orgWorkspaceId,
+    );
+    expect(target).toBeDefined();
+    await page.getByRole("button", { name: target.name, exact: true }).click();
+  }
+  await page.waitForURL(/\/app\/(?:org\/challenges|ops\/publication)\/?(?:\?|$)/);
+  if (new URL(page.url()).pathname.startsWith("/app/org/")) {
+    await page.goto("/app/org/challenges/new/");
+  }
 }
 
 /**
- * A freshly exchanged session has no active workspace: the server's receipt
- * says the next action is `select_workspace`, and every command is denied with
- * a non-enumerating 404 until one is chosen. Waiting for the chooser rather
- * than probing for it, because probing races the first render.
+ * The resolver activates a sole reachable workspace through the server
+ * command. Otherwise the visible chooser activates it. Both paths must end
+ * with the exact authorized workspace in `/me`.
  */
 async function activateWorkspace(page: Page) {
+  const active = await page.evaluate(async () => {
+    const response = await fetch("/api/v1/me", { credentials: "same-origin" });
+    return (await response.json()).data.active_context?.workspace_id;
+  });
+  if (active === orgWorkspaceId) return;
   const chooser = page.getByRole("heading", { name: "یک فضای سازمانی را فعال کنید" });
   await expect(chooser).toBeVisible();
   await page.locator("button.challenge-button--primary").first().click();
   await expect(chooser).toBeHidden();
+  const selected = await page.evaluate(async () => {
+    const response = await fetch("/api/v1/me", { credentials: "same-origin" });
+    return (await response.json()).data.active_context?.workspace_id;
+  });
+  expect(selected).toBe(orgWorkspaceId);
 }
 
 async function activatePlatformWorkspace(page: Page) {
+  const active = await page.evaluate(async () => {
+    const response = await fetch("/api/v1/me", { credentials: "same-origin" });
+    return (await response.json()).data.active_context?.workspace_id;
+  });
+  if (active === "wsp_platform_main") return;
   const chooser = page.getByRole("heading", { name: "فضای کاری راه‌حل را فعال کنید" });
   await expect(chooser).toBeVisible();
   await page.locator("button.challenge-button--primary").first().click();
   await expect(chooser).toBeHidden();
+  const selected = await page.evaluate(async () => {
+    const response = await fetch("/api/v1/me", { credentials: "same-origin" });
+    return (await response.json()).data.active_context?.workspace_id;
+  });
+  expect(selected).toBe("wsp_platform_main");
 }
 
 async function signOut(page: Page) {
@@ -319,6 +357,46 @@ test.describe("B7 governed challenge journey", () => {
       expect(body, `public page must not contain ${confidential}`).not.toContain(confidential);
     }
     await context.close();
+  });
+
+  test("the organization authors the rubric and opens a frozen empty evaluation roster", async ({
+    page,
+  }) => {
+    expect(challengeId).not.toBe("");
+
+    // The publisher closes intake first. Server authority, not the evaluation
+    // page, decides whether the window is closed.
+    await signIn(page, identities.publisher);
+    await activateWorkspace(page);
+    await page.goto(`/app/org/challenges/record/governance/?id=${challengeId}`);
+    await page.getByLabel("دلیل اقدام").fill("مهلت دریافت پیشنهاد برای شروع ارزیابی بسته شد.");
+    await page.getByRole("button", { name: "بستن فراخوان" }).click();
+    await page.getByRole("button", { name: "تأیید بستن" }).click();
+    await expect(page.getByRole("region", { name: "مدیریت فراخوان منتشرشده" })).toHaveAttribute(
+      "data-publication-state",
+      "closed",
+    );
+
+    // An organization owner/member owns rubric authoring and evaluation open.
+    await signOut(page);
+    await signIn(page, identities.owner);
+    await activateWorkspace(page);
+    await page.goto(`/app/org/challenges/record/rubric/?id=${challengeId}`);
+    await page.getByLabel("عنوان معیار").fill("تناسب فنی راهکار");
+    await page.getByRole("button", { name: "ثبت نخستین نسخه" }).click();
+    await expect(page.getByRole("status")).toContainText("نسخه ۱ معیارها ثبت شد.");
+
+    await page.goto(`/app/org/challenges/record/evaluation/?id=${challengeId}`);
+    await expect(page.getByText("پیشنهاد واجد شرایطی برای این فهرست وجود ندارد.")).toBeVisible();
+    const openEvaluation = page.getByRole("button", {
+      name: "قفل فهرست و شروع ارزیابی",
+    });
+    await expect(openEvaluation).toBeEnabled();
+    await openEvaluation.click();
+    await expect(page.getByRole("heading", { name: "فهرست ارزیابی قفل شده است" })).toBeVisible();
+    await expect(page.getByRole("status")).toContainText(
+      "فهرست دقیق پیشنهادها قفل شد و ارزیابی آغاز شد.",
+    );
   });
 
   test("unknown records stay non-enumerating and connected mode never falls back to fixtures", async ({

@@ -177,6 +177,26 @@ Offer mutations require `expected_version` and tenant-scoped idempotency and com
 
 ## 6. Rubric, review assignment, COI, review, decision
 
+**D1 executable schema:** `apps/api/migrations/0022_d1_review_foundation.up.sql` owns the delivered foundation. It adds `rubric`, append-only `rubric_version`, `review_assignment` and `coi_declaration`. Composite foreign keys and an insertion guard require matching organization/challenge-version terms, a locked proposal version and an active exact reviewer membership/user. Assignment insertion creates pending COI in the same transaction. All four tables reject update/delete in this initial slice; only `coi-gate`/`pending` are currently admitted. Later command migrations deliberately extend these constraints. Reviewer-membership, rubric, tenant and challenge indexes support scoped reads and foreign keys. Rollback refuses once rubric or assignment evidence exists.
+
+**D2 executable policy:** migration `0023_d2_rubric_authoring` makes one rubric canonical for each exact challenge version and validates every stored criterion array in PostgreSQL: 1-20 exact-shape criteria, stable unique identifiers, nonblank labels, whole percentage weights totalling 100, and the fixed 0-5 range. Organization owner/member commands append immutable `rubric_version` rows under a challenge-row lock; optimistic version, tenant-scoped idempotency, audit, outbox and receipt commit together. Any existing review assignment freezes further versions. The connected page reads the exact published challenge version and latest rubric independently and never falls back to browser storage. Rollback removes only the D2 validation/index layer; D1 still refuses evidence-destroying rollback.
+
+**D3 executable snapshot:** migration `0024_d3_open_evaluation` adds one append-only `challenge_evaluation` per challenge and an append-only `evaluation_proposal` roster keyed by challenge/proposal. The snapshot stores the exact published challenge version, latest rubric version, accepted two-review requirement, resulting challenge lock version, actor, and server timestamp. Each roster row must be the proposal's current locked version in `eligible`, `reviewing`, or `resubmitted`, accepted against the same challenge version and reachable through the active exact submission grant at snapshot time. A database stage guard requires a closed intake, no unresolved submitted workflow, and every qualifying proposal exactly once before `published -> evaluating` can commit. Deferred commit validation prevents a stranded snapshot; post-open triggers prevent new proposal or rubric versions and protect the frozen identity/version binding. Empty rosters are valid. Rollback refuses once evaluation evidence exists.
+
+**D4 executable assignment:** migration `0025_d4_review_assignments` binds each assignment to the frozen `challenge_evaluation` and `evaluation_proposal` identities, preserves the exact proposal/rubric versions, and caps active rows at the snapshot's two-review requirement with a deferred constraint. An active platform-reviewer membership is required on insert. Cancellation is the only admitted update: `coi-gate -> cancelled`, sequential lock version, nonblank reason, actor, and server time. A replacement has a unique self-reference to the cancelled row, the same frozen evidence, and a different reviewer user. Application commands serialize on the evaluation challenge, require optimistic version/idempotency, and commit audit, outbox, receipt, and replay evidence atomically. Rollback refuses while any assignment evidence exists.
+
+**D5 executable COI gate:** migration `0026_d5_review_coi` adds one immutable `review_assignment_packet` snapshot per assignment containing only the organization name and challenge title needed to identify a conflict. It extends `coi_declaration` with validated relationship categories, a reason, declaring actor and server timestamp, and admits exactly one immutable `pending -> clear|conflict` transition by the assigned active reviewer. A clear declaration advances the assignment from `coi-gate` version 1 to `accepted` version 2; a conflict preserves `coi-gate` with version 2 and can never unlock material. Pre-scoring cancellation/replacement now accepts either state and retains the declaration and packet on the cancelled row. The material query requires the same active reviewer membership/user, accepted assignment and clear declaration, selects the exact frozen proposal/rubric versions, and constructs a field-level technical/delivery projection that excludes solver identity, team history, commercial terms, declarations and attachment identifiers. Rollback refuses once final COI or accepted-assignment evidence exists.
+
+**D6 executable score evidence:** migration `0027_d6_review_scoring` adds one `review_scorecard` per assignment with versioned draft scores, a server-calculated weighted result in integer tenths, and attributable submission, lock and invalidation timestamps/reasons. PostgreSQL validates draft shape and the exact assigned rubric, requires complete 0-5 integer scores plus rationale at submission, and permits only the correlated `accepted -> draft -> submitted -> locked -> invalidated` assignment transitions. Submitted score arrays cannot change. Lock and invalidation require active Operations actors distinct from the reviewer; invalidation also excludes any current owner/member of the challenge organization. Operations may cancel an unfinished draft, and replacement after cancellation or invalidation appends a new assignment for the same frozen evidence and a reviewer absent from proposal history. Rollback refuses once any D6 score/state evidence exists.
+
+**D7 executable read projection:** D7 adds no table or migration. `PostgresEvaluationAdapter.comparison` starts from the tenant/workspace-scoped challenge and its immutable `challenge_evaluation`/`evaluation_proposal` rows, joins only exact-version/rubric assignments, and counts active, locked, cancelled and invalidated evidence. Only `locked` assignments with a locked, non-invalidated scorecard count; distinct reviewer-user count must match. Aggregate scores are calculated in application memory only after every roster row has exactly two valid reviews, and each stored total is recalculated against the immutable rubric first. No reviewer or solver identity leaves the adapter.
+
+**D8-D9 executable decision/case evidence:** migration `0028_d8_d9_decision_case` adds provider-bound `step_up_attempt`, append-only `decision_shortlist_version`, final `decision`, exact `decision_review_evidence`, `decision_proposal_outcome`, and `case_record`. Database guards repeat the active organization actor, exact evaluation/rubric/proposal version, full two-review roster, outcome/reason, selected-shortlist, proof-context, one-decision, and one-case invariants. The application holds the challenge row lock and atomically consumes the single-use proof, freezes every counting review reference, updates all roster proposals and the challenge, creates the selected case and solver grant when applicable, and writes receipt/audit/outbox/idempotency evidence. Down migration refuses once decision, case, shortlist, or completed step-up evidence exists.
+
+**D8-D9 remediation:** migration `0029_d8_d9_review_remediation` adds a required-on-new-attempt correlation ID so step-up starts and completion decisions are reconstructable, and changes new case grants from an arbitrary 365-day deadline to PostgreSQL `infinity`. Case access remains state-revocable and terminal rows stay immutable; `infinity` means the grant follows the active case relationship instead of expiring silently. The down migration refuses correlated attempts or infinite case grants, preserving evidence.
+
+The SQL below is a historical consolidated sketch, not the executable shape of the delivered D1-D9 tables. The migrations above are authoritative. Conflicts cannot be overridden into material access.
+
 ```sql
 CREATE TABLE rubric (
   id text PRIMARY KEY, tenant_id text NOT NULL REFERENCES tenant(id),
@@ -195,15 +215,15 @@ CREATE TABLE review_assignment (
   proposal_version_id text NOT NULL REFERENCES proposal_version(id),
   rubric_version_id text NOT NULL REFERENCES rubric_version(id),
   reviewer_user_id text NOT NULL REFERENCES app_user(id),
-  state         text NOT NULL CHECK (state IN          -- ReviewState (state-machines.ts:625)
-                  ('coi-gate','accepted','draft','submitted','locked','invalidated')),
+  state         text NOT NULL CHECK (state IN          -- ReviewState (packages/domain/src/review.ts)
+                  ('coi-gate','accepted','draft','submitted','locked','invalidated','cancelled')),
   due_at        timestamptz,
   created_at    timestamptz NOT NULL DEFAULT now(),
   updated_at    timestamptz NOT NULL DEFAULT now(),
   UNIQUE (proposal_version_id, reviewer_user_id)
 );
 
--- COI as a first-class record (D8, X-07) — replaces localStorage flag
+-- COI as a first-class record — replaces the connected browser's demo flag
 CREATE TABLE coi_declaration (
   id            text PRIMARY KEY,
   assignment_id text NOT NULL UNIQUE REFERENCES review_assignment(id),
@@ -212,19 +232,20 @@ CREATE TABLE coi_declaration (
   lookback_note text,
   declared_at   timestamptz,
   escalated_to_ops boolean NOT NULL DEFAULT false,
-  ops_override  text CHECK (ops_override IN ('none','overridden_clear','confirmed_conflict')) DEFAULT 'none',
   updated_at    timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE review (
+CREATE TABLE review_scorecard (
   id            text PRIMARY KEY,            -- rev_*
-  assignment_id text NOT NULL REFERENCES review_assignment(id),
-  scores        jsonb NOT NULL,             -- [{criterion_id, value, rationale}] — rationale required
-  overall_rationale text NOT NULL,
+  assignment_id text NOT NULL UNIQUE REFERENCES review_assignment(id),
+  scores        jsonb NOT NULL,             -- [{criterion_id, value, rationale}]; complete rationale at submit
+  review_version bigint NOT NULL,
+  weighted_score_tenths smallint,
   submitted_at  timestamptz,
-  receipt_id    text,
-  locked        boolean NOT NULL DEFAULT false,
-  UNIQUE (assignment_id)
+  lock_reason   text,
+  locked_at     timestamptz,
+  invalidation_reason text,
+  invalidated_at timestamptz
 );
 
 CREATE TABLE decision (
@@ -240,7 +261,9 @@ CREATE TABLE decision (
 );
 ```
 
-## 7. Case & execution (slice 2 — schema stubs for continuity)
+## 7. Case & execution
+
+D9 supplies the minimal authoritative `case_record` continuity link and selected-solver access grant described above. Contract, pilot, deliverable, payment, ledger, and impact persistence remains Slice 2; the names below are still schema stubs for that later work.
 
 `case`, `contract_version`, `pilot`, `milestone`, `task`, `deliverable`, `payment`, `ledger_entry`, `impact_record`. States mirror the canonical machines: `ContractState` (7), `PilotState` (6), `PaymentState` (8). Key money/gate columns:
 

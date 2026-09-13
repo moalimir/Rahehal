@@ -78,7 +78,7 @@ async function insertLockedVersion(acceptedChallengeVersionId: string): Promise<
        accepted_challenge_version_id, locked_at, lock_reason, created_at
      ) VALUES ('prv_foundation_alpha_v2', 'prp_foundation_alpha', 'chl_synthetic_alpha', 2,
        'usr_solver_alpha', $1, $2, '{}'::text[], 'prv_foundation_alpha_v1',
-       $3, clock_timestamp(), 'submission', clock_timestamp())`,
+       $3, transaction_timestamp(), 'submission', transaction_timestamp())`,
     [proposalContent(), "c".repeat(64), acceptedChallengeVersionId],
   );
 }
