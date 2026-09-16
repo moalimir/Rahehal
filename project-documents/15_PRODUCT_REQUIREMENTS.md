@@ -1,5 +1,7 @@
 # Product requirements — FR/NFR catalog
 
+**Active scope amendment (2026-09-16):** DEC-2026-018 and [26_LEAN_MVP_SCOPE](26_LEAN_MVP_SCOPE.md) supersede this catalog's former MVP acceptance scope. Retain FR/NFR identifiers for traceability, but do not interpret formal reviewers, multi-actor publication gates, contracts, pilots or payments as current MVP requirements. Use the active mapping in [90_REQUIREMENTS_TRACEABILITY](90_REQUIREMENTS_TRACEABILITY.md) and M4 acceptance in [26](26_LEAN_MVP_SCOPE.md); the older section 10 is historical where it conflicts.
+
 > **Retained as the requirements catalog.** Sections 1–6 (product statement, problem, actors, goals, non-goals) are superseded by [10_PRODUCT_VISION](10_PRODUCT_VISION.md); this doc is kept for the **FR/NFR requirement catalog (§7–8), success measures (§9), and MVP acceptance criteria (§10)**, which the traceability matrix ([90_REQUIREMENTS_TRACEABILITY](90_REQUIREMENTS_TRACEABILITY.md)) references by requirement ID. On any terminology/state/role conflict, [20_CANONICAL_MODEL](20_CANONICAL_MODEL.md) is authoritative.
 
 **Status:** Draft reconstructed from implementation  

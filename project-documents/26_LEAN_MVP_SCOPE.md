@@ -1,0 +1,119 @@
+# Lean MVP — organization and solver collaboration
+
+**Effective:** 2026-09-16, including the owner's follow-up acceptance of bilateral matching and minimum completeness · **Decision:** DEC-2026-018 in [25_DECISIONS](25_DECISIONS.md) · **Status:** owner-approved objective; implementation pending beyond the restored Phase 3 baseline.
+
+## 1. Product objective
+
+Help an organization publish a real challenge, receive proposals, communicate with solvers, choose a suitable solver, and record the final agreed match. The organization and solver should complete routine work independently. Platform staff should not operate every step of their relationship.
+
+The MVP is **Phase 3 plus owner-controlled publication and a small final selection/match flow**, followed by stabilization of the connected organization and solver journeys. The former Phase 4 reviewer/rubric/scoring programme is deferred in full. Completing that programme is no longer an MVP requirement.
+
+This document defines the active delivery scope. The broader blueprint describes future capabilities, not a requirement to ship every lifecycle stage now. DEC-2026-018 resolves conflicts with the older MVP definition; the canonical vocabulary and security invariants remain binding except for its explicit publication/review policy amendments.
+
+## 2. Baseline and evidence
+
+- Restored code baseline: `3f80192a7ceba488bcfa4c2e0d60680f34c5f8b3`. Local and remote `main` were restored to this commit before this documentation change.
+- Preserved Phase 4 merge: `6093c0c62a8029bf28646d243f8155af4c7f82bf`, archived under the pushed `phase-4-archive` tag. It is reference material, not the active delivery branch.
+- Phase 3 contains 20 migration pairs, ending at `0021_c6_offer_deadline_single_clock`; numbering skips `0011`. A clean development database must apply this baseline's migrations and synthetic seeds to a separate empty database/volume.
+- A Git rollback does not roll back any database. Existing Phase 4 volumes must stay isolated; do not delete migration-history rows or run Phase 3 code against them. Each device/server needs its own database transition.
+- The connected runtime uses `RAHHAL_WEB_RUNTIME=network`, the API, PostgreSQL, and the durable notification worker. Static/offline screens are not evidence of working backend features.
+- Historical Phase 3 evidence is recorded in [84](84_PHASE3_CONNECTED_MVP_AUDIT.md) and [80](80_DELIVERY_ROADMAP.md). This scope revision does not claim a new browser test, successful database setup on a particular device, or certification of the new flows.
+
+## 3. Minimum complete journey
+
+| Flow                      | Organization experience                                                                                                             | Solver experience                                                                         | Baseline / remaining work                                                                                                                 |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity and workspace    | Enter a provisioned organization workspace with an active membership                                                                | Activate one human identity; use an individual workspace or optionally create/join a team | Retain Phase 3; organization self-service signup is not a new MVP requirement                                                             |
+| Challenge authoring       | Create/save a draft, supply the problem, expected outcome, essential terms, submission deadline, and applicant policy               | No action required                                                                        | Existing authoring; simplify required fields and screens during M1 without silently weakening validation                                  |
+| Publication               | Organization owner publishes an exact version without a separate publisher account or routine platform/finance/legal approval queue | Discover the public challenge and its published terms                                     | **M1: not implemented at the baseline**; existing Phase 2 governance still applies in code                                                |
+| Discovery and eligibility | Maintain an accurate public call and manage its existing open/pause/close controls                                                  | Browse/read/save challenges; see eligibility and an actionable reason if unable to submit | Retain Phase 3 and verify parity; workspace verification stays conditional on the published policy                                        |
+| Proposal                  | Read the submitted proposal version in the live organization inbox                                                                  | Draft, save, and submit personally or through an authorized team member                   | Retain Phase 3; submission locks an immutable version                                                                                     |
+| Bilateral clarification   | Ask questions or request a revision when needed                                                                                     | Answer clarification or submit a new version through the existing revision flow           | Retain Phase 3; neither clarification nor revision is mandatory for every proposal; no general chat system is required                    |
+| Targeted invitation       | Send a direct offer and read the submitted response; cancel when appropriate                                                        | View, draft/respond, decline, or continue the existing negotiation flow                   | Retain Phase 3; an offer or negotiation state is not proof of a final match                                                               |
+| Selection and final match | Select an exact submitted proposal/response with a reason and shared agreement summary                                              | Explicitly accept or decline that selection and its summary                               | **M2: not implemented at the baseline**; acceptance finalizes the match without routine platform approval                                 |
+| Exit paths                | Reject a proposal, close without award, or cancel the call with a clear reason/status                                               | Withdraw a submission or decline selection with a clear result                            | **M2/M3:** complete and verify these paths; existing offer cancellation/decline is not proof of complete challenge/proposal exit handling |
+| Outcome and notifications | See accurate status and receive relevant in-app updates                                                                             | See the same authoritative status and receive relevant in-app updates                     | Phase 3 notification infrastructure exists; **M3 must add the new outcome events and screens**                                            |
+
+The core demonstration ends with an attributable, durable **organization selection → explicit solver acceptance → confirmed match** and clear next steps for both parties. Selection alone is not mutual agreement. A shared summary records the exact proposal/offer-response version and agreed scope/terms so both parties know what they accepted; it is not an e-signature or contract-effectiveness claim. A no-award outcome must be possible without manufacturing a solver match. The MVP does not claim that a pilot has run or money has been paid.
+
+## 4. Authority and reduced friction
+
+**Accepted product direction:** the owner has full challenge-management authority within their own organization, including routine publication. A separate publisher login and independent technical/legal/finance/platform signatures must not be prerequisites for normal publication. Required content, explicit public-field selection, version locking, and attribution still apply. Optional authoring help is not a mandatory operations handoff.
+
+Keep existing delegated roles where useful; the owner must not need to assign themselves extra roles. Do not grant the same power to every organization member, expand platform access to private proposals, or turn owner authority into cross-tenant access. Detailed delegation for non-owner final decisions must be specified with M2.
+
+Solvers may browse and draft without a blanket team-verification gate. Server-side submission eligibility follows the exact published policy, as required by DEC-2026-016. Profile completeness, contact verification, workspace verification, and eligibility are distinct concepts. Do not automatically remove a challenge's stated restrictions or deadlines.
+
+Formal reviewer assignment, COI clearance, weighted rubrics, blind scoring, and review-completion evidence are not prerequisites for this MVP's organization selection. If formal reviewer functionality is resumed later, its COI and access rules still apply; deferral never grants a reviewer unrestricted access.
+
+Platform scope is necessary provisioning and exceptional support/moderation. **No routine platform approval is required for publication or the final match.** The organization selects; the solver explicitly accepts or declines. Do not build a new platform console merely to complete these flows. A future mandatory platform checkpoint would require a new owner decision, not an interpretation of the old Phase 4 plan.
+
+## 5. Accepted matching behavior and remaining design decisions
+
+**Accepted in the follow-up:** organization selection requires explicit acceptance from an authorized actor in the selected solver workspace to become a confirmed match. Decline must be possible. Both parties see the same version-bound summary and outcome. There is no mandatory platform co-signature. No-award, proposal rejection, challenge cancellation and solver withdrawal are required exit paths, not optional polish.
+
+M2 must preserve the selection and response history, bind acceptance to the exact pending selection/summary version, and reject stale, cancelled or superseded acceptances. Editing proposed terms cannot reuse an earlier acceptance. Duplicate/retried requests must not create duplicate matches. Decline, cancellation, withdrawal and no-award must leave clear durable outcomes without deleting immutable submissions. UI hiding alone cannot enforce these rules. These are acceptance requirements, not new state enum names or implemented commands.
+
+The following detailed design questions remain; they do not reopen the agreed actors or require the former Phase 4 programme:
+
+| Decision                                                    | Recommended starting point — not yet accepted                                                                                                                                                                  |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| How many selections?                                        | One selected solver per challenge for the first MVP; support a reasoned no-award outcome                                                                                                                       |
+| What if the solver declines or does not respond?            | Preserve the selection history and allow an explicit new selection; define expiry before building it                                                                                                           |
+| How is a direct-offer response selected?                    | Define its exact immutable evidence reference and access scope; do not pretend it is already a submitted proposal version                                                                                      |
+| What record represents the match?                           | Reuse the canonical decision and a minimal Case link if needed; do not import the full contract/pilot/payment schema to create that link                                                                       |
+| When may selection start?                                   | Explicitly close the call before final selection by default; decide any early-selection policy and treatment of remaining submissions                                                                          |
+| How do withdrawal and cancellation interact with selection? | Define allowed timing, pending-selection invalidation, notifications, grant/read-history effects, and which actions are unavailable after a confirmed match; do not imply cancellation of an external contract |
+| Which team and delegated organization roles act?            | Specify non-owner selection and team acceptance/withdrawal authority without weakening existing membership or team permission rules                                                                            |
+
+Record the remaining policy answers in [25](25_DECISIONS.md), then specify the exact states, commands, fields, and allowed roles in [20](20_CANONICAL_MODEL.md), [50](50_DATA_MODEL.md), [60](60_API_CONTRACT.md), and [70](70_SECURITY_AND_AUTHZ.md) with M2. Do not invent parallel lifecycle enums or silently treat `selected` as mutual acceptance.
+
+### 5.1 Minimum UX completeness
+
+- Preserve saved drafts across reload and API restart; show saving/saved/failed status and surface unsaved work or conflicts. Do not report a successful save before server acknowledgement or silently overwrite a newer version.
+- Provide useful validation, recoverable errors, loading/empty states, next actions and duplicate-submit protection. Server idempotency remains the enforcement boundary; disabling a button is only UX.
+- Each cancel, decline, reject, withdrawal and no-award path must state its consequence, render its durable result to the appropriate parties, and deliver scoped notifications where relevant. Users must not be stranded in a pending state with no defined next action.
+- Connected navigation exposes only working routes. Unsupported/deferred features are absent or explicitly unavailable, never populated with a successful demo fallback.
+- Retain Persian/RTL, keyboard and mobile usability, and readable statuses. Clarification/revision supplies the required discussion; a new real-time chat product is out of scope.
+
+### 5.2 Payments, files and external-user readiness
+
+**Payments:** the MVP records the agreement; organizations and solvers settle outside Rahhal. No payment gateway, paid-publication checkout, subscription billing, escrow, wallet, payout, refund or platform-confirmed settlement is required. Do not display paid/guaranteed badges for an off-platform arrangement the system has not verified. A later payment feature needs an explicit revenue/settlement model and its own delivery/recovery rules; it does not block M4.
+
+**Real authentication:** development OTP/local identities remain valid for local synthetic acceptance only. A real reviewed identity/contact-verification provider is required before external users. Preserve the existing provider boundary, replay/expiry/resend/rate-limit behavior and active-session/workspace checks; this scope change does not authorize app-owned credential storage.
+
+**External notifications:** prioritize one real outbound notification channel before external-user validation so people can return for important questions and outcomes. Channel/provider selection remains open; in-app notifications stay authoritative. Apply privacy, safe deep links and retry/deduplication rules. This is an external-use gate, not a claim that SMS/email delivery exists today, and does not require a multichannel campaign system.
+
+**Conditional file requirement:** establish whether useful proposals require a PDF, portfolio or other file. If yes, deliver a minimal private upload/read flow with authorization, type/size checks, quarantine/scan and short-lived authorized access before testing that journey with real files. If no, keep the first MVP text-based and clearly disclose the limitation. Metadata-only attachments are not uploaded files. Do not add a document-management product, public buckets or a fake upload to fill this gap. Record the file-necessity decision before external-user acceptance.
+
+## 6. Delivery sequence and acceptance
+
+| Milestone | Scope                                                    | Observable acceptance                                                                                                                                                                                                            | Status                                                                                   |
+| --------- | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| M0        | Recover Phase 3 code and establish a clean local runtime | Checkout derives from `3f80192`; fresh DB ends at `0021`; setup succeeds; organization/solver baseline works after restart                                                                                                       | Code restoration complete; runtime verification required per device                      |
+| M1        | Owner-controlled challenge authoring/publication         | One organization owner can draft and publish without other actors; public projection contains only approved public fields; wrong-tenant and wrong-role requests fail                                                             | Not started                                                                              |
+| M2        | Selection, explicit solver acceptance and exit paths     | Acceptance of the exact selection/summary confirms a match without platform approval; decline, withdrawal, rejection, cancellation and no-award are defined and durable; stale/racing commands cannot confirm invalid selections | Not started; authority accepted, detailed policies in section 5 still need specification |
+| M3        | Complete connected organization/solver UX                | Draft-save feedback and recovery, loading/empty/error states, actionable outcomes, notifications, working navigation and mobile/RTL usability; cover proposal and direct-offer paths                                             | Not started beyond Phase 3 baseline                                                      |
+| M4        | Regressions and MVP acceptance                           | Fresh-db, multi-actor browser journey passes; state survives reload/API restart; negative authorization, concurrency, deadline and outage cases pass                                                                             | Not started                                                                              |
+
+Delivery order: owner publication → reliable retained bilateral interactions → selection and solver acceptance → complete unsuccessful/exit paths → browser regression and UX closure. M1 may proceed while M2's remaining detailed policies are specified. Build each slice across shared domain/contracts, PostgreSQL/API, and connected UI together; do not declare it complete from a screen or isolated backend test.
+
+M4 must cover owner publication; personal/team submission; exact-version organization reads; optional clarification/revision; direct offers; organization selection and explicit solver acceptance; the shared agreement summary; decline, withdrawal, rejection, cancellation and no-award; and both parties' outcome notifications. Prove that selection without acceptance is not a confirmed match, altered terms need fresh acceptance, duplicate acceptance is idempotent, and concurrent acceptance/withdrawal/cancellation follows the documented server rule with consistent outcomes. Test ID swaps, revoked membership/session/grant, unauthorized roles, stale versions, closed deadlines, confidential-field leakage, and API/save failure without false success or demo fallback. Formal reviewer certification and integrated payment are not gates. External-user acceptance additionally requires section 5.2 and the existing pre-pilot gates.
+
+Use the applicable checks in AGENTS.md and [80](80_DELIVERY_ROADMAP.md): typecheck/lint, focused domain/API/PostgreSQL tests, contract checks, network build, and real connected-browser tests. New migrations require fresh-install and upgrade evidence plus an explicit rollback/data-preservation plan. Test commands and actual results belong in the delivery record; this document supplies no new test results.
+
+## 7. Deferred scope and retained safeguards
+
+Deferred: the full former Phase 4 D1–D11 programme; formal reviewer onboarding/assignment, COI workflow, rubric authoring, scoring, blind comparison, and review-evidence administration; contracts/e-signature, pilot milestones, deliverables, payments/escrow, impact dashboards, AI matching, and additional platform workflow machinery. Reuse a Phase 4 idea only through a small reviewed change with its own need and tests; do not merge the archived branch wholesale.
+
+Retain: server authority, active membership and workspace checks, tenant isolation and narrow revocable sharing, immutable published/submitted evidence, version checks, idempotency, atomic audit/outbox, explicit public projections, Persian/RTL/accessibility, and truthful UI. Reducing operational approvals does not authorize removing these controls.
+
+The current development providers and synthetic data are sufficient only for local validation. Before external users or confidential information, apply the relevant identity, private-file, deployment, backup, security and operational release gates in [70](70_SECURITY_AND_AUTHZ.md) and [80](80_DELIVERY_ROADMAP.md). Real file upload is not implemented by attachment metadata; external contact delivery is not implemented by a development OTP code.
+
+## 8. Repository and database working agreement
+
+Keep `main` as the stable Phase 3-derived line. Start focused `codex/` branches from it, review each org/solver change, and merge only after its acceptance checks pass. Commit the scope/decision updates with the associated work; do not force-reset `main` again as a routine development method. This documentation change does not itself create a branch, commit, or push.
+
+Keep the Phase 4 archive available for recovery. New migrations on the active line follow `0021` and are reviewed against the fresh Phase 3 schema; matching numbers on the archived branch do not imply compatible SQL or checksums. Existing deployments with Phase 4 data need an explicit export/mapping/restore plan if those records must be retained. Never restore a full Phase 4 dump into the clean MVP database as a shortcut.
+
+Code, image, configuration, and database versions must be tracked together on each device. GitHub stores code and migration files; it does not synchronize local Docker volumes. A Mac can build and run this baseline independently using a new Compose project and its own secrets/database.

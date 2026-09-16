@@ -3,12 +3,28 @@
 Rahhal is a Persian-first, RTL open-innovation product spanning challenge
 discovery, proposal, review, contract, pilot, delivery, payment, and impact.
 
-The repository currently contains the advanced static/offline web prototype,
-the first executable API/worker/domain/contract/testkit workspaces, the A1a
-PostgreSQL schema foundation, A1b's PostgreSQL session/workspace boundary, and
-A1c's authoritative challenge-draft adapter, and A2's provider-neutral OIDC
-authorization-code + PKCE boundary. Local Compose runs PostgreSQL, the API, and a
-synthetic Dex identity provider; the static web and worker remain demo-only boundaries.
+The active MVP starts from Phase 3 commit `3f80192`: connected organization and
+solver journeys backed by PostgreSQL, a Fastify API, local identity providers,
+and a durable notification worker. The static/offline export remains a demo.
+The next objective is owner-controlled challenge publication and a minimal final
+selection/match flow, followed by organization/solver stabilization. These additions
+are not implemented by the restored baseline. The former Phase 4 reviewer/platform
+programme is deferred and preserved under the `phase-4-archive` tag.
+
+Read [the active MVP scope](project-documents/26_LEAN_MVP_SCOPE.md) for working
+boundaries, pending decisions, acceptance criteria, and database/repository policy.
+
+The accepted completion flow is organization selection followed by explicit solver
+acceptance, with a shared agreement summary and no routine platform approval.
+Rejection, withdrawal, decline, cancellation and no-award are required paths.
+Payments stay outside Rahhal. Real authentication and one outbound notification
+channel are required before external-user validation; secure private files are
+conditional on whether useful proposals need attachments. These are requirements,
+not newly implemented capabilities.
+
+Fresh Phase 3 databases end at migration `0021`; changing Git branches does not
+downgrade an existing database. This remains a local synthetic-data build, not a
+production release.
 
 ## Technology
 

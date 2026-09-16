@@ -1,5 +1,13 @@
 # Phase 0 — Baseline & Decisions: completion report
 
+## Current delivery checkpoint — 2026-09-16
+
+Local and remote `main` were restored to Phase 3 commit `3f80192a7ceba488bcfa4c2e0d60680f34c5f8b3`; the former Phase 4 merge `6093c0c` is preserved under the pushed `phase-4-archive` tag. DEC-2026-018 and [26_LEAN_MVP_SCOPE](26_LEAN_MVP_SCOPE.md) now govern delivery: owner-controlled publication, minimal final selection/match, and organization/solver completion. The archived Phase 4 programme is deferred, not an active release gate.
+
+The baseline includes migrations through `0021` and the Phase 3 connected implementation. M1–M4 remain unimplemented/unverified as described in [26](26_LEAN_MVP_SCOPE.md); the follow-up owner decision accepts bilateral selection/acceptance without routine platform approval, the agreement summary, exit paths and UX requirements. Detailed role/timing/state policies remain open. Integrated payment is deferred; real authentication, one outbound notification channel and the conditional private-file decision are external-user readiness gates. Existing Phase 2 publication gates still run until M1 changes the code. No new application tests, database migration, browser certification, or external release is implied by this documentation update. Docker/PostgreSQL were unavailable on the inspected Windows/WSL host; fresh database creation on the Mac has been instructed but not observed. Database state must be verified per device.
+
+The reports below are dated historical evidence, not a new execution report or an instruction to resume the old Phase 4 plan.
+
 Tracks the Phase-0 deliverables and exit gates from [80 §3](80_DELIVERY_ROADMAP.md). Legend:
 **✅ Done / verified** · **🟡 In progress — needs a fix or a decision** · **⬚ Owner action** (a business/legal sign-off).
 

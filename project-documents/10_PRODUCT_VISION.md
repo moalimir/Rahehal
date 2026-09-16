@@ -1,5 +1,7 @@
 # Product Vision & Narrative
 
+**MVP boundary (2026-09-16):** the full lifecycle below is the long-term vision. The active objective is independent organization–solver collaboration from the restored Phase 3 baseline, owner-controlled publication, and a small final selection/match flow, as accepted in DEC-2026-018 and detailed in [26_LEAN_MVP_SCOPE](26_LEAN_MVP_SCOPE.md). Formal review administration and execution/payment are deferred; they are not prerequisites for validating this MVP.
+
 **Uses the canonical terms and lifecycle from [20_CANONICAL_MODEL](20_CANONICAL_MODEL.md).** Nothing here invents an actor, state, or entity that isn't defined there.
 
 ---

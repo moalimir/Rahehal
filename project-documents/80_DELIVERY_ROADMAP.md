@@ -1,5 +1,7 @@
 # Delivery Roadmap
 
+**Active plan — 2026-09-16:** DEC-2026-018 replaces the former Phase-4-based MVP. Build from Phase 3 commit `3f80192` using [26_LEAN_MVP_SCOPE](26_LEAN_MVP_SCOPE.md): M0 clean baseline/runtime, M1 owner-controlled publication, M2 minimal selection/final match, M3 connected organization/solver completion, M4 acceptance. M1–M4 are not implemented by this documentation update. The older phase tables and dated reviews below remain historical evidence or deferred design; they must not expand the active MVP scope.
+
 **Revised 2026-08-27 — pragmatic, MVP-first (numeric phases retained).** Earlier this plan front-loaded full production hardening (managed-OIDC+MFA, RLS, malware scanning, durable outbox/DLQ, observability, DR drills, pen test) into Phase 1, before the product journey worked end-to-end. That is backwards for reaching a usable MVP. This version keeps the numeric Phase 0–6 structure the rest of the docs use, but **re-scopes Phase 1 to a lean foundation and pulls the hardening out into one pre-pilot gate** (§9). The hardening is not dropped — it is re-sequenced and detailed in [70_SECURITY_AND_AUTHZ](70_SECURITY_AND_AUTHZ.md).
 
 This document owns delivery order, milestone dependencies, and acceptance gates. [82_PHASE0_COMPLETION](82_PHASE0_COMPLETION.md) owns Phase-0 evidence; [90_REQUIREMENTS_TRACEABILITY](90_REQUIREMENTS_TRACEABILITY.md) maps requirements to milestones; [25_DECISIONS](25_DECISIONS.md) owns decisions; [27_PHASE1_OWNER_APPROVALS](27_PHASE1_OWNER_APPROVALS.md) owns owner sign-offs.
@@ -8,11 +10,11 @@ This document owns delivery order, milestone dependencies, and acceptance gates.
 
 ## 1. Target outcome
 
-The MVP proves one governed journey, working locally on real persistence:
+The MVP proves one organization–solver journey, working locally on real persistence:
 
-> An organization creates and publishes a challenge → an eligible solver submits an **immutable** proposal version → a COI-cleared reviewer scores that exact version → the organization records a reasoned decision → every sensitive action is authorized **server-side**, versioned, and audited.
+> An organization owner creates and publishes a challenge → an eligible solver submits an **immutable** proposal version → the parties clarify or revise if needed → the organization selects a solver and records the agreed final outcome → both parties see consistent status and notifications. Every sensitive action remains authorized **server-side**, versioned, and audited.
 
-That is the whole MVP — Phases 1→4. Execution/payment (Phase 5) and a real external pilot (Phase 6) come after, and the pilot only after the hardening gate.
+That is the active MVP: the restored Phases 1–3 plus M1–M4 in [26](26_LEAN_MVP_SCOPE.md). The accepted final flow is organization selection → explicit solver acceptance → confirmed match, with a shared version-bound summary and no routine platform approval. Rejection, decline, withdrawal, cancellation and no-award are required; only detailed role/timing/cardinality and state mappings remain to be specified. Formal Phase 4 review is deferred. Execution/payment and an external pilot come later, with relevant hardening required before real users/data.
 
 ## 2. How we sequence (the pragmatic split)
 
@@ -138,6 +140,8 @@ API, PostgreSQL, contract, and browser tests cover both surfaces. Migration `001
 
 ## 7. Phase 4 — review, decision, and MVP completion
 
+**DEFERRED in full by DEC-2026-018.** This section retains the former D1–D11 plan for reference; its title, goals, prerequisites, statuses, and phase gate are historical, not active MVP requirements. The archived Phase 4 implementation is not part of the restored baseline. The small selection/match flow will be designed as M2 in [26](26_LEAN_MVP_SCOPE.md), without requiring this programme.
+
 **Goal:** close the loop the MVP promises. A submitted proposal is scored by an independent reviewer against a versioned rubric, behind a COI gate the server enforces; the organization compares those scores without seeing who wrote them; and it records one reasoned decision that cites exact versions and opens a case. At the end of this phase a challenge can travel `published → evaluating → decided` and a proposal can reach `selected` or `rejected` — two canonical states that exist in the domain today with no transition into them.
 
 **Owner:** Backend + Product · **Review:** Security, Operations
@@ -166,7 +170,7 @@ API, PostgreSQL, contract, and browser tests cover both surfaces. Migration `001
 | **D10**   | **Connected reviewer surface and review notifications.** Convert `/app/reviewer` from fixtures to server authority the way C9 converted the solver and organization families, and add the review and decision kinds to the C8 projection allowlist — assignment received, COI required, review due, decision recorded.                                                                         | `not-started` | no reviewer route reads a fixture or browser storage; a reviewer with no assignments sees an empty state rather than a demo one; every new notification kind reaches its recipient in the workspace they read, proven by an event-to-row count                           |
 | **D11**   | **MVP browser certification.** The full journey in a real browser across organization, solver and reviewer, plus the negative paths: COI-conflict denial, a stale-version decision attempt, and a duplicate-decision replay.                                                                                                                                                                   | `not-started` | the happy path passes end to end against PostgreSQL; every listed negative path fails safely with the correct typed error, not a 500 or a silent no-op; nothing falls back to fixtures at any step                                                                       |
 
-> **MVP is complete at the end of Phase 4.** It runs locally, persists in Postgres, enforces roles server-side, and keeps submissions immutable and audited — enough to demo to friendly users and validate the product with synthetic data. **Not** for real confidential data (that needs §9).
+> **Superseded completion rule:** Phase 4 used to define MVP completion. The active completion gate is now M4 in [26](26_LEAN_MVP_SCOPE.md). Local synthetic-data acceptance still does not authorize real confidential data; that needs §9.
 
 **Phase gate:** a COI-`pending` or `conflict` reviewer obtains nothing at the API; a locked review is immutable except through an audited, separated invalidation; every decision cites exact versions, an authorized actor and a reason; a selected decision opens exactly one case; and `challenge → proposal → assignment/review → decision → case` is traceable end to end from any link in it.
 
@@ -311,7 +315,7 @@ The phase tables above are organized by engineering milestone; this section is t
 - **Real file uploads (scanning/quarantine)**, **MFA/step-up**, **rate limiting/WAF**, **backup/DR** are not a product feature — they are the **hardening gate (G1–G7, §9)**, sitting between Phase 5 and Phase 6. Nothing above is safe for a real org's confidential files or real money until this passes.
 - **Real users on a server** — **F1–F7** (Phase 6): a named pilot cohort, onboarded only after G1–G7 evidence is confirmed current.
 
-**The honest one-line answer:** if "ready" means _usable end-to-end by a real customer_, the core challenge→proposal→review→decision loop is ready at **Phase 4**, and contract→pilot→payment at **Phase 5** — but neither is safe with real data or money until the **hardening gate** passes, which gates **Phase 6**.
+**Active readiness rule:** the organization–solver MVP is complete only when M4 passes. The feature tables above describe the broader historical roadmap, not current certification. Contract→pilot→payment and formal reviewer workflows remain deferred; real users/data require the applicable hardening gate.
 
 ## 12. Non-negotiables even in the MVP
 
@@ -327,7 +331,9 @@ Everything else may be simple, stubbed, or deferred to the hardening gate withou
 
 ## 13. Definition of done — two bars
 
-- **MVP done (end of Phase 4):** the journey works locally on Postgres; roles enforced server-side; submissions immutable + audited; the standard gates below pass. Good enough to demo and validate with synthetic data. **Not** for real confidential data.
+**Accepted completeness additions:** M2/M3 must include the shared agreement summary, explicit solver acceptance/decline, rejection, withdrawal, cancellation and no-award, reliable draft-save feedback/recovery, loading/empty/error states, safe retries and working Persian/mobile navigation. M4 verifies successful and unsuccessful outcomes, stale/changed-term acceptance, competing terminal commands and restart persistence for both parties. Formal platform approval, a payment gateway and real-time chat are not MVP gates. Before external-user validation, a real auth/contact provider and one outbound notification channel are required, along with the existing pre-pilot gates. Determine whether useful proposals require files; if so, deliver the minimal secure private-file journey before accepting real attachments. See [26](26_LEAN_MVP_SCOPE.md) sections 5–6 for accepted scope and remaining detailed policies.
+
+- **MVP done (M4):** owner publication, retained Phase 3 interactions, the agreed minimal final selection/match, and both parties' outcome/notification views work in real connected browsers against PostgreSQL. The acceptance in [26](26_LEAN_MVP_SCOPE.md) and applicable standard gates below pass. Formal reviewer scoring is not required. Acceptance is for synthetic local data; it is not an external-pilot release.
 - **Pilot-ready (§9 passed):** the hardening gate passes and the required owners have signed off. Only then does real org/solver data go on a server (Phase 6).
 
 ## 14. Standard acceptance gates (unchanged, still mandatory for web/shared changes)

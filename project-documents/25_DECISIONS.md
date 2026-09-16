@@ -1,6 +1,6 @@
 # Decisions — ADRs & P0 decision log
 
-The authoritative record of decisions made in **Phase 0**. Two parts:
+The authoritative record of product and architecture decisions, beginning in **Phase 0**. The active MVP boundary is DEC-2026-018 (2026-09-16); earlier decisions remain binding except where explicitly superseded. Two parts:
 
 - **Part A — Architecture Decision Records (ADRs):** technical decisions, **accepted by engineering**. They implement the canonical model ([20](20_CANONICAL_MODEL.md)) and the audit's resolutions ([30](30_CONSISTENCY_AUDIT.md)).
 - **Part B — P0 decision log (DEC):** product/business/legal decisions from [95 §2](95_RISKS_AND_OPEN_QUESTIONS.md). Each has an **engineering-ratified default** so build isn't blocked, but is **`pending-owner-sign-off`** until the named owner accepts.
@@ -8,6 +8,20 @@ The authoritative record of decisions made in **Phase 0**. Two parts:
 Status values: `accepted` · `accepted (eng) / pending-owner-sign-off` · `proposed` · `superseded`. Template for new entries: [95 §10](95_RISKS_AND_OPEN_QUESTIONS.md).
 
 ---
+
+## Current owner decision
+
+### DEC-2026-018 — Phase 3 baseline and lean organization–solver MVP
+
+- **Status:** accepted 2026-09-16 (Product owner, initial direction and explicit follow-up agreement). This includes owner publication, Phase 4 deferral, organization selection followed by explicit solver acceptance without routine platform approval, shared agreement summary, required exit paths, and the readiness boundaries below. Only the remaining detailed policies in [26_LEAN_MVP_SCOPE](26_LEAN_MVP_SCOPE.md) section 5 remain open.
+- **Decision:** use `3f80192a7ceba488bcfa4c2e0d60680f34c5f8b3` as the code baseline and prioritize independent organization–solver collaboration. The organization owner must have full challenge-management authority in their own organization, including routine publication without a distinct publisher actor or technical/legal/finance/platform approval chain. Preserve proposal, clarification/revision, direct-offer and notification flows; add only a small final selection/match flow. Defer the former Phase 4 formal reviewer, rubric, COI/scoring and review-administration programme in full. Contracts, pilots, payments, impact and AI remain outside this MVP.
+- **Supersedes:** DEC-2026-003's mandatory reviewer-led MVP; mandatory platform triage and separate-actor publication gates for the target MVP in [20](20_CANONICAL_MODEL.md), [70](70_SECURITY_AND_AUTHZ.md), and AGENTS.md constraint 8; the Phase-4-completion requirement in [80](80_DELIVERY_ROADMAP.md). ADR-0015's publication queue is retained historical implementation, not a required routine MVP handoff. DEC-2026-012 does not block normal owner publication. DEC-2026-004's reviewer launch requirement is deferred; organization provisioning and DEC-2026-016's human/team and conditional-verification rules remain.
+- **Retains:** canonical entities and role namespaces; server authorization and tenant scoping; no cross-tenant owner bypass; immutable exact versions; public/private separation; idempotency, concurrency, atomic audit/outbox; Persian/RTL and accessibility. COI remains mandatory if formal reviewer access is later enabled. Payment separation-of-duty rules remain binding if payment is later enabled.
+- **Follow-up decision — minimum completeness:** the organization selects an exact submitted proposal/offer-response and records a reason and shared scope/terms summary; an authorized actor in the selected solver workspace explicitly accepts or declines. Only acceptance confirms the match, and no routine platform co-signature is required. Proposal rejection, no-award, challenge cancellation and solver withdrawal must have defined durable outcomes and next actions. Preserve history and require fresh acceptance for changed terms. Exact role delegation, timing, cardinality, expiry and state/schema mapping remain implementation policy work, not permission to omit these paths.
+- **Follow-up decision — boundaries:** organizations and solvers settle outside Rahhal; payment gateways, paid posting/subscriptions, escrow, wallets and platform-confirmed settlement are deferred. Require reliable draft saving/recovery, clear loading/empty/error states, retry-safe actions, truthful navigation and accessible Persian/mobile UX. Clarification/revision is sufficient; real-time chat is not required. Before external-user validation, use a real reviewed auth/contact provider and one real outbound notification channel, alongside existing release gates. Private file upload is conditional on whether useful proposals need real files; if required, implement authorized private storage with quarantine/scan and signed reads rather than metadata placeholders. Channel/provider and file-necessity choices remain open; local synthetic acceptance does not require those production integrations.
+- **Implementation boundary:** this is a product-policy change, not evidence that the baseline already supports self-publication or final matching. M1 must change authorization, lifecycle guards, database constraints, API and frontend coherently; M2 implements the accepted bilateral authority after specifying the remaining detailed policies. No forged approval records, frontend-only bypass, fabricated review evidence, or silent enum changes are authorized.
+- **Recovery:** Phase 4 is preserved at the remote `phase-4-archive` tag (`6093c0c`). Use fresh per-device Phase 3 databases through `0021`; Git changes do not downgrade deployed schemas. Do not resume the archived branch or delete its evidence as part of ordinary MVP work.
+- **Delivery and acceptance:** [26](26_LEAN_MVP_SCOPE.md) defines M0–M4 and the required flows. The external-pilot hardening gate is unchanged. This decision accepts scope, not production readiness or unexecuted tests.
 
 ## Part A — Architecture Decision Records
 
@@ -126,8 +140,8 @@ Each resolves a P0 item from [95 §2](95_RISKS_AND_OPEN_QUESTIONS.md). Defaults 
 
 ### DEC-2026-003 — MVP boundary
 
-- **Status:** accepted · **Owner:** Product
-- **Decision:** first authoritative slice = **publish challenge → eligible solver submits locked proposal version → assigned reviewer declares COI + scores → org records reasoned decision → durable audit**. Contract→payment is Slice 2.
+- **Status:** superseded for the active MVP by DEC-2026-018 (2026-09-16) · **Owner:** Product
+- **Historical decision:** first authoritative slice = **publish challenge → eligible solver submits locked proposal version → assigned reviewer declares COI + scores → org records reasoned decision → durable audit**. The formal review prerequisite is now deferred; contract→payment remains later scope.
 
 ### DEC-2026-004 — Launch actors
 
@@ -173,6 +187,8 @@ Each resolves a P0 item from [95 §2](95_RISKS_AND_OPEN_QUESTIONS.md). Defaults 
 - **Amended by ADR-0015 (2026-08-28):** "cross-tenant collaboration is possible only through `access_grant`" governs bilateral, negotiated tenant-to-tenant collaboration. It does not extend to a platform role's standing, role-derived authority over a fixed, narrow, named action set across every org tenant (first instance: B2 publication-gate recording) — see ADR-0015.
 
 ### DEC-2026-012 — Publication override: joint co-signature or own-lane
+
+**Scope amendment (2026-09-16):** DEC-2026-018 makes owner-controlled publication the normal target MVP path. This unresolved override proposal belongs to the deferred governed-publication model; it does not block M1 or impose a platform co-signature on routine owner publication. The original Phase 2 code still enforces its existing policy until M1 is implemented.
 
 - **Status:** proposed / **pending owner decision** · **Owner:** Product + Security · **Blocking milestone:** future publication-override exception path; does not block the completed MVP Phase 2
 - **Context:** [95 §2](95_RISKS_AND_OPEN_QUESTIONS.md) answers "who can override readiness" with "Only **`org:publisher` + `platform:ops`** may override (recorded, reasoned)". That `+` is ambiguous, and nothing in the codebase resolves it because the override is not implemented. Until 2026-08-29 the ambiguity was hidden inside a single `challenge:publish` row in [70 §4](70_SECURITY_AND_AUTHZ.md) that conflated routine publication with the override; that row is now split, which exposes the question rather than answering it.

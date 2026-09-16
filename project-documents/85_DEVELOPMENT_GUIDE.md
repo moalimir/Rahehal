@@ -1,5 +1,7 @@
 # Development and continuation guide
 
+**Continuation boundary (2026-09-16):** use the restored Phase 3 baseline `3f80192` and [26_LEAN_MVP_SCOPE](26_LEAN_MVP_SCOPE.md) for new MVP work. Keep the archived Phase 4 code/schema isolated. Work on focused `codex/` branches from the stable line; do not merge the archive wholesale. A clean local PostgreSQL database applies the baseline's 20 migrations through `0021`; Git changes alone do not reset Docker data. Prefer a fresh checkout, locally generated secrets, and a new Compose project/volume per recovery, preserving old data for explicit recovery. M1 owner publication and M2 minimal matching are future changes, not capabilities enabled by setup. Device-specific runtime verification remains necessary.
+
 ## 1. Prerequisites
 
 - Use the lockfile; do not develop against floating dependency versions.

@@ -2,6 +2,32 @@
 
 This matrix maps the reconstructed requirements to current evidence and the phase that makes each requirement authoritative.
 
+## Active MVP traceability — 2026-09-16
+
+DEC-2026-018 and [26_LEAN_MVP_SCOPE](26_LEAN_MVP_SCOPE.md) replace the older MVP milestone mapping. The historical FR/NFR rows below remain identifiers and evidence pointers, not a requirement to implement the entire platform for this MVP.
+
+| Active requirement                                                                | Delivery milestone | Current evidence / gap                                                                                                                                                                   |
+| --------------------------------------------------------------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Restore Phase 3 code and isolate its database                                     | M0                 | `main` restored to `3f80192`; `phase-4-archive` preserves `6093c0c`; clean DB/runtime must be verified per device                                                                        |
+| Organization owner independently authors, manages and publishes                   | M1                 | Target policy accepted; baseline still requires Phase 2 governance; implementation and allow/deny tests pending                                                                          |
+| Individual/team proposal, clarification/revision and direct-offer interactions    | M3/M4              | Retain Phase 3 code and historical evidence in [84](84_PHASE3_CONNECTED_MVP_AUDIT.md); rerun connected acceptance on the new runtime                                                     |
+| Minimal reasoned selection, no-award and final match                              | M2                 | Not implemented; organization selection and explicit solver acceptance are accepted, with no routine platform approval; detailed policies remain in [26](26_LEAN_MVP_SCOPE.md) section 5 |
+| Consistent outcomes, notifications, and truthful connected navigation             | M3/M4              | Phase 3 notification foundation exists; new outcome events/screens and end-to-end evidence pending                                                                                       |
+| Membership/tenant isolation, immutable evidence, idempotency, audit/outbox        | M1–M4              | Retained safeguards; regression and new-command tests required with implementation                                                                                                       |
+| Formal reviewers, rubric, COI/scoring, blind comparison and review administration | Deferred Phase 4   | Not prerequisites for lean MVP acceptance; archived implementation is outside the baseline                                                                                               |
+| Contracts, execution, payments, impact and AI                                     | Deferred           | No new MVP requirement or readiness claim                                                                                                                                                |
+
+Only M4 acceptance closes the lean local MVP. External-pilot gates remain separate.
+
+| Accepted completeness requirement                                                                                         | Delivery / release gate                                 | Evidence still required                                                                                                              |
+| ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Shared exact-version agreement summary; solver explicitly accepts or declines; no routine platform approval               | M2/M4                                                   | Selection alone never confirms a match; changed terms need new acceptance; stale/retried/racing actions are safe                     |
+| Proposal rejection, no-award, challenge cancellation and solver withdrawal                                                | M2/M3/M4                                                | Defined allowed timing and roles, preserved history, consistent outcomes and scoped notifications; no dead-end pending states        |
+| Draft preservation, save/retry feedback, loading/empty/error states, truthful navigation and Persian/mobile accessibility | M3/M4                                                   | Connected browser tests for reload, save failure, conflicts and recovery; no false-success or demo fallback                          |
+| Settlement outside Rahhal; no payment gateway, escrow or platform-confirmed payment                                       | Scope boundary                                          | No fake paid/guaranteed state; any future billing/payment requires a separate accepted model                                         |
+| Real auth/contact provider and one outbound notification channel                                                          | Before external-user validation                         | Provider/security/integration evidence and actual delivery; local development OTP and in-app notifications do not prove this         |
+| Minimal secure private files, only if useful proposals require them                                                       | File-necessity decision before external-user validation | If needed: authorized upload/read, quarantine/scan and signed reads; otherwise explicitly text-only, with no fake attachment success |
+
 Status meanings:
 
 - **Prototype:** a realistic frontend behavior or executable client-side rule exists.

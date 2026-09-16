@@ -1,5 +1,13 @@
 # Risks and open questions
 
+## Active lean MVP questions — 2026-09-16
+
+DEC-2026-018 and [26_LEAN_MVP_SCOPE](26_LEAN_MVP_SCOPE.md) supersede the old reviewer-led MVP and routine platform publication approvals. The old recommendations below remain context only where compatible. Do not reopen accepted owner publication or make deferred review-policy questions block M1.
+
+Accepted: organization selection plus explicit solver acceptance confirms the match without routine platform approval; a shared agreement summary and rejection/decline/withdrawal/cancellation/no-award paths are required. Remaining M2 policies are selection cardinality, expiry/reselection, withdrawal/cancellation timing and races, delegated/team roles, direct-offer evidence mapping, the minimum match/Case record, and when selection may start. Section 5 of [26](26_LEAN_MVP_SCOPE.md) separates these from the accepted flow. Before external-user validation, select a real authentication provider and one outbound notification channel and decide whether proposals require private file upload. Integrated payment is deferred; no payment-provider selection blocks MVP completion.
+
+Active delivery risks: mistaking a Git reset for a database downgrade; accidentally reusing Phase 4 schemas/images; presenting demo-only or planned outcome screens as working features; broadening owner authority across tenants; silently importing archived workflow requirements; and treating local synthetic-data acceptance as approval for an external pilot. M0–M4 evidence and the retained security/release gates own these risks.
+
 > **▶ Recommended answers added (2026-08-23; launch-actor answer amended 2026-09-01).** Every open question in §3–§9 now carries a **▶ Recommendation** — the best option for _this_ project (governed open-innovation, Persian-first, controlled Iran pilot, cross-tenant collaboration), consistent with the canonical model and decisions in [00_OVERVIEW](00_OVERVIEW.md) §4. These are engineering-ratified defaults ready to build against; items tagged _(needs … sign-off)_ still require the named business/legal/finance owner to formally accept before pilot. The §2 P0 table's "Proposed default" column already reflects these.
 
 ## 1. Risk register

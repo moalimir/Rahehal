@@ -2,6 +2,8 @@
 
 **This folder is the authoritative product & backend blueprint.** It reconciles the prototype's three lifecycle vocabularies, three role models, and four solver-type enums into one coherent, implementation-ready design, and specifies the production backend. Four v1 reference docs (15 / 85 / 90 / 95) are retained in this folder as supporting detail; where they disagree on terms/states/roles/entities, **the consolidated set (00–80) wins**.
 
+**Start with the active objective (2026-09-16):** [26_LEAN_MVP_SCOPE](26_LEAN_MVP_SCOPE.md), accepted under DEC-2026-018 in [25_DECISIONS](25_DECISIONS.md). MVP = Phase 3 baseline + owner publication + minimal final selection/match + connected organization/solver acceptance. The larger Phase 4 programme is deferred. Older broad lifecycle/reviewer descriptions are future design or dated evidence, not extra MVP requirements.
+
 Read in order:
 
 | #   | Document                                                          | Purpose                                                                                                       |
@@ -30,4 +32,4 @@ Read in order:
 
 ## The one thing to know
 
-The prototype is an advanced, well-tested frontend that models the **entire** lifecycle in the browser — with **no server authority**. Its real defect isn't missing screens; it's that the same concept is modeled three incompatible ways across `domain/`. This set fixes that first (one vocabulary), then specifies the backend that makes **one vertical slice** — _publish challenge → locked proposal → COI review → reasoned decision_ — actually real, secure, and auditable.
+The restored Phase 3 baseline has connected organization/solver flows and PostgreSQL authority. The active work closes the smaller _owner publication → proposal and clarification → final agreed match_ journey. The full browser prototype is broader than the implemented backend; neither demo screens nor deferred design are evidence of MVP completion. [26](26_LEAN_MVP_SCOPE.md) separates baseline capabilities, remaining work, and accepted bilateral matching and remaining detailed policies.

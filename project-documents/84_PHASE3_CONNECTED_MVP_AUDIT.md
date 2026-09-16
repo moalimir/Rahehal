@@ -1,5 +1,7 @@
 # Phase 3 Connected MVP — Frontend Audit & Synchronization Plan
 
+**Scope update — 2026-09-16:** preserve this ledger as Phase 3 evidence for restored commit `3f80192`. The active closure plan is M0–M4 in [26_LEAN_MVP_SCOPE](26_LEAN_MVP_SCOPE.md), accepted under DEC-2026-018. Its new owner-publication and final-match flows need their own API/PostgreSQL/browser evidence. Statements below that require a Phase 4 reviewer leg for MVP certification are superseded; formal reviewer certification is deferred. Historical owner walkthroughs do not certify the new scope, and this edit does not rerun the recorded tests.
+
 **Added 2026-09-01.** This plan is the route-level companion to [80_DELIVERY_ROADMAP](80_DELIVERY_ROADMAP.md) Phase 3 C7–C10. It owns frontend/backend synchronization, session-aware public chrome, live workspace data, truthful navigation, and real-browser certification. AGENTS.md's Persian/RTL and accessibility code-review rules supply the visual/accessibility criteria; they do not replace the authority audit here.
 
 ## 1. Exit outcome
