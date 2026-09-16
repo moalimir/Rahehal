@@ -26,6 +26,7 @@
     "docker:build": "docker compose build",
     "docker:up": "docker compose up --detach --wait",
     "docker:smoke": "node scripts/smoke-docker.mjs",
+    "docker:smoke:pdf": "node scripts/smoke-private-pdf.mjs",
     "docker:logs": "docker compose logs --follow",
     "docker:down": "docker compose down --remove-orphans",
     "db:up": "docker compose up postgres --detach --wait",

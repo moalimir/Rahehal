@@ -2,7 +2,7 @@
 
 ## Current delivery checkpoint — 2026-09-16
 
-**Participation and private PDFs:** new invitation enforcement and slice 3 file controls are in the working tree. DEC-2026-019 records the owner's restricted challenge-PDF audience. Isolated tests do not establish real scanner operation: Docker image retrieval failed with TLS handshake timeouts, so the retained live stack/database have not been upgraded and no newly scanned PDF examples have been added there. See [88](88_PARTICIPATION_AND_PRIVATE_PDFS.md) for actual checks and remaining work. This slice is not complete or release-approved.
+**Participation and private PDFs:** new invitation enforcement and slice 3 file controls are implemented. DEC-2026-019 records the owner's restricted challenge-PDF audience. The retained arm64 Docker stack/database was upgraded in place through migration `0023`; real ClamAV/qpdf acceptance retains one clean attached PDF and malformed/EICAR rejected controls. See [88](88_PARTICIPATION_AND_PRIVATE_PDFS.md) for IDs, actual checks and remaining connected-browser/security review. This is not an external release approval.
 
 **Solver/proposal reliability update:** the owner's slice 2 is implemented locally, with personal/team latest-edit submission, invitation failure recovery, clarification/revision, and retained examples verified in real desktop/mobile browser flows. No database migration or authority change was needed. Current evidence and limits are in [87_SOLVER_PROPOSAL_RELIABILITY](87_SOLVER_PROPOSAL_RELIABILITY.md); M2 matching, the rest of M3/M4 and external-user readiness remain open.
 

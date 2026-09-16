@@ -4,7 +4,7 @@
 
 ## 1. Product objective
 
-**Private-file follow-up:** the owner has now requested slice 3 and decided its audience in DEC-2026-019; this resolves whether a private PDF capability is required. Code and isolated database verification are in progress, not external-user acceptance. [88](88_PARTICIPATION_AND_PRIVATE_PDFS.md) records the live ClamAV/Docker verification blocker. The conditional discussion in §5.2 below is historical context, not permission to replace this requirement with metadata-only attachments.
+**Private-file follow-up:** the owner has now requested slice 3 and decided its audience in DEC-2026-019; this resolves whether a private PDF capability is required. Code, isolated database verification and live local ClamAV/qpdf acceptance now pass with retained synthetic examples. [88](88_PARTICIPATION_AND_PRIVATE_PDFS.md) records evidence and the remaining browser/production-security gates. The conditional discussion in §5.2 below is historical context, not permission to replace this requirement with metadata-only attachments.
 
 **Solver reliability update (2026-09-16):** the owner's slice 2 is now locally implemented and tested as a bounded part of M3/M4, not roadmap M2. Personal/team save-and-submit, invitation acceptance, recovery, clarification/revision and retained examples are covered in [87_SOLVER_PROPOSAL_RELIABILITY](87_SOLVER_PROPOSAL_RELIABILITY.md). Remaining M2–M4 scope is not closed by this work.
 

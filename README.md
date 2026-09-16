@@ -20,8 +20,8 @@ Rejection, withdrawal, decline, cancellation and no-award are required paths.
 Payments stay outside Rahhal. Real authentication and one outbound notification
 channel are required before external-user validation. The owner now requires secure
 private PDFs with invited/submitted-only challenge-file access (DEC-2026-019).
-The slice-3 code and isolated tests are implemented, but real scanner/container and
-connected browser acceptance remain pending; see the
+The slice-3 code, live local scanner/container acceptance and retained synthetic
+examples are implemented; connected browser and production-security acceptance remain pending. See the
 [private-PDF delivery record](project-documents/88_PARTICIPATION_AND_PRIVATE_PDFS.md).
 
 Fresh Phase 3 databases end at migration `0021`; changing Git branches does not
@@ -46,14 +46,15 @@ Use the repository pins: Node.js 22 (`.nvmrc`) and npm 11.13.0. The looser
 
 ## Install and run
 
-The current Compose file adds private PDF storage, qpdf and ClamAV (4 GiB memory
-limit and persistent signatures). Existing local `.env` files need
+The current Compose file adds private PDF storage, qpdf and a digest-pinned,
+multi-architecture ClamAV Debian image (4 GiB memory limit and persistent signatures).
+Existing local `.env` files need
 `node scripts/init-private-files.mjs` before Compose validation; fresh environment
 initialization already generates the independent signing secret. No secret is printed.
 The API waits for scanner health and requires migration `0023` when files are enabled.
-On this device scanner image retrieval is currently blocked by Docker registry TLS
-timeouts, so the retained running stack has not yet been upgraded. Do not remove
-existing volumes or substitute an always-clean scanner to work around that failure.
+The retained Apple Silicon stack has been upgraded in place and verified with real
+ClamAV/qpdf scanning. The local wrapper avoids the upstream Alpine tag that has no
+arm64 manifest; it does not change scanner configuration or bake signature data.
 
 Install exactly the versions recorded in `package-lock.json`:
 
@@ -123,6 +124,7 @@ npm run docker:build
 npm run docker:up
 npm run seed:challenges
 npm run docker:smoke
+npm run docker:smoke:pdf
 ```
 
 Open `http://localhost:3000`; the OpenAPI document is at
