@@ -1,5 +1,7 @@
 # Canonical Model — the single source of truth
 
+**Participation/private-file update (2026-09-16):** sourcing, visibility and applicant category are independent. `private` sourcing additionally requires an active direct invitation to the exact solver workspace and published version; free-text invitees confer no authority. `hybrid` sourcing stays open with targeted invitations. An academic/company/lab category is self-declared and is not institutional verification. Existing published verification/NDA/document gates still apply. Private PDF lifecycle is `awaiting_upload → quarantined → pending_scan → clean | rejected | scan_failed`; only `scan_failed` can be explicitly requeued. Only clean, same-record files may be attached to immutable versions. DEC-2026-019 defines challenge-file audience; [88](88_PARTICIPATION_AND_PRIVATE_PDFS.md) separates implemented controls from pending live verification.
+
 This document is **law** for the whole blueprint. Every database column, API field, permission rule, event name, and UI label uses these names, states, and identities. It reconciles the three lifecycle vocabularies, three role models, and four solver-type enums found in source into one coherent model. Traceability to the current code is given so nothing is invented without evidence.
 
 ---

@@ -1,6 +1,7 @@
 import { isOutboxEvent, type OutboxEvent } from "@rahhal/contracts";
 import {
   challengeOutboxEventTypes,
+  privateFileOutboxEventTypes,
   opportunityOutboxEventTypes,
   proposalOutboxEventTypes,
   solverOutboxEventTypes,
@@ -20,6 +21,7 @@ import type {
 // event cannot be emitted by the API without the worker routing it.
 export const supportedOutboxEventTypes = [
   ...challengeOutboxEventTypes,
+  ...privateFileOutboxEventTypes,
   ...proposalOutboxEventTypes,
   ...opportunityOutboxEventTypes,
   ...solverOutboxEventTypes,

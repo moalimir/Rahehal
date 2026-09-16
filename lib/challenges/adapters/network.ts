@@ -11,6 +11,7 @@ import type {
   PatchChallengeBody,
 } from "@rahhal/contracts";
 import { apiRoutes } from "@rahhal/contracts";
+import { parsePrefixedId } from "@rahhal/domain";
 import type { ChallengeRecord } from "@/domain/challenge";
 import {
   emptyChallenge,
@@ -90,6 +91,13 @@ export function challengeResourceToRecord(resource: ChallengeResource): Challeng
     contactPhone: content.contact.phone,
     accuracyConfirmed: content.accuracy_confirmed,
     legalNotes: content.legal_notes,
+    attachments: content.attachment_ids.map((id) => ({
+      id,
+      name: "PDF خصوصی",
+      size: 0,
+      type: "application/pdf",
+      addedAt: resource.created_at,
+    })),
     createdAt: resource.created_at,
     updatedAt: resource.updated_at,
     ...(resource.stage === "draft" ? {} : { submittedAt: resource.updated_at }),
@@ -170,7 +178,7 @@ export function challengeRecordToPatch(record: ChallengeRecord): ChallengeDraftP
     },
     accuracy_confirmed: record.accuracyConfirmed,
     legal_notes: record.legalNotes,
-    attachment_ids: [],
+    attachment_ids: record.attachments.map((file) => parsePrefixedId(file.id, "fil")),
   };
 }
 
@@ -268,7 +276,7 @@ export function createNetworkChallengeGateway(
         if (input.attachments.length) {
           return localFailure(
             "VALIDATION",
-            "بارگذاری فایل هنوز به سرویس خصوصی فایل متصل نشده است؛ فایل را حذف و دوباره تلاش کنید.",
+            "ابتدا چالش را بدون فایل بسازید؛ سپس PDF را از بخش ویرایش بارگذاری و پس از اسکن پیوست کنید.",
           );
         }
         const headers = workspaceHeaders();
@@ -288,12 +296,6 @@ export function createNetworkChallengeGateway(
         return loaded;
       },
       async save(record) {
-        if (record.attachments.length) {
-          return localFailure(
-            "VALIDATION",
-            "فایل‌های پیش‌نویس تا اتصال سرویس خصوصی فایل قابل ذخیره نیستند.",
-          );
-        }
         const resource = resources.get(record.id);
         if (!resource) return localFailure("CONFLICT", "نسخه سرور را دوباره دریافت کنید.");
         const headers = workspaceHeaders();

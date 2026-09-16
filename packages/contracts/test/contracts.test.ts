@@ -6,6 +6,9 @@ import {
   apiSchemas,
   isOutboxEvent,
   openApiDocument,
+  privateFileRoutes,
+  requestFileUploadSchema,
+  privateFileResourceSchema,
   type ApiError,
   type ApiErrorCode,
   type CreateChallengeBody,
@@ -22,6 +25,16 @@ import {
 } from "../src/index.js";
 
 describe("authoritative API contracts", () => {
+  it("documents bounded private file commands without exposing storage authority", () => {
+    for (const path of Object.values(privateFileRoutes))
+      expect(openApiDocument.paths).toHaveProperty(path);
+    expect(requestFileUploadSchema.required).toContain("expected_version");
+    expect(requestFileUploadSchema.properties.size.maximum).toBe(10 * 1024 * 1024);
+    expect(requestFileUploadSchema.properties.mime.const).toBe("application/pdf");
+    expect(privateFileResourceSchema.additionalProperties).toBe(false);
+    expect(privateFileResourceSchema.properties).not.toHaveProperty("object_key");
+    expect(privateFileResourceSchema.properties).not.toHaveProperty("sha256");
+  });
   it("keeps access denial, absence, and step-up as distinct stable codes", () => {
     expect(apiErrorCodes).toContain("NO_ACCESS");
     expect(apiErrorCodes).toContain("NOT_FOUND");

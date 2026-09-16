@@ -18,9 +18,11 @@ The accepted completion flow is organization selection followed by explicit solv
 acceptance, with a shared agreement summary and no routine platform approval.
 Rejection, withdrawal, decline, cancellation and no-award are required paths.
 Payments stay outside Rahhal. Real authentication and one outbound notification
-channel are required before external-user validation; secure private files are
-conditional on whether useful proposals need attachments. These are requirements,
-not newly implemented capabilities.
+channel are required before external-user validation. The owner now requires secure
+private PDFs with invited/submitted-only challenge-file access (DEC-2026-019).
+The slice-3 code and isolated tests are implemented, but real scanner/container and
+connected browser acceptance remain pending; see the
+[private-PDF delivery record](project-documents/88_PARTICIPATION_AND_PRIVATE_PDFS.md).
 
 Fresh Phase 3 databases end at migration `0021`; changing Git branches does not
 downgrade an existing database. This remains a local synthetic-data build, not a
@@ -43,6 +45,15 @@ Use the repository pins: Node.js 22 (`.nvmrc`) and npm 11.13.0. The looser
 `engines` values are compatibility floors, not the reproducible development target.
 
 ## Install and run
+
+The current Compose file adds private PDF storage, qpdf and ClamAV (4 GiB memory
+limit and persistent signatures). Existing local `.env` files need
+`node scripts/init-private-files.mjs` before Compose validation; fresh environment
+initialization already generates the independent signing secret. No secret is printed.
+The API waits for scanner health and requires migration `0023` when files are enabled.
+On this device scanner image retrieval is currently blocked by Docker registry TLS
+timeouts, so the retained running stack has not yet been upgraded. Do not remove
+existing volumes or substitute an always-clean scanner to work around that failure.
 
 Install exactly the versions recorded in `package-lock.json`:
 
@@ -110,6 +121,7 @@ npm run docker:env:init
 npm run docker:config
 npm run docker:build
 npm run docker:up
+npm run seed:challenges
 npm run docker:smoke
 ```
 
@@ -121,7 +133,6 @@ Follow logs or stop the stack with:
 
 ```bash
 npm run docker:logs
-npm run seed:challenges
 npm run docker:down
 ```
 

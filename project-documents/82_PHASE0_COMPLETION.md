@@ -2,6 +2,8 @@
 
 ## Current delivery checkpoint — 2026-09-16
 
+**Participation and private PDFs:** new invitation enforcement and slice 3 file controls are in the working tree. DEC-2026-019 records the owner's restricted challenge-PDF audience. Isolated tests do not establish real scanner operation: Docker image retrieval failed with TLS handshake timeouts, so the retained live stack/database have not been upgraded and no newly scanned PDF examples have been added there. See [88](88_PARTICIPATION_AND_PRIVATE_PDFS.md) for actual checks and remaining work. This slice is not complete or release-approved.
+
 **Solver/proposal reliability update:** the owner's slice 2 is implemented locally, with personal/team latest-edit submission, invitation failure recovery, clarification/revision, and retained examples verified in real desktop/mobile browser flows. No database migration or authority change was needed. Current evidence and limits are in [87_SOLVER_PROPOSAL_RELIABILITY](87_SOLVER_PROPOSAL_RELIABILITY.md); M2 matching, the rest of M3/M4 and external-user readiness remain open.
 
 **M1 local implementation update:** owner-controlled publication and immutable unpublished re-authoring now work in the connected runtime; delegated roles and their approval path remain intact. The Mac Docker stack has been rebuilt and migrated in place to 21 migrations through `0022`, preserving examples. Unit/API/component and PostgreSQL suites pass, as do real connected-browser owner publication and delegated publication flows. Current evidence, limitations and review requirements are in [86_M1_OWNER_PUBLICATION](86_M1_OWNER_PUBLICATION.md). The following restoration paragraph describes the earlier checkpoint; M2–M4 and external-user readiness remain unfinished.

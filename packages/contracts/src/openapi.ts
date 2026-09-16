@@ -1,6 +1,7 @@
 import { challengeManagedStages } from "@rahhal/domain";
 
 import { apiRoutes } from "./routes.js";
+import { privateFileRoutes } from "./private-files.js";
 import { apiSchemas, type ApiSchemaName } from "./schemas.js";
 
 const schemaRef = (name: ApiSchemaName) => ({
@@ -201,6 +202,139 @@ export const openApiDocument = {
     { name: "Opportunity" },
   ],
   paths: {
+    [privateFileRoutes.list]: {
+      get: {
+        operationId: "listPrivateFiles",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          workspaceHeader,
+          {
+            in: "query",
+            name: "entity_type",
+            required: true,
+            schema: { type: "string", enum: ["challenge", "proposal"] },
+          },
+          { in: "query", name: "entity_id", required: true, schema: { type: "string" } },
+        ],
+        responses: {
+          "200": {
+            description: "Only files reachable in the active workspace; no storage keys",
+            content: jsonContent("PrivateFileListSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [privateFileRoutes.requestUpload]: {
+      post: {
+        operationId: "requestPrivatePdfUpload",
+        security: [{ bearerAuth: [] }],
+        parameters: [workspaceHeader, idempotencyHeader],
+        requestBody: { required: true, content: jsonContent("RequestFileUploadBody") },
+        responses: {
+          "200": {
+            description: "Actor/workspace-bound upload URL, expires after five minutes",
+            content: jsonContent("PrivateFileUploadSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [privateFileRoutes.file]: {
+      get: {
+        operationId: "readPrivateFileStatus",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          workspaceHeader,
+          { in: "path", name: "fileId", required: true, schema: { type: "string" } },
+        ],
+        responses: {
+          "200": {
+            description: "Authorized file metadata and scan status",
+            content: jsonContent("PrivateFileSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [privateFileRoutes.upload]: {
+      put: {
+        operationId: "uploadPrivatePdfBytes",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          workspaceHeader,
+          idempotencyHeader,
+          { in: "path", name: "fileId", required: true, schema: { type: "string" } },
+          { in: "query", name: "token", required: true, schema: { type: "string" } },
+        ],
+        requestBody: {
+          required: true,
+          content: { "application/pdf": { schema: { type: "string", format: "binary" } } },
+        },
+        responses: {
+          "200": {
+            description: "Quarantined immutable bytes; not yet attachable or downloadable",
+            content: jsonContent("PrivateFileMutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [privateFileRoutes.complete]: {
+      post: {
+        operationId: "completePrivatePdfUpload",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          workspaceHeader,
+          idempotencyHeader,
+          { in: "path", name: "fileId", required: true, schema: { type: "string" } },
+        ],
+        requestBody: { required: true, content: jsonContent("CompleteFileBody") },
+        responses: {
+          "200": {
+            description: "Durable scan queue request; unavailable until clean",
+            content: jsonContent("PrivateFileMutationSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [privateFileRoutes.downloadUrl]: {
+      get: {
+        operationId: "requestPrivatePdfDownload",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          workspaceHeader,
+          { in: "path", name: "fileId", required: true, schema: { type: "string" } },
+        ],
+        responses: {
+          "200": {
+            description:
+              "Actor/workspace-bound read URL, expires after sixty seconds; access rechecked on use",
+            content: jsonContent("PrivateFileDownloadSuccessEnvelope"),
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
+    [privateFileRoutes.content]: {
+      get: {
+        operationId: "downloadPrivatePdf",
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          workspaceHeader,
+          { in: "path", name: "fileId", required: true, schema: { type: "string" } },
+          { in: "query", name: "token", required: true, schema: { type: "string" } },
+        ],
+        responses: {
+          "200": {
+            description: "Audited authorized download of clean, digest-verified PDF",
+            content: { "application/pdf": { schema: { type: "string", format: "binary" } } },
+          },
+          ...protectedCommandErrors,
+        },
+      },
+    },
     [apiRoutes.openApi]: {
       get: {
         operationId: "getOpenApiDocument",
@@ -748,14 +882,13 @@ export const openApiDocument = {
       post: {
         operationId: "publishChallenge",
         tags: ["Challenge"],
-        summary:
-          "Publish the fully approved version: lock it, set published_version_id, and write the public projection in one transaction",
+        summary: "Publish an exact version as owner, or as delegated publisher after approvals",
         security: [{ bearerAuth: [] }],
         parameters: [workspaceHeader, idempotencyHeader, challengeIdParameter],
         requestBody: { required: true, content: jsonContent("ChallengeTransitionBody") },
         responses: {
           "200": {
-            description: "A receipt for the approvals to published transition.",
+            description: "Atomic publication receipt.",
             content: jsonContent("MutationSuccessEnvelope"),
           },
           ...protectedCommandErrors,

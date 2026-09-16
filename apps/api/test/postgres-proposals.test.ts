@@ -344,7 +344,7 @@ describe("C3 PostgreSQL proposal drafts", () => {
         title: "پیشنهاد پایش هوشمند انرژی",
         budget_amount_minor: 125_000_000,
         budget_currency: "IRR" as const,
-        attachment_ids: [parsePrefixedId("fil_c3_metadata_001", "fil")],
+        attachment_ids: [],
       },
     };
     const created = await proposals.create(body, teamOwner("c3-pg-create-0001"));
@@ -367,7 +367,7 @@ describe("C3 PostgreSQL proposal drafts", () => {
       content: {
         budget_amount_minor: 125_000_000,
         budget_currency: "IRR",
-        attachment_ids: ["fil_c3_metadata_001"],
+        attachment_ids: [],
       },
       versions: [{ version_number: 1, base_version_id: null, locked: false }],
     });
@@ -930,6 +930,7 @@ describe("C4 PostgreSQL proposal submission", () => {
     );
     if (!before?.tracking_code) throw new Error("Expected the first submitted tracking code.");
 
+    expect((await runMigrations(database, "down")).applied).toEqual(["0023_private_pdfs"]);
     expect((await runMigrations(database, "down")).applied).toEqual(["0022_m1_owner_publication"]);
     expect((await runMigrations(database, "down")).applied).toEqual([
       "0021_c6_offer_deadline_single_clock",
@@ -953,6 +954,7 @@ describe("C4 PostgreSQL proposal submission", () => {
       "0020_c8_notifications",
       "0021_c6_offer_deadline_single_clock",
       "0022_m1_owner_publication",
+      "0023_private_pdfs",
     ]);
 
     const restored = await database.query(

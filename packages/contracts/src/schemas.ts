@@ -38,6 +38,12 @@ import {
 
 import { apiErrorCodes } from "./envelopes.js";
 import { teamJoinModes } from "./team.js";
+import {
+  privateFileResourceSchema,
+  requestFileUploadSchema,
+  completeFileSchema,
+  fileTargetSchema,
+} from "./private-files.js";
 
 export type JsonSchema = boolean | Readonly<Record<string, unknown>>;
 
@@ -1774,6 +1780,43 @@ const versionedCommandProperties = {
 } as const;
 
 export const apiSchemas = {
+  FileTarget: fileTargetSchema,
+  RequestFileUploadBody: requestFileUploadSchema,
+  CompleteFileBody: completeFileSchema,
+  PrivateFileSuccessEnvelope: successEnvelopeFor(privateFileResourceSchema),
+  PrivateFileListSuccessEnvelope: successEnvelopeFor({
+    type: "array",
+    items: privateFileResourceSchema,
+  }),
+  PrivateFileMutationSuccessEnvelope: successEnvelopeFor(
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["file", "receipt"],
+      properties: { file: privateFileResourceSchema, receipt: mutationReceiptSchema },
+    },
+    true,
+  ),
+  PrivateFileUploadSuccessEnvelope: successEnvelopeFor(
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["file", "receipt", "upload_url", "expires_at"],
+      properties: {
+        file: privateFileResourceSchema,
+        receipt: mutationReceiptSchema,
+        upload_url: { type: "string" },
+        expires_at: dateTimeSchema,
+      },
+    },
+    true,
+  ),
+  PrivateFileDownloadSuccessEnvelope: successEnvelopeFor({
+    type: "object",
+    additionalProperties: false,
+    required: ["download_url", "expires_at"],
+    properties: { download_url: { type: "string" }, expires_at: dateTimeSchema },
+  }),
   ApiMeta: apiMetaSchema,
   VersionedApiMeta: versionedApiMetaSchema,
   ApiError: apiErrorSchema,

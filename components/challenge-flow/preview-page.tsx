@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { PrivatePdfAttachments } from "@/components/private-pdf-attachments";
 import { useMemo, useState } from "react";
 import { ConfirmModal } from "@/components/challenge-flow/fields";
 import {
@@ -286,7 +287,13 @@ export function ChallengePreviewPage({ id }: { id: string }) {
         {mode === "full" && (
           <section>
             <h3>فایل‌های پیوست</h3>
-            {record.attachments.length ? (
+            {runtimeMode === "network" ? (
+              <PrivatePdfAttachments
+                entity_type="challenge"
+                entity_id={record.id}
+                attachedIds={record.attachments.map((file) => file.id)}
+              />
+            ) : record.attachments.length ? (
               <ul className="challenge-attachment-list">
                 {record.attachments.map((file) => (
                   <li key={file.id}>

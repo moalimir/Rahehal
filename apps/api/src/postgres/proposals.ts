@@ -70,6 +70,8 @@ import type {
   WorkspaceScope,
 } from "../ports.js";
 import { PostgresUnitOfWork } from "./unit-of-work.js";
+import { challengeParticipation } from "./challenge-participation.js";
+import { assertPrivateAttachments } from "./private-files.js";
 
 type ProposalRow = {
   readonly id: string;
@@ -796,6 +798,12 @@ export class PostgresProposalAdapter implements ProposalPort {
       const occurredAt = this.clock.now().toISOString();
       const empty = emptyProposalContent();
       const content = body.draft ? mergeProposalContent(empty, body.draft) : empty;
+      await assertPrivateAttachments(
+        client,
+        context,
+        { entity_type: "proposal", entity_id: proposalId },
+        content.attachment_ids,
+      );
       const assignedMembershipIds = context.role === "individual" ? [] : [context.membershipId];
       await client.query(
         `INSERT INTO proposal (
@@ -939,6 +947,12 @@ export class PostgresProposalAdapter implements ProposalPort {
         });
       }
       const content = mergeProposalContent(current.content, body.patch);
+      await assertPrivateAttachments(
+        client,
+        context,
+        { entity_type: "proposal", entity_id: current.id },
+        content.attachment_ids,
+      );
       const aggregateVersion = current.version + 1;
       const version = Math.max(...current.versions.map((item) => item.version_number)) + 1;
       const versionId = parseProposalVersionId(this.ids.next("prv"));
@@ -1079,8 +1093,10 @@ export class PostgresProposalAdapter implements ProposalPort {
         });
       }
 
+      const participation = await challengeParticipation(client, context, current.challenge_id);
       const eligibility = evaluateProposalEligibility(
         {
+          invitationRequired: participation.invitationRequired,
           challengeVersionId: parseChallengeVersionId(facts.challenge_version_id),
           allowedApplicantTypes: facts.allowed_applicant_types.filter(isApplicantType),
           verificationRequired: facts.verification_required,
@@ -1093,6 +1109,7 @@ export class PostgresProposalAdapter implements ProposalPort {
         },
         {
           workspaceId: context.workspaceId,
+          hasActiveInvitation: participation.hasActiveInvitation,
           applicantType: facts.applicant_type,
           workspaceVerified: facts.verification_state === "verified",
           ndaAccepted: facts.nda_accepted,
@@ -1574,6 +1591,12 @@ export class PostgresProposalAdapter implements ProposalPort {
       const facts = gate.rows[0];
       if (!facts) throw notFound();
       const occurredAt = facts.server_now.toISOString();
+      const participation = await challengeParticipation(client, context, current.challenge_id);
+      if (participation.invitationRequired && !participation.hasActiveInvitation) {
+        throw new ApiProblem(409, "INVALID_STATE", "An active workspace invitation is required", {
+          recovery: "contact_organization",
+        });
+      }
       if (request.revision_deadline.getTime() <= facts.server_now.getTime()) {
         throw new ApiProblem(409, "INVALID_STATE", "The revision deadline has passed", {
           recovery: "contact_organization",

@@ -4,6 +4,8 @@ This matrix maps the reconstructed requirements to current evidence and the phas
 
 ## Active MVP traceability — 2026-09-16
 
+**Participation / private PDFs (owner slice 3):** requirement and owner audience decision DEC-2026-019 map to `challenge-participation.ts`, domain eligibility reasons, migration `0023`, `private-files.ts`, `private-file-routes.ts`, `private-pdf-storage.ts`, the connected attachment panel and generated OpenAPI. Negative authorization, immutable binding, retries and scanner-transport evidence live in `postgres-participation.test.ts`, `postgres-private-files.test.ts`, `private-pdf-storage.test.ts`, `private-file-gateway.test.ts` and `private-pdf-attachments.test.tsx`. [88](88_PARTICIPATION_AND_PRIVATE_PDFS.md) records limits: controlled scanners in DB tests are not live malware-scanner evidence; local containers and retained PDF examples still await real acceptance.
+
 **Implementation evidence update:** M1 owner publication is locally implemented, as recorded in [86](86_M1_OWNER_PUBLICATION.md). The owner's solver/proposal reliability slice is locally implemented and desktop/mobile verified in [87](87_SOLVER_PROPOSAL_RELIABILITY.md), covering FR-SOL-004–008 and retained clarification/revision. The baseline rows below predate these implementations; final matching, full M3/M4 acceptance and external-user readiness are still open.
 
 DEC-2026-018 and [26_LEAN_MVP_SCOPE](26_LEAN_MVP_SCOPE.md) replace the older MVP milestone mapping. The historical FR/NFR rows below remain identifiers and evidence pointers, not a requirement to implement the entire platform for this MVP.

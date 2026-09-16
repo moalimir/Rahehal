@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { Icon } from "@/components/icons";
+import { PrivatePdfAttachments } from "@/components/private-pdf-attachments";
 import { useWebRuntime } from "@/components/runtime-provider";
 import {
   ConnectedFamilyError,
@@ -238,6 +239,7 @@ export function ConnectedDirectOffersList() {
 
               <div className="rh-connected-offer-card__body">
                 <p>{offer.summary}</p>
+                <PrivatePdfAttachments entity_type="challenge" entity_id={offer.challenge_id} />
                 <dl>
                   <div>
                     <dt>مهلت پاسخ</dt>

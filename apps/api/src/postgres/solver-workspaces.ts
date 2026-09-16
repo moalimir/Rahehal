@@ -43,6 +43,7 @@ import type {
   WorkspaceScope,
 } from "../ports.js";
 import { PostgresUnitOfWork } from "./unit-of-work.js";
+import { challengeParticipation } from "./challenge-participation.js";
 
 type ProfileRow = {
   tenant_id: string;
@@ -643,8 +644,14 @@ export class PostgresSolverWorkspaceAdapter implements SolverWorkspacePort, Elig
       const row = result.rows[0];
       if (!row || !isApplicantType(row.applicant_type)) return null;
       const now = this.clock.now();
+      const participation = await challengeParticipation(
+        this.unitOfWork.currentClient(),
+        scope,
+        challengeId,
+      );
       const decision = evaluateProposalEligibility(
         {
+          invitationRequired: participation.invitationRequired,
           challengeVersionId: parseChallengeVersionId(row.challenge_version_id),
           allowedApplicantTypes: row.allowed_applicant_types.filter(isApplicantType),
           verificationRequired: row.verification_required,
@@ -657,6 +664,7 @@ export class PostgresSolverWorkspaceAdapter implements SolverWorkspacePort, Elig
         },
         {
           workspaceId: parseWorkspaceId(row.workspace_id),
+          hasActiveInvitation: participation.hasActiveInvitation,
           applicantType: row.applicant_type,
           workspaceVerified: row.verification_state === "verified",
           ndaAccepted: row.nda_accepted,

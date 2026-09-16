@@ -1,6 +1,22 @@
 name: rahhal-local
 
 services:
+  clamav:
+    image: clamav/clamav:1.4.6
+    init: true
+    mem_limit: 4g
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - clamav-signatures:/var/lib/clamav
+    # No host port: document bytes stay inside the local application network.
+    healthcheck:
+      test: ["CMD-SHELL", "clamdscan --ping=1"]
+      interval: 15s
+      timeout: 5s
+      start_period: 180s
+      retries: 20
+
   oidc:
     image: ghcr.io/dexidp/dex:v2.45.1@sha256:8499afd690c437f52301efd2b05b2455da5bd2dfc20332cd697dc9937f808462
     command: ["dex", "serve", "/etc/dex/config.yaml"]
@@ -136,6 +152,8 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    volumes:
+      - private-pdfs:/var/lib/rahhal/private-pdfs
     environment:
       NODE_ENV: development
       RAHHAL_API_MODE: postgres
@@ -147,6 +165,9 @@ services:
       PGUSER: rahhal
       PGPASSWORD: ${RAHHAL_POSTGRES_PASSWORD:-rahhal-local-only}
       RAHHAL_DATABASE_POOL_MAX: 10
+      RAHHAL_PRIVATE_FILE_ROOT: /var/lib/rahhal/private-pdfs
+      RAHHAL_CLAMAV_HOST: clamav
+      RAHHAL_FILE_SIGNING_SECRET: ${RAHHAL_FILE_SIGNING_SECRET:?add RAHHAL_FILE_SIGNING_SECRET to .env}
       OIDC_ISSUER_URL: http://dex.localhost:5556/dex
       OIDC_CLIENT_ID: rahhal-local-web
       OIDC_ALLOWED_REDIRECT_URIS: http://localhost:3000/auth/browser/callback
@@ -158,6 +179,8 @@ services:
       SOLVER_OTP_DEVELOPMENT_CODE: "12345"
       SOLVER_OTP_FLOW_SECRET: ${SOLVER_OTP_FLOW_SECRET:?add SOLVER_OTP_FLOW_SECRET to .env}
     depends_on:
+      clamav:
+        condition: service_healthy
       oidc:
         condition: service_healthy
       postgres:
@@ -220,3 +243,5 @@ services:
 
 volumes:
   postgres-data:
+  private-pdfs:
+  clamav-signatures:

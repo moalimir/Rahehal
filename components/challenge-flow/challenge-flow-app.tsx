@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useEffect, useState, type ReactNode } from "react";
 import { ChallengeDetailPage } from "@/components/challenge-flow/detail-page";
 import { ChallengeEditPage } from "@/components/challenge-flow/edit-page";
 import { ChallengeIntakePage } from "@/components/challenge-flow/intake-page";
 import { ChallengeListPage } from "@/components/challenge-flow/list-page";
-import { ChallengePreviewPage } from "@/components/challenge-flow/preview-page";
 import { ChallengeGovernancePage } from "@/components/challenge-flow/governance-page";
 import { ChallengeSubmittedPage } from "@/components/challenge-flow/submitted-page";
 import { LegacyRedirect } from "@/components/legacy-redirect";
@@ -16,6 +16,16 @@ import { navigateChallenge, readStandalonePath } from "@/lib/challenges/navigati
 import { useWebRuntime } from "@/components/runtime-provider";
 import { ChallengeShell } from "@/components/challenge-flow/shell";
 import { isNetworkWebRuntime } from "@/lib/runtime/mode";
+
+const ChallengePreviewPage = dynamic(
+  () =>
+    import("@/components/challenge-flow/preview-page").then(
+      (module) => module.ChallengePreviewPage,
+    ),
+  {
+    loading: () => <p role="status">در حال دریافت پیش‌نمایش چالش…</p>,
+  },
+);
 
 function ConnectedChallengeBoundary({
   children,

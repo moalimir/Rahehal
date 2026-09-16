@@ -3,6 +3,7 @@
 import Link from "next/link";
 
 import { Icon } from "@/components/icons";
+import { PrivatePdfAttachments } from "@/components/private-pdf-attachments";
 import { useActiveWorkspaceName } from "@/components/solver/use-connected";
 import { RecordId } from "@/components/solver/record-identity";
 import { proposalHref } from "@/lib/workspace/proposal-navigation";
@@ -142,7 +143,12 @@ export function ConnectedProposalDetail({ view }: { view: ProposalRecordView }) 
         ))}
         <div className="rh-proposal-content-group">
           <h3>فایل‌ها</h3>
-
+          <PrivatePdfAttachments
+            entity_type="proposal"
+            entity_id={proposal.id}
+            attachedIds={attachments}
+          />
+          <PrivatePdfAttachments entity_type="challenge" entity_id={proposal.challenge_id} />
           <dl>
             <div>
               <dt>پیوست‌ها</dt>

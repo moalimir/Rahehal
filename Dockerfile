@@ -83,6 +83,9 @@ RUN npm ci --omit=dev --ignore-scripts \
       --include-workspace-root=false
 
 FROM ${NODE_IMAGE} AS api
+RUN apt-get update && apt-get install --no-install-recommends -y qpdf \
+    && apt-get clean \
+    && install -d -o node -g node -m 0700 /var/lib/rahhal/private-pdfs
 ARG RAHHAL_REVISION=local
 ENV NODE_ENV=development \
     RAHHAL_API_MODE=postgres \

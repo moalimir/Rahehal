@@ -1,10 +1,28 @@
 # API Contract — conventions, command envelope, and MVP endpoints
 
+## Slice 3 implemented local file transport — pending live acceptance
+
+DEC-2026-019 and [88](88_PARTICIPATION_AND_PRIVATE_PDFS.md) govern this slice. Executable schemas and OpenAPI live in `packages/contracts/src/private-files.ts`, `schemas.ts` and `openapi.ts`.
+
+- `POST /api/v1/files:request-upload`: authenticated, scoped, idempotent reservation for an editable exact record and `expected_version`; confidential PDF only, 1–10 MiB, bounded filename and 100 files/100 MiB per workspace (including abandoned reservations). Returns a five-minute actor/workspace/file-bound upload URL.
+- `PUT /api/v1/files/{fileId}/upload`: same authenticated actor/workspace plus signed token and idempotency key; bounded binary `application/pdf`, declared byte count and signature required; exclusive immutable bytes enter quarantine. Reservation state is the upload precondition; byte digest binds retries.
+- `POST /api/v1/files/{fileId}:complete`: idempotent expected-file-version command queues quarantined bytes or retries a failed scan. The server scanner alone records clean/rejected/failed status and atomic audit/outbox/receipt.
+- `GET /api/v1/files?entity_type=...&entity_id=...` and `GET /api/v1/files/{fileId}` return only authorized metadata, never object keys/digests.
+- `GET /api/v1/files/{fileId}:download-url` returns a 60-second bound URL for clean content. `GET /api/v1/files/{fileId}/content` checks current session, membership, record/version grant, required NDA and file state again; responses are no-store, attachment-only and nosniff, with audited access. A signed URL is not a bearer capability independent of authentication.
+
+No public projection gains attachment IDs or filenames. The local volume is served only through these API endpoints; production object-storage adapters and operational scanner acceptance remain release gates. Existing §8 describes the broader target protocol, not a claim that a public bucket or managed provider has been deployed.
+
 **Active MVP scope (2026-09-16):** DEC-2026-018 and [26_LEAN_MVP_SCOPE](26_LEAN_MVP_SCOPE.md) govern new work from Phase 3 `3f80192`. Existing executable routes keep their present guards until changed. M1 must add organization-owner publication authority coherently across domain/database/API/UI; M2 must specify commands for organization selection and version-bound solver acceptance/decline, the shared agreement summary, and rejection/withdrawal/cancellation/no-award. Solver acceptance confirms the match without routine platform approval. Bind acceptance to the exact pending selection/terms, enforce current scoped membership, define terminal-action races, and return consistent retry-safe outcomes. Exact routes/roles/state mapping remain implementation work. This document does not claim those new behaviors or any archived Phase 4 endpoint exists in the baseline. Formal reviewer endpoints below are deferred design, not a prerequisite for the active MVP. Preserve typed validation/errors, version checks, idempotency, scoped authorization and atomic receipts/audit/outbox. Update the executable contract/OpenAPI and this document in each implementation slice; no new endpoint path is reserved by this scope revision.
 
 The production API is the **only** authority. The executable initial contract is defined once in [`packages/contracts/src/openapi.ts`](../packages/contracts/src/openapi.ts), served by the development API at `GET /api/v1/openapi.json`, and exported as `packages/contracts/dist/openapi.json` during the package build. It promotes the canonical command-result invariants in [20 §9](20_CANONICAL_MODEL.md) and the state machines in `domain/state-machines.ts`; generated clients remain a later consumer of this source contract.
 
 ---
+
+## M1 executable publication amendment — 2026-09-16
+
+`POST /challenges/{id}:publish` retains its typed body, `Idempotency-Key`, `expected_version`, receipt and errors. An active scoped `org:owner` may publish a fully ready exact version from any unpublished authoring stage; no gate approvals or platform verification are prerequisites. An `org:publisher` still needs the four approvals on the exact version in `approvals`. Other organization roles retain their existing authoring/approval access and cannot publish. The API enforces membership/session/tenant scope before replay or mutation; foreign and missing IDs remain indistinguishable.
+
+Owners also receive the existing reasoned extend-deadline/pause/resume/close/cancel commands. An owner may PATCH an unpublished triage/approval record into a fresh formulation version without overwriting locked content or its approvals. Published content cannot be PATCHed. The `publication_readiness` object continues to describe actual delegated gates; it does not invent four owner approvals. Owner UI uses full content readiness plus its active role. Public endpoints continue reading separate allowlisted projections, not private aggregates. No request/response schema changed; the OpenAPI publication description reflects both paths. M2 matching endpoints remain unimplemented.
 
 ## 1. Conventions
 
@@ -17,12 +35,6 @@ The production API is the **only** authority. The executable initial contract is
 - **Filtering**: explicit query params only; server ignores unknown params (no mass-assignment via query).
 
 ## 2. Every response envelope
-
-## M1 executable publication amendment — 2026-09-16
-
-`POST /challenges/{id}:publish` retains its typed body, `Idempotency-Key`, `expected_version`, receipt and errors. An active scoped `org:owner` may publish a fully ready exact version from any unpublished authoring stage; no gate approvals or platform verification are prerequisites. An `org:publisher` still needs the four approvals on the exact version in `approvals`. Other organization roles retain their existing authoring/approval access and cannot publish. The API enforces membership/session/tenant scope before replay or mutation; foreign and missing IDs remain indistinguishable.
-
-Owners also receive the existing reasoned extend-deadline/pause/resume/close/cancel commands. An owner may PATCH an unpublished triage/approval record into a fresh formulation version without overwriting locked content or its approvals. Published content cannot be PATCHed. The `publication_readiness` object continues to describe actual delegated gates; it does not invent four owner approvals. Owner UI uses full content readiness plus its active role. Public endpoints continue reading separate allowlisted projections, not private aggregates. No request/response schema changed; the OpenAPI publication description reflects both paths. M2 matching endpoints remain unimplemented.
 
 ```jsonc
 // success

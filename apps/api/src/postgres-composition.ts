@@ -30,9 +30,10 @@ import {
 import { PostgresNotificationAdapter } from "./postgres/notifications.js";
 import { PostgresUnitOfWork } from "./postgres/unit-of-work.js";
 import { HmacSessionCredentialIssuer } from "./session-credentials.js";
+import { PrivatePdfStorage, ClamAvPdfScanner } from "./private-pdf-storage.js";
+import { PostgresPrivateFileAdapter } from "./postgres/private-files.js";
 
 // C7 composition depends on the complete identity/solver activation schema.
-const requiredMigration = "0019_c7_solver_activation";
 
 type OidcAdapter = OidcExchangePort & OidcAuthorizationPort;
 
@@ -62,6 +63,9 @@ export async function createPostgresApiComposition(
 ): Promise<PostgresApiComposition> {
   const ownsPool = options.pool === undefined;
   const environment = options.environment ?? process.env;
+  const requiredMigration = environment.RAHHAL_PRIVATE_FILE_ROOT
+    ? "0023_private_pdfs"
+    : "0019_c7_solver_activation";
   if (environment.NODE_ENV === "production") {
     throw new Error(
       "The A2 PostgreSQL composition uses a local test identity provider and refuses production",
@@ -126,6 +130,36 @@ export async function createPostgresApiComposition(
   const notifications = new PostgresNotificationAdapter(unitOfWork, clock, ids);
   const proposals = new PostgresProposalAdapter(unitOfWork, teams, clock, ids);
   const opportunities = new PostgresOpportunityAdapter(unitOfWork, teams, clock, ids);
+  const privateFiles = environment.RAHHAL_PRIVATE_FILE_ROOT
+    ? new PostgresPrivateFileAdapter(
+        unitOfWork,
+        ids,
+        challenges,
+        proposals,
+        new PrivatePdfStorage(
+          environment.RAHHAL_PRIVATE_FILE_ROOT,
+          required(environment, "RAHHAL_FILE_SIGNING_SECRET"),
+          new ClamAvPdfScanner(required(environment, "RAHHAL_CLAMAV_HOST")),
+        ),
+      )
+    : undefined;
+  let scanning: Promise<unknown> | undefined;
+  const scanTimer = privateFiles
+    ? setInterval(() => {
+        if (!scanning)
+          scanning = privateFiles
+            .scanNext()
+            .catch(() => {
+              process.stderr.write(
+                "Private PDF scan transaction failed; pending files remain blocked.\n",
+              );
+            })
+            .finally(() => {
+              scanning = undefined;
+            });
+      }, 2000)
+    : undefined;
+  scanTimer?.unref();
 
   return {
     pool,
@@ -145,11 +179,14 @@ export async function createPostgresApiComposition(
       proposals,
       opportunities,
       notifications,
+      ...(privateFiles ? { privateFiles } : {}),
       decisionAudit,
       clock,
       ids,
     },
     async close() {
+      if (scanTimer) clearInterval(scanTimer);
+      await scanning;
       if (ownsPool) await pool.end();
     },
   };

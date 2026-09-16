@@ -353,6 +353,7 @@ describe("M1 authoritative owner publication", () => {
   });
 
   it("refuses destructive rollback after owner publication", async () => {
+    expect((await runMigrations(database, "down")).applied).toEqual(["0023_private_pdfs"]);
     await expect(runMigrations(database, "down")).rejects.toThrow(
       "cannot roll back M1 after owner publication",
     );

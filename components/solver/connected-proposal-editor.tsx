@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Icon } from "@/components/icons";
+import { PrivatePdfAttachments } from "@/components/private-pdf-attachments";
 import { useWebRuntime } from "@/components/runtime-provider";
 import type {
   EligibilityDecisionResource,
@@ -705,6 +706,22 @@ function ProposalEditor() {
           </fieldset>
 
           <footer className="rh-connected-proposal-actions">
+            <PrivatePdfAttachments
+              entity_type="proposal"
+              entity_id={proposal.id}
+              expectedVersion={proposal.version}
+              attachedIds={draft.attachment_ids}
+              disabled={pending || submitting}
+              onAttach={(file) =>
+                set("attachment_ids", [...new Set([...draft.attachment_ids, file.id])])
+              }
+              onRemove={(id) =>
+                set(
+                  "attachment_ids",
+                  draft.attachment_ids.filter((file) => file !== id),
+                )
+              }
+            />
             <div>
               <strong>نسخه {proposal.version.toLocaleString("fa-IR")}</strong>
               <small>

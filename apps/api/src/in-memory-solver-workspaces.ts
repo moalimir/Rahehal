@@ -385,6 +385,9 @@ export class InMemorySolverWorkspaceAdapter implements SolverWorkspacePort, Elig
     const decision = evaluateProposalEligibility(
       {
         challengeVersionId,
+        invitationRequired:
+          (projection?.sourcing_model ?? aggregate.content.sourcing_model) === "private" ||
+          aggregate.content.visibility === "invite_only",
         allowedApplicantTypes:
           projection?.allowed_applicant_types ?? aggregate.content.allowed_applicant_types,
         verificationRequired:
@@ -402,6 +405,7 @@ export class InMemorySolverWorkspaceAdapter implements SolverWorkspacePort, Elig
       },
       {
         workspaceId: scope.workspaceId,
+        hasActiveInvitation: Boolean(offered),
         applicantType: profile.applicant_type,
         workspaceVerified: verification.state === "verified",
         ndaAccepted: accepted("nda"),

@@ -351,6 +351,8 @@ export type EligibilityApplicant = {
   readonly ndaAccepted: boolean;
   /** Synthetic Phase-3 acknowledgement only; never claims file upload/review. */
   readonly documentGateAcknowledged: boolean;
+  /** Active, version-bound invitation to this exact workspace, loaded by the server. */
+  readonly hasActiveInvitation?: boolean;
 };
 
 /**
@@ -365,6 +367,7 @@ export type EligibilityRuleSnapshot = {
   readonly verificationRequired: boolean;
   readonly ndaRequired: boolean;
   readonly documentGateRequired: boolean;
+  readonly invitationRequired?: boolean;
 };
 
 /** B6's mutable call state, read beside the immutable B3 rule. */
@@ -378,6 +381,7 @@ export const eligibilityReasonCodes = [
   "deadline_passed",
   "applicant_type_unknown",
   "applicant_type_not_allowed",
+  "invitation_required",
   "verification_required",
   "nda_required",
   "document_acknowledgement_required",
@@ -416,6 +420,8 @@ const reasonMessages: Record<EligibilityReasonCode, string> = {
   deadline_passed: "مهلت دریافت پیشنهاد پایان یافته است.",
   applicant_type_unknown: "نوع فضای کاری فعال قابل تشخیص نیست.",
   applicant_type_not_allowed: "نوع فضای کاری فعال در فهرست متقاضیان مجاز نیست.",
+  invitation_required:
+    "ارسال پیشنهاد برای این چالش به دعوت فعال سازمان برای همین فضای کاری نیاز دارد.",
   verification_required: "احراز هویت این فضای کاری هنوز تأیید نشده است.",
   nda_required: "پذیرش توافق‌نامه محرمانگی برای این فراخوان الزامی است.",
   document_acknowledgement_required: "تأیید الزام مدارک این فراخوان هنوز ثبت نشده است.",
@@ -450,6 +456,9 @@ export function evaluateProposalEligibility(
   if (applicant.applicantType === null) return reject("applicant_type_unknown");
   if (!rule.allowedApplicantTypes.includes(applicant.applicantType)) {
     return reject("applicant_type_not_allowed");
+  }
+  if (rule.invitationRequired && !applicant.hasActiveInvitation) {
+    return reject("invitation_required");
   }
 
   // Everything below is a gate the solver can still clear, so it is reported

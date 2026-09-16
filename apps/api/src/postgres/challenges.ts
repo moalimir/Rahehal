@@ -72,6 +72,7 @@ import {
 } from "../challenge-list.js";
 import { ApiProblem, forbidden, idempotencyConflict, notFound, staleVersion } from "../errors.js";
 import { commandFingerprint } from "../primitives.js";
+import { assertPrivateAttachments } from "./private-files.js";
 import type {
   ChallengeCommandContext,
   ChallengePort,
@@ -860,6 +861,12 @@ export class PostgresChallengeAdapter implements ChallengePort {
       const versionId = parseChallengeVersionId(this.ids.next("chv"));
       const occurredAt = this.clock.now().toISOString();
       const merged = mergeChallengeDraftPatch(emptyChallengeContent(), body.draft ?? {});
+      await assertPrivateAttachments(
+        client,
+        context,
+        { entity_type: "challenge", entity_id: challengeId },
+        merged.content.attachment_ids,
+      );
       const readiness = challengeReadiness(merged.content, 1);
       const authoringStatus = readiness.ready ? "ready" : "draft";
       const insert = await client.query(
@@ -1200,6 +1207,12 @@ export class PostgresChallengeAdapter implements ChallengePort {
       }
 
       const merged = mergeChallengeDraftPatch(current.content, body.patch);
+      await assertPrivateAttachments(
+        client,
+        context,
+        { entity_type: "challenge", entity_id: current.id },
+        merged.content.attachment_ids,
+      );
       const version = current.version + 1;
       const contentVersion = current.content_version + 1;
       const versionId = parseChallengeVersionId(this.ids.next("chv"));

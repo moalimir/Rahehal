@@ -316,6 +316,43 @@ describe("C1 proposal eligibility", () => {
     expect(decision.status).toBe("eligible");
   });
 
+  it("requires an active invitation only when the published policy requires one", () => {
+    const privateRule = { ...openRule, invitationRequired: true };
+    expect(evaluateProposalEligibility(privateRule, openCall, applicant, now)).toMatchObject({
+      status: "ineligible",
+      reasons: [{ code: "invitation_required" }],
+    });
+    expect(
+      evaluateProposalEligibility(
+        privateRule,
+        openCall,
+        { ...applicant, hasActiveInvitation: true },
+        now,
+      ).status,
+    ).toBe("eligible");
+    expect(evaluateProposalEligibility(openRule, openCall, applicant, now).status).toBe("eligible");
+  });
+
+  it("does not let an invitation bypass academic-only applicant restrictions", () => {
+    const academic = { ...openRule, allowedApplicantTypes: ["academic-group" as const] };
+    expect(
+      evaluateProposalEligibility(
+        academic,
+        openCall,
+        { ...applicant, hasActiveInvitation: true },
+        now,
+      ).reasons,
+    ).toMatchObject([{ code: "applicant_type_not_allowed" }]);
+    expect(
+      evaluateProposalEligibility(
+        academic,
+        openCall,
+        { ...applicant, applicantType: "academic-group" },
+        now,
+      ).status,
+    ).toBe("eligible");
+  });
+
   it("derives profile readiness from server facts without making it an eligibility rule", () => {
     expect(
       evaluateSolverProfileReadiness({

@@ -1,5 +1,12 @@
 # Decisions — ADRs & P0 decision log
 
+### DEC-2026-019 — Private challenge-PDF audience
+
+- **Status:** accepted by the owner in this task, 2026-09-16. The owner explicitly requested private PDF upload/scan/binding/download and selected invited solvers or solvers with a submitted proposal as the challenge-PDF audience.
+- **Decision:** a public challenge does not make its PDFs public. In addition to the owning organization, only an actively invited solver workspace or a workspace with a submitted, non-withdrawn proposal can read the published version's attachments. Access remains tied to a live exact-version collaboration grant and current membership; NDA acknowledgement remains required when the published policy requires it. Drafting alone, knowing an ID, selecting an academic category or being logged in confers no file access.
+- **Proposal PDFs:** the sending workspace and the receiving organization may read permitted files; the organization sees only attachments bound to its granted locked proposal version, never later draft attachments. Other organization roles retain their existing record permissions; owner authority does not cross tenant boundaries.
+- **Implementation boundary:** the local private-volume adapter, API-signed transfers and ClamAV/qpdf integration are recorded in [88](88_PARTICIPATION_AND_PRIVATE_PDFS.md). This product decision is not production storage, retention, scanner operations or security-release approval. Real scanner/container/browser acceptance remains outstanding.
+
 The authoritative record of product and architecture decisions, beginning in **Phase 0**. The active MVP boundary is DEC-2026-018 (2026-09-16); earlier decisions remain binding except where explicitly superseded. Two parts:
 
 - **Part A — Architecture Decision Records (ADRs):** technical decisions, **accepted by engineering**. They implement the canonical model ([20](20_CANONICAL_MODEL.md)) and the audit's resolutions ([30](30_CONSISTENCY_AUDIT.md)).
@@ -12,6 +19,8 @@ Status values: `accepted` · `accepted (eng) / pending-owner-sign-off` · `propo
 ## Current owner decision
 
 ### DEC-2026-018 — Phase 3 baseline and lean organization–solver MVP
+
+**M1 follow-up approval (2026-09-16):** retain every other organization role and its permissions/access control; grant the owner end-to-end authoring and direct publication in its own organization. Implement owner publication as an attributable alternative to the delegated four-gate path, not as synthetic approvals. Published evidence stays immutable. Verification and rollout are recorded in [86_M1_OWNER_PUBLICATION](86_M1_OWNER_PUBLICATION.md).
 
 - **Status:** accepted 2026-09-16 (Product owner, initial direction and explicit follow-up agreement). This includes owner publication, Phase 4 deferral, organization selection followed by explicit solver acceptance without routine platform approval, shared agreement summary, required exit paths, and the readiness boundaries below. Only the remaining detailed policies in [26_LEAN_MVP_SCOPE](26_LEAN_MVP_SCOPE.md) section 5 remain open.
 - **Decision:** use `3f80192a7ceba488bcfa4c2e0d60680f34c5f8b3` as the code baseline and prioritize independent organization–solver collaboration. The organization owner must have full challenge-management authority in their own organization, including routine publication without a distinct publisher actor or technical/legal/finance/platform approval chain. Preserve proposal, clarification/revision, direct-offer and notification flows; add only a small final selection/match flow. Defer the former Phase 4 formal reviewer, rubric, COI/scoring and review-administration programme in full. Contracts, pilots, payments, impact and AI remain outside this MVP.

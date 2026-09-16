@@ -813,6 +813,36 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
   const app = Fastify({ logger: false, ajv: { customOptions: { removeAdditional: false } } });
   const cookieAuthenticatedRequests = new WeakSet<FastifyRequest>();
 
+  registerPrivateFileRoutes(app, ports, async (request, action, operation) => {
+    const entityId = (request.params as { fileId?: string }).fileId;
+    const session = await requireSession(request, ports.sessions, ports.decisionAudit, ports.clock);
+    const command =
+      request.method === "GET"
+        ? { idempotencyKey: "read-only", correlationId: correlationId(request) }
+        : idempotencyCommand(request);
+    return runAuthorizedWorkspace(
+      request,
+      ports,
+      session,
+      {
+        action,
+        entityType: "file",
+        ...(entityId ? { entityId } : {}),
+        deferSuccess: true,
+        allows: (access) => access.workspace.kind !== "platform",
+      },
+      async (access) => {
+        const result = await operation({ ...proposalScope(session, access), ...command });
+        await recordWorkspaceAccessSuccess(request, ports, session, access, {
+          action,
+          entityType: "file",
+          ...(entityId ? { entityId } : {}),
+        });
+        return result;
+      },
+    );
+  });
+
   app.addHook("onRequest", async (request, reply) => {
     void reply.header("cache-control", "no-store");
     if (options.browserSession && !request.headers.authorization) {
@@ -836,20 +866,27 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
 
   app.setErrorHandler((error, request, reply) => {
     const validation = validationIssues(error);
+    const invalidFileBody =
+      request.url.startsWith("/api/v1/files") &&
+      error instanceof Error &&
+      "code" in error &&
+      ["FST_ERR_CTP_BODY_TOO_LARGE", "FST_ERR_CTP_INVALID_MEDIA_TYPE"].includes(String(error.code));
     const problem =
       error instanceof ApiProblem
         ? error
-        : validation
-          ? new ApiProblem(422, "VALIDATION", "Request validation failed", {
-              fields: validation.map((issue) => ({
-                path: issue.instancePath || String(issue.params["missingProperty"] ?? "request"),
-                code: issue.keyword,
-                message: issue.message ?? "invalid",
-              })),
-            })
-          : new ApiProblem(503, "STORAGE", "The service could not complete the request", {
-              recovery: "retry_with_same_idempotency_key",
-            });
+        : invalidFileBody
+          ? new ApiProblem(422, "VALIDATION", "Expected a PDF no larger than 10 MiB")
+          : validation
+            ? new ApiProblem(422, "VALIDATION", "Request validation failed", {
+                fields: validation.map((issue) => ({
+                  path: issue.instancePath || String(issue.params["missingProperty"] ?? "request"),
+                  code: issue.keyword,
+                  message: issue.message ?? "invalid",
+                })),
+              })
+            : new ApiProblem(503, "STORAGE", "The service could not complete the request", {
+                recovery: "retry_with_same_idempotency_key",
+              });
     if (problem.options.retryAfterSeconds !== undefined) {
       void reply.header("retry-after", problem.options.retryAfterSeconds.toString());
     }
@@ -3853,3 +3890,4 @@ export function buildApi(ports: ApiPorts, options: ApiRuntimeOptions = {}): Fast
 
   return app;
 }
+import { registerPrivateFileRoutes } from "./private-file-routes.js";

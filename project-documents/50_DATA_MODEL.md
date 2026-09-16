@@ -1,18 +1,20 @@
 # Data Model — PostgreSQL schema, tenancy, and projections
 
+**Slice 3 schema update:** paired migration `0023_private_pdfs` adds `file_object` with owning tenant/workspace/user, exact challenge/proposal target, opaque object key, byte count, immutable digest, server scan state and optimistic version. Database triggers guard identity/state transitions and require every newly inserted challenge/proposal version attachment to be clean and owned by that exact record. Binding is the immutable version's `attachment_ids`, not a mutable public file list. No file key/digest is projected publicly. Rollback refuses any populated file table; retain evidence and roll application traffic forward instead. Existing historical metadata is not promoted to uploaded content; remove/re-upload invalid references before a new save. This migration was tested in isolated databases, not applied to the retained live local database; see [88](88_PARTICIPATION_AND_PRIVATE_PDFS.md).
+
 Schema reference for the broader challenge/proposal/review/decision design and shared platform tables. The active MVP is scoped by DEC-2026-018 and [26_LEAN_MVP_SCOPE](26_LEAN_MVP_SCOPE.md): restored Phase 3 plus owner publication and minimal final matching. Names and states come from [20_CANONICAL_MODEL](20_CANONICAL_MODEL.md); executable command/result envelopes come from `packages/contracts` and [60_API_CONTRACT](60_API_CONTRACT.md). For landed tables, `apps/api/migrations/*.up.sql` is the executable source of truth; a paired `.down.sql` is a rollback specification, not assurance that evidence-bearing data can be safely downgraded. Later SQL sketches are plans, not runnable migrations. The local baseline is PostgreSQL 16.
 
 **Restored schema boundary (2026-09-16):** commit `3f80192` has 20 migration pairs through `0021_c6_offer_deadline_single_clock` (no `0011`). Use a fresh isolated database/volume and that commit's synthetic seeds. Phase 4 migration history/data belongs to the archive and cannot be reused by merely switching code or deleting history rows. No schema change is made by this documentation update. M1 may need a forward migration for publication guards; M2 needs a minimal reviewed model for version-bound selection, shared agreement summary, explicit solver acceptance/decline, and required exit-path history. Selection is not confirmed agreement; preserve immutable evidence and guard stale acceptance and competing terminal actions atomically. Detailed role/timing/cardinality and Case/direct-offer mapping remain to be specified; do not import the wholesale archived Phase 4 schema. Review/rubric/contract/payment sketches below remain deferred.
 
 ---
 
-## 1. Conventions
-
 ## M1 schema amendment — migration 0022
 
 `0022_m1_owner_publication` adds nullable `challenge.owner_publisher_user_id` referencing `app_user`. Existing publications retain null and their four-gate history. A new owner publication requires an active `org:owner` membership in the challenge's exact tenant/workspace, locked with `FOR SHARE` against concurrent revocation. The publication guard requires the current locked version, an eligibility snapshot and a future deadline. Owner attribution and its published-version pointer cannot be changed afterward. Without owner attribution, the existing four-gate requirement remains.
 
 The command writes the attribution with publication, locking, eligibility, public projection, receipt, audit and outbox in one transaction. No backfill fabricates approvals or rewrites historical evidence. Upgrade is additive over Phase 3. Down migration is allowed before any owner publication; afterward it refuses to discard evidence, requiring a reviewed roll-forward strategy.
+
+## 1. Conventions
 
 - **IDs**: `text` primary keys, server-minted, prefixed (`chl_`, `chv_`, `prp_`, `prv_`, `rva_`, `rev_`, `dec_`, `case_`), globally unique, no embedded authorization (20 §7).
 - **Tenancy columns**: every protected table has `tenant_id` (and `workspace_id` where a workspace owns the row). Queries scope by tenant/workspace **before** record permissions.

@@ -156,6 +156,7 @@ export type IdFactory = {
       | "evt"
       | "ntf"
       | "oat"
+      | "fil"
       | "act"
       | "otp",
   ): string;
@@ -719,6 +720,7 @@ export interface AccessDecisionAuditPort {
 }
 
 export type ApiPorts = {
+  readonly privateFiles?: PrivateFilePort;
   readonly oidcAuthorization: OidcAuthorizationPort;
   readonly contactVerification: ContactVerificationProviderPort;
   readonly sessions: SessionPort;
@@ -738,6 +740,35 @@ export type ApiPorts = {
   readonly ids: IdFactory;
 };
 
+export interface PrivateFilePort {
+  list(
+    target: import("@rahhal/contracts").FileTarget,
+    scope: ProposalScope,
+  ): Promise<readonly PrivateFileResource[]>;
+  request(
+    body: RequestFileUploadBody,
+    context: ProposalCommandContext,
+  ): Promise<PrivateFileUploadResource>;
+  upload(
+    id: string,
+    token: string,
+    content: Buffer,
+    context: ProposalCommandContext,
+  ): Promise<PrivateFileMutationResource>;
+  complete(
+    id: string,
+    expected: number,
+    context: ProposalCommandContext,
+  ): Promise<PrivateFileMutationResource>;
+  get(id: string, scope: ProposalScope): Promise<PrivateFileResource>;
+  downloadUrl(id: string, scope: ProposalScope): Promise<PrivateFileDownloadResource>;
+  download(
+    id: string,
+    token: string,
+    scope: ProposalScope,
+  ): Promise<{ filename: string; content: Buffer }>;
+}
+
 export type DemoIdentitySeed = {
   readonly user: User;
   readonly workspace: Workspace;
@@ -750,3 +781,10 @@ export type DemoIdentitySeed = {
   readonly accessToken: string;
   readonly refreshToken: string;
 };
+import type {
+  PrivateFileUploadResource,
+  PrivateFileMutationResource,
+  PrivateFileResource,
+  PrivateFileDownloadResource,
+  RequestFileUploadBody,
+} from "@rahhal/contracts";

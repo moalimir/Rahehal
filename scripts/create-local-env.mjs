@@ -19,7 +19,8 @@ const template = await readFile(example, "utf8");
 const content = template
   .replace(/^RAHHAL_OIDC_FLOW_SECRET=$/m, `RAHHAL_OIDC_FLOW_SECRET=${secret()}`)
   .replace(/^RAHHAL_SESSION_CREDENTIAL_SECRET=$/m, `RAHHAL_SESSION_CREDENTIAL_SECRET=${secret()}`)
-  .replace(/^SOLVER_OTP_FLOW_SECRET=$/m, `SOLVER_OTP_FLOW_SECRET=${secret()}`);
+  .replace(/^SOLVER_OTP_FLOW_SECRET=$/m, `SOLVER_OTP_FLOW_SECRET=${secret()}`)
+  .replace(/^RAHHAL_FILE_SIGNING_SECRET=$/m, `RAHHAL_FILE_SIGNING_SECRET=${secret()}`);
 
 await writeFile(target, content, { encoding: "utf8", flag: "wx", mode: 0o600 });
 process.stdout.write("Created an uncommitted mode-0600 .env with independent local secrets.\n");

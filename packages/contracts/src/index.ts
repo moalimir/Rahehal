@@ -12,3 +12,4 @@ export * from "./session.js";
 export * from "./proposal.js";
 export * from "./solver-profile.js";
 export * from "./team.js";
+export * from "./private-files.js";

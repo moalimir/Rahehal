@@ -64,9 +64,11 @@ beforeAll(async () => {
     "0020_c8_notifications",
     "0021_c6_offer_deadline_single_clock",
     "0022_m1_owner_publication",
+    "0023_private_pdfs",
   ]);
 
   // Newest first.
+  expect((await runMigrations(database, "down")).applied).toEqual(["0023_private_pdfs"]);
   expect((await runMigrations(database, "down")).applied).toEqual(["0022_m1_owner_publication"]);
   const offerClockDown = await runMigrations(database, "down");
   expect(offerClockDown.applied).toEqual(["0021_c6_offer_deadline_single_clock"]);
@@ -143,6 +145,7 @@ beforeAll(async () => {
     "0020_c8_notifications",
     "0021_c6_offer_deadline_single_clock",
     "0022_m1_owner_publication",
+    "0023_private_pdfs",
   ]);
   const noOpUp = await runMigrations(database, "up");
   expect(noOpUp.applied).toEqual([]);
@@ -179,6 +182,7 @@ describe("A1a PostgreSQL foundation", () => {
       "direct_offer",
       "eligibility_gate_acceptance",
       "eligibility_rule",
+      "file_object",
       "idempotency_key",
       "identity_link",
       "membership",
@@ -293,6 +297,7 @@ describe("A1a PostgreSQL foundation", () => {
         checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
       },
       { id: "0022_m1_owner_publication", checksum: expect.stringMatching(/^[0-9a-f]{64}$/) },
+      { id: "0023_private_pdfs", checksum: expect.stringMatching(/^[0-9a-f]{64}$/) },
     ]);
   });
 
@@ -572,6 +577,7 @@ describe("A1a PostgreSQL foundation", () => {
   });
 
   it("fails the A1b migration atomically for an orphaned existing session", async () => {
+    expect((await runMigrations(database, "down")).applied).toEqual(["0023_private_pdfs"]);
     expect((await runMigrations(database, "down")).applied).toEqual(["0022_m1_owner_publication"]);
     const offerClockDown = await runMigrations(database, "down");
     expect(offerClockDown.applied).toEqual(["0021_c6_offer_deadline_single_clock"]);
@@ -676,6 +682,7 @@ describe("A1a PostgreSQL foundation", () => {
       "0020_c8_notifications",
       "0021_c6_offer_deadline_single_clock",
       "0022_m1_owner_publication",
+      "0023_private_pdfs",
     ]);
   });
 });

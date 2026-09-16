@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { Icon } from "@/components/icons";
+import { PrivatePdfAttachments } from "@/components/private-pdf-attachments";
 import { useWebRuntime } from "@/components/runtime-provider";
 import {
   ConnectedFamilyError,
@@ -459,6 +460,11 @@ export function ConnectedOrganizationProposalDetail({ proposalId }: { proposalId
         ))}
         <div className="org-proposal-content-group">
           <h3>فایل‌ها</h3>
+          <PrivatePdfAttachments
+            entity_type="proposal"
+            entity_id={proposal.id}
+            attachedIds={content.attachment_ids}
+          />
           <dl>
             <div>
               <dt>پیوست‌ها</dt>

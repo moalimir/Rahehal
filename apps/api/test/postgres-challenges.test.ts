@@ -1918,6 +1918,7 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
     // activation), 0018 (C6 opportunities/offers), 0017 (C5
     // clarification/revision), 0016 (C4 submission), 0015 (C2 teams), 0014 (C1
     // solver profile/eligibility), 0013 (proposal foundation), then 0012.
+    expect((await runMigrations(database, "down")).applied).toEqual(["0023_private_pdfs"]);
     expect((await runMigrations(database, "down")).applied).toEqual(["0022_m1_owner_publication"]);
     const offerClockDown = await runMigrations(database, "down");
     expect(offerClockDown.applied).toEqual(["0021_c6_offer_deadline_single_clock"]);
@@ -1958,6 +1959,7 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
       "0020_c8_notifications",
       "0021_c6_offer_deadline_single_clock",
       "0022_m1_owner_publication",
+      "0023_private_pdfs",
     ]);
 
     const restored = await database.query<{

@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { useWebRuntime } from "@/components/runtime-provider";
+import { PrivatePdfAttachments } from "@/components/private-pdf-attachments";
 import {
   CheckboxGroup,
   RadioGroup,
@@ -47,6 +49,7 @@ function setField<K extends keyof ChallengeRecord>(
 
 export function DefinitionStep({ record, issues, update }: StepProps) {
   const [fileError, setFileError] = useState("");
+  const { mode } = useWebRuntime();
   return (
     <div className="challenge-form-grid">
       <TextField
@@ -109,59 +112,88 @@ export function DefinitionStep({ record, issues, update }: StepProps) {
           onChange={(value) => setField(update, "urgency", value)}
         />
       </div>
-      <div className="challenge-upload-field challenge-field--full">
-        <div>
-          <strong>
-            فایل اولیه <em>اختیاری</em>
-          </strong>
-          <small>فقط نام، نوع و حجم فایل ذخیره می‌شود.</small>
+      {mode === "network" ? (
+        <div className="challenge-field--full">
+          <PrivatePdfAttachments
+            entity_type="challenge"
+            entity_id={record.id}
+            attachedIds={record.attachments.map((file) => file.id)}
+            onAttach={(file) =>
+              setField(update, "attachments", [
+                ...record.attachments,
+                {
+                  id: file.id,
+                  name: file.filename,
+                  size: file.size,
+                  type: "application/pdf",
+                  addedAt: new Date().toISOString(),
+                },
+              ])
+            }
+            onRemove={(id) =>
+              setField(
+                update,
+                "attachments",
+                record.attachments.filter((file) => file.id !== id),
+              )
+            }
+          />
         </div>
-        {record.attachments.length ? (
-          <div className="challenge-file-list">
-            {record.attachments.map((file) => (
-              <div className="challenge-file-chip" key={file.id}>
-                <span>{file.name}</span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setField(
-                      update,
-                      "attachments",
-                      record.attachments.filter((item) => item.id !== file.id),
-                    )
-                  }
-                >
-                  حذف
-                </button>
-              </div>
-            ))}
+      ) : (
+        <div className="challenge-upload-field challenge-field--full">
+          <div>
+            <strong>
+              فایل اولیه <em>اختیاری</em>
+            </strong>
+            <small>فقط نام، نوع و حجم فایل ذخیره می‌شود.</small>
           </div>
-        ) : (
-          <label className="challenge-upload-button">
-            انتخاب فایل
-            <input
-              accept={CHALLENGE_UPLOAD_ACCEPT}
-              type="file"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (!file) return;
-                const nextError = challengeUploadError(file);
-                setFileError(nextError);
-                if (nextError) {
-                  event.target.value = "";
-                  return;
-                }
-                setField(update, "attachments", [createAttachment(file)]);
-              }}
-            />
-          </label>
-        )}
-        {fileError && (
-          <small className="is-error" role="alert">
-            {fileError}
-          </small>
-        )}
-      </div>
+          {record.attachments.length ? (
+            <div className="challenge-file-list">
+              {record.attachments.map((file) => (
+                <div className="challenge-file-chip" key={file.id}>
+                  <span>{file.name}</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setField(
+                        update,
+                        "attachments",
+                        record.attachments.filter((item) => item.id !== file.id),
+                      )
+                    }
+                  >
+                    حذف
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <label className="challenge-upload-button">
+              انتخاب فایل
+              <input
+                accept={CHALLENGE_UPLOAD_ACCEPT}
+                type="file"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (!file) return;
+                  const nextError = challengeUploadError(file);
+                  setFileError(nextError);
+                  if (nextError) {
+                    event.target.value = "";
+                    return;
+                  }
+                  setField(update, "attachments", [createAttachment(file)]);
+                }}
+              />
+            </label>
+          )}
+          {fileError && (
+            <small className="is-error" role="alert">
+              {fileError}
+            </small>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -333,9 +365,13 @@ export function CollaborationStep({ record, issues, update }: StepProps) {
           value={record.invitees}
           onChange={(value) => setField(update, "invitees", value)}
           error={issueFor(issues, "invitees")}
-          hint="نام مجموعه‌ها را با ویرگول از هم جدا کنید."
+          hint="این فهرست برای برنامه‌ریزی است و مجوز نمی‌دهد. پس از انتشار، دعوت واقعی را با پیشنهاد مستقیم به فضای شخصی یا تیم مشخص ارسال کنید."
         />
       )}
+      <p>
+        جذب عمومی و ترکیبی پذیرای متقاضیان مجاز است؛ جذب خصوصی به دعوت فعال برای همان فضای کاری نیاز
+        دارد. سطح نمایش چالش مستقل از اجازه ارسال پیشنهاد است.
+      </p>
       <CheckboxGroup<ApplicantType>
         legend="مشارکت‌کنندگان مجاز"
         required
@@ -350,6 +386,10 @@ export function CollaborationStep({ record, issues, update }: StepProps) {
         }
         error={issueFor(issues, "allowedApplicantTypes")}
       />
+      <p>
+        نوع متقاضی از فضای کاری ارسال‌کننده بررسی می‌شود. نوع دانشگاهی، شرکت یا آزمایشگاه خوداظهاری
+        است و به‌تنهایی وابستگی سازمانی را تأیید نمی‌کند.
+      </p>
       <div className="challenge-form-grid">
         <div className="challenge-field">
           <span>دامنه همکاری</span>
@@ -438,6 +478,7 @@ export function AccessStep({ record, issues, update }: StepProps) {
         onChange={(value) => setField(update, "visibility", value)}
         error={issueFor(issues, "visibility")}
       />
+      <p>این تنظیم مشخص می‌کند چه کسی چالش را ببیند، نه چه کسی اجازه ارسال پیشنهاد دارد.</p>
       {["public", "registered"].includes(record.visibility) && (
         <TextAreaField
           label="خلاصه عمومی مسئله"

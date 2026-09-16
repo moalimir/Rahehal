@@ -1,5 +1,7 @@
 # Delivery Roadmap
 
+**Owner slice 3 checkpoint:** participation invitation enforcement and private-PDF code are implemented in the working tree with isolated database/API/component evidence. Live Docker scanner startup, retained PDF examples and real browser acceptance remain blocked on Docker registry TLS connectivity. Do not mark this slice or M2–M4 complete; [88](88_PARTICIPATION_AND_PRIVATE_PDFS.md) owns current evidence and remaining release gates.
+
 **Solver reliability checkpoint (2026-09-16):** the owner's slice 2 is locally implemented and verified within M3/M4: optional team creation/invitation acceptance, latest-edit save-and-submit/resubmit, failed-save preservation, idempotent lost-response recovery, lean authoring and visible feedback/history. See [87_SOLVER_PROPOSAL_RELIABILITY](87_SOLVER_PROPOSAL_RELIABILITY.md). This does not complete roadmap M2 matching or all M3/M4 work.
 
 **M1 implementation checkpoint (2026-09-16):** owner-only direct publication, preserved delegated role policy, immutable re-authoring and accurate public preview are implemented across domain/API/PostgreSQL/connected UI in the working tree. Migration `0022` is additive. [86_M1_OWNER_PUBLICATION](86_M1_OWNER_PUBLICATION.md) owns the current verification and rollout evidence. M2–M4 remain outstanding; historical Phase 2 publisher-only statements below describe their original delivery, not the owner exception.

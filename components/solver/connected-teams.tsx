@@ -760,7 +760,10 @@ export function ConnectedTeamsExperience() {
                     <option value="academic-group">گروه دانشگاهی</option>
                     <option value="lab">آزمایشگاه</option>
                   </select>
-                  <small>این انتخاب برای معرفی درست تیم در فرصت‌ها استفاده می‌شود.</small>
+                  <small>
+                    این نوع خوداظهاری است و در اجازه ارسال پیشنهاد اثر دارد؛ انتخاب دانشگاه، شرکت یا
+                    آزمایشگاه به معنی تأیید وابستگی سازمانی نیست.
+                  </small>
                 </label>
               </div>
 
