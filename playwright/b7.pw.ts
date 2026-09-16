@@ -15,8 +15,9 @@ import { expect, test, type Page } from "@playwright/test";
  * infra/local/dex/config.yaml. Nothing here is a real credential.
  *
  * Triage, every gate, and publish are clicked in the UI. Platform actors hold
- * no membership in the org's workspace and cannot activate one, so they open
- * the governance page with the owning workspace named in the URL; B8a's
+ * no membership in the org's workspace, so they enter their sole platform
+ * workspace and open the governance page with the owning workspace named in
+ * the URL; B8a's
  * platform-scoped brief resolves it through the narrow standing authority in
  * ADR-0015. Draft creation and the owner-controlled stage transitions stay as
  * API calls from inside the signed-in page — they are B1 surface that B7 does
@@ -109,27 +110,11 @@ async function signIn(page: Page, email: string) {
   await page.locator("#login").fill(email);
   await page.locator("#password").fill(password);
   await page.locator("#submit-login").click();
-  await page.waitForURL(/\/app\/org\/challenges\/new/);
-}
-
-/**
- * A freshly exchanged session has no active workspace: the server's receipt
- * says the next action is `select_workspace`, and every command is denied with
- * a non-enumerating 404 until one is chosen. Waiting for the chooser rather
- * than probing for it, because probing races the first render.
- */
-async function activateWorkspace(page: Page) {
-  const chooser = page.getByRole("heading", { name: "یک فضای سازمانی را فعال کنید" });
-  await expect(chooser).toBeVisible();
-  await page.locator("button.challenge-button--primary").first().click();
-  await expect(chooser).toBeHidden();
-}
-
-async function activatePlatformWorkspace(page: Page) {
-  const chooser = page.getByRole("heading", { name: "فضای کاری راه‌حل را فعال کنید" });
-  await expect(chooser).toBeVisible();
-  await page.locator("button.challenge-button--primary").first().click();
-  await expect(chooser).toBeHidden();
+  const isPlatformActor =
+    email === identities.legal || email === identities.finance || email === identities.quality;
+  await page.waitForURL(
+    isPlatformActor ? /\/app\/ops\/publication\/?$/ : /\/app\/org\/challenges\/?$/,
+  );
 }
 
 async function signOut(page: Page) {
@@ -142,11 +127,106 @@ test.describe("B7 governed challenge journey", () => {
 
   let challengeId = "";
 
+  test("M1 owner publishes directly from preview and leaves an inspectable public example", async ({
+    page,
+    browser,
+  }) => {
+    await signIn(page, identities.owner);
+    await page.goto("/app/org/challenges/new/");
+    await page.getByLabel("عنوان مسئله").fill("نمونه انتشار مستقیم مالک — M1");
+    await page.getByLabel("شرح یک‌جمله‌ای مشکل").fill(readyContent.summary);
+    await page.getByLabel("دسته‌بندی اصلی").selectOption({ index: 1 });
+    await page.getByLabel("واحد، سایت یا محل درگیر").fill(readyContent.location);
+    await page.getByLabel("مالک مسئله").fill("مالک مصنوعی");
+    await page.getByLabel("نتیجه‌ای که سازمان به‌دنبال آن است").fill(readyContent.desired_outcome);
+    await page.getByRole("button", { name: "ذخیره و ادامه", exact: true }).click();
+    await page.waitForURL(/\/record\/edit\/\?id=chl_/);
+    const id = new URL(page.url()).searchParams.get("id")!;
+    await page.getByLabel("شرح وضعیت فعلی").fill(readyContent.current_state);
+    await page.getByLabel("خروجی نهایی مورد انتظار").fill(readyContent.expected_output);
+    await page.getByRole("button", { name: "افزودن معیار" }).click();
+    await page.getByLabel("عنوان معیار").fill(readyContent.success_criteria[0].title);
+    await page.getByLabel("مقدار هدف").fill(readyContent.success_criteria[0].target);
+    await page.getByLabel("روش اندازه‌گیری").fill(readyContent.success_criteria[0].method);
+    await page.getByLabel("موارد داخل دامنه").fill(readyContent.in_scope);
+    await page.getByRole("button", { name: "ذخیره و ادامه", exact: true }).click();
+    await page.getByRole("radio", { name: "پایلوت", exact: true }).check();
+    await page.getByRole("radio", { name: "عمومی", exact: true }).check();
+    await page.getByRole("checkbox", { name: "متخصص مستقل", exact: true }).check();
+    await page.getByRole("checkbox", { name: "تیم تخصصی", exact: true }).check();
+    await page.getByRole("radio", { name: "دورکار", exact: true }).check();
+    await page.getByLabel("مهلت دریافت پیشنهاد (تا پایان روز، به وقت تهران)").fill("2030-02-01");
+    await page.getByRole("radio", { name: "دریافت پیشنهاد قیمت", exact: true }).check();
+    await page.getByRole("button", { name: "ذخیره و ادامه", exact: true }).click();
+    await expect(
+      page.getByRole("heading", { name: "دسترسی، مالکیت و ارسال", exact: true }),
+    ).toBeVisible();
+    await page.getByRole("radio", { name: "عمومی", exact: true }).check();
+    await page.getByLabel("خلاصه عمومی مسئله").fill(readyContent.public_summary);
+    await page
+      .getByRole("radio", {
+        name: "متعلق به ارائه‌دهنده و دارای مجوز استفاده برای سازمان",
+        exact: true,
+      })
+      .check();
+    await page.getByLabel("نام مسئول پیگیری").fill(readyContent.contact.name);
+    await page.getByLabel("ایمیل مسئول پیگیری").fill(readyContent.contact.email);
+    await page.getByLabel("شماره تماس").fill(readyContent.contact.phone);
+    await page
+      .getByRole("checkbox", {
+        name: "صحت اطلاعات و اختیار ارسال این پرونده از طرف سازمان را تأیید می‌کنم.",
+      })
+      .check();
+    // Immediate preview must save the final fields without waiting for autosave.
+    await page.getByRole("button", { name: "مشاهده پیش‌نمایش", exact: true }).click();
+    await page.waitForURL(new RegExp(`/preview/\\?id=${id}`));
+    await expect(page.getByRole("button", { name: "انتشار چالش", exact: true })).toBeEnabled();
+    await page.getByRole("button", { name: "نمایش اطلاعات عمومی" }).click();
+    await expect(page.getByText(readyContent.public_summary, { exact: true })).toBeVisible();
+    for (const value of [
+      readyContent.summary,
+      readyContent.desired_outcome,
+      readyContent.expected_output,
+    ]) {
+      expect(await page.locator("body").textContent()).not.toContain(value);
+    }
+    await page.getByRole("button", { name: "انتشار چالش", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "انتشار این نسخه از چالش؟" })).toBeVisible();
+    await page.getByRole("button", { name: "تأیید و انتشار", exact: true }).click();
+    await page.waitForURL(new RegExp(`/governance/\\?id=${id}`));
+    await expect(page.getByRole("heading", { name: "انتشار و مدیریت چالش" })).toBeVisible();
+    await page.reload();
+    const liveCall = page.getByRole("region", { name: "مدیریت فراخوان منتشرشده" });
+    await page.getByLabel("دلیل اقدام").fill("آزمون توقف به دست مالک");
+    await page.getByRole("button", { name: "توقف موقت" }).click();
+    await expect(liveCall).toHaveAttribute("data-publication-state", "paused");
+    await page.getByLabel("دلیل اقدام").fill("بازگشایی نمونه برای بررسی دستی");
+    await page.getByRole("button", { name: "ازسرگیری فراخوان" }).click();
+    await expect(liveCall).toHaveAttribute("data-publication-state", "open");
+    const resource = await api(page, "GET", `/api/v1/challenges/${id}`);
+    expect(resource.body.data).toMatchObject({
+      stage: "published",
+      approvals: [],
+      publication_state: "open",
+    });
+    const anonymous = await browser.newContext();
+    try {
+      const publicPage = await anonymous.newPage();
+      await publicPage.goto(`/challenges/record/?id=${id}`);
+      await expect(
+        publicPage.getByRole("heading", { name: "نمونه انتشار مستقیم مالک — M1" }),
+      ).toBeVisible();
+      await expect(publicPage.getByText(readyContent.public_summary)).toBeVisible();
+      expect(await publicPage.locator("body").textContent()).not.toContain(readyContent.summary);
+    } finally {
+      await anonymous.close();
+    }
+  });
+
   test("org drafts, four distinct actors clear the gates, and the publisher publishes", async ({
     page,
   }) => {
     await signIn(page, identities.owner);
-    await activateWorkspace(page);
 
     const created = await api(page, "POST", "/api/v1/challenges", {
       expected_version: 0,
@@ -169,14 +249,12 @@ test.describe("B7 governed challenge journey", () => {
     await signOut(page);
     await signIn(page, identities.quality);
     await page.goto("/app/ops/publication");
-    await activatePlatformWorkspace(page);
     await page.locator(`a[href*="id=${challengeId}"]`).click();
     await page.getByRole("button", { name: "تأیید غربالگری و شروع صورت‌بندی" }).click();
     await page.waitForURL(/\/app\/ops\/publication/);
 
     await signOut(page);
     await signIn(page, identities.owner);
-    await activateWorkspace(page);
     const requestedApprovals = await api(
       page,
       "POST",
@@ -185,8 +263,10 @@ test.describe("B7 governed challenge journey", () => {
     );
     expect(requestedApprovals.status).toBe(200);
 
-    // Negative: the owner authored the brief, so publishing is not theirs to do
-    // even before the gates are considered (separation of duty).
+    // Negative: delegated technical approvers still cannot publish.
+    // Authorization is checked before the gates.
+    await signOut(page);
+    await signIn(page, identities.technical);
     const ownerPublish = await api(page, "POST", `/api/v1/challenges/${challengeId}:publish`, {
       expected_version: 4,
     });
@@ -195,7 +275,6 @@ test.describe("B7 governed challenge journey", () => {
     // Negative: no gate is recorded yet, so even the right role cannot publish.
     await signOut(page);
     await signIn(page, identities.publisher);
-    await activateWorkspace(page);
     const earlyPublish = await api(page, "POST", `/api/v1/challenges/${challengeId}:publish`, {
       expected_version: 4,
     });
@@ -214,11 +293,9 @@ test.describe("B7 governed challenge journey", () => {
       await signOut(page);
       await signIn(page, email);
       if (orgSide) {
-        await activateWorkspace(page);
         await page.goto(`/app/org/challenges/record/governance/?id=${challengeId}`);
       } else {
         await page.goto("/app/ops/publication");
-        await activatePlatformWorkspace(page);
         await page.locator(`a[href*="id=${challengeId}"]`).click();
       }
 
@@ -253,7 +330,6 @@ test.describe("B7 governed challenge journey", () => {
     // server authority, which is what the gate exists to prove.
     await signOut(page);
     await signIn(page, identities.publisher);
-    await activateWorkspace(page);
     await page.goto(`/app/org/challenges/record/governance/?id=${challengeId}`);
     const publish = page.getByRole("button", { name: "انتشار پرونده" });
     await expect(publish).toBeEnabled();

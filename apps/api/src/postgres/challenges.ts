@@ -23,6 +23,7 @@ import type {
 import {
   approvalDecisions,
   canChangePublicationState,
+  organizationCapabilities,
   canTransition,
   challengeManagedStages,
   gateApproverRoles,
@@ -1184,6 +1185,10 @@ export class PostgresChallengeAdapter implements ChallengePort {
       if (
         current.stage !== "draft" &&
         current.stage !== "formulation" &&
+        !(
+          context.role === "org:owner" &&
+          (current.stage === "triage" || current.stage === "approvals")
+        ) &&
         !(current.stage === "approvals" && rejectedApproval)
       ) {
         throw new ApiProblem(409, "INVALID_STATE", "Challenge content is not editable", {
@@ -1205,7 +1210,10 @@ export class PostgresChallengeAdapter implements ChallengePort {
         : current.stage === "formulation" || rejectedApproval
           ? "needs_changes"
           : "draft";
-      const nextStage = rejectedApproval ? "formulation" : current.stage;
+      const nextStage =
+        rejectedApproval || current.stage === "triage" || current.stage === "approvals"
+          ? "formulation"
+          : current.stage;
       const versionInsert = await client.query(
         `
           INSERT INTO challenge_version (
@@ -1538,11 +1546,37 @@ export class PostgresChallengeAdapter implements ChallengePort {
         }
       }
 
+      if (context.role === "org:owner") {
+        await client.query(
+          `INSERT INTO eligibility_rule (
+            id, tenant_id, workspace_id, challenge_id, challenge_version_id,
+            allowed_applicant_types, verification_required, nda_required,
+            document_gate_required, proposal_deadline, state, created_at
+          ) VALUES (
+            'elr_' || substring($1 FROM 5), $2, $3, $4, $1, $5::text[],
+            $6, $7, $8, $9, 'open', $10
+          ) ON CONFLICT (challenge_version_id) DO NOTHING`,
+          [
+            current.current_version_id,
+            context.tenantId,
+            context.workspaceId,
+            current.id,
+            [...current.content.allowed_applicant_types],
+            current.content.verification_required,
+            current.content.nda_required,
+            current.content.document_gate_required,
+            current.content.proposal_deadline,
+            occurredAt,
+          ],
+        );
+      }
+
       const version = current.version + 1;
       const aggregateUpdate = await client.query(
         `
           UPDATE challenge
           SET stage = 'published',
+              owner_publisher_user_id = $8,
               published_version_id = $4,
               publication_state = 'open',
               proposal_deadline_at = (
@@ -1565,6 +1599,7 @@ export class PostgresChallengeAdapter implements ChallengePort {
           version,
           occurredAt,
           current.version,
+          context.role === "org:owner" ? context.actorUserId : null,
         ],
       );
       if (aggregateUpdate.rowCount !== 1) {
@@ -1682,7 +1717,7 @@ export class PostgresChallengeAdapter implements ChallengePort {
       // Defense in depth: app.ts authorizes the publisher before this is
       // reached, but the adapter never trusts that alone -- the same rule B2's
       // gate recording and B4's publish already follow.
-      if (context.role !== "org:publisher") throw forbidden();
+      if (!organizationCapabilities(context.role).publishChallenges) throw forbidden();
       if (body.expected_version !== current.version) throw staleVersion(current.version);
       if (current.publication_state !== "open" || current.proposal_deadline_at === null) {
         throw new ApiProblem(409, "INVALID_STATE", "Only an open published call can be extended", {
@@ -1798,7 +1833,7 @@ export class PostgresChallengeAdapter implements ChallengePort {
       // Defense in depth: app.ts authorizes the publisher before this is
       // reached, but the adapter never trusts that alone -- the same rule B2's
       // gate recording and B4's publish already follow.
-      if (context.role !== "org:publisher") throw forbidden();
+      if (!organizationCapabilities(context.role).publishChallenges) throw forbidden();
       if (body.expected_version !== current.version) throw staleVersion(current.version);
       if (
         current.publication_state === null ||

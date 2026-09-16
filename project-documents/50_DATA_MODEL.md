@@ -8,6 +8,12 @@ Schema reference for the broader challenge/proposal/review/decision design and s
 
 ## 1. Conventions
 
+## M1 schema amendment — migration 0022
+
+`0022_m1_owner_publication` adds nullable `challenge.owner_publisher_user_id` referencing `app_user`. Existing publications retain null and their four-gate history. A new owner publication requires an active `org:owner` membership in the challenge's exact tenant/workspace, locked with `FOR SHARE` against concurrent revocation. The publication guard requires the current locked version, an eligibility snapshot and a future deadline. Owner attribution and its published-version pointer cannot be changed afterward. Without owner attribution, the existing four-gate requirement remains.
+
+The command writes the attribution with publication, locking, eligibility, public projection, receipt, audit and outbox in one transaction. No backfill fabricates approvals or rewrites historical evidence. Upgrade is additive over Phase 3. Down migration is allowed before any owner publication; afterward it refuses to discard evidence, requiring a reviewed roll-forward strategy.
+
 - **IDs**: `text` primary keys, server-minted, prefixed (`chl_`, `chv_`, `prp_`, `prv_`, `rva_`, `rev_`, `dec_`, `case_`), globally unique, no embedded authorization (20 §7).
 - **Tenancy columns**: every protected table has `tenant_id` (and `workspace_id` where a workspace owns the row). Queries scope by tenant/workspace **before** record permissions.
 - **Timestamps**: `timestamptz`, UTC; display converts to Asia/Tehran. Mutable aggregates carry `created_at`/`updated_at`; append-only evidence carries `occurred_at`/`created_at` and is never rewritten merely to update a timestamp.

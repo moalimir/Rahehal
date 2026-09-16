@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useWebRuntime } from "@/components/runtime-provider";
 
 import { challengeHref } from "@/lib/challenges/navigation";
 import { isDraftStatus, type ChallengeRecord } from "@/domain/challenge";
@@ -21,6 +22,13 @@ import { isDraftStatus, type ChallengeRecord } from "@/domain/challenge";
  * could answer for this record there.
  */
 export function ConnectedRecordLinks({ record }: { record: ChallengeRecord }) {
+  const { me } = useWebRuntime();
+  const owner = me?.memberships.some(
+    (membership) =>
+      membership.workspace_id === me.active_context?.workspace_id &&
+      membership.state === "active" &&
+      membership.role === "org:owner",
+  );
   const governed = !isDraftStatus(record.status);
   const publiclyListed =
     record.status === "published" &&
@@ -28,12 +36,20 @@ export function ConnectedRecordLinks({ record }: { record: ChallengeRecord }) {
 
   return (
     <>
-      {governed ? (
+      {owner && governed && record.status !== "published" ? (
+        <Link
+          className="challenge-button challenge-button--secondary"
+          href={challengeHref(`/app/org/challenges/${record.id}/edit`)}
+        >
+          تکمیل نسخه تازه
+        </Link>
+      ) : null}
+      {governed || owner ? (
         <Link
           className="challenge-button challenge-button--secondary"
           href={challengeHref(`/app/org/challenges/${record.id}/governance`)}
         >
-          دروازه‌های انتشار
+          {owner ? "انتشار و مدیریت چالش" : "دروازه‌های انتشار"}
         </Link>
       ) : null}
       {publiclyListed ? (

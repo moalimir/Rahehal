@@ -16,6 +16,7 @@ import {
 } from "@/components/challenge-flow/shell";
 import { SaveIndicator, WizardStepper } from "@/components/challenge-flow/wizard";
 import { useChallengeRecord } from "@/components/challenge-flow/hooks";
+import { useWebRuntime } from "@/components/runtime-provider";
 import { isDraftStatus } from "@/domain/challenge";
 import {
   connectedChallengeHref,
@@ -33,8 +34,19 @@ function stepFromLocation(fallback: WizardStep): WizardStep {
 }
 
 export function ChallengeEditPage({ id }: { id: string }) {
-  const { record, updateRecord, saveNow, saveStatus, lastSavedLabel, loadError, saveError } =
+  const { record, updateRecord, saveNow, saveStatus, lastSavedLabel, loadError, saveError, stage } =
     useChallengeRecord(id);
+  const { me, mode } = useWebRuntime();
+  const ownerAuthoring =
+    mode === "network" &&
+    stage !== null &&
+    stage !== "published" &&
+    me?.memberships.some(
+      (membership) =>
+        membership.workspace_id === me.active_context?.workspace_id &&
+        membership.state === "active" &&
+        membership.role === "org:owner",
+    );
   const [step, setStep] = useState<WizardStep>(1);
   const [showErrors, setShowErrors] = useState(false);
   const [toast, setToast] = useState("");
@@ -83,7 +95,7 @@ export function ChallengeEditPage({ id }: { id: string }) {
     );
   if (loadError) return <ChallengeLoadErrorState message={loadError} />;
   if (!record) return <NotFoundState />;
-  if (!isDraftStatus(record.status)) {
+  if (!isDraftStatus(record.status) && !ownerAuthoring) {
     return (
       <ChallengeShell
         title={record.title}

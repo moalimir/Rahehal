@@ -55,15 +55,33 @@ export function canTransition<State extends string>(
   role: WorkspaceRole,
   satisfied: readonly string[] = [],
 ): boolean {
-  const rule = table.find((item) => item.from === from && item.to === to);
-  return Boolean(
-    rule &&
+  return table.some(
+    (rule) =>
+      rule.from === from &&
+      rule.to === to &&
       rule.roles.includes(role) &&
       rule.preconditions.every((condition) => satisfied.includes(condition)),
   );
 }
 
 export const challengeTransitions = [
+  ...challengeAuthoringStages.map(
+    (from): Transition<ChallengeStage> => ({
+      from,
+      to: "published",
+      roles: ["org:owner"],
+      preconditions: ["formulation-complete"],
+      sideEffects: [
+        "lock-publication-version",
+        "snapshot-eligibility",
+        "publish-catalog-version",
+        "create-receipt",
+      ],
+      notification: "حل‌کنندگان مرتبط",
+      audit: "challenge.published",
+      retry: "idempotent",
+    }),
+  ),
   {
     from: "draft",
     to: "triage",
@@ -624,9 +642,8 @@ export function isDiscoverablePublicationState(state: ChallengePublicationState)
  * never count as enforcement).
  *
  * The separations here are deliberate and come from §6:
- * - `org:owner` authors but cannot publish. The actor who writes the brief is
- *   not the actor who releases it.
- * - `org:publisher` publishes but cannot author, for the same reason.
+ * - DEC-2026-018 lets `org:owner` author and publish directly in its own workspace.
+ * - Delegated `org:publisher` still publishes approved versions and cannot author.
  * - An approver records exactly one gate and authors nothing, so no single
  *   actor can both prepare a version and clear a gate on it.
  */
@@ -653,7 +670,7 @@ export function organizationCapabilities(role: WorkspaceRole): OrganizationCapab
     readChallenges: role.startsWith("org:"),
     authorChallenges: role === "org:owner" || role === "org:member",
     recordsGate: gate ?? null,
-    publishChallenges: role === "org:publisher",
+    publishChallenges: role === "org:owner" || role === "org:publisher",
     manageOrganization: role === "org:owner",
     manageDirectOffers: role === "org:owner" || role === "org:member",
   };

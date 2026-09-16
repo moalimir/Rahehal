@@ -103,14 +103,7 @@ async function signIn(page: Page, email: string) {
   await page.locator("#login").fill(email);
   await page.locator("#password").fill(password);
   await page.locator("#submit-login").click();
-  await page.waitForURL(/\/app\/org\/challenges\/new/);
-}
-
-async function activateOrgWorkspace(page: Page) {
-  const chooser = page.getByRole("heading", { name: "یک فضای سازمانی را فعال کنید" });
-  await expect(chooser).toBeVisible();
-  await page.locator("button.challenge-button--primary").first().click();
-  await expect(chooser).toBeHidden();
+  await page.waitForURL(/\/app\/(?:org\/challenges|ops\/publication)\/?$/);
 }
 
 const created: { label: string; id: string; state: string }[] = [];
@@ -121,7 +114,6 @@ test.describe("demo fixture", () => {
 
   test("creates challenges across every reviewable state", async ({ page }) => {
     await signIn(page, who.owner);
-    await activateOrgWorkspace(page);
 
     // Everything the owner alone can reach, in one session.
     const make = async (label: string, draft: Draft, upto: number) => {
@@ -167,16 +159,15 @@ test.describe("demo fixture", () => {
 
     // Gates. Four distinct actors; the org approver holds only `technical`.
     const gates = [
-      [who.technical, "technical", true],
-      [who.legal, "legal", false],
-      [who.finance, "finance", false],
-      [who.quality, "quality", false],
+      [who.technical, "technical"],
+      [who.legal, "legal"],
+      [who.finance, "finance"],
+      [who.quality, "quality"],
     ] as const;
     const fullyApproved = [openCall, paused, closedCall, extended, confidential];
 
-    for (const [email, gate, orgSide] of gates) {
+    for (const [email, gate] of gates) {
       await signIn(page, email);
-      if (orgSide) await activateOrgWorkspace(page);
       for (const id of fullyApproved) {
         const r = await api(page, "POST", `/api/v1/challenges/${id}/approvals:record`, {
           expected_version: 4,
@@ -200,7 +191,6 @@ test.describe("demo fixture", () => {
 
     // Publish, then exercise the lifecycle commands that have no UI yet.
     await signIn(page, who.publisher);
-    await activateOrgWorkspace(page);
     for (const id of fullyApproved) {
       const r = await api(page, "POST", `/api/v1/challenges/${id}:publish`, {
         expected_version: 4,

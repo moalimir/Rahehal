@@ -125,6 +125,10 @@ describe("canonical domain primitives", () => {
 
   it("owns the exact 11-stage challenge lifecycle and its guarded edges", () => {
     expect(challengeTransitions.map(({ from, to }) => `${from}->${to}`)).toEqual([
+      "draft->published",
+      "triage->published",
+      "formulation->published",
+      "approvals->published",
       "draft->triage",
       "triage->formulation",
       "formulation->approvals",

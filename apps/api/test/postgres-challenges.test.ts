@@ -474,7 +474,7 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
       challenges.patch(
         challengeId,
         { expected_version: 5, patch: { title: "Forbidden in approvals" } },
-        context("b1-postgres-edit-approvals", 27),
+        context("b1-postgres-edit-approvals", 27, { role: "org:member" }),
       ),
     ).rejects.toMatchObject({ code: "INVALID_STATE", statusCode: 409 });
 
@@ -1833,7 +1833,7 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
 
     // app.ts already gates this on `org:publisher`; the adapter must not rely
     // on that alone, the same way B2's gate recording and B4's publish do not.
-    for (const role of ["org:owner", "org:member", "platform:ops"] as const) {
+    for (const role of ["org:approver_technical", "org:member", "platform:ops"] as const) {
       await expect(
         challenges.changePublicationState(
           challengeId,
@@ -1918,6 +1918,7 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
     // activation), 0018 (C6 opportunities/offers), 0017 (C5
     // clarification/revision), 0016 (C4 submission), 0015 (C2 teams), 0014 (C1
     // solver profile/eligibility), 0013 (proposal foundation), then 0012.
+    expect((await runMigrations(database, "down")).applied).toEqual(["0022_m1_owner_publication"]);
     const offerClockDown = await runMigrations(database, "down");
     expect(offerClockDown.applied).toEqual(["0021_c6_offer_deadline_single_clock"]);
     const c8Down = await runMigrations(database, "down");
@@ -1956,6 +1957,7 @@ describe("A1c authoritative PostgreSQL challenge adapter", () => {
       "0019_c7_solver_activation",
       "0020_c8_notifications",
       "0021_c6_offer_deadline_single_clock",
+      "0022_m1_owner_publication",
     ]);
 
     const restored = await database.query<{

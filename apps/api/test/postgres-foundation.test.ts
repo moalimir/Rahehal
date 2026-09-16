@@ -63,9 +63,11 @@ beforeAll(async () => {
     "0019_c7_solver_activation",
     "0020_c8_notifications",
     "0021_c6_offer_deadline_single_clock",
+    "0022_m1_owner_publication",
   ]);
 
   // Newest first.
+  expect((await runMigrations(database, "down")).applied).toEqual(["0022_m1_owner_publication"]);
   const offerClockDown = await runMigrations(database, "down");
   expect(offerClockDown.applied).toEqual(["0021_c6_offer_deadline_single_clock"]);
   const c8Down = await runMigrations(database, "down");
@@ -140,6 +142,7 @@ beforeAll(async () => {
     "0019_c7_solver_activation",
     "0020_c8_notifications",
     "0021_c6_offer_deadline_single_clock",
+    "0022_m1_owner_publication",
   ]);
   const noOpUp = await runMigrations(database, "up");
   expect(noOpUp.applied).toEqual([]);
@@ -289,6 +292,7 @@ describe("A1a PostgreSQL foundation", () => {
         id: "0021_c6_offer_deadline_single_clock",
         checksum: expect.stringMatching(/^[0-9a-f]{64}$/),
       },
+      { id: "0022_m1_owner_publication", checksum: expect.stringMatching(/^[0-9a-f]{64}$/) },
     ]);
   });
 
@@ -568,6 +572,7 @@ describe("A1a PostgreSQL foundation", () => {
   });
 
   it("fails the A1b migration atomically for an orphaned existing session", async () => {
+    expect((await runMigrations(database, "down")).applied).toEqual(["0022_m1_owner_publication"]);
     const offerClockDown = await runMigrations(database, "down");
     expect(offerClockDown.applied).toEqual(["0021_c6_offer_deadline_single_clock"]);
     const c8Down = await runMigrations(database, "down");
@@ -670,6 +675,7 @@ describe("A1a PostgreSQL foundation", () => {
       "0019_c7_solver_activation",
       "0020_c8_notifications",
       "0021_c6_offer_deadline_single_clock",
+      "0022_m1_owner_publication",
     ]);
   });
 });

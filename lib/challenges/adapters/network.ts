@@ -380,7 +380,7 @@ export function createNetworkChallengeGateway(
       },
       /**
        * B4's publish command. The server owns every precondition -- stage,
-       * the four approval gates, and the `org:publisher` role -- so this only
+       * owner authority or delegated approval gates -- so this only
        * carries the version it last read and surfaces the typed refusal.
        * Publishing is irreversible, so its idempotency key is reused across
        * retries of the same version rather than regenerated.

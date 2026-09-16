@@ -699,7 +699,7 @@ describe("authoritative Fastify API foundation", () => {
     expect(skipped.json<ErrorEnvelope>().error).toMatchObject({
       code: "INVALID_STATE",
       current_state: "draft",
-      allowed_transitions: ["triage"],
+      allowed_transitions: ["published", "triage"],
     });
 
     const triageRequest = {
@@ -1167,20 +1167,9 @@ describe("authoritative Fastify API foundation", () => {
     ).toEqual(["quality"]);
   });
 
-  it("denies publication to every role except the org publisher", async () => {
+  it("still denies publication to a delegated approver", async () => {
     const challengeId = await createFullyApprovedChallenge("b4-role");
     const before = composition.challenges.snapshot();
-
-    // The owner authored the brief; separation of duty keeps release out of
-    // the authoring role's hands even when every gate is green.
-    const ownerAttempt = await app.inject({
-      method: "POST",
-      url: publishUrl(challengeId),
-      headers: ownerHeaders("b4-role-owner-publish"),
-      payload: { expected_version: 4 },
-    });
-    expect(ownerAttempt.statusCode).toBe(403);
-    expect(ownerAttempt.json<ErrorEnvelope>().error.code).toBe("NO_ACCESS");
 
     // The technical approver is likewise not a publisher.
     const approverAttempt = await app.inject({
@@ -1923,7 +1912,7 @@ describe("authoritative Fastify API foundation", () => {
     expect(foreign.json<ErrorEnvelope>().error.code).toBe("NOT_FOUND");
   });
 
-  it("runs the publication lifecycle through the publisher only, and hides a paused call", async () => {
+  it("preserves delegated live-call authority and hides a paused call", async () => {
     const challengeId = await publishChallenge(
       "b6-lifecycle",
       buildChallengeContentResource({ visibility: "public" }),
@@ -1936,15 +1925,14 @@ describe("authoritative Fastify API foundation", () => {
     };
     expect(await listed()).toContain(challengeId);
 
-    // The org owner authored the brief; changing a live call's terms is a
-    // release decision, so it is the publisher's alone.
-    const ownerPause = await app.inject({
+    // Delegated approvers cannot manage the live call.
+    const approverPause = await app.inject({
       method: "POST",
       url: apiRoutes.pauseChallenge.replace("{challengeId}", challengeId),
-      headers: ownerHeaders("b6-owner-pause"),
-      payload: { expected_version: 5, reason: "تلاش مالک." },
+      headers: gateHeaders(demoApiCredentials.approver, "b6-approver-pause"),
+      payload: { expected_version: 5, reason: "تلاش تأییدکننده." },
     });
-    expect(ownerPause.statusCode).toBe(403);
+    expect(approverPause.statusCode).toBe(403);
     expect(await listed()).toContain(challengeId);
 
     const paused = await app.inject({

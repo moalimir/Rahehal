@@ -45,6 +45,10 @@ describe("Gate و ماشین وضعیت", () => {
 
   it("پرش نامعتبر در چرخه پرونده را رد می‌کند", () => {
     expect(challengeTransitions.map(({ from, to }) => `${from}->${to}`)).toEqual([
+      "draft->published",
+      "triage->published",
+      "formulation->published",
+      "approvals->published",
       "draft->triage",
       "triage->formulation",
       "formulation->approvals",

@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 /**
- * A3 acceptance: a real browser signs in, activates a workspace, and creates,
+ * A3 acceptance: a real browser signs in, enters its sole workspace, and creates,
  * reads and saves a challenge draft through the API and PostgreSQL.
  *
  * This suite needs the connected stack (PostgreSQL, the API in `postgres` mode,
@@ -36,24 +36,18 @@ test.describe("A3 connected challenge slice", () => {
     await page.locator("#password").fill(identity.password);
     await page.locator("#submit-login").click();
 
-    await page.waitForURL(/\/app\/org\/challenges\/new/);
+    // C9 enters the sole reachable workspace automatically and routes the
+    // organization owner to its challenge list. Waiting for the final route
+    // avoids racing the intermediate `/app/` resolver.
+    await page.waitForURL(/\/app\/org\/challenges\/?$/);
+    await expect(page.getByRole("heading", { name: "مسئله‌ها و چالش‌ها" })).toBeVisible();
   }
 
-  async function activateWorkspace(page: import("@playwright/test").Page) {
-    // A freshly exchanged session has no active workspace: the server's receipt
-    // says the next action is `select_workspace`, and the UI must ask for it
-    // before any command is possible.
-    const chooser = page.getByRole("heading", { name: "یک فضای سازمانی را فعال کنید" });
-    await expect(chooser).toBeVisible();
-    await page.locator("button.challenge-button--primary").first().click();
-    await expect(chooser).toBeHidden();
-  }
-
-  test("signs in, activates a workspace, and persists a draft in PostgreSQL", async ({
+  test("signs in, enters its workspace, and persists a draft in PostgreSQL", async ({
     page,
   }, testInfo) => {
     await signIn(page);
-    await activateWorkspace(page);
+    await page.goto("/app/org/challenges/new/");
 
     const title = `پایش مصرف انرژی ${testInfo.testId}`;
     await page.getByLabel("عنوان مسئله").fill(title);
@@ -85,7 +79,6 @@ test.describe("A3 connected challenge slice", () => {
 
   test("refuses a command once the session is revoked", async ({ page }) => {
     await signIn(page);
-    await activateWorkspace(page);
 
     await page.evaluate(async () => {
       await fetch("/auth/browser/session:revoke", {
@@ -104,7 +97,6 @@ test.describe("A3 connected challenge slice", () => {
 
   test("never serves a record for a foreign or missing id", async ({ page }) => {
     await signIn(page);
-    await activateWorkspace(page);
 
     // No id at all: an explicit empty state, never a look-alike sample record.
     await page.goto("/app/org/challenges/record/edit/");

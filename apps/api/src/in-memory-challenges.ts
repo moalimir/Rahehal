@@ -29,6 +29,7 @@ import {
   gateApproverRoles,
   isAggregateVersion,
   canChangePublicationState,
+  organizationCapabilities,
   isGateApproverRole,
   isPlatformRole,
   isPubliclyProjectable,
@@ -552,6 +553,10 @@ export class InMemoryChallengeRepository implements ChallengePort, PublicChallen
       if (
         stored.current.stage !== "draft" &&
         stored.current.stage !== "formulation" &&
+        !(
+          context.role === "org:owner" &&
+          (stored.current.stage === "triage" || stored.current.stage === "approvals")
+        ) &&
         !(stored.current.stage === "approvals" && rejectedApproval)
       ) {
         throw new ApiProblem(409, "INVALID_STATE", "Challenge content is not editable", {
@@ -570,7 +575,12 @@ export class InMemoryChallengeRepository implements ChallengePort, PublicChallen
       const updated: ChallengeResource = {
         ...stored.current,
         current_version_id: parseChallengeVersionId(this.ids.next("chv")),
-        stage: rejectedApproval ? "formulation" : stored.current.stage,
+        stage:
+          rejectedApproval ||
+          stored.current.stage === "triage" ||
+          stored.current.stage === "approvals"
+            ? "formulation"
+            : stored.current.stage,
         authoring_status: readiness.ready
           ? "ready"
           : stored.current.stage === "formulation" || rejectedApproval
@@ -921,7 +931,7 @@ export class InMemoryChallengeRepository implements ChallengePort, PublicChallen
       // Defense in depth: app.ts authorizes the publisher before this is
       // reached, but the adapter never trusts that alone -- the same rule B2's
       // gate recording and B4's publish already follow.
-      if (context.role !== "org:publisher") throw forbidden();
+      if (!organizationCapabilities(context.role).publishChallenges) throw forbidden();
       const current = stored.current;
       if (current.publication_state !== "open" || current.proposal_deadline_at === null) {
         throw new ApiProblem(409, "INVALID_STATE", "Only an open published call can be extended", {
@@ -1023,7 +1033,7 @@ export class InMemoryChallengeRepository implements ChallengePort, PublicChallen
       // Defense in depth: app.ts authorizes the publisher before this is
       // reached, but the adapter never trusts that alone -- the same rule B2's
       // gate recording and B4's publish already follow.
-      if (context.role !== "org:publisher") throw forbidden();
+      if (!organizationCapabilities(context.role).publishChallenges) throw forbidden();
       const current = stored.current;
       if (
         current.publication_state === null ||

@@ -20,15 +20,17 @@ describe("organization capabilities", () => {
     expect(authors).toEqual(["org:owner", "org:member"]);
   });
 
-  it("keeps publication away from every role that authors", () => {
+  it("grants the owner publication while preserving delegated role separation", () => {
     for (const role of organizationRoles) {
       const capabilities = organizationCapabilities(role);
-      expect(capabilities.authorChallenges && capabilities.publishChallenges).toBe(false);
+      expect(capabilities.authorChallenges && capabilities.publishChallenges).toBe(
+        role === "org:owner",
+      );
     }
     const publishers = organizationRoles.filter(
       (role) => organizationCapabilities(role).publishChallenges,
     );
-    expect(publishers).toEqual(["org:publisher"]);
+    expect(publishers).toEqual(["org:owner", "org:publisher"]);
   });
 
   it("gives each org approver exactly one gate and no authoring", () => {

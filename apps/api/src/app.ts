@@ -334,10 +334,8 @@ const canEditChallenge = (access: WorkspaceAccess) =>
   access.workspace.kind === "org" && organizationCapabilities(access.role).authorChallenges;
 
 /**
- * Publication is `org:publisher` only -- the one role on the
- * `approvals -> published` transition. Deliberately not `canEditChallenge`:
- * the actor who authored the brief must not also be the actor who releases it
- * (70_SECURITY_AND_AUTHZ §6).
+ * DEC-2026-018 permits direct owner publication. Delegated publishers retain
+ * the four-gate path; other authoring/approval roles do not gain publication.
  *
  * Both predicates read `organizationCapabilities`, the same shared definition
  * the web navigation derives from, so what a role is offered and what the

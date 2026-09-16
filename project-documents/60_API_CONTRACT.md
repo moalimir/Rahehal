@@ -18,6 +18,12 @@ The production API is the **only** authority. The executable initial contract is
 
 ## 2. Every response envelope
 
+## M1 executable publication amendment — 2026-09-16
+
+`POST /challenges/{id}:publish` retains its typed body, `Idempotency-Key`, `expected_version`, receipt and errors. An active scoped `org:owner` may publish a fully ready exact version from any unpublished authoring stage; no gate approvals or platform verification are prerequisites. An `org:publisher` still needs the four approvals on the exact version in `approvals`. Other organization roles retain their existing authoring/approval access and cannot publish. The API enforces membership/session/tenant scope before replay or mutation; foreign and missing IDs remain indistinguishable.
+
+Owners also receive the existing reasoned extend-deadline/pause/resume/close/cancel commands. An owner may PATCH an unpublished triage/approval record into a fresh formulation version without overwriting locked content or its approvals. Published content cannot be PATCHed. The `publication_readiness` object continues to describe actual delegated gates; it does not invent four owner approvals. Owner UI uses full content readiness plus its active role. Public endpoints continue reading separate allowlisted projections, not private aggregates. No request/response schema changed; the OpenAPI publication description reflects both paths. M2 matching endpoints remain unimplemented.
+
 ```jsonc
 // success
 {

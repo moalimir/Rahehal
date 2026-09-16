@@ -121,6 +121,7 @@ Follow logs or stop the stack with:
 
 ```bash
 npm run docker:logs
+npm run seed:challenges
 npm run docker:down
 ```
 
@@ -129,7 +130,11 @@ session-credential secrets and refuses to overwrite an existing file. `RAHHAL_WE
 `RAHHAL_API_PORT`, and `RAHHAL_POSTGRES_PORT` override localhost ports.
 `RAHHAL_POSTGRES_PASSWORD` changes the synthetic local-only database credential. `docker:build`
 refreshes application images; `docker:up` starts them, runs a guarded one-shot migration/seed job,
-and pulls pinned PostgreSQL when absent. The
+and pulls pinned PostgreSQL when absent. `seed:challenges` is safe to rerun and leaves sixteen
+inspectable challenge examples across draft, triage, formulation, partial/rejected approval,
+public/registered/restricted publication, near-deadline, paused, and closed states. It uses the
+current Phase 3 multi-actor publication path; M1 will replace that baseline with the accepted
+owner-publication policy. The
 application images run without root, use read-only filesystems, drop Linux capabilities, and expose
 health checks where an HTTP boundary exists.
 

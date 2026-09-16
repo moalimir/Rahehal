@@ -139,6 +139,7 @@ export function ChallengeGovernancePage({
       ) ?? me?.memberships.find((membership) => membership.state === "active")
     )?.role ?? "";
   const actorGate = gateForRole(role);
+  const isOwner = role === "org:owner" && !targetWorkspaceId;
   const recorded = new Map(resource.approvals.map((approval) => [approval.gate, approval]));
   const readiness = resource.publication_readiness;
   const alreadyRecordedByActor = resource.approvals.some(
@@ -174,8 +175,12 @@ export function ChallengeGovernancePage({
 
   return (
     <ChallengeShell
-      title="دروازه‌های انتشار"
-      description="هر دروازه به یک تأییدکننده متمایز نسبت داده می‌شود و روی همین نسخه ثبت می‌ماند."
+      title={isOwner ? "انتشار و مدیریت چالش" : "دروازه‌های انتشار"}
+      description={
+        isOwner
+          ? "انتشار و مدیریت توسط مالک، بدون تأیید پلتفرم."
+          : "هر دروازه به یک تأییدکننده متمایز نسبت داده می‌شود و روی همین نسخه ثبت می‌ماند."
+      }
       id={resource.id}
     >
       <section className="challenge-review-brief" aria-labelledby="challenge-review-brief-title">
@@ -237,7 +242,7 @@ export function ChallengeGovernancePage({
         </dl>
       </section>
 
-      {resource.stage === "triage" && (
+      {resource.stage === "triage" && !isOwner && (
         <section className="challenge-gate-publish" aria-labelledby="challenge-triage-action">
           <h2 id="challenge-triage-action">غربالگری اولیه</h2>
           <p>با تأیید غربالگری، پرونده برای تکمیل صورت‌بندی به سازمان بازگردانده می‌شود.</p>
@@ -263,7 +268,7 @@ export function ChallengeGovernancePage({
         </section>
       )}
 
-      {resource.stage !== "triage" && (
+      {resource.stage !== "triage" && !isOwner && (
         <ul className="challenge-gate-list" aria-label="وضعیت دروازه‌های انتشار">
           {publicationGates.map((gate) => (
             <GateRow key={gate} gate={gate} approval={recorded.get(gate)} />
@@ -333,14 +338,22 @@ export function ChallengeGovernancePage({
         </form>
       )}
 
-      {organizationChallenge && rejected && (
+      {organizationChallenge && rejected && !isOwner && (
         <p className="challenge-disabled-reason">
           این نسخه رد شده است. اصلاح، یک نسخه تازه در مرحله صورت‌بندی می‌سازد و تأییدها برای آن از
           نو ثبت می‌شوند. <Link href={`/app/org/challenges/${resource.id}/edit`}>شروع اصلاح</Link>
         </p>
       )}
 
-      {resource.stage !== "triage" && (
+      {isOwner && resource.stage !== "published" && (
+        <Link
+          className="challenge-button challenge-button--primary"
+          href={`/app/org/challenges/${resource.id}/preview`}
+        >
+          پیش‌نمایش و انتشار
+        </Link>
+      )}
+      {resource.stage !== "triage" && !isOwner && (
         <div className="challenge-gate-publish">
           <button
             type="button"
@@ -374,7 +387,7 @@ export function ChallengeGovernancePage({
       {organizationChallenge && (
         <LiveCallControls
           challenge={organizationChallenge}
-          canManage={role === "org:publisher"}
+          canManage={isOwner || role === "org:publisher"}
           gateway={governance}
           onChange={setResource}
           onMessage={setToast}
