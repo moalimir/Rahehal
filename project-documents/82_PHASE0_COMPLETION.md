@@ -2,6 +2,8 @@
 
 ## Current delivery checkpoint — 2026-09-16
 
+**Solver/proposal reliability update:** the owner's slice 2 is implemented locally, with personal/team latest-edit submission, invitation failure recovery, clarification/revision, and retained examples verified in real desktop/mobile browser flows. No database migration or authority change was needed. Current evidence and limits are in [87_SOLVER_PROPOSAL_RELIABILITY](87_SOLVER_PROPOSAL_RELIABILITY.md); M2 matching, the rest of M3/M4 and external-user readiness remain open.
+
 **M1 local implementation update:** owner-controlled publication and immutable unpublished re-authoring now work in the connected runtime; delegated roles and their approval path remain intact. The Mac Docker stack has been rebuilt and migrated in place to 21 migrations through `0022`, preserving examples. Unit/API/component and PostgreSQL suites pass, as do real connected-browser owner publication and delegated publication flows. Current evidence, limitations and review requirements are in [86_M1_OWNER_PUBLICATION](86_M1_OWNER_PUBLICATION.md). The following restoration paragraph describes the earlier checkpoint; M2–M4 and external-user readiness remain unfinished.
 
 Local and remote `main` were restored to Phase 3 commit `3f80192a7ceba488bcfa4c2e0d60680f34c5f8b3`; the former Phase 4 merge `6093c0c` is preserved under the pushed `phase-4-archive` tag. DEC-2026-018 and [26_LEAN_MVP_SCOPE](26_LEAN_MVP_SCOPE.md) now govern delivery: owner-controlled publication, minimal final selection/match, and organization/solver completion. The archived Phase 4 programme is deferred, not an active release gate.

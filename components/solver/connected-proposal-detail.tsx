@@ -42,6 +42,7 @@ export function ConnectedProposalDetail({ view }: { view: ProposalRecordView }) 
   // to the same button under the same wrong name; the editor behind it has
   // always been state-aware, so only the invitation to it was misleading.
   const actionLabels: Partial<Record<typeof proposal.state, string>> = {
+    draft: "ادامه پیش‌نویس",
     clarification_requested: "پاسخ به شفاف‌سازی",
     revision_requested: "شروع نسخه اصلاح‌شده",
     revision_draft: "ادامه نسخه اصلاح‌شده",
@@ -141,6 +142,7 @@ export function ConnectedProposalDetail({ view }: { view: ProposalRecordView }) 
         ))}
         <div className="rh-proposal-content-group">
           <h3>فایل‌ها</h3>
+
           <dl>
             <div>
               <dt>پیوست‌ها</dt>
@@ -157,35 +159,72 @@ export function ConnectedProposalDetail({ view }: { view: ProposalRecordView }) 
           </dl>
         </div>
       </section>
-      <section className="rh-card rh-membership-list">
-        <header>
-          <div>
-            <h2>تاریخچه نسخه‌ها</h2>
-            <p>{versions.length.toLocaleString("fa-IR")} نسخه ثبت‌شده</p>
-          </div>
-        </header>
-        {versions.map((version) => (
-          <article key={version.id}>
-            <div>
-              <h3>
-                نسخه {version.version_number.toLocaleString("fa-IR")}{" "}
-                {version.locked ? "· قفل‌شده" : ""}
-              </h3>
+      {proposal.clarifications.some((item) => item.response || item.resolution) && (
+        <section className="rh-card rh-solver-flow-card" aria-label="بازخورد سازمان">
+          <h2>گفت‌وگو و بازخورد</h2>
+          {proposal.clarifications.map((item) => (
+            <article key={item.id}>
+              <h3>{item.question}</h3>
+              {item.response && <p>پاسخ شما: {item.response}</p>}
+              {item.resolution && <p>جمع‌بندی سازمان: {item.resolution}</p>}
+            </article>
+          ))}
+        </section>
+      )}
+      {proposal.revision_requests.length > 0 && (
+        <section className="rh-card rh-solver-flow-card" aria-label="درخواست‌های اصلاح">
+          <h2>درخواست‌های اصلاح</h2>
+          {proposal.revision_requests.map((item) => (
+            <article key={item.id}>
+              <p>{item.scope}</p>
               <p>
-                {version.changed_fields.length
-                  ? `تغییر در ${version.changed_fields.length.toLocaleString("fa-IR")} بخش`
-                  : "نسخه پایه"}
+                مهلت اصلاح (تهران):{" "}
+                {new Intl.DateTimeFormat("fa-IR", {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                  timeZone: "Asia/Tehran",
+                }).format(new Date(item.revision_deadline))}
               </p>
-              <RecordId value={version.id} label="شناسه نسخه" />
+              {item.state === "resubmitted" && <p>نسخه اصلاحی ارسال شده است.</p>}
+            </article>
+          ))}
+        </section>
+      )}
+      {versions.some(
+        (item) => item.locked || item.changed_fields.length > 0 || item.version_number > 1,
+      ) && (
+        <section className="rh-card rh-membership-list">
+          <header>
+            <div>
+              <h2>تاریخچه نسخه‌ها</h2>
+              <p>{versions.length.toLocaleString("fa-IR")} نسخه ثبت‌شده</p>
             </div>
-            <time dateTime={version.created_at}>
-              {new Intl.DateTimeFormat("fa-IR", { dateStyle: "medium", timeStyle: "short" }).format(
-                new Date(version.created_at),
-              )}
-            </time>
-          </article>
-        ))}
-      </section>
+          </header>
+          {versions.map((version) => (
+            <article key={version.id}>
+              <div>
+                <h3>
+                  نسخه {version.version_number.toLocaleString("fa-IR")}{" "}
+                  {version.locked ? "· قفل‌شده" : ""}
+                </h3>
+                <p>
+                  {version.changed_fields.length
+                    ? `تغییر در ${version.changed_fields.length.toLocaleString("fa-IR")} بخش`
+                    : "نسخه پایه"}
+                </p>
+                <RecordId value={version.id} label="شناسه نسخه" />
+              </div>
+              <time dateTime={version.created_at}>
+                {new Intl.DateTimeFormat("fa-IR", {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                  timeZone: "Asia/Tehran",
+                }).format(new Date(version.created_at))}
+              </time>
+            </article>
+          ))}
+        </section>
+      )}
     </>
   );
 }

@@ -149,4 +149,55 @@ describe("connected proposal record", () => {
     expect(await screen.findByText("شناسه پرونده مشخص نیست")).toBeInTheDocument();
     expect(testState.get).not.toHaveBeenCalled();
   });
+
+  it("offers draft editing and does not manufacture history before a saved content version", async () => {
+    render(<ConnectedProposalRecord />);
+    expect(await screen.findByRole("link", { name: "ادامه پیش‌نویس" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("edit"),
+    );
+    expect(screen.queryByRole("heading", { name: "تاریخچه نسخه‌ها" })).not.toBeInTheDocument();
+  });
+
+  it("shows saved-version history and the organization's clarification feedback", async () => {
+    testState.get.mockResolvedValue({
+      ok: true,
+      meta,
+      data: {
+        ...serverProposal(),
+        state: "revision_requested",
+        versions: [
+          {
+            id: "prv_test",
+            version_number: 2,
+            locked: true,
+            changed_fields: ["title"],
+            created_at: meta.server_time,
+          },
+        ],
+        clarifications: [
+          {
+            id: "clar_test",
+            state: "resolved",
+            question: "سؤال سازمان",
+            response: "پاسخ حل‌گر",
+            resolution: "بازخورد قابل پیگیری",
+          },
+        ],
+        revision_requests: [
+          {
+            id: "rev_test",
+            scope: "اصلاح دامنه پیشنهادی",
+            state: "requested",
+            revision_deadline: "2030-01-01T00:00:00Z",
+          },
+        ],
+      },
+    });
+    render(<ConnectedProposalRecord />);
+    expect(await screen.findByRole("heading", { name: "تاریخچه نسخه‌ها" })).toBeInTheDocument();
+    expect(screen.getByText("جمع‌بندی سازمان: بازخورد قابل پیگیری")).toBeInTheDocument();
+    expect(screen.getByText("اصلاح دامنه پیشنهادی")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "شروع نسخه اصلاح‌شده" })).toBeInTheDocument();
+  });
 });

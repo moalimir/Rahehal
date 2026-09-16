@@ -1,5 +1,7 @@
 # Delivery Roadmap
 
+**Solver reliability checkpoint (2026-09-16):** the owner's slice 2 is locally implemented and verified within M3/M4: optional team creation/invitation acceptance, latest-edit save-and-submit/resubmit, failed-save preservation, idempotent lost-response recovery, lean authoring and visible feedback/history. See [87_SOLVER_PROPOSAL_RELIABILITY](87_SOLVER_PROPOSAL_RELIABILITY.md). This does not complete roadmap M2 matching or all M3/M4 work.
+
 **M1 implementation checkpoint (2026-09-16):** owner-only direct publication, preserved delegated role policy, immutable re-authoring and accurate public preview are implemented across domain/API/PostgreSQL/connected UI in the working tree. Migration `0022` is additive. [86_M1_OWNER_PUBLICATION](86_M1_OWNER_PUBLICATION.md) owns the current verification and rollout evidence. M2–M4 remain outstanding; historical Phase 2 publisher-only statements below describe their original delivery, not the owner exception.
 
 **Active plan — 2026-09-16:** DEC-2026-018 replaces the former Phase-4-based MVP. Build from Phase 3 commit `3f80192` using [26_LEAN_MVP_SCOPE](26_LEAN_MVP_SCOPE.md): M0 clean baseline/runtime, M1 owner-controlled publication, M2 minimal selection/final match, M3 connected organization/solver completion, M4 acceptance. M1–M4 are not implemented by this documentation update. The older phase tables and dated reviews below remain historical evidence or deferred design; they must not expand the active MVP scope.

@@ -107,6 +107,12 @@ export function ConnectedTeamsExperience() {
     setCreating(new URLSearchParams(window.location.search).get("create") === "1");
   }, []);
 
+  useEffect(() => {
+    if (notice?.tone !== "success") return;
+    const timer = window.setTimeout(() => setNotice(null), 6000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
   if (connected.state.kind !== "ready")
     return <ConnectedFamilyFallback state={connected.state} label="تیم‌ها" />;
 
@@ -143,7 +149,15 @@ export function ConnectedTeamsExperience() {
       // the workspace switcher both read `/me`, so refreshing only the family
       // left the page saying "دعوت پذیرفته شد" above a list that did not
       // contain the team, until a full reload.
-      await runtime.refreshMe();
+      const refreshed = await runtime.refreshMe();
+      if (!refreshed) {
+        setPending(false);
+        setNotice({
+          tone: "error",
+          message: `${success}؛ دریافت فهرست تازه انجام نشد. دوباره ارسال نکنید؛ صفحه را بازخوانی کنید.`,
+        });
+        return true;
+      }
       // Leaving or archiving the active team ends the context you were working
       // in, and the server drops it. Falling through to `/app`'s resolver then
       // asked which workspace to enter -- a question with an obvious answer,
@@ -156,16 +170,17 @@ export function ConnectedTeamsExperience() {
         if (error) {
           setPending(false);
           setNotice({ tone: "error", message: `${success}؛ بازگشت به فضای شخصی انجام نشد.` });
-          return;
+          return true;
         }
       }
       connected.refresh();
       setPending(false);
       setNotice({ tone: "success", message: success });
-      return;
+      return true;
     }
     setPending(false);
     setNotice({ tone: "error", message: result.error.message });
+    return false;
   };
 
   const team = view.team;
@@ -427,7 +442,7 @@ export function ConnectedTeamsExperience() {
             <TeamInviteForm
               disabled={pending}
               onSubmit={(input) =>
-                void run(
+                run(
                   () => gateways!.team.invite({ expectedVersion: team.version, ...input }),
                   "دعوت ارسال شد",
                 )
@@ -999,7 +1014,7 @@ function TeamInviteForm({
     message: string;
     commitment: string;
     ipNotice: string;
-  }) => void;
+  }) => Promise<boolean>;
 }) {
   const [recipientEmail, setRecipientEmail] = useState("");
   const [proposedRole, setProposedRole] = useState<string>(teamRole.contributor);
@@ -1008,9 +1023,9 @@ function TeamInviteForm({
   return (
     <form
       className="rh-card rh-team-invite-form"
-      onSubmit={(event) => {
+      onSubmit={async (event) => {
         event.preventDefault();
-        onSubmit({
+        const sent = await onSubmit({
           recipientEmail,
           proposedRole,
           scope,
@@ -1018,9 +1033,11 @@ function TeamInviteForm({
           commitment: "همکاری در پیشنهادهای این تیم",
           ipNotice: "مالکیت فکری خروجی‌ها تابع قرارداد تیم است.",
         });
-        setRecipientEmail("");
-        setScope("");
-        setMessage("");
+        if (sent) {
+          setRecipientEmail("");
+          setScope("");
+          setMessage("");
+        }
       }}
     >
       <header className="rh-team-invite-form__head">
@@ -1038,6 +1055,7 @@ function TeamInviteForm({
           <span>رایانامه گیرنده</span>
           <input
             type="email"
+            disabled={disabled}
             required
             dir="ltr"
             autoComplete="email"
@@ -1048,7 +1066,11 @@ function TeamInviteForm({
         </label>
         <label className="rh-connected-field">
           <span>نقش پیشنهادی</span>
-          <select value={proposedRole} onChange={(event) => setProposedRole(event.target.value)}>
+          <select
+            disabled={disabled}
+            value={proposedRole}
+            onChange={(event) => setProposedRole(event.target.value)}
+          >
             {nonOwnerRoles.map((value) => (
               <option key={value} value={value}>
                 {TEAM_ROLE_LABELS[value]}
@@ -1061,6 +1083,7 @@ function TeamInviteForm({
           <input
             required
             value={scope}
+            disabled={disabled}
             onChange={(event) => setScope(event.target.value)}
             placeholder="مثلاً تحلیل داده و تدوین بخش فنی پیشنهاد"
           />
@@ -1072,6 +1095,7 @@ function TeamInviteForm({
             required
             rows={3}
             value={message}
+            disabled={disabled}
             onChange={(event) => setMessage(event.target.value)}
             placeholder="هدف همکاری و انتظار تیم را برای مخاطب بنویسید."
           />

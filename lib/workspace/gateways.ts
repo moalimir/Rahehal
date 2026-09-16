@@ -50,11 +50,15 @@ export type WorkspaceScopeResolver = {
   readonly activeWorkspaceId: () => string | null;
 };
 
-function headers(scope: WorkspaceScopeResolver, command?: string): HeadersInit {
+function headers(
+  scope: WorkspaceScopeResolver,
+  command?: string,
+  commandKey?: string,
+): HeadersInit {
   const workspaceId = scope.activeWorkspaceId();
   return {
     ...(workspaceId ? { "x-workspace-id": workspaceId } : {}),
-    ...(command ? { "idempotency-key": idempotencyKey(command) } : {}),
+    ...(command ? { "idempotency-key": commandKey ?? idempotencyKey(command) } : {}),
   };
 }
 
@@ -428,6 +432,7 @@ export type ProposalGateway = {
     input: {
       readonly expectedVersion: number;
       readonly patch: Readonly<Record<string, unknown>>;
+      readonly commandKey?: string;
     },
   ): Promise<GatewayResult<MutationSuccessEnvelope["data"]>>;
   submit(
@@ -435,6 +440,7 @@ export type ProposalGateway = {
     input: {
       readonly expectedVersion: number;
       readonly acceptedChallengeVersionId: string;
+      readonly commandKey?: string;
     },
   ): Promise<GatewayResult<MutationSuccessEnvelope["data"]>>;
   submitClarification(
@@ -455,6 +461,7 @@ export type ProposalGateway = {
       readonly expectedVersion: number;
       readonly revisionRequestId: string;
       readonly acceptedChallengeVersionId: string;
+      readonly commandKey?: string;
     },
   ): Promise<GatewayResult<MutationSuccessEnvelope["data"]>>;
 };
@@ -482,23 +489,23 @@ export function createProposalGateway(scope: WorkspaceScopeResolver): ProposalGa
       });
       return toResult(envelope, (data) => data as MutationSuccessEnvelope["data"]);
     },
-    async patch(proposalId, { expectedVersion, patch }) {
+    async patch(proposalId, { expectedVersion, patch, commandKey }) {
       const envelope = await requestApi<MutationSuccessEnvelope>(
         path(apiRoutes.proposalById, { proposalId }),
         {
           method: "PATCH",
-          headers: headers(scope, "proposal-patch"),
+          headers: headers(scope, "proposal-patch", commandKey),
           body: JSON.stringify({ expected_version: expectedVersion, patch }),
         },
       );
       return toResult(envelope, (data) => data as MutationSuccessEnvelope["data"]);
     },
-    async submit(proposalId, { expectedVersion, acceptedChallengeVersionId }) {
+    async submit(proposalId, { expectedVersion, acceptedChallengeVersionId, commandKey }) {
       const envelope = await requestApi<MutationSuccessEnvelope>(
         path(apiRoutes.submitProposal, { proposalId }),
         {
           method: "POST",
-          headers: headers(scope, "proposal-submit"),
+          headers: headers(scope, "proposal-submit", commandKey),
           body: JSON.stringify({
             expected_version: expectedVersion,
             accepted_challenge_version_id: acceptedChallengeVersionId,
@@ -536,12 +543,15 @@ export function createProposalGateway(scope: WorkspaceScopeResolver): ProposalGa
       );
       return toResult(envelope, (data) => data as MutationSuccessEnvelope["data"]);
     },
-    async resubmit(proposalId, { expectedVersion, revisionRequestId, acceptedChallengeVersionId }) {
+    async resubmit(
+      proposalId,
+      { expectedVersion, revisionRequestId, acceptedChallengeVersionId, commandKey },
+    ) {
       const envelope = await requestApi<MutationSuccessEnvelope>(
         path(apiRoutes.resubmitProposal, { proposalId }),
         {
           method: "POST",
-          headers: headers(scope, "proposal-resubmit"),
+          headers: headers(scope, "proposal-resubmit", commandKey),
           body: JSON.stringify({
             expected_version: expectedVersion,
             revision_request_id: revisionRequestId,
